@@ -27,3 +27,25 @@ fn selected_alsa_adapter_keeps_platform_qualification_partial() {
     assert_eq!(candidate["revision"], "alsa-sys 0.6.1");
     assert_eq!(candidate["qualification"], "partial");
 }
+
+#[test]
+fn core_audio_licenses_are_bound_to_the_published_source_revision() {
+    let (snapshot, _) = inventory::snapshot().unwrap();
+    let mut count = 0;
+    for package in snapshot["packages"].as_array().unwrap() {
+        if package["name"].as_str().unwrap().starts_with("objc2-core-") {
+            count += 1;
+            assert_eq!(package["version"], "0.3.2");
+            assert_eq!(
+                package["license_provenance"]["revision"],
+                "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b"
+            );
+            assert_eq!(
+                package["license_provenance"]["distribution_status"],
+                "requires_apple_sdk_distribution_review"
+            );
+            assert!(!package["license_files"].as_array().unwrap().is_empty());
+        }
+    }
+    assert_eq!(count, 3);
+}

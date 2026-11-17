@@ -1,7 +1,7 @@
 # ABOUTME: Defines the shared engine and offline qualification workspace.
 # ABOUTME: Pins dependencies and keeps native adapters outside the core.
 [workspace]
-members = ["crates/earph-core", "crates/earph-harness", "crates/earph-alsa"]
+members = ["crates/earph-core", "crates/earph-harness", "crates/earph-alsa", "crates/earph-coreaudio"]
 resolver = "3"
 
 [workspace.package]

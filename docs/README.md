@@ -15,6 +15,8 @@ The T01–T03 foundation now has passing Linux virtual-output evidence in `evide
 Other gates remain partial or not run.
 The [T05 ALSA spike](alsa-spike.md) adds Linux output with real plugin tests and silent host negotiation.
 It does not qualify physical playback or complete M0.
+The [T04 Core Audio spike](coreaudio-spike.md) adds native macOS inspection and never-started callback registration.
+Its strict format assessment separates physical and virtual stream constraints.
 
 Start with T01–T03: shared domain/control contracts, exact dependency/license decisions, deterministic fixtures, virtual output and the offline test harness. Then build the M1 local playback slice on macOS and Linux. Implement later subsystems only after their prerequisites and acceptance contracts exist.
 

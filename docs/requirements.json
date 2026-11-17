@@ -4,7 +4,7 @@
   "title": "Rust Audiophile Player \u2014 Product and Engineering Specification",
   "date_local": "2026-11-16",
   "timezone": "America/Chicago",
-  "status": "T01–T03 foundation and T05 ALSA spike implemented; virtual and ALSA plugin output tested; physical playback remains unqualified",
+  "status": "T01–T03 foundation and T04–T05 backend spikes implemented; virtual and ALSA plugin output tested; native macOS inspection tested; physical playback remains unqualified",
   "q25": {
     "selection": "D",
     "option_text": null,
@@ -431,7 +431,8 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "alsa-spike.md"
+        "alsa-spike.md",
+        "coreaudio-spike.md"
       ]
     },
     {

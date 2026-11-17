@@ -38,9 +38,9 @@
     },
     {
       "name": "Core Audio",
-      "qualification": "not_run",
-      "revision": null,
-      "status": "unselected"
+      "qualification": "partial",
+      "revision": "objc2-core-audio 0.3.2",
+      "status": "selected"
     },
     {
       "name": "ALSA",
@@ -75,6 +75,26 @@
       "name": "alsa-sys",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.6.1"
+    },
+    {
+      "features": [
+        "std"
+      ],
+      "license_expression": "MIT OR Apache-2.0",
+      "license_files": [
+        {
+          "name": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb"
+        }
+      ],
+      "manifest_sha256": "562e660adbb084de042fc9ecc5ac7ba32b5f565d53188823bab9159a027b2b44",
+      "name": "bitflags",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.13.2"
     },
     {
       "features": [],
@@ -302,6 +322,109 @@
       "name": "memchr",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "2.8.3"
+    },
+    {
+      "features": [
+        "AudioHardware",
+        "alloc",
+        "objc2-core-audio-types",
+        "std"
+      ],
+      "license_expression": "Zlib OR Apache-2.0 OR MIT",
+      "license_files": [
+        {
+          "name": "LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        }
+      ],
+      "license_provenance": {
+        "distribution_status": "requires_apple_sdk_distribution_review",
+        "license_file": "LICENSE.md",
+        "license_sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+        "packages": [
+          "objc2-core-audio",
+          "objc2-core-audio-types",
+          "objc2-core-foundation"
+        ],
+        "repository": "https://github.com/madsmtm/objc2",
+        "revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+        "schema_version": 1,
+        "source_url": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+        "version": "0.3.2"
+      },
+      "manifest_sha256": "62763a0b5d7e8d78402f464c83c2d31e69138b00ec1e19361f6359d500a4274c",
+      "name": "objc2-core-audio",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.3.2"
+    },
+    {
+      "features": [
+        "CoreAudioBaseTypes",
+        "alloc",
+        "bitflags",
+        "std"
+      ],
+      "license_expression": "Zlib OR Apache-2.0 OR MIT",
+      "license_files": [
+        {
+          "name": "LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        }
+      ],
+      "license_provenance": {
+        "distribution_status": "requires_apple_sdk_distribution_review",
+        "license_file": "LICENSE.md",
+        "license_sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+        "packages": [
+          "objc2-core-audio",
+          "objc2-core-audio-types",
+          "objc2-core-foundation"
+        ],
+        "repository": "https://github.com/madsmtm/objc2",
+        "revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+        "schema_version": 1,
+        "source_url": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+        "version": "0.3.2"
+      },
+      "manifest_sha256": "f26066fe0a9932213e31793ec1b72578746e3ceb07dd667be2595daaf84760e1",
+      "name": "objc2-core-audio-types",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.3.2"
+    },
+    {
+      "features": [
+        "CFDictionary",
+        "CFString",
+        "alloc",
+        "bitflags",
+        "std"
+      ],
+      "license_expression": "Zlib OR Apache-2.0 OR MIT",
+      "license_files": [
+        {
+          "name": "LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        }
+      ],
+      "license_provenance": {
+        "distribution_status": "requires_apple_sdk_distribution_review",
+        "license_file": "LICENSE.md",
+        "license_sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+        "packages": [
+          "objc2-core-audio",
+          "objc2-core-audio-types",
+          "objc2-core-foundation"
+        ],
+        "repository": "https://github.com/madsmtm/objc2",
+        "revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+        "schema_version": 1,
+        "source_url": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+        "version": "0.3.2"
+      },
+      "manifest_sha256": "c0f54260fa1396923f2db4edf1e2d54e8ab09dea214af4b8ce37aaefa7185e60",
+      "name": "objc2-core-foundation",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.3.2"
     },
     {
       "features": [],

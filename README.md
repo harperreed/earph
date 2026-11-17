@@ -9,6 +9,7 @@ The full product contract lives in [the specification](docs/SPEC.md).
 Follow [the foundation plan](docs/superpowers/plans/2026-11-16-foundation.md) for current progress.
 See [the state-machine map](docs/state-machines.md) for state owners, transitions, and recovery actions.
 See [the ALSA spike](docs/alsa-spike.md) for Linux output commands, evidence, and qualification limits.
+See [the Core Audio spike](docs/coreaudio-spike.md) for macOS inspection, precision assessment, and silent registration checks.
 
 Use Rust 1.98.1, selected in `mise.toml`.
 Run `scripts/check` for formatting, lint, tests, traceability, and dependency checks.

@@ -1,0 +1,19 @@
+# ABOUTME: Defines the Core Audio SDK and precision-assessment spike.
+# ABOUTME: Links Apple frameworks only for native macOS diagnostics.
+[package]
+name = "earph-coreaudio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+earph-core = { path = "../earph-core" }
+earph-harness = { path = "../earph-harness" }
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-audio = { version = "=0.3.2", default-features = false, features = ["std", "AudioHardware", "objc2-core-audio-types"] }
+objc2-core-audio-types = { version = "=0.3.2", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFString"] }

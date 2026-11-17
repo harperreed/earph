@@ -126,6 +126,7 @@ The runtime reported Linux x86_64, kernel 7.0.0-38-generic, and ALSA 1.2.15.3.
 The [archived evidence](evidence/alsa/README.md) records these checks from clean commit `ae10b7b`.
 
 Physical playback, unplug, hardware payload capture, server-rate changes, coexistence, and endurance remain unqualified.
-Core Audio remains T04; decoding and ownership remain T06–T07.
+The [Core Audio risk spike](coreaudio-spike.md) now covers T04 inspection and silent registration.
+Decoding and ownership remain T06–T07.
 Volume policy and persistent device evidence remain T08.
 These limits keep AC-21 partial and AC-22/AC-23 unqualified.
