@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "spec": {
+    "seed": 2389,
+    "frames": 1031,
+    "format": {
+      "sample_rate_hz": 48000,
+      "channels": "stereo",
+      "representation": "signed16"
+    },
+    "pattern": "boundary"
+  },
+  "payload_file": "signed16-stereo-48000-boundary.pcm",
+  "payload_bytes": 4124,
+  "payload_sha256": "104978c3fed268ec5a107454b4f74b3c918a643f350c7210a82ec8d1dcf334fe"
+}

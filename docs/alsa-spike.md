@@ -123,6 +123,7 @@ Both installed 48 kHz, stereo, signed 16-bit PCM with 256-frame periods and a 10
 Direct ownership rejected the second subdevice open with `EBUSY`, then reopened after closing.
 These checks submitted zero samples.
 The runtime reported Linux x86_64, kernel 7.0.0-38-generic, and ALSA 1.2.15.3.
+The [archived evidence](evidence/alsa/README.md) records these checks from clean commit `ae10b7b`.
 
 Physical playback, unplug, hardware payload capture, server-rate changes, coexistence, and endurance remain unqualified.
 Core Audio remains T04; decoding and ownership remain T06–T07.

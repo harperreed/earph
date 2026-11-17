@@ -1,0 +1,12 @@
+{
+  "buffer_frames": 256,
+  "device": "capture",
+  "format": {
+    "channels": "mono",
+    "representation": "signed32",
+    "sample_rate_hz": 44100
+  },
+  "period_frames": 64,
+  "route": "system",
+  "schema_version": 1
+}

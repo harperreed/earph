@@ -1,0 +1,12 @@
+{
+  "buffer_frames": 1024,
+  "device": "capture",
+  "format": {
+    "channels": "stereo",
+    "representation": "signed32",
+    "sample_rate_hz": 48000
+  },
+  "period_frames": 256,
+  "route": "system",
+  "schema_version": 1
+}

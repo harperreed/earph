@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "spec": {
+    "seed": 2389,
+    "frames": 1031,
+    "format": {
+      "sample_rate_hz": 48000,
+      "channels": "mono",
+      "representation": "signed24"
+    },
+    "pattern": "impulse"
+  },
+  "payload_file": "signed24-mono-48000-impulse.pcm",
+  "payload_bytes": 3093,
+  "payload_sha256": "d139f17d9b49e7eb936988281d923e2112ae02be8f021fb8e12563ef916ca74e"
+}

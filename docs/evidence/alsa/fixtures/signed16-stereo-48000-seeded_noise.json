@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "spec": {
+    "seed": 2389,
+    "frames": 1031,
+    "format": {
+      "sample_rate_hz": 48000,
+      "channels": "stereo",
+      "representation": "signed16"
+    },
+    "pattern": "seeded_noise"
+  },
+  "payload_file": "signed16-stereo-48000-seeded_noise.pcm",
+  "payload_bytes": 4124,
+  "payload_sha256": "82711d1c3cdca6cd35b8778216a09d80c0bd6164d8b72b4009352a279041542e"
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "spec": {
+    "seed": 2389,
+    "frames": 1031,
+    "format": {
+      "sample_rate_hz": 44100,
+      "channels": "mono",
+      "representation": "signed24"
+    },
+    "pattern": "boundary"
+  },
+  "payload_file": "signed24-mono-44100-boundary.pcm",
+  "payload_bytes": 3093,
+  "payload_sha256": "916aed689ca1403ee4d082c090a0726b36d598865443bed51e6b87b24e581eb6"
+}

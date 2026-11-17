@@ -93,7 +93,7 @@ The existing specification supplies the design; proceed without redundant design
 - [x] Request one independent read-only review of native safety, callers, contracts, and evidence.
 - [x] Resolve material findings with regression tests and rerun affected checks.
 - [x] Inspect the final diff for secrets and private data; verify the configured destination.
-- [ ] Commit the complete implementation and update this plan with exact results and remaining qualification gaps.
+- [x] Commit the complete implementation and update this plan with exact results and remaining qualification gaps.
 
 ## Baseline
 
@@ -101,3 +101,22 @@ The canonical check passes at `5e84f21`: 55 tests plus the compile-fail document
 The host reports Rust 1.98.1 and ALSA 1.2.15.3 development metadata.
 The runtime library version will be recorded separately.
 Raw logs stay under ignored `target/alsa-spike`.
+
+## Outcome
+
+Implementation commit: `ae10b7b`.
+The canonical check passed 74 tests plus one compile-fail documentation test, with no warnings.
+The independent reviewer passed all 19 default ALSA tests and reported no remaining material issue.
+Final direct review fixed one report-validation defect with a demonstrated red-to-green regression.
+
+A fresh clean-build matrix passed all 216 file-plugin captures across 72 fixtures and three block sizes.
+Its [portable archive](../../evidence/alsa/README.md) passed `matrix-check` after copying.
+Fresh direct and PipeWire opening submitted zero samples and closed successfully.
+The separately selected hardware subdevice rejected a second open with `EBUSY` and reopened after close.
+The archived foundation evidence still passed its existing validator.
+
+No physical signal emission was performed.
+Native short acceptance and `EAGAIN` remain unforced test branches.
+Physical playback, unplug, hardware payload capture, endurance, and PipeWire coexistence remain unqualified.
+T04 and the remaining M0 decisions still precede the full local-player integration.
+The task preserves its branch, linked worktree, and ALSA artifacts.

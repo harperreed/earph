@@ -29,5 +29,9 @@ Physical playback, unplug, endurance, hardware payload measurement, and PipeWire
 These are qualification limits, not passing results.
 
 Raw local verification logs remain under ignored `target/alsa-spike`.
-Test fixtures and captures remain under ignored `target/alsa-tests` until archived.
+The [portable archive](evidence/alsa/README.md) retains a fresh matrix and silent checks from clean commit `ae10b7b`.
+The archived matrix passed a fresh read through `matrix-check`.
+The four top-level records passed their checksum check.
+The existing foundation archive still passed `evidence-check`.
+Earlier test fixtures and captures remain under ignored `target/alsa-tests`.
 No source files, branches, or worktrees were removed.
