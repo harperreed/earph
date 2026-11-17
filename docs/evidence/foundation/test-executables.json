@@ -1,0 +1,50 @@
+[
+  {
+    "sha256": "86117fd65e9a767bd72dcae5f93891129ddc63072fb7ecdbbe78860f9c69baaf",
+    "path": "target/debug/deps/earph_core-85b7562c2adee73d"
+  },
+  {
+    "sha256": "0941c43615a3cfc3857b9714b704e93bb2285a28c0a8132c94c00682c263d416",
+    "path": "target/debug/deps/audio_contracts-e2ee60ca7010246d"
+  },
+  {
+    "sha256": "47e0c25f078175ecba4d12b43a09ec12195c0000df25a3a88186207268afbf13",
+    "path": "target/debug/deps/schema_contracts-bf54af123c9403b0"
+  },
+  {
+    "sha256": "0ea697c9f60c26d453ae974570beb35efa0a0c15b347c3661aff53bfdd2e97d0",
+    "path": "target/debug/deps/session_contracts-2db1b84d904c99da"
+  },
+  {
+    "sha256": "9f2d2b1d34819bda7373565dc84d1ba4b5c53e16cef855836abc31a3374f19c7",
+    "path": "target/debug/deps/earph_harness-a20c9aa47f2eb1d7"
+  },
+  {
+    "sha256": "604a15513266e5f78a626d1adbaf8e56e1a80621207ef4029424759027ef8502",
+    "path": "target/debug/deps/earph_harness-2288872e456dfa35"
+  },
+  {
+    "sha256": "6d69ea1d362606e95d5785605547a9bb8d473a03fc256eaeb2cbdbceee08b9c7",
+    "path": "target/debug/deps/catalog-008b13f341de7b91"
+  },
+  {
+    "sha256": "4027964b218c5836bd832f9f5458b49fe3df2db157c81c4ca590bf352c832027",
+    "path": "target/debug/deps/cli-d2d73d8b68ea3b77"
+  },
+  {
+    "sha256": "d47e03cc1942929ce07e612c1bece0240d45a72e63bcb7e974e8a5d04ff1cddc",
+    "path": "target/debug/deps/dependencies-f946adf2217bfa06"
+  },
+  {
+    "sha256": "e20b15ee48b48e520d43a7a53b0ee57973817280064df81873253565def70987",
+    "path": "target/debug/deps/evidence-7d1d0592cdae57e4"
+  },
+  {
+    "sha256": "6480d9a0d5efebe5f459441b2d0a93580d284f9be4ed775d383f6b00de90e4dd",
+    "path": "target/debug/deps/offline-343e83f6a9e3c2d1"
+  },
+  {
+    "sha256": "693f504b07d8052ca1c545f92584157749f7abbe64458c9db697d68b92bf231b",
+    "path": "target/debug/deps/realtime-b3c31304ed295cf4"
+  }
+]

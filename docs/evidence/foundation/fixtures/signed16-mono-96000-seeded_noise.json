@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "spec": {
+    "seed": 2389,
+    "frames": 1031,
+    "format": {
+      "sample_rate_hz": 96000,
+      "channels": "mono",
+      "representation": "signed16"
+    },
+    "pattern": "seeded_noise"
+  },
+  "payload_file": "signed16-mono-96000-seeded_noise.pcm",
+  "payload_bytes": 2062,
+  "payload_sha256": "dda4d0bbd88968e7accf73b43f91a0d692b954c0eedc0678fe60f875060c0216"
+}

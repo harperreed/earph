@@ -1,0 +1,67 @@
+{
+  "decoded_frames": 256,
+  "elapsed_ns": 0,
+  "epochs": {
+    "session": 0,
+    "stream": 0
+  },
+  "error": {
+    "code": "OUTPUT_FAULT",
+    "message": "virtual backend made no progress"
+  },
+  "events": [
+    {
+      "at_frame": 0,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "kind": "prepared"
+      }
+    },
+    {
+      "at_frame": 0,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "fault": {
+          "kind": "zero_progress"
+        },
+        "kind": "fault"
+      }
+    },
+    {
+      "at_frame": 0,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "code": "OUTPUT_FAULT",
+        "kind": "stopped"
+      }
+    }
+  ],
+  "measurement_boundary": "engine_output",
+  "observed_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "output_frames": 0,
+  "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "requested_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "resolved_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "status": "fail"
+}

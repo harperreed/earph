@@ -1,0 +1,130 @@
+{
+  "decoded_frames": 1031,
+  "elapsed_ns": 23378684,
+  "epochs": {
+    "session": 0,
+    "stream": 0
+  },
+  "error": null,
+  "events": [
+    {
+      "at_frame": 0,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "kind": "prepared"
+      }
+    },
+    {
+      "at_frame": 256,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 256,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 512,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 256,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 768,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 256,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 1024,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 256,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 1030,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 6,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 1030,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "fault": {
+          "kind": "short_write",
+          "max_frames": 3
+        },
+        "kind": "fault"
+      }
+    },
+    {
+      "at_frame": 1031,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 1,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 1031,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "kind": "finished"
+      }
+    }
+  ],
+  "measurement_boundary": "engine_output",
+  "observed_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "output_frames": 1031,
+  "payload_sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4",
+  "requested_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "resolved_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "status": "pass"
+}

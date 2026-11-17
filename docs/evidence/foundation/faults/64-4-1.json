@@ -1,0 +1,78 @@
+{
+  "decoded_frames": 256,
+  "elapsed_ns": 1451247,
+  "epochs": {
+    "session": 0,
+    "stream": 0
+  },
+  "error": {
+    "code": "ASSET_INVALID",
+    "message": "invalid audio block"
+  },
+  "events": [
+    {
+      "at_frame": 0,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "kind": "prepared"
+      }
+    },
+    {
+      "at_frame": 64,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 64,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 64,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "fault": {
+          "kind": "malformed_chunk"
+        },
+        "kind": "fault"
+      }
+    },
+    {
+      "at_frame": 64,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "code": "ASSET_INVALID",
+        "kind": "stopped"
+      }
+    }
+  ],
+  "measurement_boundary": "engine_output",
+  "observed_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "output_frames": 64,
+  "payload_sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad",
+  "requested_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "resolved_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "status": "fail"
+}

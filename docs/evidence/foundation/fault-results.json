@@ -1,0 +1,239 @@
+[
+  {
+    "at_frame": 0,
+    "fault": {
+      "kind": "short_write",
+      "max_frames": 3
+    },
+    "first_capture": "faults/0-0-0.pcm",
+    "first_report": "faults/0-0-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/0-0-1.pcm",
+    "second_report": "faults/0-0-1.json",
+    "source_prefix_sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+  },
+  {
+    "at_frame": 0,
+    "fault": {
+      "kind": "zero_progress"
+    },
+    "first_capture": "faults/0-1-0.pcm",
+    "first_report": "faults/0-1-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/0-1-1.pcm",
+    "second_report": "faults/0-1-1.json",
+    "source_prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "at_frame": 0,
+    "fault": {
+      "kind": "underrun"
+    },
+    "first_capture": "faults/0-2-0.pcm",
+    "first_report": "faults/0-2-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/0-2-1.pcm",
+    "second_report": "faults/0-2-1.json",
+    "source_prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "at_frame": 0,
+    "fault": {
+      "kind": "backend_failure"
+    },
+    "first_capture": "faults/0-3-0.pcm",
+    "first_report": "faults/0-3-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/0-3-1.pcm",
+    "second_report": "faults/0-3-1.json",
+    "source_prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "at_frame": 0,
+    "fault": {
+      "kind": "malformed_chunk"
+    },
+    "first_capture": "faults/0-4-0.pcm",
+    "first_report": "faults/0-4-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/0-4-1.pcm",
+    "second_report": "faults/0-4-1.json",
+    "source_prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "at_frame": 0,
+    "fault": {
+      "kind": "stale_epoch"
+    },
+    "first_capture": "faults/0-5-0.pcm",
+    "first_report": "faults/0-5-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/0-5-1.pcm",
+    "second_report": "faults/0-5-1.json",
+    "source_prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "at_frame": 64,
+    "fault": {
+      "kind": "short_write",
+      "max_frames": 3
+    },
+    "first_capture": "faults/64-0-0.pcm",
+    "first_report": "faults/64-0-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/64-0-1.pcm",
+    "second_report": "faults/64-0-1.json",
+    "source_prefix_sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+  },
+  {
+    "at_frame": 64,
+    "fault": {
+      "kind": "zero_progress"
+    },
+    "first_capture": "faults/64-1-0.pcm",
+    "first_report": "faults/64-1-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/64-1-1.pcm",
+    "second_report": "faults/64-1-1.json",
+    "source_prefix_sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+  },
+  {
+    "at_frame": 64,
+    "fault": {
+      "kind": "underrun"
+    },
+    "first_capture": "faults/64-2-0.pcm",
+    "first_report": "faults/64-2-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/64-2-1.pcm",
+    "second_report": "faults/64-2-1.json",
+    "source_prefix_sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+  },
+  {
+    "at_frame": 64,
+    "fault": {
+      "kind": "backend_failure"
+    },
+    "first_capture": "faults/64-3-0.pcm",
+    "first_report": "faults/64-3-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/64-3-1.pcm",
+    "second_report": "faults/64-3-1.json",
+    "source_prefix_sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+  },
+  {
+    "at_frame": 64,
+    "fault": {
+      "kind": "malformed_chunk"
+    },
+    "first_capture": "faults/64-4-0.pcm",
+    "first_report": "faults/64-4-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/64-4-1.pcm",
+    "second_report": "faults/64-4-1.json",
+    "source_prefix_sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+  },
+  {
+    "at_frame": 64,
+    "fault": {
+      "kind": "stale_epoch"
+    },
+    "first_capture": "faults/64-5-0.pcm",
+    "first_report": "faults/64-5-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/64-5-1.pcm",
+    "second_report": "faults/64-5-1.json",
+    "source_prefix_sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+  },
+  {
+    "at_frame": 1030,
+    "fault": {
+      "kind": "short_write",
+      "max_frames": 3
+    },
+    "first_capture": "faults/1030-0-0.pcm",
+    "first_report": "faults/1030-0-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/1030-0-1.pcm",
+    "second_report": "faults/1030-0-1.json",
+    "source_prefix_sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+  },
+  {
+    "at_frame": 1030,
+    "fault": {
+      "kind": "zero_progress"
+    },
+    "first_capture": "faults/1030-1-0.pcm",
+    "first_report": "faults/1030-1-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/1030-1-1.pcm",
+    "second_report": "faults/1030-1-1.json",
+    "source_prefix_sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+  },
+  {
+    "at_frame": 1030,
+    "fault": {
+      "kind": "underrun"
+    },
+    "first_capture": "faults/1030-2-0.pcm",
+    "first_report": "faults/1030-2-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/1030-2-1.pcm",
+    "second_report": "faults/1030-2-1.json",
+    "source_prefix_sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+  },
+  {
+    "at_frame": 1030,
+    "fault": {
+      "kind": "backend_failure"
+    },
+    "first_capture": "faults/1030-3-0.pcm",
+    "first_report": "faults/1030-3-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/1030-3-1.pcm",
+    "second_report": "faults/1030-3-1.json",
+    "source_prefix_sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+  },
+  {
+    "at_frame": 1030,
+    "fault": {
+      "kind": "malformed_chunk"
+    },
+    "first_capture": "faults/1030-4-0.pcm",
+    "first_report": "faults/1030-4-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/1030-4-1.pcm",
+    "second_report": "faults/1030-4-1.json",
+    "source_prefix_sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+  },
+  {
+    "at_frame": 1030,
+    "fault": {
+      "kind": "stale_epoch"
+    },
+    "first_capture": "faults/1030-5-0.pcm",
+    "first_report": "faults/1030-5-0.json",
+    "pass": true,
+    "repeatable": true,
+    "second_capture": "faults/1030-5-1.pcm",
+    "second_report": "faults/1030-5-1.json",
+    "source_prefix_sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+  }
+]

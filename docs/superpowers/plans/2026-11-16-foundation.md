@@ -214,7 +214,7 @@ Do not install decoder, DSP, GUI, network, or hardware libraries solely to fill 
 - [x] Run the new tests red. Implement qualification and write evidence only after collecting actual results. Use temporary files plus rename for final reports. Redact private absolute paths and avoid device serials. Never promote a partial scenario or virtual result into hardware evidence.
 - [x] Run `scripts/check`, then `cargo run --locked -p earph-harness -- qualify --output target/evidence/foundation`. Validate the emitted evidence with a fresh read. Check `cargo tree` and inventory agreement. Record the source commit and dirty state accurately; evidence commits naturally follow the source commit they describe.
 - [x] Request one independent read-only review of the actual diff, public contracts, safety model, callers, and test evidence. Use the session's main model. Fix or rebut material findings. Run failed checks after fixes. Perform the final direct sanity review and secret scan.
-- [ ] Copy only portable, validated reports to `docs/evidence/foundation/`. Link scoped evidence from the catalog. Update its summary status to reflect actual progress. Keep AC-01, AC-07, and REL-02 partial. Keep all untested hardware/protocol/UI requirements not run. Update this checklist and README. Commit with `feat: qualify the offline foundation with traceable evidence`.
+- [x] Copy only portable, validated reports to `docs/evidence/foundation/`. Link scoped evidence from the catalog. Update its summary status to reflect actual progress. Keep AC-01, AC-07, and REL-02 partial. Keep all untested hardware/protocol/UI requirements not run. Update this checklist and README. Commit with `feat: qualify the offline foundation with traceable evidence`.
 
 ## Following plans
 

@@ -1,0 +1,137 @@
+   Compiling earph-harness v0.1.0 (<repo>/crates/earph-harness)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.36s
+   Compiling earph-harness v0.1.0 (<repo>/crates/earph-harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.64s
+     Running unittests src/lib.rs (target/debug/deps/earph_core-85b7562c2adee73d)
+
+running 2 tests
+test audio::tests::stereo_byte_counts_reject_overflow ... ok
+test session::tests::exhausted_revisions_do_not_partially_change_mute ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/audio_contracts.rs (target/debug/deps/audio_contracts-e2ee60ca7010246d)
+
+running 4 tests
+test identifiers_and_epoch_overflow_are_checked ... ok
+test malformed_blocks_and_formats_fail_before_consumption ... ok
+test reusable_storage_honors_capacity_and_budget ... ok
+test integer_payloads_keep_sign_extrema_and_low_bits ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/schema_contracts.rs (target/debug/deps/schema_contracts-bf54af123c9403b0)
+
+running 2 tests
+test supported_wire_command_round_trips_without_changing_meaning ... ok
+test unsupported_versions_fields_and_methods_fail ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/session_contracts.rs (target/debug/deps/session_contracts-2db1b84d904c99da)
+
+running 9 tests
+test output_faults_cancellation_and_replacement_invalidate_pending_work ... ok
+test output_progress_does_not_invalidate_a_transport_revision ... ok
+test output_position_pause_seek_and_drain_follow_real_consumption ... ok
+test stale_session_cannot_unmute_and_queries_return_actual_state ... ok
+test repeated_seeks_preserve_paused_intent_until_activation ... ok
+test takeover_is_explicit_and_stale_commands_cannot_mutate_new_owner ... ok
+test retries_stale_revisions_and_request_id_conflicts_are_atomic ... ok
+test startup_is_muted_and_acceptance_is_not_application ... ok
+test slow_consumers_get_a_gap_and_receipt_retention_is_bounded ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/earph_harness-a20c9aa47f2eb1d7)
+
+running 3 tests
+test fixture::tests::splitmix64_matches_independent_unsigned_vectors ... ok
+test virtual_output::tests::clock_overflow_preserves_previous_position ... ok
+test tests::hash_matches_published_sha256_vector ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/earph_harness-2288872e456dfa35)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/catalog.rs (target/debug/deps/catalog-008b13f341de7b91)
+
+running 4 tests
+test malformed_and_oversized_catalogs_fail ... ok
+test supplied_catalog_has_complete_traceability ... ok
+test lost_decisions_and_asymmetric_links_fail ... ok
+test broken_links_cycles_ids_and_statuses_fail ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/cli.rs (target/debug/deps/cli-d2d73d8b68ea3b77)
+
+running 7 tests
+test invalid_command_and_missing_input_fail_with_json ... ok
+test catalog_command_checks_real_document ... ok
+test renderer_consumes_real_payload_and_keeps_capture_on_backend_failure ... ok
+test renderer_rejects_corrupt_payloads_and_path_escape_before_capture ... ok
+test fixture_files_and_manifests_are_repeatable_and_never_overwritten ... ok
+test binary_provenance_survives_an_unavailable_execution_checkout ... ok
+test qualification_command_writes_recheckable_evidence ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.08s
+
+     Running tests/dependencies.rs (target/debug/deps/dependencies-f946adf2217bfa06)
+
+running 1 test
+test changed_dependency_features_or_license_hashes_are_rejected ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/evidence.rs (target/debug/deps/evidence-7d1d0592cdae57e4)
+
+running 4 tests
+test failed_output_creation_preserves_existing_file ... ok
+test failed_matrix_cannot_be_relabelled_as_passing_evidence ... ok
+test repeatable_fault_captures_must_match_the_actual_source_prefix ... ok
+test real_qualification_can_be_verified_after_fresh_read ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.21s
+
+     Running tests/offline.rs (target/debug/deps/offline-343e83f6a9e3c2d1)
+
+running 9 tests
+test source_rejects_invalid_dimensions_and_accepts_empty_eof ... ok
+test fixture_patterns_match_independent_vectors ... ok
+test stale_blocks_after_seek_or_takeover_never_reach_virtual_capture ... ok
+test preparation_rejects_invalid_schedules_and_resource_overflow ... ok
+test virtual_clock_has_no_partition_rounding_drift ... ok
+test faults_at_precise_frames_are_repeatable_and_keep_partial_capture ... ok
+test generation_is_independent_of_block_partitioning ... ok
+test virtual_render_preserves_every_integer_frame_across_block_sizes ... ok
+test fixture_loading_admits_raw_and_typed_buffers_together ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/realtime.rs (target/debug/deps/realtime-b3c31304ed295cf4)
+
+running 1 test
+test prepared_processing_allocates_and_frees_nothing_even_on_faults ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests earph_core
+
+running 1 test
+test crates/earph-core/src/audio.rs - audio::DsdBlock (line 395) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+   Doc-tests earph_harness
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+{"deferred":10,"requirements":69,"scenarios":50}
+{"status":"pass"}

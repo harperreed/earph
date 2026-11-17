@@ -1,0 +1,1251 @@
+{
+  "acceptance_ids": [
+    "AC-06"
+  ],
+  "artifacts": [
+    {
+      "bytes": 7070,
+      "path": "fault-results.json",
+      "sha256": "35d8a074e2a90c4c45c465f0f2bc824928beaf6cf82eaf1fe7074a992144357f"
+    },
+    {
+      "bytes": 62610,
+      "path": "faults/0-0-0.json",
+      "sha256": "20a60b5c920eb8ab661d288d790638c2ba9055a778c444e700f66c4a5da63790"
+    },
+    {
+      "bytes": 2062,
+      "path": "faults/0-0-0.pcm",
+      "sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "bytes": 62610,
+      "path": "faults/0-0-1.json",
+      "sha256": "20a60b5c920eb8ab661d288d790638c2ba9055a778c444e700f66c4a5da63790"
+    },
+    {
+      "bytes": 2062,
+      "path": "faults/0-0-1.pcm",
+      "sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "bytes": 1286,
+      "path": "faults/0-1-0.json",
+      "sha256": "1865006a00ebc37d1b3125740039490db164ccd70943119505df8e83f62063ed"
+    },
+    {
+      "bytes": 0,
+      "path": "faults/0-1-0.pcm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 1286,
+      "path": "faults/0-1-1.json",
+      "sha256": "1865006a00ebc37d1b3125740039490db164ccd70943119505df8e83f62063ed"
+    },
+    {
+      "bytes": 0,
+      "path": "faults/0-1-1.pcm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 1271,
+      "path": "faults/0-2-0.json",
+      "sha256": "ff6076388d43a5a9b01cab38ee5696659d07338a24ebe45ac0d6f7a9b5b13866"
+    },
+    {
+      "bytes": 0,
+      "path": "faults/0-2-0.pcm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 1271,
+      "path": "faults/0-2-1.json",
+      "sha256": "ff6076388d43a5a9b01cab38ee5696659d07338a24ebe45ac0d6f7a9b5b13866"
+    },
+    {
+      "bytes": 0,
+      "path": "faults/0-2-1.pcm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 1278,
+      "path": "faults/0-3-0.json",
+      "sha256": "4405f37630912ccc70f33b2fd0aeb32f82864b02eae17afd3c7155619d2507f8"
+    },
+    {
+      "bytes": 0,
+      "path": "faults/0-3-0.pcm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 1278,
+      "path": "faults/0-3-1.json",
+      "sha256": "4405f37630912ccc70f33b2fd0aeb32f82864b02eae17afd3c7155619d2507f8"
+    },
+    {
+      "bytes": 0,
+      "path": "faults/0-3-1.pcm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 1277,
+      "path": "faults/0-4-0.json",
+      "sha256": "0c71764d1642667b57b8ccd3833056d61dce3918bf6b8664d80e4139ab698265"
+    },
+    {
+      "bytes": 0,
+      "path": "faults/0-4-0.pcm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 1277,
+      "path": "faults/0-4-1.json",
+      "sha256": "0c71764d1642667b57b8ccd3833056d61dce3918bf6b8664d80e4139ab698265"
+    },
+    {
+      "bytes": 0,
+      "path": "faults/0-4-1.pcm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 1271,
+      "path": "faults/0-5-0.json",
+      "sha256": "79ef814e531598582b843284ba0913a334c8f9d9f81ff52f07492eb26fb03ae5"
+    },
+    {
+      "bytes": 0,
+      "path": "faults/0-5-0.pcm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 1271,
+      "path": "faults/0-5-1.json",
+      "sha256": "79ef814e531598582b843284ba0913a334c8f9d9f81ff52f07492eb26fb03ae5"
+    },
+    {
+      "bytes": 0,
+      "path": "faults/0-5-1.pcm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 2291,
+      "path": "faults/1030-0-0.json",
+      "sha256": "bd7e327223196b9a90c37ad31d963b8cb2a4cd5b220308c184d8b333f3787132"
+    },
+    {
+      "bytes": 2062,
+      "path": "faults/1030-0-0.pcm",
+      "sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "bytes": 2291,
+      "path": "faults/1030-0-1.json",
+      "sha256": "bd7e327223196b9a90c37ad31d963b8cb2a4cd5b220308c184d8b333f3787132"
+    },
+    {
+      "bytes": 2062,
+      "path": "faults/1030-0-1.pcm",
+      "sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "bytes": 2198,
+      "path": "faults/1030-1-0.json",
+      "sha256": "248e9dab8b0afb6080d8d7bb9fd25d0da48fc8f55fd70e45d27850937c3d3b11"
+    },
+    {
+      "bytes": 2060,
+      "path": "faults/1030-1-0.pcm",
+      "sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+    },
+    {
+      "bytes": 2198,
+      "path": "faults/1030-1-1.json",
+      "sha256": "248e9dab8b0afb6080d8d7bb9fd25d0da48fc8f55fd70e45d27850937c3d3b11"
+    },
+    {
+      "bytes": 2060,
+      "path": "faults/1030-1-1.pcm",
+      "sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+    },
+    {
+      "bytes": 2183,
+      "path": "faults/1030-2-0.json",
+      "sha256": "8f4a877812ac88bf9ac2695eafc01ea496212be44d5a8d9a9509b68043015b11"
+    },
+    {
+      "bytes": 2060,
+      "path": "faults/1030-2-0.pcm",
+      "sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+    },
+    {
+      "bytes": 2183,
+      "path": "faults/1030-2-1.json",
+      "sha256": "8f4a877812ac88bf9ac2695eafc01ea496212be44d5a8d9a9509b68043015b11"
+    },
+    {
+      "bytes": 2060,
+      "path": "faults/1030-2-1.pcm",
+      "sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+    },
+    {
+      "bytes": 2190,
+      "path": "faults/1030-3-0.json",
+      "sha256": "093ab563e9cd9694deeaade87ccd843e3ccb5ecc493a8cc4e5ae632f94777ff5"
+    },
+    {
+      "bytes": 2060,
+      "path": "faults/1030-3-0.pcm",
+      "sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+    },
+    {
+      "bytes": 2190,
+      "path": "faults/1030-3-1.json",
+      "sha256": "093ab563e9cd9694deeaade87ccd843e3ccb5ecc493a8cc4e5ae632f94777ff5"
+    },
+    {
+      "bytes": 2060,
+      "path": "faults/1030-3-1.pcm",
+      "sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+    },
+    {
+      "bytes": 2189,
+      "path": "faults/1030-4-0.json",
+      "sha256": "35c96b74164989169a1d2a9a6ca0a63360b64efbf1be86756592d76b9f5478cb"
+    },
+    {
+      "bytes": 2060,
+      "path": "faults/1030-4-0.pcm",
+      "sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+    },
+    {
+      "bytes": 2189,
+      "path": "faults/1030-4-1.json",
+      "sha256": "35c96b74164989169a1d2a9a6ca0a63360b64efbf1be86756592d76b9f5478cb"
+    },
+    {
+      "bytes": 2060,
+      "path": "faults/1030-4-1.pcm",
+      "sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+    },
+    {
+      "bytes": 2183,
+      "path": "faults/1030-5-0.json",
+      "sha256": "163a48075b0872cfe9d83685dec8f0c9ff29b521ad18bb912ae4f679dbdf08db"
+    },
+    {
+      "bytes": 2060,
+      "path": "faults/1030-5-0.pcm",
+      "sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+    },
+    {
+      "bytes": 2183,
+      "path": "faults/1030-5-1.json",
+      "sha256": "163a48075b0872cfe9d83685dec8f0c9ff29b521ad18bb912ae4f679dbdf08db"
+    },
+    {
+      "bytes": 2060,
+      "path": "faults/1030-5-1.pcm",
+      "sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d"
+    },
+    {
+      "bytes": 58919,
+      "path": "faults/64-0-0.json",
+      "sha256": "e8a4ffb1895dc0b8ab0776e89c72d75b8785346b6fc37d19d32e46f66c2214f8"
+    },
+    {
+      "bytes": 2062,
+      "path": "faults/64-0-0.pcm",
+      "sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "bytes": 58919,
+      "path": "faults/64-0-1.json",
+      "sha256": "e8a4ffb1895dc0b8ab0776e89c72d75b8785346b6fc37d19d32e46f66c2214f8"
+    },
+    {
+      "bytes": 2062,
+      "path": "faults/64-0-1.pcm",
+      "sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "bytes": 1472,
+      "path": "faults/64-1-0.json",
+      "sha256": "2d3b646ab23d0d69bb0f560f0cfeb3201bc382cd5af5e0e3d24226ab6aeb5252"
+    },
+    {
+      "bytes": 128,
+      "path": "faults/64-1-0.pcm",
+      "sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+    },
+    {
+      "bytes": 1472,
+      "path": "faults/64-1-1.json",
+      "sha256": "2d3b646ab23d0d69bb0f560f0cfeb3201bc382cd5af5e0e3d24226ab6aeb5252"
+    },
+    {
+      "bytes": 128,
+      "path": "faults/64-1-1.pcm",
+      "sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+    },
+    {
+      "bytes": 1457,
+      "path": "faults/64-2-0.json",
+      "sha256": "4674ccecd66799dfd9b2b0fc3d9278e98aba47b947f650767bfa7ea508dfbc1a"
+    },
+    {
+      "bytes": 128,
+      "path": "faults/64-2-0.pcm",
+      "sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+    },
+    {
+      "bytes": 1457,
+      "path": "faults/64-2-1.json",
+      "sha256": "4674ccecd66799dfd9b2b0fc3d9278e98aba47b947f650767bfa7ea508dfbc1a"
+    },
+    {
+      "bytes": 128,
+      "path": "faults/64-2-1.pcm",
+      "sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+    },
+    {
+      "bytes": 1464,
+      "path": "faults/64-3-0.json",
+      "sha256": "3231f30453c33d364cbab764f68d5a3b961ad0fa348f8023895b0441bdf03da3"
+    },
+    {
+      "bytes": 128,
+      "path": "faults/64-3-0.pcm",
+      "sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+    },
+    {
+      "bytes": 1464,
+      "path": "faults/64-3-1.json",
+      "sha256": "3231f30453c33d364cbab764f68d5a3b961ad0fa348f8023895b0441bdf03da3"
+    },
+    {
+      "bytes": 128,
+      "path": "faults/64-3-1.pcm",
+      "sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+    },
+    {
+      "bytes": 1463,
+      "path": "faults/64-4-0.json",
+      "sha256": "ede7fdd0aebe70799441a1933978b49322f109400bd1168f145180ce6c475a9a"
+    },
+    {
+      "bytes": 128,
+      "path": "faults/64-4-0.pcm",
+      "sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+    },
+    {
+      "bytes": 1463,
+      "path": "faults/64-4-1.json",
+      "sha256": "ede7fdd0aebe70799441a1933978b49322f109400bd1168f145180ce6c475a9a"
+    },
+    {
+      "bytes": 128,
+      "path": "faults/64-4-1.pcm",
+      "sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+    },
+    {
+      "bytes": 1457,
+      "path": "faults/64-5-0.json",
+      "sha256": "70f46393e11435479d4d43a972cc4ac020cfe373d97c7683b09630eead094d35"
+    },
+    {
+      "bytes": 128,
+      "path": "faults/64-5-0.pcm",
+      "sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+    },
+    {
+      "bytes": 1457,
+      "path": "faults/64-5-1.json",
+      "sha256": "70f46393e11435479d4d43a972cc4ac020cfe373d97c7683b09630eead094d35"
+    },
+    {
+      "bytes": 128,
+      "path": "faults/64-5-1.pcm",
+      "sha256": "83f0479cc456aa46ea383d3c32e4ec072bf57f34db8fa04a33699d64df2e3cad"
+    },
+    {
+      "bytes": 32949,
+      "path": "fixtures/manifest.json",
+      "sha256": "2806e22f4b1ea5a40b86a78b873e2a4ab29fc965024648859404aa97c8987168"
+    },
+    {
+      "bytes": 65,
+      "path": "fixtures/manifest.sha256",
+      "sha256": "4dc393abb2f5b2aaec9d15ed702da0450bb7f38cfaf383e884ab9d4b32480641"
+    },
+    {
+      "bytes": 388,
+      "path": "fixtures/signed16-mono-44100-boundary.json",
+      "sha256": "0cce20a3ad353910d654eb90dd16b8b73dde816e5cbd6527d4b0cdb6b0cc0ea5"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-44100-boundary.pcm",
+      "sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed16-mono-44100-impulse.json",
+      "sha256": "e2bb8c382ed5ad75df7b5ef30e6efd473a5c8eaac5245644325ccedb5bd03734"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-44100-impulse.pcm",
+      "sha256": "2d6cfca67b7ce2e6fb168c212b28ef1c374540976961a8d795a1941570191f81"
+    },
+    {
+      "bytes": 396,
+      "path": "fixtures/signed16-mono-44100-seeded_noise.json",
+      "sha256": "62fecbb4d0fa7ad1ee7cf6b6fbf480e7d8ea7351ae428d5743a66d2797a69341"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-44100-seeded_noise.pcm",
+      "sha256": "dda4d0bbd88968e7accf73b43f91a0d692b954c0eedc0678fe60f875060c0216"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed16-mono-44100-silence.json",
+      "sha256": "3ff74581fb586772fb9ecd5403600b1336ef7f0a89a71c18753081b2efdfd5f7"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-44100-silence.pcm",
+      "sha256": "ae35733ac6d2081fb8dab80a6901f2d1625cb5c33974f40d54d7f8960a2b6306"
+    },
+    {
+      "bytes": 388,
+      "path": "fixtures/signed16-mono-48000-boundary.json",
+      "sha256": "48d0e0a9a6cad46af26e5e0e0a89de0449d88327b5289e91ae5559af6b6ec233"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-48000-boundary.pcm",
+      "sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed16-mono-48000-impulse.json",
+      "sha256": "f704dcaaf3ed6fe60f8d1810fe43e95f79087064bb0055f320d3d741192ea6c9"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-48000-impulse.pcm",
+      "sha256": "2d6cfca67b7ce2e6fb168c212b28ef1c374540976961a8d795a1941570191f81"
+    },
+    {
+      "bytes": 396,
+      "path": "fixtures/signed16-mono-48000-seeded_noise.json",
+      "sha256": "11af3cd63507981a219d2d98483a4b53545645412c66ec730db1dfa130966ac3"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-48000-seeded_noise.pcm",
+      "sha256": "dda4d0bbd88968e7accf73b43f91a0d692b954c0eedc0678fe60f875060c0216"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed16-mono-48000-silence.json",
+      "sha256": "9049232bc64552989a9028f71f1e8209877fa81e86595c2a02b6404d5033c539"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-48000-silence.pcm",
+      "sha256": "ae35733ac6d2081fb8dab80a6901f2d1625cb5c33974f40d54d7f8960a2b6306"
+    },
+    {
+      "bytes": 388,
+      "path": "fixtures/signed16-mono-96000-boundary.json",
+      "sha256": "78009d79d856896419338f23b8e695e111ff973cd13cdedb151d1ba6237f0532"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-96000-boundary.pcm",
+      "sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed16-mono-96000-impulse.json",
+      "sha256": "9b838b027cd88e41acf9e64cb04f4316b69f7ac9a97bdaf34c69bceb07870c85"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-96000-impulse.pcm",
+      "sha256": "2d6cfca67b7ce2e6fb168c212b28ef1c374540976961a8d795a1941570191f81"
+    },
+    {
+      "bytes": 396,
+      "path": "fixtures/signed16-mono-96000-seeded_noise.json",
+      "sha256": "d0f11b2fe9cd48799b4747983545b79ec15030e994bd71dd8580d43effb781d8"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-96000-seeded_noise.pcm",
+      "sha256": "dda4d0bbd88968e7accf73b43f91a0d692b954c0eedc0678fe60f875060c0216"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed16-mono-96000-silence.json",
+      "sha256": "e7cc0dc8ffda4b4c5f82397bf9d3997976ea70b961d3035b697533a74abdbe3d"
+    },
+    {
+      "bytes": 2062,
+      "path": "fixtures/signed16-mono-96000-silence.pcm",
+      "sha256": "ae35733ac6d2081fb8dab80a6901f2d1625cb5c33974f40d54d7f8960a2b6306"
+    },
+    {
+      "bytes": 392,
+      "path": "fixtures/signed16-stereo-44100-boundary.json",
+      "sha256": "d301e24001069510815fa755d5a5ae6270a0e8eb239352c546553cf0d2be5b23"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-44100-boundary.pcm",
+      "sha256": "104978c3fed268ec5a107454b4f74b3c918a643f350c7210a82ec8d1dcf334fe"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed16-stereo-44100-impulse.json",
+      "sha256": "bcfea2ec7613bbecad681ce4362e3db620e485037d62963dc1016210b7943254"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-44100-impulse.pcm",
+      "sha256": "d5c19eb44fab0b9cde39f786ce006bfd8db73fc9d1443136442a88a416f953ee"
+    },
+    {
+      "bytes": 400,
+      "path": "fixtures/signed16-stereo-44100-seeded_noise.json",
+      "sha256": "026918a54d98d62212e80d9720ce692fb595ab89d9c2e2d993571711f850386e"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-44100-seeded_noise.pcm",
+      "sha256": "82711d1c3cdca6cd35b8778216a09d80c0bd6164d8b72b4009352a279041542e"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed16-stereo-44100-silence.json",
+      "sha256": "7bc6000e887008268f551bfc6fd528cd6c7697b43e354feda43a40ad6f71b309"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-44100-silence.pcm",
+      "sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "bytes": 392,
+      "path": "fixtures/signed16-stereo-48000-boundary.json",
+      "sha256": "2398568053a3d0f2ad4462c66d428bbc594b1e645b60162f05fe7320cd29aa34"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-48000-boundary.pcm",
+      "sha256": "104978c3fed268ec5a107454b4f74b3c918a643f350c7210a82ec8d1dcf334fe"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed16-stereo-48000-impulse.json",
+      "sha256": "765a63d9c676be89c24a340891c41d4d8e39d075c5130aabde373b7b24b363c3"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-48000-impulse.pcm",
+      "sha256": "d5c19eb44fab0b9cde39f786ce006bfd8db73fc9d1443136442a88a416f953ee"
+    },
+    {
+      "bytes": 400,
+      "path": "fixtures/signed16-stereo-48000-seeded_noise.json",
+      "sha256": "793106cca68af6a1955741078b046cc960f785b08e0220c4c0cfa0cd253a983d"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-48000-seeded_noise.pcm",
+      "sha256": "82711d1c3cdca6cd35b8778216a09d80c0bd6164d8b72b4009352a279041542e"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed16-stereo-48000-silence.json",
+      "sha256": "d5d531070f1a2156b87edf1a1348d50340945715392a45256088315ffc54aec0"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-48000-silence.pcm",
+      "sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "bytes": 392,
+      "path": "fixtures/signed16-stereo-96000-boundary.json",
+      "sha256": "e518a6d44cc8b92c7b0c7774778ed5823d7298b69360552dc96f4a76a147a032"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-96000-boundary.pcm",
+      "sha256": "104978c3fed268ec5a107454b4f74b3c918a643f350c7210a82ec8d1dcf334fe"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed16-stereo-96000-impulse.json",
+      "sha256": "b88a2f23779c0bfed7e6edd960315d92a61fd955a2eb42d00d9aad9c4315a4c8"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-96000-impulse.pcm",
+      "sha256": "d5c19eb44fab0b9cde39f786ce006bfd8db73fc9d1443136442a88a416f953ee"
+    },
+    {
+      "bytes": 400,
+      "path": "fixtures/signed16-stereo-96000-seeded_noise.json",
+      "sha256": "c11c8a62ce27690f77c5667f9e6fb90363e75b496b84753c380fb603588b37bd"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-96000-seeded_noise.pcm",
+      "sha256": "82711d1c3cdca6cd35b8778216a09d80c0bd6164d8b72b4009352a279041542e"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed16-stereo-96000-silence.json",
+      "sha256": "a7747dd44e6422bc2f255f5768c76500170797caadcf9fd709f71b8306d7d7e8"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed16-stereo-96000-silence.pcm",
+      "sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "bytes": 388,
+      "path": "fixtures/signed24-mono-44100-boundary.json",
+      "sha256": "5480ac6470b19c87dc861d579af122d09f87795a807885cbb888b0f88c864baa"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-44100-boundary.pcm",
+      "sha256": "916aed689ca1403ee4d082c090a0726b36d598865443bed51e6b87b24e581eb6"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed24-mono-44100-impulse.json",
+      "sha256": "47c8abf6dfd63aab61d21bd8daab56cbebe52377c5507b4b9ed1a14318f1d142"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-44100-impulse.pcm",
+      "sha256": "d139f17d9b49e7eb936988281d923e2112ae02be8f021fb8e12563ef916ca74e"
+    },
+    {
+      "bytes": 396,
+      "path": "fixtures/signed24-mono-44100-seeded_noise.json",
+      "sha256": "4d5d56da5c15fc744eb2bdf11e25f2bf831d6746d24e5c96cf8fb0f0402dbb8c"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-44100-seeded_noise.pcm",
+      "sha256": "dc7ddd5a00d400f6c059afe91e2b86f386e86b7597a7152729f0ef72910bc826"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed24-mono-44100-silence.json",
+      "sha256": "e10296bffc6da152244677453e8e6e1233d62fa336c2f5684522cf7664dd7384"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-44100-silence.pcm",
+      "sha256": "d928ec82dfb1ca1ff86315d5047d026b8886caf78241844f215bd089b937ed69"
+    },
+    {
+      "bytes": 388,
+      "path": "fixtures/signed24-mono-48000-boundary.json",
+      "sha256": "05ec2b98c7cf4b5015125b17c00605d788f3edec8e11490a548badd6003c9195"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-48000-boundary.pcm",
+      "sha256": "916aed689ca1403ee4d082c090a0726b36d598865443bed51e6b87b24e581eb6"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed24-mono-48000-impulse.json",
+      "sha256": "49d5dfba91410e6e6cc5279a172c5b03dd83091fe3019a654158cd9debaa610c"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-48000-impulse.pcm",
+      "sha256": "d139f17d9b49e7eb936988281d923e2112ae02be8f021fb8e12563ef916ca74e"
+    },
+    {
+      "bytes": 396,
+      "path": "fixtures/signed24-mono-48000-seeded_noise.json",
+      "sha256": "040a2becd3e7b9e92467cf83665e99c8c93b500c60db164c66a986328cc54fc4"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-48000-seeded_noise.pcm",
+      "sha256": "dc7ddd5a00d400f6c059afe91e2b86f386e86b7597a7152729f0ef72910bc826"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed24-mono-48000-silence.json",
+      "sha256": "d14c0f03e7955f9e788863cf86144b457e60478a2409c24c4740cf82dc195486"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-48000-silence.pcm",
+      "sha256": "d928ec82dfb1ca1ff86315d5047d026b8886caf78241844f215bd089b937ed69"
+    },
+    {
+      "bytes": 388,
+      "path": "fixtures/signed24-mono-96000-boundary.json",
+      "sha256": "165fa31a605263eadfac3aca4faae7624db9523412f8a4aa331745bddc5d0a95"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-96000-boundary.pcm",
+      "sha256": "916aed689ca1403ee4d082c090a0726b36d598865443bed51e6b87b24e581eb6"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed24-mono-96000-impulse.json",
+      "sha256": "29dd6c0c1aa77428a571b8e811adc94fede5c2f1d40e7295efb1ee8d3868f7a7"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-96000-impulse.pcm",
+      "sha256": "d139f17d9b49e7eb936988281d923e2112ae02be8f021fb8e12563ef916ca74e"
+    },
+    {
+      "bytes": 396,
+      "path": "fixtures/signed24-mono-96000-seeded_noise.json",
+      "sha256": "3cbe263c76fce7fce884ebb78d8f38ca1f7a0706b36b3dacd066c7473ea4869d"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-96000-seeded_noise.pcm",
+      "sha256": "dc7ddd5a00d400f6c059afe91e2b86f386e86b7597a7152729f0ef72910bc826"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed24-mono-96000-silence.json",
+      "sha256": "bd7bcbf50b99e63c1196b0b2a8da7be6521a01981b7ac9debb319c8d363011f0"
+    },
+    {
+      "bytes": 3093,
+      "path": "fixtures/signed24-mono-96000-silence.pcm",
+      "sha256": "d928ec82dfb1ca1ff86315d5047d026b8886caf78241844f215bd089b937ed69"
+    },
+    {
+      "bytes": 392,
+      "path": "fixtures/signed24-stereo-44100-boundary.json",
+      "sha256": "134579936468470d2800f659dddc29d20c2ad2c35d39a2ce48abf223f3acc686"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-44100-boundary.pcm",
+      "sha256": "8fb9411a3e38c7ac37b50a3b196d7f105a34ff2e38ef730d4ea58c9e484733d6"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed24-stereo-44100-impulse.json",
+      "sha256": "952aa823890dcc01df24b7723857c573b59f936a5eed89223c51ee02921b1580"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-44100-impulse.pcm",
+      "sha256": "b2f1314a914d762289f3384df235a6ba704cf6d97605950583055688a20448a2"
+    },
+    {
+      "bytes": 400,
+      "path": "fixtures/signed24-stereo-44100-seeded_noise.json",
+      "sha256": "3ce1bad729def94ac9f3028672d809754589ce3604be4be50b0152c1c17f689f"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-44100-seeded_noise.pcm",
+      "sha256": "638533649938d3516c214aca6b32944eba1c0b0860317aef784723e6a3258871"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed24-stereo-44100-silence.json",
+      "sha256": "b0cc9de944443df16a8b48cce59418dff7add5ccf9e9452d4f40e95f8849910d"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-44100-silence.pcm",
+      "sha256": "da5fa3e38eeddd10de4b3f56f1f7ef96148acd26d12b213efb18097010b6bf1e"
+    },
+    {
+      "bytes": 392,
+      "path": "fixtures/signed24-stereo-48000-boundary.json",
+      "sha256": "501990590558ac7f534ed27152638fb8ec42432066fe319fb85bf7eecf552b16"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-48000-boundary.pcm",
+      "sha256": "8fb9411a3e38c7ac37b50a3b196d7f105a34ff2e38ef730d4ea58c9e484733d6"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed24-stereo-48000-impulse.json",
+      "sha256": "d7dd541b3ee51969c64da46a5004e2f45c3a697f7d605d73a5fa9bc60e9eec6d"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-48000-impulse.pcm",
+      "sha256": "b2f1314a914d762289f3384df235a6ba704cf6d97605950583055688a20448a2"
+    },
+    {
+      "bytes": 400,
+      "path": "fixtures/signed24-stereo-48000-seeded_noise.json",
+      "sha256": "2ce79c0222fca78661c9675cf83888152837e403578609c08b63945089fa9869"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-48000-seeded_noise.pcm",
+      "sha256": "638533649938d3516c214aca6b32944eba1c0b0860317aef784723e6a3258871"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed24-stereo-48000-silence.json",
+      "sha256": "c78eaf2310af9ed19c7e101b85f5f3b05b6d8cb82e881cc86d0f82f3f3572db6"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-48000-silence.pcm",
+      "sha256": "da5fa3e38eeddd10de4b3f56f1f7ef96148acd26d12b213efb18097010b6bf1e"
+    },
+    {
+      "bytes": 392,
+      "path": "fixtures/signed24-stereo-96000-boundary.json",
+      "sha256": "291f3c6dc79a8b9722389ad1097afa437a8eb804756b4d49186348fd62ea2dd6"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-96000-boundary.pcm",
+      "sha256": "8fb9411a3e38c7ac37b50a3b196d7f105a34ff2e38ef730d4ea58c9e484733d6"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed24-stereo-96000-impulse.json",
+      "sha256": "44bf660e1457541ff539cceee6e2241c4841bf2b757765f155d3f945af37933f"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-96000-impulse.pcm",
+      "sha256": "b2f1314a914d762289f3384df235a6ba704cf6d97605950583055688a20448a2"
+    },
+    {
+      "bytes": 400,
+      "path": "fixtures/signed24-stereo-96000-seeded_noise.json",
+      "sha256": "61ae0da0b8c9d8ad1a99900c25298a50d0d6afa85d24e7d91744a1fc9e052730"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-96000-seeded_noise.pcm",
+      "sha256": "638533649938d3516c214aca6b32944eba1c0b0860317aef784723e6a3258871"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed24-stereo-96000-silence.json",
+      "sha256": "338b9f3098bf3394a74ab32d6ff59f5b824dba782b82090249450e531ae4baf3"
+    },
+    {
+      "bytes": 6186,
+      "path": "fixtures/signed24-stereo-96000-silence.pcm",
+      "sha256": "da5fa3e38eeddd10de4b3f56f1f7ef96148acd26d12b213efb18097010b6bf1e"
+    },
+    {
+      "bytes": 388,
+      "path": "fixtures/signed32-mono-44100-boundary.json",
+      "sha256": "4588bf9935d92610baa0033194659c0fbfe56eb9b839fb15ef187301edf1a37c"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-44100-boundary.pcm",
+      "sha256": "49c23fcf2a675688022f722792fa8635bb3d0ed79bfe318bc5702070eeea3389"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed32-mono-44100-impulse.json",
+      "sha256": "2bb5cf632666faa6de9dcac5a23ec76b2ef731de2e24d1a30e8b1129ef9ae41e"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-44100-impulse.pcm",
+      "sha256": "d71e62ad024d7d468f3445d38f8cefc63906fad70bbc34ef6171f417d3bdbfbf"
+    },
+    {
+      "bytes": 396,
+      "path": "fixtures/signed32-mono-44100-seeded_noise.json",
+      "sha256": "89c494e1b8a5496cf93e8984a8f2a3acb01440e649e2add3f2a0fe7efa2cac61"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-44100-seeded_noise.pcm",
+      "sha256": "3a739f46f189e46b6b99799d4d519009069f707295e04281fcbd2b1758475bfa"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed32-mono-44100-silence.json",
+      "sha256": "05a7d5a951d71c130cb5b952b1d5fa6004663212645a555e534252c4170189aa"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-44100-silence.pcm",
+      "sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "bytes": 388,
+      "path": "fixtures/signed32-mono-48000-boundary.json",
+      "sha256": "39bbccb435d7ead7ce8317ffb36569f1645f3a189e1fe34db318f1c955dc3e0e"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-48000-boundary.pcm",
+      "sha256": "49c23fcf2a675688022f722792fa8635bb3d0ed79bfe318bc5702070eeea3389"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed32-mono-48000-impulse.json",
+      "sha256": "3afec69358e6b83e6444ccefbc8be980fd67b4265d6bf5b574fe5fbe933001ba"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-48000-impulse.pcm",
+      "sha256": "d71e62ad024d7d468f3445d38f8cefc63906fad70bbc34ef6171f417d3bdbfbf"
+    },
+    {
+      "bytes": 396,
+      "path": "fixtures/signed32-mono-48000-seeded_noise.json",
+      "sha256": "cf3d0f49125dcf9cbd32efcc7146332ae4130fc7858aa9491ca38ddf3e95217c"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-48000-seeded_noise.pcm",
+      "sha256": "3a739f46f189e46b6b99799d4d519009069f707295e04281fcbd2b1758475bfa"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed32-mono-48000-silence.json",
+      "sha256": "d3b180356488dc91c42bc9c49b653c2982f068008c1511ae7dbbf9f5ae95892a"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-48000-silence.pcm",
+      "sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "bytes": 388,
+      "path": "fixtures/signed32-mono-96000-boundary.json",
+      "sha256": "d57430e937ec3b6abf6bf2c08e4aa2ea9b3ecbbc7adec4b2d5b006609fa67931"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-96000-boundary.pcm",
+      "sha256": "49c23fcf2a675688022f722792fa8635bb3d0ed79bfe318bc5702070eeea3389"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed32-mono-96000-impulse.json",
+      "sha256": "5b6a0b51749c7fb1f724388bdf9d41a2cc388208aafab235c55fd807fd404b33"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-96000-impulse.pcm",
+      "sha256": "d71e62ad024d7d468f3445d38f8cefc63906fad70bbc34ef6171f417d3bdbfbf"
+    },
+    {
+      "bytes": 396,
+      "path": "fixtures/signed32-mono-96000-seeded_noise.json",
+      "sha256": "716f78208226a468d8a9a1a4c51f500a3030505f6204e54ec5ee80f7356b0ac8"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-96000-seeded_noise.pcm",
+      "sha256": "3a739f46f189e46b6b99799d4d519009069f707295e04281fcbd2b1758475bfa"
+    },
+    {
+      "bytes": 386,
+      "path": "fixtures/signed32-mono-96000-silence.json",
+      "sha256": "5a269ca07c683ffed1f3709505a21f85071f79107cbf0177faf4b0075fb6d77a"
+    },
+    {
+      "bytes": 4124,
+      "path": "fixtures/signed32-mono-96000-silence.pcm",
+      "sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "bytes": 392,
+      "path": "fixtures/signed32-stereo-44100-boundary.json",
+      "sha256": "3bbbbbd416d6ae02cf3fb5cb351a797f5fc94fcb2e2c1988967b95b31921dde5"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-44100-boundary.pcm",
+      "sha256": "ceed113559af34c218dfc961b6b220c8719048d5884a1fe8e89166d533e029f3"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed32-stereo-44100-impulse.json",
+      "sha256": "7c58ce4700695e50ddcc38dd2cb48504eee246e1880bed0b2bce8c97f5848514"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-44100-impulse.pcm",
+      "sha256": "bda5d4efd2646fa260aafb7b4b15dd4d329a2f79ffde14f373ba0f174233fd76"
+    },
+    {
+      "bytes": 400,
+      "path": "fixtures/signed32-stereo-44100-seeded_noise.json",
+      "sha256": "fc0ac139a0cb3200c33962955db568724d75406dde81bcfa3cc41c6e4dfeafc7"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-44100-seeded_noise.pcm",
+      "sha256": "caf2ff1ea45e336d31ee36ed278c294d555e3f91d7213f642e35c0436efd23b9"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed32-stereo-44100-silence.json",
+      "sha256": "d760188f2035c00ec7b014d022690e507e7dfd8ab82ee7063e8de455260d06f4"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-44100-silence.pcm",
+      "sha256": "f29d13100289cc0a2304159aec50004b32d7485211b8f4b218adb5b9c5f48851"
+    },
+    {
+      "bytes": 392,
+      "path": "fixtures/signed32-stereo-48000-boundary.json",
+      "sha256": "defc9432e253e45954632a27a3ca9d62ea71ef88f50968962e65b84228a3b1f9"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-48000-boundary.pcm",
+      "sha256": "ceed113559af34c218dfc961b6b220c8719048d5884a1fe8e89166d533e029f3"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed32-stereo-48000-impulse.json",
+      "sha256": "bb722c72b83b6b3995077bc2a8e150ecec41b7cdf99ce8a8f1c4af515e4b8d0c"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-48000-impulse.pcm",
+      "sha256": "bda5d4efd2646fa260aafb7b4b15dd4d329a2f79ffde14f373ba0f174233fd76"
+    },
+    {
+      "bytes": 400,
+      "path": "fixtures/signed32-stereo-48000-seeded_noise.json",
+      "sha256": "ef992f204fad359589b6b1dac769a0164614d8bcf5ddd2b61f436f613737b51f"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-48000-seeded_noise.pcm",
+      "sha256": "caf2ff1ea45e336d31ee36ed278c294d555e3f91d7213f642e35c0436efd23b9"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed32-stereo-48000-silence.json",
+      "sha256": "81abd9f1e2c44a1115e221a56e39cf662783e0935052e325b2993bd85d87c775"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-48000-silence.pcm",
+      "sha256": "f29d13100289cc0a2304159aec50004b32d7485211b8f4b218adb5b9c5f48851"
+    },
+    {
+      "bytes": 392,
+      "path": "fixtures/signed32-stereo-96000-boundary.json",
+      "sha256": "5d58237f7093c65c0f3cd58b857bd50a69d4aa0c9b8a2c96467be64e8c13ba4b"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-96000-boundary.pcm",
+      "sha256": "ceed113559af34c218dfc961b6b220c8719048d5884a1fe8e89166d533e029f3"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed32-stereo-96000-impulse.json",
+      "sha256": "5214320cc04e245d6d2372c56fc77481755df09bc562f381a63c7c1954797f4a"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-96000-impulse.pcm",
+      "sha256": "bda5d4efd2646fa260aafb7b4b15dd4d329a2f79ffde14f373ba0f174233fd76"
+    },
+    {
+      "bytes": 400,
+      "path": "fixtures/signed32-stereo-96000-seeded_noise.json",
+      "sha256": "20883c8aa8ac9f9bca18dc1459b2b9145dfda2223b8a1924a09ce1646c32de19"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-96000-seeded_noise.pcm",
+      "sha256": "caf2ff1ea45e336d31ee36ed278c294d555e3f91d7213f642e35c0436efd23b9"
+    },
+    {
+      "bytes": 390,
+      "path": "fixtures/signed32-stereo-96000-silence.json",
+      "sha256": "ed01c58189d761fb76ff555c9d803c6cb62ccf54e1de22613ac6ab4840679867"
+    },
+    {
+      "bytes": 8248,
+      "path": "fixtures/signed32-stereo-96000-silence.pcm",
+      "sha256": "f29d13100289cc0a2304159aec50004b32d7485211b8f4b218adb5b9c5f48851"
+    },
+    {
+      "bytes": 117794,
+      "path": "render-results.json",
+      "sha256": "3ec2cae9b123d89ad0329acf858441454d6c0a555060a77f439724ddfaf5e94a"
+    }
+  ],
+  "build_id": "3e1042eaa51da43f5c3ea525f89559d425b3522c8ea0a6722b60fddbe9e72871",
+  "build_provenance": {
+    "commit": "d98945db6e4b17080c6a549ce279a0a6baca5e67",
+    "dependency_lock_sha256": "bab7e7035959340b5c054f06951183e024ff69967374a9684856a151850aba2e",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": false,
+    "source_inputs_sha256": "cf9f6d5d5ec51ef5d766b386aead51e720a22ae80c4b3ae36aa0c6597255bdfb",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "command": [
+    "earph-harness",
+    "qualify",
+    "--output",
+    "<output-directory>"
+  ],
+  "commit": "d98945db6e4b17080c6a549ce279a0a6baca5e67",
+  "dependency_lock_sha256": "bab7e7035959340b5c054f06951183e024ff69967374a9684856a151850aba2e",
+  "environment": {
+    "architecture": "x86_64",
+    "backend": "virtual",
+    "backend_version": "0.1.0",
+    "device_identity": "virtual-output-v1",
+    "firmware_or_driver": null,
+    "measurement_boundary": "engine_output",
+    "os": "linux",
+    "os_version": "7.0.0-38-generic"
+  },
+  "evidence_id": "foundation-1794893645313689291",
+  "execution_checkout": {
+    "commit": "d98945db6e4b17080c6a549ce279a0a6baca5e67",
+    "source_dirty": false
+  },
+  "expected_result": "288 exact clean renders; 18 fault cases, each repeated twice; scoped engine-output evidence",
+  "finished_at": "1794893646982372510",
+  "fixture_sha256": [
+    "ae35733ac6d2081fb8dab80a6901f2d1625cb5c33974f40d54d7f8960a2b6306",
+    "2d6cfca67b7ce2e6fb168c212b28ef1c374540976961a8d795a1941570191f81",
+    "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4",
+    "dda4d0bbd88968e7accf73b43f91a0d692b954c0eedc0678fe60f875060c0216",
+    "ae35733ac6d2081fb8dab80a6901f2d1625cb5c33974f40d54d7f8960a2b6306",
+    "2d6cfca67b7ce2e6fb168c212b28ef1c374540976961a8d795a1941570191f81",
+    "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4",
+    "dda4d0bbd88968e7accf73b43f91a0d692b954c0eedc0678fe60f875060c0216",
+    "ae35733ac6d2081fb8dab80a6901f2d1625cb5c33974f40d54d7f8960a2b6306",
+    "2d6cfca67b7ce2e6fb168c212b28ef1c374540976961a8d795a1941570191f81",
+    "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4",
+    "dda4d0bbd88968e7accf73b43f91a0d692b954c0eedc0678fe60f875060c0216",
+    "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d",
+    "d5c19eb44fab0b9cde39f786ce006bfd8db73fc9d1443136442a88a416f953ee",
+    "104978c3fed268ec5a107454b4f74b3c918a643f350c7210a82ec8d1dcf334fe",
+    "82711d1c3cdca6cd35b8778216a09d80c0bd6164d8b72b4009352a279041542e",
+    "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d",
+    "d5c19eb44fab0b9cde39f786ce006bfd8db73fc9d1443136442a88a416f953ee",
+    "104978c3fed268ec5a107454b4f74b3c918a643f350c7210a82ec8d1dcf334fe",
+    "82711d1c3cdca6cd35b8778216a09d80c0bd6164d8b72b4009352a279041542e",
+    "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d",
+    "d5c19eb44fab0b9cde39f786ce006bfd8db73fc9d1443136442a88a416f953ee",
+    "104978c3fed268ec5a107454b4f74b3c918a643f350c7210a82ec8d1dcf334fe",
+    "82711d1c3cdca6cd35b8778216a09d80c0bd6164d8b72b4009352a279041542e",
+    "d928ec82dfb1ca1ff86315d5047d026b8886caf78241844f215bd089b937ed69",
+    "d139f17d9b49e7eb936988281d923e2112ae02be8f021fb8e12563ef916ca74e",
+    "916aed689ca1403ee4d082c090a0726b36d598865443bed51e6b87b24e581eb6",
+    "dc7ddd5a00d400f6c059afe91e2b86f386e86b7597a7152729f0ef72910bc826",
+    "d928ec82dfb1ca1ff86315d5047d026b8886caf78241844f215bd089b937ed69",
+    "d139f17d9b49e7eb936988281d923e2112ae02be8f021fb8e12563ef916ca74e",
+    "916aed689ca1403ee4d082c090a0726b36d598865443bed51e6b87b24e581eb6",
+    "dc7ddd5a00d400f6c059afe91e2b86f386e86b7597a7152729f0ef72910bc826",
+    "d928ec82dfb1ca1ff86315d5047d026b8886caf78241844f215bd089b937ed69",
+    "d139f17d9b49e7eb936988281d923e2112ae02be8f021fb8e12563ef916ca74e",
+    "916aed689ca1403ee4d082c090a0726b36d598865443bed51e6b87b24e581eb6",
+    "dc7ddd5a00d400f6c059afe91e2b86f386e86b7597a7152729f0ef72910bc826",
+    "da5fa3e38eeddd10de4b3f56f1f7ef96148acd26d12b213efb18097010b6bf1e",
+    "b2f1314a914d762289f3384df235a6ba704cf6d97605950583055688a20448a2",
+    "8fb9411a3e38c7ac37b50a3b196d7f105a34ff2e38ef730d4ea58c9e484733d6",
+    "638533649938d3516c214aca6b32944eba1c0b0860317aef784723e6a3258871",
+    "da5fa3e38eeddd10de4b3f56f1f7ef96148acd26d12b213efb18097010b6bf1e",
+    "b2f1314a914d762289f3384df235a6ba704cf6d97605950583055688a20448a2",
+    "8fb9411a3e38c7ac37b50a3b196d7f105a34ff2e38ef730d4ea58c9e484733d6",
+    "638533649938d3516c214aca6b32944eba1c0b0860317aef784723e6a3258871",
+    "da5fa3e38eeddd10de4b3f56f1f7ef96148acd26d12b213efb18097010b6bf1e",
+    "b2f1314a914d762289f3384df235a6ba704cf6d97605950583055688a20448a2",
+    "8fb9411a3e38c7ac37b50a3b196d7f105a34ff2e38ef730d4ea58c9e484733d6",
+    "638533649938d3516c214aca6b32944eba1c0b0860317aef784723e6a3258871",
+    "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d",
+    "d71e62ad024d7d468f3445d38f8cefc63906fad70bbc34ef6171f417d3bdbfbf",
+    "49c23fcf2a675688022f722792fa8635bb3d0ed79bfe318bc5702070eeea3389",
+    "3a739f46f189e46b6b99799d4d519009069f707295e04281fcbd2b1758475bfa",
+    "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d",
+    "d71e62ad024d7d468f3445d38f8cefc63906fad70bbc34ef6171f417d3bdbfbf",
+    "49c23fcf2a675688022f722792fa8635bb3d0ed79bfe318bc5702070eeea3389",
+    "3a739f46f189e46b6b99799d4d519009069f707295e04281fcbd2b1758475bfa",
+    "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d",
+    "d71e62ad024d7d468f3445d38f8cefc63906fad70bbc34ef6171f417d3bdbfbf",
+    "49c23fcf2a675688022f722792fa8635bb3d0ed79bfe318bc5702070eeea3389",
+    "3a739f46f189e46b6b99799d4d519009069f707295e04281fcbd2b1758475bfa",
+    "f29d13100289cc0a2304159aec50004b32d7485211b8f4b218adb5b9c5f48851",
+    "bda5d4efd2646fa260aafb7b4b15dd4d329a2f79ffde14f373ba0f174233fd76",
+    "ceed113559af34c218dfc961b6b220c8719048d5884a1fe8e89166d533e029f3",
+    "caf2ff1ea45e336d31ee36ed278c294d555e3f91d7213f642e35c0436efd23b9",
+    "f29d13100289cc0a2304159aec50004b32d7485211b8f4b218adb5b9c5f48851",
+    "bda5d4efd2646fa260aafb7b4b15dd4d329a2f79ffde14f373ba0f174233fd76",
+    "ceed113559af34c218dfc961b6b220c8719048d5884a1fe8e89166d533e029f3",
+    "caf2ff1ea45e336d31ee36ed278c294d555e3f91d7213f642e35c0436efd23b9",
+    "f29d13100289cc0a2304159aec50004b32d7485211b8f4b218adb5b9c5f48851",
+    "bda5d4efd2646fa260aafb7b4b15dd4d329a2f79ffde14f373ba0f174233fd76",
+    "ceed113559af34c218dfc961b6b220c8719048d5884a1fe8e89166d533e029f3",
+    "caf2ff1ea45e336d31ee36ed278c294d555e3f91d7213f642e35c0436efd23b9"
+  ],
+  "graph_sha256": null,
+  "harness_version": "0.1.0",
+  "limitations": [
+    "Virtual output only; physical devices, macOS, protocols and DSP remain unqualified.",
+    "Graph hash is null because no DSP graph exists.",
+    "Recorded argv redacts local output paths; other arguments and build identity remain exact.",
+    "This matrix does not replace the separate canonical unit, integration, CLI and allocation checks."
+  ],
+  "observed_result": {
+    "clean_renders": 288,
+    "fault_cases": 18,
+    "fault_repeats": 2,
+    "fixtures": 72
+  },
+  "reproduce_command": [
+    "cargo",
+    "run",
+    "--locked",
+    "-p",
+    "earph-harness",
+    "--",
+    "qualify",
+    "--output",
+    "<new-directory>"
+  ],
+  "requirement_ids": [
+    "ARCH-06"
+  ],
+  "reviewer": null,
+  "schema_version": 1,
+  "source_dirty": false,
+  "started_at": "1794893645313689291",
+  "status": "pass",
+  "timestamp_unit": "unix_nanoseconds"
+}

@@ -9,9 +9,12 @@
   "measurement_boundary": "engine_output",
   "physical_device": null,
   "qualification": {
-    "linux_offline": "not_run",
+    "linux_offline": "pass",
     "linux_hardware": "not_run",
     "macos_offline": "not_run",
     "macos_hardware": "not_run"
-  }
+  },
+  "kernel_version": "7.0.0-38-generic",
+  "scope": "T01–T03 and AC-06 on virtual output only",
+  "evidence": "evidence/foundation/evidence.json"
 }

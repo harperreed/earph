@@ -4,7 +4,7 @@
   "title": "Rust Audiophile Player \u2014 Product and Engineering Specification",
   "date_local": "2026-11-16",
   "timezone": "America/Chicago",
-  "status": "design specification; no implementation or audio tests performed",
+  "status": "T01–T03 foundation implemented; Linux virtual output qualified; broader release gates remain unqualified",
   "q25": {
     "selection": "D",
     "option_text": null,
@@ -25,9 +25,11 @@
         "D12"
       ],
       "depends_on": [],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/foundation/verification.json"
+      ]
     },
     {
       "id": "ARCH-02",
@@ -81,9 +83,11 @@
       "depends_on": [
         "ARCH-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/foundation/verification.json"
+      ]
     },
     {
       "id": "ARCH-05",
@@ -100,9 +104,11 @@
       "depends_on": [
         "ARCH-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/foundation/verification.json"
+      ]
     },
     {
       "id": "ARCH-06",
@@ -117,9 +123,11 @@
         "D18"
       ],
       "depends_on": [],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "pass",
+      "evidence": [
+        "evidence/foundation/evidence.json"
+      ]
     },
     {
       "id": "ARCH-07",
@@ -134,9 +142,11 @@
         "D12"
       ],
       "depends_on": [],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/foundation/verification.json"
+      ]
     },
     {
       "id": "PLAY-01",
@@ -1230,9 +1240,11 @@
         "D24"
       ],
       "depends_on": [],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/foundation/verification.json"
+      ]
     },
     {
       "id": "REL-02",
@@ -1248,9 +1260,11 @@
         "D24"
       ],
       "depends_on": [],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/foundation/verification.json"
+      ]
     },
     {
       "id": "REL-03",
@@ -1326,8 +1340,10 @@
         "architecture-check.txt",
         "offline-output.sha256"
       ],
-      "status": "not_run",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "evidence/foundation/verification.json"
+      ],
       "requirement_ids": [
         "ARCH-01",
         "ARCH-06",
@@ -1382,8 +1398,10 @@
         "pcm-comparison.json",
         "negotiation-events.json"
       ],
-      "status": "not_run",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "evidence/foundation/verification.json"
+      ],
       "requirement_ids": [
         "ARCH-04",
         "OUT-06"
@@ -1400,8 +1418,10 @@
         "allocation-report.json",
         "realtime-trace.json"
       ],
-      "status": "not_run",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "evidence/foundation/verification.json"
+      ],
       "requirement_ids": [
         "ARCH-05",
         "CTL-05",
@@ -1420,8 +1440,10 @@
         "event-log.json",
         "capture.sha256"
       ],
-      "status": "not_run",
-      "evidence": [],
+      "status": "pass",
+      "evidence": [
+        "evidence/foundation/evidence.json"
+      ],
       "requirement_ids": [
         "ARCH-06"
       ]
@@ -1437,8 +1459,10 @@
         "schema-tests.json",
         "migration-diffs.json"
       ],
-      "status": "not_run",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "evidence/foundation/verification.json"
+      ],
       "requirement_ids": [
         "ARCH-07"
       ]
@@ -2181,8 +2205,10 @@
         "THIRD_PARTY_NOTICES.txt",
         "license-audit.json"
       ],
-      "status": "not_run",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "evidence/foundation/verification.json"
+      ],
       "requirement_ids": [
         "REL-01",
         "REL-02"

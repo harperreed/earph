@@ -1,0 +1,1157 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed16-mono-44100-silence.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "ae35733ac6d2081fb8dab80a6901f2d1625cb5c33974f40d54d7f8960a2b6306"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed16-mono-44100-impulse.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "2d6cfca67b7ce2e6fb168c212b28ef1c374540976961a8d795a1941570191f81"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed16-mono-44100-boundary.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed16-mono-44100-seeded_noise.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "dda4d0bbd88968e7accf73b43f91a0d692b954c0eedc0678fe60f875060c0216"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed16-mono-48000-silence.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "ae35733ac6d2081fb8dab80a6901f2d1625cb5c33974f40d54d7f8960a2b6306"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed16-mono-48000-impulse.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "2d6cfca67b7ce2e6fb168c212b28ef1c374540976961a8d795a1941570191f81"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed16-mono-48000-boundary.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed16-mono-48000-seeded_noise.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "dda4d0bbd88968e7accf73b43f91a0d692b954c0eedc0678fe60f875060c0216"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed16-mono-96000-silence.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "ae35733ac6d2081fb8dab80a6901f2d1625cb5c33974f40d54d7f8960a2b6306"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed16-mono-96000-impulse.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "2d6cfca67b7ce2e6fb168c212b28ef1c374540976961a8d795a1941570191f81"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed16-mono-96000-boundary.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "afa3e001db26121b60c689745479f99edd67a8cac0a9738d9b985cfce2cd3ae4"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed16"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed16-mono-96000-seeded_noise.pcm",
+      "payload_bytes": 2062,
+      "payload_sha256": "dda4d0bbd88968e7accf73b43f91a0d692b954c0eedc0678fe60f875060c0216"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed16-stereo-44100-silence.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed16-stereo-44100-impulse.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "d5c19eb44fab0b9cde39f786ce006bfd8db73fc9d1443136442a88a416f953ee"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed16-stereo-44100-boundary.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "104978c3fed268ec5a107454b4f74b3c918a643f350c7210a82ec8d1dcf334fe"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed16-stereo-44100-seeded_noise.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "82711d1c3cdca6cd35b8778216a09d80c0bd6164d8b72b4009352a279041542e"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed16-stereo-48000-silence.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed16-stereo-48000-impulse.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "d5c19eb44fab0b9cde39f786ce006bfd8db73fc9d1443136442a88a416f953ee"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed16-stereo-48000-boundary.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "104978c3fed268ec5a107454b4f74b3c918a643f350c7210a82ec8d1dcf334fe"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed16-stereo-48000-seeded_noise.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "82711d1c3cdca6cd35b8778216a09d80c0bd6164d8b72b4009352a279041542e"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed16-stereo-96000-silence.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed16-stereo-96000-impulse.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "d5c19eb44fab0b9cde39f786ce006bfd8db73fc9d1443136442a88a416f953ee"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed16-stereo-96000-boundary.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "104978c3fed268ec5a107454b4f74b3c918a643f350c7210a82ec8d1dcf334fe"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed16"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed16-stereo-96000-seeded_noise.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "82711d1c3cdca6cd35b8778216a09d80c0bd6164d8b72b4009352a279041542e"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed24-mono-44100-silence.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "d928ec82dfb1ca1ff86315d5047d026b8886caf78241844f215bd089b937ed69"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed24-mono-44100-impulse.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "d139f17d9b49e7eb936988281d923e2112ae02be8f021fb8e12563ef916ca74e"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed24-mono-44100-boundary.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "916aed689ca1403ee4d082c090a0726b36d598865443bed51e6b87b24e581eb6"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed24-mono-44100-seeded_noise.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "dc7ddd5a00d400f6c059afe91e2b86f386e86b7597a7152729f0ef72910bc826"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed24-mono-48000-silence.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "d928ec82dfb1ca1ff86315d5047d026b8886caf78241844f215bd089b937ed69"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed24-mono-48000-impulse.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "d139f17d9b49e7eb936988281d923e2112ae02be8f021fb8e12563ef916ca74e"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed24-mono-48000-boundary.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "916aed689ca1403ee4d082c090a0726b36d598865443bed51e6b87b24e581eb6"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed24-mono-48000-seeded_noise.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "dc7ddd5a00d400f6c059afe91e2b86f386e86b7597a7152729f0ef72910bc826"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed24-mono-96000-silence.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "d928ec82dfb1ca1ff86315d5047d026b8886caf78241844f215bd089b937ed69"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed24-mono-96000-impulse.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "d139f17d9b49e7eb936988281d923e2112ae02be8f021fb8e12563ef916ca74e"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed24-mono-96000-boundary.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "916aed689ca1403ee4d082c090a0726b36d598865443bed51e6b87b24e581eb6"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed24"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed24-mono-96000-seeded_noise.pcm",
+      "payload_bytes": 3093,
+      "payload_sha256": "dc7ddd5a00d400f6c059afe91e2b86f386e86b7597a7152729f0ef72910bc826"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed24-stereo-44100-silence.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "da5fa3e38eeddd10de4b3f56f1f7ef96148acd26d12b213efb18097010b6bf1e"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed24-stereo-44100-impulse.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "b2f1314a914d762289f3384df235a6ba704cf6d97605950583055688a20448a2"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed24-stereo-44100-boundary.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "8fb9411a3e38c7ac37b50a3b196d7f105a34ff2e38ef730d4ea58c9e484733d6"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed24-stereo-44100-seeded_noise.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "638533649938d3516c214aca6b32944eba1c0b0860317aef784723e6a3258871"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed24-stereo-48000-silence.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "da5fa3e38eeddd10de4b3f56f1f7ef96148acd26d12b213efb18097010b6bf1e"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed24-stereo-48000-impulse.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "b2f1314a914d762289f3384df235a6ba704cf6d97605950583055688a20448a2"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed24-stereo-48000-boundary.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "8fb9411a3e38c7ac37b50a3b196d7f105a34ff2e38ef730d4ea58c9e484733d6"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed24-stereo-48000-seeded_noise.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "638533649938d3516c214aca6b32944eba1c0b0860317aef784723e6a3258871"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed24-stereo-96000-silence.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "da5fa3e38eeddd10de4b3f56f1f7ef96148acd26d12b213efb18097010b6bf1e"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed24-stereo-96000-impulse.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "b2f1314a914d762289f3384df235a6ba704cf6d97605950583055688a20448a2"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed24-stereo-96000-boundary.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "8fb9411a3e38c7ac37b50a3b196d7f105a34ff2e38ef730d4ea58c9e484733d6"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed24"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed24-stereo-96000-seeded_noise.pcm",
+      "payload_bytes": 6186,
+      "payload_sha256": "638533649938d3516c214aca6b32944eba1c0b0860317aef784723e6a3258871"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed32-mono-44100-silence.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed32-mono-44100-impulse.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "d71e62ad024d7d468f3445d38f8cefc63906fad70bbc34ef6171f417d3bdbfbf"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed32-mono-44100-boundary.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "49c23fcf2a675688022f722792fa8635bb3d0ed79bfe318bc5702070eeea3389"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed32-mono-44100-seeded_noise.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "3a739f46f189e46b6b99799d4d519009069f707295e04281fcbd2b1758475bfa"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed32-mono-48000-silence.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed32-mono-48000-impulse.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "d71e62ad024d7d468f3445d38f8cefc63906fad70bbc34ef6171f417d3bdbfbf"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed32-mono-48000-boundary.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "49c23fcf2a675688022f722792fa8635bb3d0ed79bfe318bc5702070eeea3389"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed32-mono-48000-seeded_noise.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "3a739f46f189e46b6b99799d4d519009069f707295e04281fcbd2b1758475bfa"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed32-mono-96000-silence.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "cb02d78d798ec2d1b8831dc596411cff558b09fb8f9de495843104199c43898d"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed32-mono-96000-impulse.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "d71e62ad024d7d468f3445d38f8cefc63906fad70bbc34ef6171f417d3bdbfbf"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed32-mono-96000-boundary.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "49c23fcf2a675688022f722792fa8635bb3d0ed79bfe318bc5702070eeea3389"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "mono",
+          "representation": "signed32"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed32-mono-96000-seeded_noise.pcm",
+      "payload_bytes": 4124,
+      "payload_sha256": "3a739f46f189e46b6b99799d4d519009069f707295e04281fcbd2b1758475bfa"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed32-stereo-44100-silence.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "f29d13100289cc0a2304159aec50004b32d7485211b8f4b218adb5b9c5f48851"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed32-stereo-44100-impulse.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "bda5d4efd2646fa260aafb7b4b15dd4d329a2f79ffde14f373ba0f174233fd76"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed32-stereo-44100-boundary.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "ceed113559af34c218dfc961b6b220c8719048d5884a1fe8e89166d533e029f3"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 44100,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed32-stereo-44100-seeded_noise.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "caf2ff1ea45e336d31ee36ed278c294d555e3f91d7213f642e35c0436efd23b9"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed32-stereo-48000-silence.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "f29d13100289cc0a2304159aec50004b32d7485211b8f4b218adb5b9c5f48851"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed32-stereo-48000-impulse.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "bda5d4efd2646fa260aafb7b4b15dd4d329a2f79ffde14f373ba0f174233fd76"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed32-stereo-48000-boundary.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "ceed113559af34c218dfc961b6b220c8719048d5884a1fe8e89166d533e029f3"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 48000,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed32-stereo-48000-seeded_noise.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "caf2ff1ea45e336d31ee36ed278c294d555e3f91d7213f642e35c0436efd23b9"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "silence"
+      },
+      "payload_file": "signed32-stereo-96000-silence.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "f29d13100289cc0a2304159aec50004b32d7485211b8f4b218adb5b9c5f48851"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "impulse"
+      },
+      "payload_file": "signed32-stereo-96000-impulse.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "bda5d4efd2646fa260aafb7b4b15dd4d329a2f79ffde14f373ba0f174233fd76"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "boundary"
+      },
+      "payload_file": "signed32-stereo-96000-boundary.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "ceed113559af34c218dfc961b6b220c8719048d5884a1fe8e89166d533e029f3"
+    },
+    {
+      "schema_version": 1,
+      "spec": {
+        "seed": 2389,
+        "frames": 1031,
+        "format": {
+          "sample_rate_hz": 96000,
+          "channels": "stereo",
+          "representation": "signed32"
+        },
+        "pattern": "seeded_noise"
+      },
+      "payload_file": "signed32-stereo-96000-seeded_noise.pcm",
+      "payload_bytes": 8248,
+      "payload_sha256": "caf2ff1ea45e336d31ee36ed278c294d555e3f91d7213f642e35c0436efd23b9"
+    }
+  ]
+}

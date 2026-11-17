@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "spec": {
+    "seed": 2389,
+    "frames": 1031,
+    "format": {
+      "sample_rate_hz": 48000,
+      "channels": "mono",
+      "representation": "signed24"
+    },
+    "pattern": "silence"
+  },
+  "payload_file": "signed24-mono-48000-silence.pcm",
+  "payload_bytes": 3093,
+  "payload_sha256": "d928ec82dfb1ca1ff86315d5047d026b8886caf78241844f215bd089b937ed69"
+}

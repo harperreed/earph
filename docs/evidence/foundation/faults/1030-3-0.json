@@ -1,0 +1,122 @@
+{
+  "decoded_frames": 1031,
+  "elapsed_ns": 23356009,
+  "epochs": {
+    "session": 0,
+    "stream": 0
+  },
+  "error": {
+    "code": "OUTPUT_FAULT",
+    "message": "virtual backend failed"
+  },
+  "events": [
+    {
+      "at_frame": 0,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "kind": "prepared"
+      }
+    },
+    {
+      "at_frame": 256,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 256,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 512,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 256,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 768,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 256,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 1024,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 256,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 1030,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "frames": 6,
+        "kind": "written"
+      }
+    },
+    {
+      "at_frame": 1030,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "fault": {
+          "kind": "backend_failure"
+        },
+        "kind": "fault"
+      }
+    },
+    {
+      "at_frame": 1030,
+      "epochs": {
+        "session": 0,
+        "stream": 0
+      },
+      "event": {
+        "code": "OUTPUT_FAULT",
+        "kind": "stopped"
+      }
+    }
+  ],
+  "measurement_boundary": "engine_output",
+  "observed_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "output_frames": 1030,
+  "payload_sha256": "de044703bf9165995306e9cdbfd4bbaf6ea38eece431075320e58ccd4e803f1d",
+  "requested_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "resolved_format": {
+    "channels": "mono",
+    "representation": "signed16",
+    "sample_rate_hz": 44100
+  },
+  "status": "fail"
+}
