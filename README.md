@@ -58,6 +58,9 @@ cargo run --locked -p earph-harness -- evidence-check \
 Qualification runs 288 clean renders and 18 fault cases, each repeated twice.
 It compares actual decoded sample values and captures against on-disk fixtures.
 Records include source revision, dirty state, executable hash, dependency-lock hash, environment, and artifact hashes.
+The build embeds its source revision, source digest, lock hash, compiler, target, and profile.
+Execution-time checkout state remains a separate observation.
+Inspect embedded provenance with `cargo run --locked -p earph-harness -- build-info`.
 Recorded arguments redact local output paths.
 Timestamps use Unix nanoseconds, declared in each record.
 
@@ -69,6 +72,10 @@ Interrupted writes leave partial artifacts without a passing final report.
 The qualified scope is AC-06 on Linux virtual output.
 Other scenarios have partial test coverage or remain not run.
 The next gate covers real backend spikes and the remaining M0 decisions.
+
+The session model starts muted and keeps paused intent across repeated seeks.
+Output progress advances event sequences without invalidating transport-command revisions.
+Fixture loading admits raw bytes and typed samples together before reading the payload.
 
 Inspect command syntax with `cargo run --locked -p earph-harness -- --help`.
 Output is JSON. Failures exit with status 2.

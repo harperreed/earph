@@ -93,6 +93,7 @@ fn run(args: &[String]) -> Result<Value, CliFailure> {
         .collect::<Vec<_>>()
         .as_slice()
     {
+        ["build-info"] => Ok(earph_harness::build_provenance()),
         ["qualify", "--output", directory] => {
             let record = evidence::qualify(Path::new(directory))?;
             Ok(
@@ -158,7 +159,7 @@ fn run(args: &[String]) -> Result<Value, CliFailure> {
             Ok(json!({"status":"pass"}))
         }
         ["--help"] => Ok(
-            json!({"commands":["catalog-check --catalog PATH","dependency-check --inventory PATH","dependency-lock --output PATH --notices PATH","fixtures --output DIR","render --fixture PATH --block-frames N --output DIR [--faults PATH]","qualify --output DIR","evidence-check --record PATH"],"physical_output":false}),
+            json!({"commands":["build-info","catalog-check --catalog PATH","dependency-check --inventory PATH","dependency-lock --output PATH --notices PATH","fixtures --output DIR","render --fixture PATH --block-frames N --output DIR [--faults PATH]","qualify --output DIR","evidence-check --record PATH"],"physical_output":false}),
         ),
         _ => Err("unsupported command or arguments; use --help".into()),
     }

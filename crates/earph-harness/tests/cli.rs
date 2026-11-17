@@ -191,3 +191,49 @@ fn qualification_command_writes_recheckable_evidence() {
         .unwrap();
     assert!(!check.status.success());
 }
+
+#[test]
+fn binary_provenance_survives_an_unavailable_execution_checkout() {
+    let temporary = support::TestDir::new();
+    let unrelated = temporary.0.join("unrelated");
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(&unrelated)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let output_dir = temporary.0.join("qualification");
+    let output = Command::new(env!("CARGO_BIN_EXE_earph-harness"))
+        .env("GIT_DIR", unrelated.join(".git"))
+        .env("GIT_WORK_TREE", &unrelated)
+        .args(["qualify", "--output"])
+        .arg(&output_dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let info = Command::new(env!("CARGO_BIN_EXE_earph-harness"))
+        .arg("build-info")
+        .output()
+        .unwrap();
+    assert!(
+        info.status.success(),
+        "{}",
+        String::from_utf8_lossy(&info.stdout)
+    );
+    let build: serde_json::Value = serde_json::from_slice(&info.stdout).unwrap();
+    let record: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output_dir.join("evidence.json")).unwrap()).unwrap();
+    assert_eq!(record["commit"], build["commit"]);
+    assert_eq!(
+        record["dependency_lock_sha256"],
+        build["dependency_lock_sha256"]
+    );
+    assert_eq!(record["build_provenance"], build);
+    assert!(record["execution_checkout"]["commit"].is_null());
+}

@@ -21,6 +21,8 @@ Use a 256 MiB default audio-buffer budget.
 Reject overflow before allocating buffers.
 Keep control messages within 1 MiB and catalogs within 2 MiB.
 Retain 1024 receipts and 1024 state events per zone.
+Keep progress event sequences separate from mutation revisions.
+Preserve paused intent when a second seek replaces a pending seek.
 Deduplication applies only while a receipt remains retained.
 Reject changed payloads reusing a retained request ID.
 Report event gaps and include a fresh snapshot.
@@ -33,3 +35,13 @@ Unselected adapters remain unsupported and unqualified.
 
 Linux GUI, operational storage, and IPC framing remain separate M0 decisions.
 Hardware tests need an explicit signal-emission approval and actual device evidence.
+
+Admit raw fixture bytes and typed sample storage as a combined peak.
+Read regular files into exact-sized buffers to avoid geometric capacity growth.
+Treat a changing input length as an error.
+
+Embed build provenance during compilation.
+Include source revision, source digest, lock hash, compiler, target, and profile.
+Watch source inputs and Git references when refreshing build metadata.
+Keep execution-time checkout observations separate.
+Do not relabel an older binary with a newer checkout's identity.

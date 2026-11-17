@@ -98,3 +98,31 @@ fn failed_output_creation_preserves_existing_file() {
     assert!(evidence::qualify(&output).is_err());
     assert_eq!(std::fs::read(&output).unwrap(), b"owned existing file");
 }
+
+#[test]
+fn repeatable_fault_captures_must_match_the_actual_source_prefix() {
+    let temporary = support::TestDir::new();
+    let output = temporary.0.join("qualification");
+    let mut record = evidence::qualify(&output).unwrap();
+    for repeat in 0..2 {
+        let capture = output.join(format!("faults/0-0-{repeat}.pcm"));
+        let mut bytes = std::fs::read(&capture).unwrap();
+        bytes[0] ^= 1;
+        std::fs::write(&capture, &bytes).unwrap();
+        let report = output.join(format!("faults/0-0-{repeat}.json"));
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&report).unwrap()).unwrap();
+        value["payload_sha256"] = earph_harness::sha256(&bytes).into();
+        std::fs::write(report, serde_json::to_vec(&value).unwrap()).unwrap();
+    }
+    for artifact in record["artifacts"].as_array_mut().unwrap() {
+        let path = artifact["path"].as_str().unwrap();
+        let bytes = std::fs::read(output.join(path)).unwrap();
+        artifact["sha256"] = earph_harness::sha256(&bytes).into();
+        artifact["bytes"] = bytes.len().into();
+    }
+    assert!(
+        evidence::validate(&record, &output).is_err(),
+        "accepted repeatable sample corruption"
+    );
+}

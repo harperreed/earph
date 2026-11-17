@@ -159,6 +159,13 @@ pub struct FixtureBundle {
 }
 
 pub fn load_fixture(path: &Path) -> Result<(FixtureFile, PcmBlock), String> {
+    load_fixture_with_budget(path, MemoryBudget::default())
+}
+
+pub fn load_fixture_with_budget(
+    path: &Path,
+    budget: MemoryBudget,
+) -> Result<(FixtureFile, PcmBlock), String> {
     let manifest: FixtureFile = serde_json::from_slice(&read_bounded(path, 64 * 1024)?)
         .map_err(|_| "invalid fixture manifest")?;
     if manifest.schema_version != 1 {
@@ -173,6 +180,15 @@ pub fn load_fixture(path: &Path) -> Result<(FixtureFile, PcmBlock), String> {
     if expected != manifest.payload_bytes {
         return Err("fixture size differs from declared format".into());
     }
+    let storage = manifest
+        .spec
+        .format
+        .storage_bytes(manifest.spec.frames)
+        .map_err(|e| e.to_string())?;
+    let peak = expected
+        .checked_add(storage)
+        .ok_or("fixture buffer size overflow")?;
+    budget.admit(peak).map_err(|e| e.to_string())?;
     let relative = Path::new(&manifest.payload_file);
     if relative.components().count() != 1
         || !matches!(

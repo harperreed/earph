@@ -321,10 +321,10 @@ impl Session {
                             | TransportState::Buffering
                     ) =>
             {
-                destination = if next.transport == TransportState::Paused {
-                    TransportState::Paused
-                } else {
-                    TransportState::Playing
+                destination = match next.transport {
+                    TransportState::Paused => TransportState::Paused,
+                    TransportState::Buffering => self.pending_destination,
+                    _ => TransportState::Playing,
                 };
                 next.epochs = next.epochs.next_stream()?;
                 next.transport = TransportState::Buffering;
@@ -370,7 +370,12 @@ impl Session {
         }
         let mut next = self.state.clone();
         next.monotonic_ns = event.monotonic_ns;
-        next.revision = increment(next.revision)?;
+        if !matches!(
+            event.kind,
+            EngineEventKind::Decoded { .. } | EngineEventKind::Consumed { .. }
+        ) {
+            next.revision = increment(next.revision)?;
+        }
         next.event_sequence = increment(next.event_sequence)?;
         let mut completion = None;
         match event.kind {

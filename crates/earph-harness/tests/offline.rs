@@ -3,6 +3,22 @@
 use earph_core::{audio::*, ids::Epochs};
 use earph_harness::fixture::*;
 use earph_harness::{render::*, virtual_output::*};
+mod support;
+
+#[test]
+fn fixture_loading_admits_raw_and_typed_buffers_together() {
+    let temporary = support::TestDir::new();
+    let path = temporary.0.join("fixtures");
+    write_bundle(&path).unwrap();
+    let fixture = path.join("signed32-stereo-48000-boundary.json");
+    assert!(load_fixture_with_budget(&fixture, MemoryBudget::new(16000).unwrap()).is_err());
+    let (_, block) = load_fixture_with_budget(&fixture, MemoryBudget::new(17000).unwrap()).unwrap();
+    assert_eq!(block.integer_sample(0), Some(-2147483648));
+    let bytes = earph_harness::read_bounded(&path.join("signed32-stereo-48000-boundary.pcm"), 8248)
+        .unwrap();
+    assert_eq!(bytes.len(), 8248);
+    assert_eq!(bytes.capacity(), 8248);
+}
 
 fn request(fixture: FixtureSpec, block_frames: usize) -> RenderRequest {
     RenderRequest {
@@ -59,6 +75,10 @@ fn faults_at_precise_frames_are_repeatable_and_keep_partial_capture() {
                     assert_eq!(a.capture.len(), 1031);
                     assert_eq!(a.capture, b.capture);
                     assert_eq!(a.events, b.events);
+                    assert_eq!(
+                        a.capture.iter().copied().map(i64::from).collect::<Vec<_>>(),
+                        collect(spec(FixturePattern::Boundary, 1031), 64)
+                    );
                 }
                 (Err(a), Err(b)) => {
                     assert_eq!(a.report.output_frames, at_frame);
@@ -66,6 +86,15 @@ fn faults_at_precise_frames_are_repeatable_and_keep_partial_capture() {
                     assert_eq!(a.error, b.error);
                     assert_eq!(a.report.events, b.report.events);
                     assert_eq!(a.report.payload_sha256, b.report.payload_sha256);
+                    assert_eq!(
+                        a.report
+                            .capture
+                            .iter()
+                            .copied()
+                            .map(i64::from)
+                            .collect::<Vec<_>>(),
+                        collect(spec(FixturePattern::Boundary, 1031), 64)[..at_frame as usize]
+                    );
                 }
                 _ => panic!("non-deterministic render"),
             }

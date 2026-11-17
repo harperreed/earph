@@ -103,6 +103,10 @@ fn matrix(root: &Path, bundle: &FixtureBundle) -> Result<(Vec<Value>, Vec<Value>
     }
     fs::create_dir(root.join("faults")).map_err(|_| "cannot create fault artifact directory")?;
     let fixture_path = root.join("fixtures/signed16-mono-44100-boundary.json");
+    let source_bytes = read_bounded(
+        &root.join("fixtures/signed16-mono-44100-boundary.pcm"),
+        4096,
+    )?;
     let mut faults = Vec::new();
     for at_frame in [0, 64, 1030] {
         for (index, fault) in [
@@ -140,8 +144,9 @@ fn matrix(root: &Path, bundle: &FixtureBundle) -> Result<(Vec<Value>, Vec<Value>
             let repeatable = a.capture == b.capture && a.events == b.events && a.error == b.error;
             let pass = repeatable
                 && a.output_frames == expected_frames
-                && a.error.map(|e| e.code) == expected_error;
-            faults.push(json!({"at_frame":at_frame,"fault":fault,"first_report":first_report,"second_report":second_report,"first_capture":first_capture,"second_capture":second_capture,"repeatable":repeatable,"pass":pass}));
+                && a.error.map(|e| e.code) == expected_error
+                && a.capture_bytes() == source_bytes[..expected_frames as usize * 2];
+            faults.push(json!({"at_frame":at_frame,"fault":fault,"first_report":first_report,"second_report":second_report,"first_capture":first_capture,"second_capture":second_capture,"source_prefix_sha256":sha256(&source_bytes[..expected_frames as usize*2]),"repeatable":repeatable,"pass":pass}));
         }
     }
     Ok((clean, faults))
@@ -213,13 +218,17 @@ fn recorded_command() -> Vec<String> {
 pub fn qualify(output: &Path) -> Result<EvidenceRecord, EvidenceError> {
     let started = now()?;
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let commit = command_output("git", &["rev-parse", "HEAD"], &repo)?;
-    let dirty = !command_output("git", &["status", "--porcelain"], &repo)?.is_empty();
+    let build_provenance = crate::build_provenance();
+    let commit = string(&build_provenance, "commit")?;
+    let dirty = build_provenance["source_dirty"]
+        .as_bool()
+        .ok_or("build source state unavailable")?;
+    let execution_checkout = json!({"commit":command_output("git",&["rev-parse","HEAD"],&repo).ok(),"source_dirty":command_output("git",&["status","--porcelain"],&repo).ok().map(|s|!s.is_empty())});
     let build_id = sha256(&read_bounded(
         &env::current_exe().map_err(|_| "cannot locate running executable")?,
         128 * 1024 * 1024,
     )?);
-    let dependency_lock_sha256 = sha256(&read_bounded(&repo.join("Cargo.lock"), 2 * 1024 * 1024)?);
+    let dependency_lock_sha256 = string(&build_provenance, "dependency_lock_sha256")?;
     fs::create_dir(output).map_err(|_| "qualification destination must be a new directory")?;
     let bundle = write_bundle(&output.join("fixtures"))?;
     if read_bounded(&output.join("fixtures/manifest.json"), 2 * 1024 * 1024)?
@@ -241,7 +250,7 @@ pub fn qualify(output: &Path) -> Result<EvidenceRecord, EvidenceError> {
         .collect();
     let record = json!({
         "schema_version":1,"evidence_id":format!("foundation-{started}"),"status":if pass{"pass"}else{"fail"},
-        "requirement_ids":["ARCH-06"],"acceptance_ids":["AC-06"],"commit":commit,"source_dirty":dirty,"build_id":build_id,"dependency_lock_sha256":dependency_lock_sha256,
+        "requirement_ids":["ARCH-06"],"acceptance_ids":["AC-06"],"commit":commit,"source_dirty":dirty,"build_id":build_id,"dependency_lock_sha256":dependency_lock_sha256,"build_provenance":build_provenance,"execution_checkout":execution_checkout,
         "environment":{"os":env::consts::OS,"os_version":command_output("uname",&["-r"],&repo)?,"architecture":env::consts::ARCH,"backend":"virtual","backend_version":env!("CARGO_PKG_VERSION"),"device_identity":"virtual-output-v1","firmware_or_driver":null,"measurement_boundary":"engine_output"},
         "fixture_sha256":fixture_hashes,"graph_sha256":null,"harness_version":env!("CARGO_PKG_VERSION"),"command":recorded_command(),
         "reproduce_command":["cargo","run","--locked","-p","earph-harness","--","qualify","--output","<new-directory>"],
@@ -338,6 +347,18 @@ pub fn validate(record: &EvidenceRecord, root: &Path) -> Result<(), EvidenceErro
         if !hash(string(record, key)?) {
             return Err("invalid provenance hash".into());
         }
+    }
+    let build = &record["build_provenance"];
+    if build["schema_version"] != 1
+        || build["commit"] != record["commit"]
+        || build["source_dirty"] != record["source_dirty"]
+        || build["dependency_lock_sha256"] != record["dependency_lock_sha256"]
+        || !hash(string(build, "source_inputs_sha256")?)
+    {
+        return Err("build provenance does not match the record".into());
+    }
+    for field in ["rustc", "target", "profile"] {
+        string(build, field)?;
     }
     if !record["source_dirty"].is_boolean()
         || record["command"].as_array().is_none_or(Vec::is_empty)
@@ -487,6 +508,7 @@ pub fn validate(record: &EvidenceRecord, root: &Path) -> Result<(), EvidenceErro
         }
     }
     let faults = artifact_json(root, "fault-results.json")?;
+    let source_bytes = artifact_bytes(root, "fixtures/signed16-mono-44100-boundary.pcm")?;
     let mut cases = BTreeSet::new();
     for row in faults
         .as_array()
@@ -509,6 +531,12 @@ pub fn validate(record: &EvidenceRecord, root: &Path) -> Result<(), EvidenceErro
             return Err("failed or repeated fault case".into());
         }
         let (frames, error) = fault_expectation(fault, at);
+        let expected_prefix = source_bytes
+            .get(..frames as usize * 2)
+            .ok_or("source prefix is truncated")?;
+        if row["source_prefix_sha256"] != sha256(expected_prefix) {
+            return Err("fault source prefix hash mismatch".into());
+        }
         let mut previous = None;
         for (report_key, capture_key) in [
             ("first_report", "first_capture"),
@@ -527,6 +555,7 @@ pub fn validate(record: &EvidenceRecord, root: &Path) -> Result<(), EvidenceErro
                 || report["error"]["code"] != json!(error)
                 || report["payload_sha256"] != sha256(&bytes)
                 || bytes.len() != frames as usize * 2
+                || bytes != expected_prefix
             {
                 return Err("fault outcome differs from its expected contract".into());
             }

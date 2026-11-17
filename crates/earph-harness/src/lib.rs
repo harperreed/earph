@@ -18,14 +18,35 @@ pub fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
+pub fn build_provenance() -> serde_json::Value {
+    serde_json::from_str(include_str!(concat!(
+        env!("OUT_DIR"),
+        "/build-provenance.json"
+    )))
+    .expect("Cargo-generated provenance is valid JSON")
+}
+
 pub fn read_bounded(path: &Path, max_bytes: usize) -> Result<Vec<u8>, String> {
-    let file = File::open(path).map_err(|_| "cannot open input".to_string())?;
+    let mut file = File::open(path).map_err(|_| "cannot open input".to_string())?;
+    let metadata = file.metadata().map_err(|_| "cannot inspect input")?;
+    let length = usize::try_from(metadata.len()).map_err(|_| "input exceeds addressable size")?;
+    if !metadata.is_file() || length > max_bytes {
+        return Err("input is not a bounded regular file".into());
+    }
     let mut bytes = Vec::new();
-    file.take(max_bytes as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "cannot read input".to_string())?;
-    if bytes.len() > max_bytes {
-        return Err("input exceeds byte limit".into());
+    bytes
+        .try_reserve_exact(length)
+        .map_err(|_| "cannot reserve input buffer")?;
+    bytes.resize(length, 0);
+    file.read_exact(&mut bytes)
+        .map_err(|_| "cannot read complete input")?;
+    let mut extra = [0];
+    if file
+        .read(&mut extra)
+        .map_err(|_| "cannot verify input length")?
+        != 0
+    {
+        return Err("input changed while reading".into());
     }
     Ok(bytes)
 }

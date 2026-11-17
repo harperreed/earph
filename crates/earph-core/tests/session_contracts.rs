@@ -275,3 +275,50 @@ fn stale_session_cannot_unmute_and_queries_return_actual_state() {
         matches!(capabilities.result,Some(QueryResult::Capabilities(caps)) if !caps.physical_output && caps.sources==vec![SourceKind::Virtual])
     );
 }
+
+#[test]
+fn repeated_seeks_preserve_paused_intent_until_activation() {
+    let mut s = session();
+    playing(&mut s);
+    s.submit(command(&s, "pause-before-seeks", Command::Pause));
+    s.submit(command(
+        &s,
+        "seek-one",
+        Command::Seek {
+            position_frames: 10,
+        },
+    ));
+    s.submit(command(
+        &s,
+        "seek-two",
+        Command::Seek {
+            position_frames: 20,
+        },
+    ));
+    event(
+        &mut s,
+        EngineEventKind::Started {
+            activation_frame: 20,
+        },
+    );
+    assert_eq!(s.snapshot().transport, TransportState::Paused);
+    assert_eq!(s.snapshot().audible_position_frames, 20);
+}
+
+#[test]
+fn output_progress_does_not_invalidate_a_transport_revision() {
+    let mut s = session();
+    playing(&mut s);
+    let pause = command(&s, "pause-after-progress", Command::Pause);
+    let before = s.snapshot();
+    event(
+        &mut s,
+        EngineEventKind::Decoded {
+            position_frames: 100,
+        },
+    );
+    event(&mut s, EngineEventKind::Consumed { frames: 1 });
+    assert!(s.snapshot().event_sequence > before.event_sequence);
+    assert_eq!(s.snapshot().revision, before.revision);
+    assert_eq!(s.submit(pause).status, ReceiptStatus::Applied);
+}
