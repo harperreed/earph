@@ -2,6 +2,7 @@
 // ABOUTME: Keeps filesystem access and evidence work outside the audio core.
 #![forbid(unsafe_code)]
 pub mod catalog;
+pub mod fixture;
 pub mod inventory;
 
 use sha2::{Digest, Sha256};

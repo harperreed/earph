@@ -1,6 +1,43 @@
 // ABOUTME: Runs the actual offline executable against real files.
 // ABOUTME: Verifies exit status and machine-readable outcomes.
 use std::process::Command;
+mod support;
+
+#[test]
+fn fixture_files_and_manifests_are_repeatable_and_never_overwritten() {
+    let temporary = support::TestDir::new();
+    let first = temporary.0.join("first");
+    let second = temporary.0.join("second");
+    for directory in [&first, &second] {
+        let output = Command::new(env!("CARGO_BIN_EXE_earph-harness"))
+            .args(["fixtures", "--output"])
+            .arg(directory)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    }
+    let a = std::fs::read(first.join("manifest.json")).unwrap();
+    assert_eq!(a, std::fs::read(second.join("manifest.json")).unwrap());
+    let manifest: serde_json::Value = serde_json::from_slice(&a).unwrap();
+    assert_eq!(manifest["fixtures"].as_array().unwrap().len(), 72);
+    for file in manifest["fixtures"].as_array().unwrap() {
+        let path = file["payload_file"].as_str().unwrap();
+        let bytes = std::fs::read(first.join(path)).unwrap();
+        assert_eq!(bytes, std::fs::read(second.join(path)).unwrap());
+        assert_eq!(earph_harness::sha256(&bytes), file["payload_sha256"]);
+    }
+    let retry = Command::new(env!("CARGO_BIN_EXE_earph-harness"))
+        .args(["fixtures", "--output"])
+        .arg(&first)
+        .output()
+        .unwrap();
+    assert!(!retry.status.success());
+    assert_eq!(a, std::fs::read(first.join("manifest.json")).unwrap());
+}
 
 #[test]
 fn catalog_command_checks_real_document() {

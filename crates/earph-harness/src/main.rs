@@ -1,6 +1,6 @@
 // ABOUTME: Runs the offline engine qualification tools.
 // ABOUTME: Reports structured outcomes without opening physical audio devices.
-use earph_harness::{catalog, inventory, read_bounded};
+use earph_harness::{catalog, fixture, inventory, read_bounded};
 use serde_json::{Value, json};
 use std::{env, fs, path::Path, process::ExitCode};
 
@@ -11,6 +11,10 @@ fn run(args: &[String]) -> Result<Value, String> {
         .collect::<Vec<_>>()
         .as_slice()
     {
+        ["fixtures", "--output", directory] => {
+            let bundle = fixture::write_bundle(Path::new(directory))?;
+            Ok(json!({"status":"pass","fixtures":bundle.fixtures.len()}))
+        }
         ["catalog-check", "--catalog", path] => {
             let summary =
                 catalog::validate_catalog(&read_bounded(Path::new(path), 2 * 1024 * 1024)?)?;
@@ -39,7 +43,7 @@ fn run(args: &[String]) -> Result<Value, String> {
             Ok(json!({"status":"pass"}))
         }
         ["--help"] => Ok(
-            json!({"commands":["catalog-check --catalog PATH","dependency-check --inventory PATH","dependency-lock --output PATH --notices PATH"],"physical_output":false}),
+            json!({"commands":["catalog-check --catalog PATH","dependency-check --inventory PATH","dependency-lock --output PATH --notices PATH","fixtures --output DIR"],"physical_output":false}),
         ),
         _ => Err("unsupported command or arguments; use --help".into()),
     }

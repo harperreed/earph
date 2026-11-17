@@ -167,11 +167,11 @@ Do not install decoder, DSP, GUI, network, or hardware libraries solely to fill 
 - Pattern variants: silence, channel-tagged impulse, signed boundary cycle, and seeded noise. Use documented SplitMix64 for seeded noise. Pin a short independently calculated golden vector.
 - Qualification dimensions: 16/24/32-bit, mono/stereo, 44100/48000/96000 Hz, 1031 frames, seed 2389.
 
-- [ ] Test deterministic bytes/hashes, channel order, signed endpoints, exact frame counts, empty input, invalid dimensions, and checked limits before allocation. An empty fixture ends without producing a zero-frame block. Use hand-authored expected samples independent of the renderer and packer.
-- [ ] Run `cargo test -p earph-harness --test offline` red.
-- [ ] Implement bounded generation and canonical payload output. Generate fixture manifests from actual bytes. Hash payload and manifest separately. Never hash nondeterministic run metadata as audio identity.
-- [ ] Regenerate fixtures twice in separate temporary directories. Compare payloads/manifests and verify the independent expected vectors. Run the canonical check.
-- [ ] Review and commit with `test: add deterministic PCM fixture generation`.
+- [x] Test deterministic bytes/hashes, channel order, signed endpoints, exact frame counts, empty input, invalid dimensions, and checked limits before allocation. An empty fixture ends without producing a zero-frame block. Use hand-authored expected samples independent of the renderer and packer.
+- [x] Run `cargo test -p earph-harness --test offline` red.
+- [x] Implement bounded generation and canonical payload output. Generate fixture manifests from actual bytes. Hash payload and manifest separately. Never hash nondeterministic run metadata as audio identity.
+- [x] Regenerate fixtures twice in separate temporary directories. Compare payloads/manifests and verify the independent expected vectors. Run the canonical check.
+- [x] Review and commit with `test: add deterministic PCM fixture generation`.
 
 ## Task 5: Render through bounded virtual output and injected faults
 
