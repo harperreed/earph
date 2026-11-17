@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "request_id": "start-1",
+  "zone_id": "main",
+  "session_id": "session-1",
+  "expected_revision": 0,
+  "payload": {
+    "method": "sessions.start",
+    "source": "virtual",
+    "device_id": "virtual-output",
+    "takeover": false,
+    "seekable": true
+  }
+}

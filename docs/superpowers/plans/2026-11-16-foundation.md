@@ -146,11 +146,11 @@ Do not install decoder, DSP, GUI, network, or hardware libraries solely to fill 
 - `Receipt` carries `accepted|applied|rejected|cancelled|failed`, reason, request/target IDs, revisions, and optional activation position.
 - Inject monotonic timestamps through events. Do not read wall time in the reducer.
 
-- [ ] Write version round-trip and rejection tests. Reject missing/future/older versions, unknown required fields/methods, malformed IDs, and oversized messages before mutation. Version 1 is the only supported version. There is no historical migration or compatibility path to invent.
-- [ ] Write transition tests for §5, explicit takeover, stale target/session/revision, seek flushing, pause retention, final drain once, failure, and cancellation. Require startup mute and −40 dB software intent. A volume command must not unmute. Fixed output stays unavailable in this slice.
-- [ ] Write bounded log/deduplication tests, including unit tests for eviction and cursor recovery. Use 1024 retained receipts and 1024 state events per zone. Retained identical requests return their existing receipt. Reusing an ID for different content fails without mutation. Eviction ends the deduplication guarantee. A lagging cursor receives a gap plus a current snapshot.
-- [ ] Run the contract tests red. Implement the reducer with atomic validation-before-mutation. Advance epochs on seek, takeover, discontinuity, and output replacement. Separate start acceptance from readiness/application. Keep muted state orthogonal to transport. Do not claim physical silence from model state alone.
-- [ ] Run core tests and `scripts/check`. Review schema fixtures against Appendix E. Commit with `feat: add versioned control and session contracts`.
+- [x] Write version round-trip and rejection tests. Reject missing/future/older versions, unknown required fields/methods, malformed IDs, and oversized messages before mutation. Version 1 is the only supported version. There is no historical migration or compatibility path to invent.
+- [x] Write transition tests for §5, explicit takeover, stale target/session/revision, seek flushing, pause retention, final drain once, failure, and cancellation. Require startup mute and −40 dB software intent. A volume command must not unmute. Fixed output stays unavailable in this slice.
+- [x] Write bounded log/deduplication tests, including unit tests for eviction and cursor recovery. Use 1024 retained receipts and 1024 state events per zone. Retained identical requests return their existing receipt. Reusing an ID for different content fails without mutation. Eviction ends the deduplication guarantee. A lagging cursor receives a gap plus a current snapshot.
+- [x] Run the contract tests red. Implement the reducer with atomic validation-before-mutation. Advance epochs on seek, takeover, discontinuity, and output replacement. Separate start acceptance from readiness/application. Keep muted state orthogonal to transport. Do not claim physical silence from model state alone.
+- [x] Run core tests and `scripts/check`. Review schema fixtures against Appendix E. Commit with `feat: add versioned control and session contracts`.
 
 ## Task 4: Generate independent, deterministic PCM fixtures
 

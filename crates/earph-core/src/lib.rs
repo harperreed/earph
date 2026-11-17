@@ -2,7 +2,9 @@
 // ABOUTME: Keeps platform handles and adapter types outside the core.
 #![forbid(unsafe_code)]
 pub mod audio;
+pub mod control;
 pub mod ids;
+pub mod session;
 
 use serde::{Deserialize, Serialize};
 
