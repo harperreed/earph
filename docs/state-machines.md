@@ -121,6 +121,12 @@ Request IDs identify logical reads and mutations; replaying an old state query r
 
 ## Verification and limits
 
+On November 17, 2026, `scripts/check` passed all 55 tests, formatting, lint, catalog, and dependency checks.
+An independent read-only review reran those tests and found no remaining issues.
+Fresh qualification from clean commit `9e09082` passed 288 exact renders and 18 fault cases, each repeated twice.
+The fresh record and archived foundation record both passed `evidence-check`.
+The fresh run is retained under `target/state-machines/qualification/` in the task worktree.
+
 Regression tests reproduce paused recovery, terminal-event rejection, cancellation freshness, and backwards output epochs.
 Unit tests reject successful finalization before processing and preserve actual outcomes after rejected reprocessing.
 Filesystem tests force hash-write failure and rejected evidence validation against real temporary directories.
@@ -130,4 +136,5 @@ The allocator test still checks prepared execution without allocations or frees.
 The public snapshot does not expose listening intent separately during buffering.
 These fixes preserve its existing schema; a future GUI/control contract can add explicit intent through its versioning rules.
 Physical outputs, crash-restored operational state, graphs, profiles, network roles, FFI clients, and GUIs remain unimplemented or unqualified.
+This task does not qualify power-loss durability beyond completed writes and atomic JSON publication.
 Their proposed lifecycles remain in [the product specification](SPEC.md).
