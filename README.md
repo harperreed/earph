@@ -6,6 +6,7 @@ The current foundation checks schemas and generates deterministic offline fixtur
 It does not open physical outputs or implement network playback.
 The full product contract lives in [the specification](docs/SPEC.md).
 Follow [the foundation plan](docs/superpowers/plans/2026-11-16-foundation.md) for current progress.
+See [the state-machine map](docs/state-machines.md) for state owners, transitions, and recovery actions.
 
 Use Rust 1.98.1, selected in `mise.toml`.
 Run `scripts/check` for formatting, lint, tests, traceability, and dependency checks.
@@ -41,6 +42,8 @@ Supported fault kinds are `short_write`, `zero_progress`, `underrun`, `backend_f
 Short writes include a positive `max_frames` field.
 Fault positions increase strictly and precede the fixture's end.
 Failures retain partial output and a failed report.
+The final render report appears only after capture and hash writes succeed.
+Qualification validates evidence before publishing a passing final record.
 
 Prepared processing uses bounded buffers and performs no filesystem work.
 The allocator test instruments allocations and frees during normal and faulty processing.

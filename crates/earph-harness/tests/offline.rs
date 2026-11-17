@@ -20,6 +20,38 @@ fn fixture_loading_admits_raw_and_typed_buffers_together() {
     assert_eq!(bytes.capacity(), 8248);
 }
 
+#[test]
+fn output_generation_cannot_move_backwards() {
+    let fixture = spec(FixturePattern::Boundary, 3);
+    let current = Epochs {
+        session: 2,
+        stream: 1,
+    };
+    let mut output = VirtualOutput::prepare(fixture.format, 3, current).unwrap();
+    for old in [
+        Epochs {
+            session: 2,
+            stream: 0,
+        },
+        Epochs {
+            session: 1,
+            stream: 99,
+        },
+        current,
+    ] {
+        assert_eq!(
+            output.invalidate(old, 0).unwrap_err().code,
+            earph_core::ErrorCode::StaleSession
+        );
+    }
+    let mut block = PcmBlock::prepare(fixture.format, 3, current, MemoryBudget::default()).unwrap();
+    FixtureSource::new(fixture)
+        .unwrap()
+        .read_into(&mut block)
+        .unwrap();
+    assert_eq!(output.write(&block, 0).unwrap(), 3);
+}
+
 fn request(fixture: FixtureSpec, block_frames: usize) -> RenderRequest {
     RenderRequest {
         fixture,

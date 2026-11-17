@@ -23,6 +23,10 @@ Keep control messages within 1 MiB and catalogs within 2 MiB.
 Retain 1024 receipts and 1024 state events per zone.
 Keep progress event sequences separate from mutation revisions.
 Preserve paused intent when a second seek replaces a pending seek.
+Keep listening intent separate from temporary transport states during discontinuity and reconfiguration.
+Reject source events while an output is failed or suspended.
+Install only newer output epochs.
+Cancel superseded operations against the revision and epochs that committed their replacement.
 Deduplication applies only while a receipt remains retained.
 Reject changed payloads reusing a retained request ID.
 Report event gaps and include a fresh snapshot.
@@ -45,3 +49,9 @@ Include source revision, source digest, lock hash, compiler, target, and profile
 Watch source inputs and Git references when refreshing build metadata.
 Keep execution-time checkout observations separate.
 Do not relabel an older binary with a newer checkout's identity.
+
+Derive render outcomes from an explicit prepared/running/completed state.
+Publish render reports after capture and hash writes succeed.
+Validate qualification results before publishing a passing record.
+Use the shared atomic JSON writer for final reports.
+See [the state-machine map](../state-machines.md) for the full ownership and recovery inventory.

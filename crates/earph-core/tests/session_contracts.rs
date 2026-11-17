@@ -322,3 +322,82 @@ fn output_progress_does_not_invalidate_a_transport_revision() {
     assert_eq!(s.snapshot().revision, before.revision);
     assert_eq!(s.submit(pause).status, ReceiptStatus::Applied);
 }
+
+#[test]
+fn paused_intent_survives_discontinuity_and_rebuffering() {
+    let mut s = session();
+    playing(&mut s);
+    s.submit(command(&s, "pause-before-discontinuity", Command::Pause));
+    event(&mut s, EngineEventKind::Discontinuity);
+    event(&mut s, EngineEventKind::Prepared);
+    event(
+        &mut s,
+        EngineEventKind::Started {
+            activation_frame: 0,
+        },
+    );
+    assert_eq!(s.snapshot().transport, TransportState::Paused);
+    assert!(s.snapshot().muted);
+}
+
+#[test]
+fn terminal_output_states_reject_source_events_until_explicit_restart() {
+    for terminal in [
+        EngineEventKind::OutputFailed,
+        EngineEventKind::OutputReplaced {
+            device_id: DeviceId::new("replacement").unwrap(),
+        },
+    ] {
+        let mut s = session();
+        playing(&mut s);
+        event(&mut s, terminal);
+        let before = s.snapshot();
+        for kind in [
+            EngineEventKind::Decoded {
+                position_frames: 100,
+            },
+            EngineEventKind::Discontinuity,
+        ] {
+            assert!(
+                s.advance(EngineEvent {
+                    epochs: before.epochs,
+                    monotonic_ns: before.monotonic_ns + 1,
+                    kind
+                })
+                .is_err()
+            );
+            assert_eq!(s.snapshot(), before);
+        }
+        assert_eq!(
+            s.submit(start(&s, "explicit-restart", true)).status,
+            ReceiptStatus::Accepted
+        );
+        assert!(s.snapshot().muted);
+    }
+}
+
+#[test]
+fn superseded_operations_report_the_revision_and_epochs_that_cancelled_them() {
+    for replacement in [
+        Command::Stop,
+        Command::Start {
+            source: SourceKind::Virtual,
+            device_id: DeviceId::new("virtual").unwrap(),
+            takeover: true,
+            seekable: true,
+        },
+    ] {
+        let mut s = session();
+        let original = start(&s, "pending-original", false);
+        s.submit(original.clone());
+        let mut next = command(&s, "replacement", replacement);
+        if matches!(next.payload, Command::Start { .. }) {
+            next.session_id = Some(SessionId::new("replacement").unwrap());
+        }
+        s.submit(next);
+        let terminal = s.submit(original);
+        assert_eq!(terminal.status, ReceiptStatus::Cancelled);
+        assert_eq!(terminal.revision, s.snapshot().revision);
+        assert_eq!(terminal.epochs, s.snapshot().epochs);
+    }
+}

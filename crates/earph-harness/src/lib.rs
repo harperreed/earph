@@ -6,10 +6,29 @@ pub mod evidence;
 pub mod fixture;
 pub mod inventory;
 pub mod render;
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod test_support;
 pub mod virtual_output;
 
 use sha2::{Digest, Sha256};
-use std::{fs::File, io::Read, path::Path};
+use std::{
+    fs::{self, File},
+    io::{Read, Write},
+    path::Path,
+};
+
+/// Publishes a complete JSON file through a synced sibling temporary file.
+pub fn atomic_json<T: serde::Serialize + ?Sized>(path: &Path, value: &T) -> Result<(), String> {
+    let temporary = path.with_extension("json.partial");
+    let mut file =
+        File::create_new(&temporary).map_err(|_| "cannot create report temporary file")?;
+    file.write_all(&serde_json::to_vec_pretty(value).map_err(|_| "cannot serialize report")?)
+        .map_err(|_| "cannot write report")?;
+    file.sync_all().map_err(|_| "cannot sync report")?;
+    fs::rename(&temporary, path).map_err(|_| "cannot finalize report")?;
+    Ok(())
+}
 
 pub fn sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes)

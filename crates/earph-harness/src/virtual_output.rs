@@ -78,7 +78,7 @@ impl VirtualOutput {
         self.failed = true;
     }
     pub fn invalidate(&mut self, epochs: Epochs, frame_position: u64) -> Result<(), EngineError> {
-        if epochs == self.epochs {
+        if (epochs.session, epochs.stream) <= (self.epochs.session, self.epochs.stream) {
             return Err(EngineError::new(
                 ErrorCode::StaleSession,
                 "replacement must invalidate old epochs",

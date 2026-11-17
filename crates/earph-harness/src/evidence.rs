@@ -1,13 +1,11 @@
 // ABOUTME: Executes the offline qualification matrix and records actual provenance.
 // ABOUTME: Verifies artifact hashes and outcomes before accepting a passing record.
-use crate::{fixture::*, read_bounded, render::*, sha256};
+use crate::{atomic_json, fixture::*, read_bounded, render::*, sha256};
 use earph_core::{ErrorCode, audio::MemoryBudget, ids::Epochs};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeSet,
-    env,
-    fs::{self, File},
-    io::Write,
+    env, fs,
     path::{Component, Path},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -35,16 +33,6 @@ fn command_output(program: &str, args: &[&str], directory: &Path) -> Result<Stri
         .map_err(|_| "non-UTF8 provenance")?
         .trim()
         .to_owned())
-}
-fn atomic_json(path: &Path, value: &Value) -> Result<(), String> {
-    let temporary = path.with_extension("json.partial");
-    let mut file =
-        File::create_new(&temporary).map_err(|_| "cannot create report temporary file")?;
-    file.write_all(&serde_json::to_vec_pretty(value).map_err(|_| "cannot serialize report")?)
-        .map_err(|_| "cannot write report")?;
-    file.sync_all().map_err(|_| "cannot sync report")?;
-    fs::rename(&temporary, path).map_err(|_| "cannot finalize report")?;
-    Ok(())
 }
 fn save_report(root: &Path, stem: &str, report: &RenderReport) -> Result<(String, String), String> {
     let report_path = format!("faults/{stem}.json");
@@ -259,8 +247,19 @@ pub fn qualify(output: &Path) -> Result<EvidenceRecord, EvidenceError> {
         "observed_result":{"clean_renders":clean.len(),"fault_cases":faults.len(),"fault_repeats":2,"fixtures":bundle.fixtures.len()},
         "artifacts":artifacts,"limitations":["Virtual output only; physical devices, macOS, protocols and DSP remain unqualified.","Graph hash is null because no DSP graph exists.","Recorded argv redacts local output paths; other arguments and build identity remain exact.","This matrix does not replace the separate canonical unit, integration, CLI and allocation checks."],"reviewer":null
     });
+    publish_record(output, record)
+}
+
+fn publish_record(
+    output: &Path,
+    mut record: EvidenceRecord,
+) -> Result<EvidenceRecord, EvidenceError> {
+    let validation = validate(&record, output);
+    if validation.is_err() {
+        record["status"] = json!("fail");
+    }
     atomic_json(&output.join("evidence.json"), &record)?;
-    validate(&record, output)?;
+    validation?;
     Ok(record)
 }
 
@@ -580,4 +579,18 @@ pub fn validate(record: &EvidenceRecord, root: &Path) -> Result<(), EvidenceErro
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn rejected_validation_cannot_leave_a_passing_final_record() {
+        let directory = crate::test_support::TestDir::new();
+        let record = json!({"schema_version":1,"status":"pass"});
+        assert!(publish_record(&directory.0, record).is_err());
+        let stored: Value =
+            serde_json::from_slice(&fs::read(directory.0.join("evidence.json")).unwrap()).unwrap();
+        assert_eq!(stored["status"], "fail");
+    }
 }

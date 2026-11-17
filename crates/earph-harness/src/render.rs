@@ -136,6 +136,12 @@ pub struct RenderFailure {
     pub report: Box<RenderReport>,
 }
 
+enum RenderState {
+    Prepared,
+    Running,
+    Completed(Result<(), EngineError>),
+}
+
 pub struct PreparedRender {
     request: RenderRequest,
     source: FixtureSource,
@@ -147,7 +153,7 @@ pub struct PreparedRender {
     offset: usize,
     fault_index: usize,
     write_limit: usize,
-    processed: bool,
+    state: RenderState,
 }
 impl PreparedRender {
     pub fn prepare(request: RenderRequest) -> Result<Self, EngineError> {
@@ -211,7 +217,7 @@ impl PreparedRender {
             offset: 0,
             fault_index: 0,
             write_limit: usize::MAX,
-            processed: false,
+            state: RenderState::Prepared,
         })
     }
     fn event(&mut self, event: RenderEventKind) {
@@ -252,19 +258,20 @@ impl PreparedRender {
         Ok(frames)
     }
     pub fn process(&mut self) -> Result<(), EngineError> {
-        if self.processed {
+        if !matches!(self.state, RenderState::Prepared) {
             return Err(EngineError::new(
                 ErrorCode::CapabilityUnsupported,
                 "prepared render already consumed",
             ));
         }
-        self.processed = true;
+        self.state = RenderState::Running;
         self.event(RenderEventKind::Prepared);
         let result = self.process_blocks();
         match result {
             Ok(()) => self.event(RenderEventKind::Finished),
             Err(error) => self.event(RenderEventKind::Stopped { code: error.code }),
         }
+        self.state = RenderState::Completed(result);
         result
     }
     fn process_blocks(&mut self) -> Result<(), EngineError> {
@@ -324,7 +331,14 @@ impl PreparedRender {
             self.event(RenderEventKind::Written { frames: written });
         }
     }
-    fn finish(self, result: Result<(), EngineError>) -> RenderReport {
+    fn finish(self) -> RenderReport {
+        let result = match self.state {
+            RenderState::Completed(result) => result,
+            _ => Err(EngineError::new(
+                ErrorCode::CapabilityUnsupported,
+                "prepared render has not completed",
+            )),
+        };
         let frames = self.output.clock().frames();
         let elapsed_ns = self.output.clock().elapsed_ns();
         let format = self.request.fixture.format;
@@ -370,12 +384,55 @@ fn render_input(
         }
     };
     let result = prepared.process();
-    let report = prepared.finish(result);
+    let report = prepared.finish();
     match result {
         Ok(()) => Ok(report),
         Err(error) => Err(RenderFailure {
             error,
             report: Box::new(report),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn prepared(faults: FaultSchedule) -> PreparedRender {
+        PreparedRender::prepare(RenderRequest {
+            fixture: crate::fixture::qualification_specs().pop().unwrap(),
+            block_frames: 64,
+            budget: MemoryBudget::default(),
+            epochs: Epochs::default(),
+            faults,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn unprocessed_render_cannot_publish_a_successful_outcome() {
+        let report = prepared(FaultSchedule::default()).finish();
+        assert_eq!(report.status, "fail");
+        assert_eq!(report.output_frames, 0);
+    }
+
+    #[test]
+    fn terminal_render_outcome_survives_rejected_reprocessing() {
+        for faults in [
+            FaultSchedule::default(),
+            FaultSchedule {
+                schema_version: 1,
+                faults: vec![ScheduledFault {
+                    at_frame: 64,
+                    fault: FaultKind::BackendFailure,
+                }],
+            },
+        ] {
+            let mut render = prepared(faults);
+            let actual = render.process();
+            assert!(render.process().is_err());
+            let report = render.finish();
+            assert_eq!(report.error, actual.err());
+            assert_eq!(report.status, if actual.is_ok() { "pass" } else { "fail" });
+        }
     }
 }

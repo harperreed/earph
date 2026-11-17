@@ -32,6 +32,33 @@ pub enum TransportState {
     Suspended,
     Failed,
 }
+impl TransportState {
+    fn accepts_source_events(self) -> bool {
+        matches!(
+            self,
+            Self::Preparing
+                | Self::Buffering
+                | Self::Playing
+                | Self::Paused
+                | Self::Reconfiguring
+                | Self::Draining
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PlaybackIntent {
+    Playing,
+    Paused,
+}
+impl PlaybackIntent {
+    fn transport(self) -> TransportState {
+        match self {
+            Self::Playing => TransportState::Playing,
+            Self::Paused => TransportState::Paused,
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SessionSnapshot {
     pub zone_id: ZoneId,
@@ -94,7 +121,7 @@ pub struct Session {
     limits: ControlLimits,
     receipts: VecDeque<(CommandEnvelope, Receipt)>,
     events: VecDeque<StateEvent>,
-    pending_destination: TransportState,
+    playback_intent: PlaybackIntent,
 }
 impl Session {
     pub fn new(zone_id: ZoneId, limits: ControlLimits) -> Self {
@@ -121,7 +148,7 @@ impl Session {
             receipts: VecDeque::with_capacity(limits.receipts),
             events: VecDeque::with_capacity(limits.events),
             limits,
-            pending_destination: TransportState::Playing,
+            playback_intent: PlaybackIntent::Playing,
         }
     }
     pub fn snapshot(&self) -> SessionSnapshot {
@@ -266,7 +293,7 @@ impl Session {
         let mut next = self.state.clone();
         next.revision = increment(next.revision)?;
         next.event_sequence = increment(next.event_sequence)?;
-        let mut destination = TransportState::Playing;
+        let mut intent = self.playback_intent;
         let mut cancel_previous = false;
         let status = match &command.payload {
             Command::Start {
@@ -291,6 +318,7 @@ impl Session {
                 next.audible_position_frames = 0;
                 next.decoded_position_frames = 0;
                 next.error = None;
+                intent = PlaybackIntent::Playing;
                 cancel_previous = true;
                 ReceiptStatus::Accepted
             }
@@ -306,10 +334,12 @@ impl Session {
             }
             Command::Pause if next.transport == TransportState::Playing => {
                 next.transport = TransportState::Paused;
+                intent = PlaybackIntent::Paused;
                 ReceiptStatus::Applied
             }
             Command::Resume if next.transport == TransportState::Paused => {
                 next.transport = TransportState::Buffering;
+                intent = PlaybackIntent::Playing;
                 ReceiptStatus::Accepted
             }
             Command::Seek { position_frames }
@@ -321,11 +351,6 @@ impl Session {
                             | TransportState::Buffering
                     ) =>
             {
-                destination = match next.transport {
-                    TransportState::Paused => TransportState::Paused,
-                    TransportState::Buffering => self.pending_destination,
-                    _ => TransportState::Playing,
-                };
                 next.epochs = next.epochs.next_stream()?;
                 next.transport = TransportState::Buffering;
                 next.audible_position_frames = *position_frames;
@@ -339,6 +364,7 @@ impl Session {
             }
             _ => return Err(STATE),
         };
+        self.state = next;
         if cancel_previous {
             self.finish_pending(
                 ReceiptStatus::Cancelled,
@@ -348,13 +374,11 @@ impl Session {
                 )),
                 None,
             );
-            next.operation = None;
         }
         if status == ReceiptStatus::Accepted {
-            next.operation = Some(command.request_id.clone());
-            self.pending_destination = destination;
+            self.state.operation = Some(command.request_id.clone());
         }
-        self.state = next;
+        self.playback_intent = intent;
         self.log(Some(command.request_id.clone()));
         Ok(status)
     }
@@ -390,11 +414,13 @@ impl Session {
             EngineEventKind::Started { activation_frame }
                 if next.transport == TransportState::Buffering =>
             {
-                next.transport = self.pending_destination;
+                next.transport = self.playback_intent.transport();
                 completion = Some((ReceiptStatus::Applied, None, Some(activation_frame)));
             }
             EngineEventKind::Decoded { position_frames }
-                if next.session_id.is_some() && position_frames >= next.decoded_position_frames =>
+                if next.session_id.is_some()
+                    && next.transport.accepts_source_events()
+                    && position_frames >= next.decoded_position_frames =>
             {
                 next.decoded_position_frames = position_frames
             }
@@ -423,7 +449,9 @@ impl Session {
                 next.seekable = false;
                 next.epochs = next.epochs.next_stream()?;
             }
-            EngineEventKind::Discontinuity if next.session_id.is_some() => {
+            EngineEventKind::Discontinuity
+                if next.session_id.is_some() && next.transport.accepts_source_events() =>
+            {
                 next.transport = TransportState::Reconfiguring;
                 next.muted = true;
                 next.epochs = next.epochs.next_stream()?;

@@ -2,9 +2,12 @@
 // ABOUTME: Reports structured outcomes without opening physical audio devices.
 use earph_core::{EngineError, ErrorCode, audio::MemoryBudget, ids::Epochs};
 use earph_harness::render::{self, FaultSchedule, RenderRequest};
-use earph_harness::{catalog, evidence, fixture, inventory, read_bounded};
+use earph_harness::{atomic_json, catalog, evidence, fixture, inventory, read_bounded};
 use serde_json::{Value, json};
 use std::{env, fs, path::Path, process::ExitCode};
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod test_support;
 
 struct CliFailure {
     code: ErrorCode,
@@ -63,27 +66,25 @@ fn render_file(
         Ok(report) => (report, None),
         Err(failure) => (*failure.report, Some(failure.error)),
     };
-    fs::write(
-        Path::new(directory).join("capture.pcm"),
-        report.capture_bytes(),
-    )
-    .map_err(|_| "cannot write capture")?;
-    fs::write(
-        Path::new(directory).join("report.json"),
-        serde_json::to_vec_pretty(&report).map_err(|_| "cannot serialize render report")?,
-    )
-    .map_err(|_| "cannot write render report")?;
-    fs::write(
-        Path::new(directory).join("capture.sha256"),
-        format!("{}\n", report.payload_sha256),
-    )
-    .map_err(|_| "cannot write capture hash")?;
+    persist_render(Path::new(directory), &report)?;
     if let Some(error) = error {
         return Err(error.into());
     }
     Ok(
         json!({"status":"pass","output_frames":report.output_frames,"payload_sha256":report.payload_sha256}),
     )
+}
+
+fn persist_render(directory: &Path, report: &render::RenderReport) -> Result<(), CliFailure> {
+    fs::write(directory.join("capture.pcm"), report.capture_bytes())
+        .map_err(|_| "cannot write capture")?;
+    fs::write(
+        directory.join("capture.sha256"),
+        format!("{}\n", report.payload_sha256),
+    )
+    .map_err(|_| "cannot write capture hash")?;
+    atomic_json(&directory.join("report.json"), report)?;
+    Ok(())
 }
 
 fn run(args: &[String]) -> Result<Value, CliFailure> {
@@ -178,5 +179,26 @@ fn main() -> ExitCode {
             );
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn incomplete_artifact_write_cannot_publish_a_passing_render_report() {
+        let directory = test_support::TestDir::new();
+        fs::create_dir(directory.0.join("capture.sha256")).unwrap();
+        let report = render::render(RenderRequest {
+            fixture: fixture::qualification_specs().pop().unwrap(),
+            block_frames: 64,
+            budget: MemoryBudget::default(),
+            epochs: Epochs::default(),
+            faults: FaultSchedule::default(),
+        })
+        .unwrap();
+        assert!(persist_render(&directory.0, &report).is_err());
+        assert!(!directory.0.join("report.json").exists());
+        assert!(directory.0.join("capture.pcm").is_file());
     }
 }
