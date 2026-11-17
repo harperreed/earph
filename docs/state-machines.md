@@ -1,6 +1,6 @@
 # Implemented state machines
 
-Scope: the Rust core, offline harness, CLI, build metadata, and qualification artifacts.
+Scope: the Rust core, offline harness, ALSA adapter, CLIs, build metadata, and qualification artifacts.
 This inventory includes explicit enums and lifecycles previously encoded by flags, optional fields, counters, or file existence.
 Third-party internals and unimplemented product features are outside this inventory.
 
@@ -12,8 +12,9 @@ Treat final reports as commit points.
 Keep existing public types, commands, JSON version 1, errors, and artifact names.
 Use existing counters, booleans, and checked constructors where they already express the complete invariant.
 
-The work changes six implementation files and their regression tests.
-It introduces no state-machine framework, new dependency, persistent store, or control surface.
+The original state-machine audit changed six implementation files and their regression tests.
+It introduced no state-machine framework or persistent store.
+The later T05 spike adds a native adapter with its own explicit lifecycle.
 
 ## Inventory
 
@@ -30,6 +31,8 @@ It introduces no state-machine framework, new dependency, persistent store, or c
 | Fixture production | [`FixtureSource`](../crates/earph-harness/src/fixture.rs) owns frame position, sequence, and PRNG state. Remaining frames eventually become EOF. | Keep bounded cursors. A zero read ends consumption; the previous block is not fresh audio. |
 | Presentation clock | [`VirtualClock`](../crates/earph-harness/src/virtual_output.rs) moves from an unset rate to one fixed running rate. | Keep `Option` and checked arithmetic. Derive time from total consumed frames. |
 | Virtual output | `VirtualOutput` owns format, epochs, capacity, cursor, and terminal failure. Writes advance only accepted frames. | Keep the failure boolean. Newer epochs invalidate old packets without reviving failed output. |
+| ALSA output | [`AlsaOutput`](../crates/earph-alsa/src/output.rs) owns `Prepared -> Running -> Stopped/Failed`, one native handle, epochs, and accepted positions. | Require explicit signal permission. Return short counts and `would_block` without advancing unaccepted frames. Stop and close on fatal native errors; reopen explicitly. |
+| ALSA capability evidence | Discovery yields advertised hints; opening yields installed client parameters; approved exercises yield client estimates. | Keep plugin byte measurements separate from hardware proof. Never infer downstream transformations on system routes. |
 | Prepared execution | [`PreparedRender`](../crates/earph-harness/src/render.rs) owns `Prepared -> Running -> Completed(Result)`. | Replace the consumed flag. Finalization reads the actual terminal result; callers cannot supply success. |
 | Block submission and faults | `PreparedRender` owns the decoded block, accepted offset, write limit, and ordered fault cursor. | Keep bounded cursors. Finish each partial write before reading another block; apply each scheduled fault once. |
 | Artifact publication | [`persist_render` and `dependency-lock`](../crates/earph-harness/src/main.rs), fixture generation, and [`atomic_json`](../crates/earph-harness/src/lib.rs) own partial and completed file writes. | Commit final render reports after capture and hash. Preserve partial files. Dependency inventory and notices remain sequential updates requiring inspection on failure. |
@@ -135,6 +138,8 @@ The allocator test still checks prepared execution without allocations or frees.
 
 The public snapshot does not expose listening intent separately during buffering.
 These fixes preserve its existing schema; a future GUI/control contract can add explicit intent through its versioning rules.
-Physical outputs, crash-restored operational state, graphs, profiles, network roles, FFI clients, and GUIs remain unimplemented or unqualified.
+The [T05 spike](alsa-spike.md) implements Linux output with plugin measurements and silent host opening.
+Physical playback remains unqualified.
+Crash-restored operational state, graphs, profiles, network roles, FFI clients, and GUIs remain unimplemented or unqualified.
 This task does not qualify power-loss durability beyond completed writes and atomic JSON publication.
 Their proposed lifecycles remain in [the product specification](SPEC.md).

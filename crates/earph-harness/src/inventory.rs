@@ -99,9 +99,13 @@ pub fn snapshot() -> Result<(Value, String), String> {
         "operational store",
     ]
     .into_iter()
-    .map(
-        |name| json!({"name":name,"status":"unselected","qualification":"not_run","revision":null}),
-    )
+    .map(|name| {
+        if name == "ALSA" {
+            json!({"name":name,"status":"selected","qualification":"partial","revision":"alsa-sys 0.6.1"})
+        } else {
+            json!({"name":name,"status":"unselected","qualification":"not_run","revision":null})
+        }
+    })
     .collect();
     let final_len = notices.trim_end().len();
     notices.truncate(final_len);

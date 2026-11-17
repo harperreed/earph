@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "device": "null",
+  "route": "system",
+  "format": {
+    "sample_rate_hz": 48000,
+    "channels": "stereo",
+    "representation": "signed24"
+  },
+  "period_frames": 64,
+  "buffer_frames": 256
+}

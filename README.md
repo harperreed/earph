@@ -2,11 +2,13 @@
 
 An inspectable, local-first audio renderer and DSP engine in Rust.
 
-The current foundation checks schemas and generates deterministic offline fixtures.
-It does not open physical outputs or implement network playback.
+The foundation checks schemas and generates deterministic offline fixtures.
+The Linux ALSA spike adds explicit output discovery and exact format negotiation.
+It keeps signal writes behind explicit approval and does not implement a full player or network playback.
 The full product contract lives in [the specification](docs/SPEC.md).
 Follow [the foundation plan](docs/superpowers/plans/2026-11-16-foundation.md) for current progress.
 See [the state-machine map](docs/state-machines.md) for state owners, transitions, and recovery actions.
+See [the ALSA spike](docs/alsa-spike.md) for Linux output commands, evidence, and qualification limits.
 
 Use Rust 1.98.1, selected in `mise.toml`.
 Run `scripts/check` for formatting, lint, tests, traceability, and dependency checks.
@@ -72,7 +74,7 @@ It rejects corrupt artifacts, missing provenance, changed outcomes, and broader 
 It does not authenticate an author or replace independent review.
 Interrupted writes leave partial artifacts without a passing final report.
 
-The qualified scope is AC-06 on Linux virtual output.
+The offline qualified scope is AC-06 on Linux virtual output.
 Other scenarios have partial test coverage or remain not run.
 The next gate covers real backend spikes and the remaining M0 decisions.
 
@@ -82,7 +84,9 @@ Fixture loading admits raw bytes and typed samples together before reading the p
 
 Inspect command syntax with `cargo run --locked -p earph-harness -- --help`.
 Output is JSON. Failures exit with status 2.
-No commands emit sound or silently select a physical output.
+The harness commands remain offline and never select a physical output.
+The separate `earph-alsa` executable opens only an explicitly selected endpoint.
+Its fixture exercise requires `--allow-signal` after approval for that route.
 
 First-party code uses MIT. Dependencies retain their own terms.
 See `THIRD_PARTY_NOTICES.txt` and `docs/dependency-lock.json`.

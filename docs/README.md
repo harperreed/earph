@@ -13,6 +13,8 @@ Design baseline dated November 16, 2026 (America/Chicago).
 
 The T01–T03 foundation now has passing Linux virtual-output evidence in `evidence/foundation/`.
 Other gates remain partial or not run.
+The [T05 ALSA spike](alsa-spike.md) adds Linux output with real plugin tests and silent host negotiation.
+It does not qualify physical playback or complete M0.
 
 Start with T01–T03: shared domain/control contracts, exact dependency/license decisions, deterministic fixtures, virtual output and the offline test harness. Then build the M1 local playback slice on macOS and Linux. Implement later subsystems only after their prerequisites and acceptance contracts exist.
 

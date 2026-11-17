@@ -51,6 +51,8 @@ fn main() {
         "crates/earph-harness/Cargo.toml",
         "crates/earph-harness/src",
         "crates/earph-harness/build.rs",
+        "crates/earph-alsa/Cargo.toml",
+        "crates/earph-alsa/src",
         "docs/requirements.json",
         "fixtures/audio/manifest.json",
     ] {

@@ -4,7 +4,7 @@
   "title": "Rust Audiophile Player \u2014 Product and Engineering Specification",
   "date_local": "2026-11-16",
   "timezone": "America/Chicago",
-  "status": "T01–T03 foundation implemented; Linux virtual output qualified; broader release gates remain unqualified",
+  "status": "T01–T03 foundation and T05 ALSA spike implemented; virtual and ALSA plugin output tested; physical playback remains unqualified",
   "q25": {
     "selection": "D",
     "option_text": null,
@@ -428,9 +428,11 @@
       "depends_on": [
         "ARCH-04"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "alsa-spike.md"
+      ]
     },
     {
       "id": "OUT-02",
@@ -446,9 +448,11 @@
       "depends_on": [
         "OUT-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "alsa-spike.md"
+      ]
     },
     {
       "id": "OUT-03",
@@ -464,9 +468,11 @@
       "depends_on": [
         "OUT-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "alsa-spike.md"
+      ]
     },
     {
       "id": "OUT-04",
@@ -1710,8 +1716,10 @@
         "hardware-matrix.json",
         "backend-negotiation.json"
       ],
-      "status": "not_run",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "alsa-spike.md"
+      ],
       "requirement_ids": [
         "OUT-01",
         "OUT-03",

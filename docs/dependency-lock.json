@@ -44,9 +44,9 @@
     },
     {
       "name": "ALSA",
-      "qualification": "not_run",
-      "revision": null,
-      "status": "unselected"
+      "qualification": "partial",
+      "revision": "alsa-sys 0.6.1",
+      "status": "selected"
     },
     {
       "name": "Linux GUI",
@@ -64,6 +64,20 @@
   "packages": [
     {
       "features": [],
+      "license_expression": "MIT",
+      "license_files": [
+        {
+          "name": "LICENSE",
+          "sha256": "219766b3420f49f6204143c5f3ef750888fb6de29ce5f63e909f146e90b375a2"
+        }
+      ],
+      "manifest_sha256": "5784dfd51b42d924403644d9f6eaf6c3e13315ff07a642fba94751956832def6",
+      "name": "alsa-sys",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.6.1"
+    },
+    {
+      "features": [],
       "license_expression": "MIT OR Apache-2.0",
       "license_files": [
         {
@@ -79,6 +93,24 @@
       "name": "block-buffer",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.12.1"
+    },
+    {
+      "features": [],
+      "license_expression": "MIT OR Apache-2.0",
+      "license_files": [
+        {
+          "name": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "sha256": "378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397"
+        }
+      ],
+      "manifest_sha256": "8c2dc04fb4bb01a37cc802ce61dc1a012df3e2e6887309523d72f82917d7a53d",
+      "name": "cc",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.11.2"
     },
     {
       "features": [],
@@ -181,6 +213,24 @@
       "license_files": [
         {
           "name": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "sha256": "378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397"
+        }
+      ],
+      "manifest_sha256": "d71ae71febecc514eaacb932c7ffecd9dce4ba3a935dce5c619dbb7114793625",
+      "name": "find-msvc-tools",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.1.15"
+    },
+    {
+      "features": [],
+      "license_expression": "MIT OR Apache-2.0",
+      "license_files": [
+        {
+          "name": "LICENSE-APACHE",
           "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
         },
         {
@@ -212,7 +262,10 @@
       "version": "1.0.19"
     },
     {
-      "features": [],
+      "features": [
+        "default",
+        "std"
+      ],
       "license_expression": "MIT OR Apache-2.0",
       "license_files": [
         {
@@ -249,6 +302,24 @@
       "name": "memchr",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "2.8.3"
+    },
+    {
+      "features": [],
+      "license_expression": "MIT OR Apache-2.0",
+      "license_files": [
+        {
+          "name": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "sha256": "378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397"
+        }
+      ],
+      "manifest_sha256": "26612dc6bbb8c045f4c91f95fc026b926e9adb942655dddfd21ffecf2595b70b",
+      "name": "pkg-config",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.3.34"
     },
     {
       "features": [
@@ -396,6 +467,27 @@
       "name": "sha2",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.11.1"
+    },
+    {
+      "features": [
+        "default",
+        "std"
+      ],
+      "license_expression": "MIT OR Apache-2.0",
+      "license_files": [
+        {
+          "name": "LICENSE-APACHE",
+          "sha256": "553fffcd9b1cb158bc3e9edc35da85ca5c3b3d7d2e61c883ebcfa8a65814b583"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "sha256": "4455bf75a91154108304cb283e0fea9948c14f13e20d60887cf2552449dea3b1"
+        }
+      ],
+      "manifest_sha256": "b6ead6cf404555ced33f7574c6c11413e29e7bcd5eb0ceeb59452830a46675ed",
+      "name": "shlex",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.1"
     },
     {
       "features": [
