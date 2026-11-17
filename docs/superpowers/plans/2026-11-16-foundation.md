@@ -122,11 +122,11 @@ Do not install decoder, DSP, GUI, network, or hardware libraries solely to fill 
 - Headers contain epochs, sequence, frame position/count, format, and a time-domain tag. Check scalar counts, ranges, finite values, and size arithmetic.
 - `MemoryBudget::admit(required_bytes: usize) -> Result<(), EngineError>` uses a default of 268435456 bytes.
 
-- [ ] Write boundary tests for signed extrema and low bits, especially 24-bit sign extension. Cover zero rate, invalid layout/counts, NaN/Inf, arithmetic overflow, rejected zero-frame blocks, and budget exhaustion. Include unit tests for checked arithmetic and packing. Include a compile-fail doctest preventing DSD submission to a PCM-only consumer.
-- [ ] Run `cargo test -p earph-core --test audio_contracts` and doctests. Confirm the new tests fail because validation or types are absent.
-- [ ] Implement checked constructors and distinct storage variants. Add product error codes from Appendix E. Keep dependencies out of public signatures and keep float conversion explicit.
-- [ ] Run core tests and `scripts/check`. Verify 16/24/32-bit numeric equality across serialize/deserialize and pack/unpack boundaries. Do not count raw JSON equality as audio qualification.
-- [ ] Review the changed contract and commit with `feat: define checked audio domain contracts`.
+- [x] Write boundary tests for signed extrema and low bits, especially 24-bit sign extension. Cover zero rate, invalid layout/counts, NaN/Inf, arithmetic overflow, rejected zero-frame blocks, and budget exhaustion. Include unit tests for checked arithmetic and packing. Include a compile-fail doctest preventing DSD submission to a PCM-only consumer.
+- [x] Run `cargo test -p earph-core --test audio_contracts` and doctests. Confirm the new tests fail because validation or types are absent.
+- [x] Implement checked constructors and distinct storage variants. Add product error codes from Appendix E. Keep dependencies out of public signatures and keep float conversion explicit.
+- [x] Run core tests and `scripts/check`. Verify 16/24/32-bit numeric equality across serialize/deserialize and pack/unpack boundaries. Do not count raw JSON equality as audio qualification.
+- [x] Review the changed contract and commit with `feat: define checked audio domain contracts`.
 
 ## Task 3: Implement versioned commands and the session reducer
 

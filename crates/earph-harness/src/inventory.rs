@@ -103,6 +103,9 @@ pub fn snapshot() -> Result<(Value, String), String> {
         |name| json!({"name":name,"status":"unselected","qualification":"not_run","revision":null}),
     )
     .collect();
+    let final_len = notices.trim_end().len();
+    notices.truncate(final_len);
+    notices.push('\n');
     Ok((
         json!({"schema_version":1,"packages":packages,"candidates":candidates}),
         notices,
