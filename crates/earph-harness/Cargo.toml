@@ -1,0 +1,14 @@
+# ABOUTME: Defines offline fixtures, virtual output, and qualification tools.
+# ABOUTME: Uses the same core contracts as future source and output adapters.
+[package]
+name = "earph-harness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+earph-core = { path = "../earph-core" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

@@ -1,0 +1,12 @@
+# ABOUTME: Defines the product model without platform or transport dependencies.
+# ABOUTME: Shares serialization contracts with offline and future native clients.
+[package]
+name = "earph-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

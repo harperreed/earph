@@ -1,1 +1,3 @@
 .kata.local.toml
+/target/
+/.scratch/

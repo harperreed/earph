@@ -1,0 +1,4 @@
+# ABOUTME: Selects the project's installed Rust compiler.
+# ABOUTME: Keeps toolchain selection local to this workspace.
+[tools]
+rust = "1.98.1"

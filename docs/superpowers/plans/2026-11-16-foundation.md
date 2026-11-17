@@ -18,7 +18,7 @@ Doctor Biz requested implementation of the supplied spec using Superpowers on No
 
 The initial checkout contained only the spec bundle, `.gitignore`, and `.kata.toml`. Baseline commit: `e08c518`. There was no executable or existing check command.
 
-This plan is awaiting review. Product implementation has not started. After approval, record the chosen execution method here. Complete the foundation before planning its dependent playback slice.
+Doctor Biz approved this plan and native execution with independent review by saying “lets go”. Execute all six tasks. Complete the foundation before planning its dependent playback slice.
 
 ## Global constraints
 
@@ -98,11 +98,11 @@ Do not install decoder, DSP, GUI, network, or hardware libraries solely to fill 
 - `earph-harness catalog-check --catalog PATH` exits 0 on valid input and nonzero with structured diagnostics otherwise.
 - `earph-harness dependency-check --inventory PATH` compares the inventory with actual locked Cargo metadata and enabled features.
 
-- [ ] Add tests against the supplied catalog and malformed copies. Require 69 unique requirements and 50 unique scenarios. Check dangling links, dependency cycles, duplicate IDs, and unknown status values. Check that all D01–D24 decisions remain referenced and D25 remains unresolved.
-- [ ] Run `cargo test -p earph-harness --test catalog`. Save the expected failure showing missing validation behavior.
-- [ ] Implement the smallest workspace and checker. Preserve the original catalog. Select exact active Serde/JSON/hash releases from upstream metadata. Audit actual license files and enabled features, including transitive/build dependencies. Commit notices and the lock. Record Ubuntu 26.04.1, Linux x86-64, and Rust 1.98.1 as observed here. Record macOS/device qualification as not run.
-- [ ] Add `scripts/check`: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`, and the executable catalog/dependency checks. Verify inventory agreement with `cargo metadata --locked --format-version 1`. Define status values in the ADR: implementation `not_started|in_progress|implemented`; verification/scenario `not_run|partial|pass|fail|blocked`.
-- [ ] Run the canonical check and review the diff. Inspect for secrets. Commit with `chore: establish checked Rust foundation`.
+- [x] Add tests against the supplied catalog and malformed copies. Require 69 unique requirements and 50 unique scenarios. Check dangling links, dependency cycles, duplicate IDs, and unknown status values. Check that all D01–D24 decisions remain referenced and D25 remains unresolved.
+- [x] Run `cargo test -p earph-harness --test catalog`. Save the expected failure showing missing validation behavior.
+- [x] Implement the smallest workspace and checker. Preserve the original catalog. Select exact active Serde/JSON/hash releases from upstream metadata. Audit actual license files and enabled features, including transitive/build dependencies. Commit notices and the lock. Record Ubuntu 26.04.1, Linux x86-64, and Rust 1.98.1 as observed here. Record macOS/device qualification as not run.
+- [x] Add `scripts/check`: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`, and the executable catalog/dependency checks. Verify inventory agreement with `cargo metadata --locked --format-version 1`. Define status values in the ADR: implementation `not_started|in_progress|implemented`; verification/scenario `not_run|partial|pass|fail|blocked`.
+- [x] Run the canonical check and review the diff. Inspect for secrets. Commit with `chore: establish checked Rust foundation`.
 
 ## Task 2: Define checked identities, formats, and audio blocks
 

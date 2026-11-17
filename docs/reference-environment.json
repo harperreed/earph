@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-16",
+  "os": "Ubuntu 26.04.1 LTS",
+  "architecture": "x86_64",
+  "rustc": "1.98.1 (48a229cea 2026-09-01)",
+  "cargo": "1.98.1 (797e8a9bc 2026-08-05)",
+  "backend": "virtual",
+  "measurement_boundary": "engine_output",
+  "physical_device": null,
+  "qualification": {
+    "linux_offline": "not_run",
+    "linux_hardware": "not_run",
+    "macos_offline": "not_run",
+    "macos_hardware": "not_run"
+  }
+}
