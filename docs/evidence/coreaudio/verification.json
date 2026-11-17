@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "T04 read-only Core Audio SDK risk spike",
+  "source_commit": "489170eaf8c4b0b03eeead7dcb540d770417e00a",
+  "source_dirty": false,
+  "measurement_boundary": "coreaudio_read_only_control",
+  "linux_canonical": {"status": "pass", "passed_tests": 91, "includes_compile_fail_doc_test": true},
+  "macos_canonical": {"status": "pass", "passed_tests": 83, "includes_compile_fail_doc_test": true},
+  "review": {"status": "pass", "material_findings_resolved": 1, "remaining_material_findings": 0},
+  "registration": {"status": "pass", "evidence_level": "registered_not_started", "callbacks_observed": 0, "signals_submitted": 0, "settings_unchanged": true, "closed": true},
+  "precision_assessment": {"expected_outcome": "conflict", "observed_outcome": "conflict", "opened": false, "payload_preservation": "unverified"},
+  "redaction": {"status": "pass", "private_source_hashes_independently_checked": true, "format_observations_preserved": true},
+  "build_provenance": {"linux_and_macos_source_digests_match": true, "linux_and_macos_lock_digests_match": true},
+  "prior_evidence": {"foundation_validator": "pass", "alsa_216_case_matrix_validator": "pass"},
+  "physical_playback": "not_run",
+  "device_format_changes": "not_implemented",
+  "hog_acquisition": "not_implemented",
+  "hardware_payload_measurement": "not_run",
+  "sdk_distribution_review": "open_release_gate"
+}

@@ -105,6 +105,7 @@ The tested arm64 Mac runs macOS 27.2.1 and Xcode 27.2.
 Its selected route reports stereo 48 kHz, 24 valid integer bits in 32-bit physical containers, and float32 virtual samples.
 The packed-24 request correctly fails both format comparisons.
 Silent registration, independent cleanup, and close/reopen passed without changed settings or emitted samples.
+The [clean-build archive](evidence/coreaudio/README.md) retains redacted observations from commit `489170e`.
 
 Live PCM submission, format changes, hog acquisition, route-change recovery, timing, unplug, and hardware preservation remain unqualified.
 The binding publisher's SDK distribution review remains a release gate.

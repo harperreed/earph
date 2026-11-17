@@ -12,7 +12,9 @@ The canonical checks passed on Linux and the native arm64 Mac without warnings.
 Native tests exercised discovery, explicit inspection, registration, independent cleanup, and close/reopen.
 CLI tests exercised real device reports and redaction.
 The final width cases also test exact signed 16-, 24-, and 32-bit descriptors.
-Clean-build evidence records the final suite counts and source commit.
+Clean-build evidence from `489170e` records 91 passing Linux tests and 83 passing Mac tests.
+The native and Linux builds report matching source and dependency-lock digests.
+Independent hashes of the private source reports match their redacted records.
 
 Regression evidence records the raw-flag interpretation defect, null-context registration collision, and runner argument checks.
 The fixes preserve one descriptor authority and one owned context per native registration.

@@ -92,7 +92,7 @@ Do not implement a partial playback command or label read-only assessment as a n
 - [x] Test JSON discovery, explicit inspection, precision assessment, missing UID errors, and silent registration.
 - [x] Run executable tests against real Mac devices without emitted samples or changed settings.
 - [x] Record actual supported formats and precision blockers without promoting them to hardware qualification.
-- [ ] Add portable, redacted native evidence with a reproducible source identity.
+- [x] Add portable, redacted native evidence with a reproducible source identity.
 
 ### 4. Verify and finish
 
@@ -101,7 +101,7 @@ Do not implement a partial playback command or label read-only assessment as a n
 - [x] Obtain one independent read-only review of native ownership, assessment, callers, tests, and evidence.
 - [x] Fix material findings and rerun affected checks.
 - [x] Scan the implementation diff for secrets and private device identifiers; scan the final public archive before committing it.
-- [ ] Commit implementation and clean-build evidence, preserving branches, worktrees, and artifacts.
+- [x] Commit implementation and clean-build evidence, preserving branches, worktrees, and artifacts.
 
 ## Initial findings
 
@@ -125,3 +125,24 @@ The runner rejects SSH options supplied as host aliases before creating a source
 The binding crates omit license files; their published VCS records identify one upstream license declaration.
 The inventory verifies exact names, version, repository, revision, and declaration hash.
 The publisher's Apple SDK distribution question remains a release gate.
+
+## Outcome
+
+Implementation commit: `489170e`.
+The clean Linux check passed 91 tests; the clean native Mac check passed 83.
+Both totals include the compile-fail documentation test.
+Formatting, lint with denied warnings, traceability, and dependency checks passed on both hosts.
+One independent review found a strict-host-key gap; its fix and both invocation paths were verified.
+No material findings remain.
+
+The [public archive](../../evidence/coreaudio/README.md) contains redacted observations from the clean implementation commit.
+Independent private-source hashes match every redacted record.
+Source and lock digests match across both builds.
+The registration report confirms zero callbacks, zero samples, unchanged settings, and successful close.
+The strict packed-24 assessment correctly preserves its physical and virtual format conflicts.
+The prior foundation and 216-case ALSA archives still validate.
+
+Live playback and device changes remain T08–T09 work.
+Actual exclusive acquisition, unplug, timing, and hardware preservation remain unqualified.
+The publisher's SDK distribution review remains an explicit release gate.
+Task branches, checkouts, private reports, and captured SDK artifacts remain intact.
