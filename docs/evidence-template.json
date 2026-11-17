@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "evidence_id": null,
+  "status": "not_run",
+  "requirement_ids": [],
+  "acceptance_ids": [],
+  "commit": null,
+  "build_id": null,
+  "dependency_lock_sha256": null,
+  "environment": {
+    "os": null,
+    "os_version": null,
+    "architecture": null,
+    "backend": null,
+    "backend_version": null,
+    "device_identity": null,
+    "firmware_or_driver": null,
+    "measurement_boundary": null
+  },
+  "fixture_sha256": [],
+  "graph_sha256": null,
+  "harness_version": null,
+  "command": null,
+  "started_at": null,
+  "finished_at": null,
+  "expected_result": null,
+  "observed_result": null,
+  "artifacts": [],
+  "limitations": [],
+  "reviewer": null
+}

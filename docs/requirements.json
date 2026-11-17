@@ -1,0 +1,2212 @@
+{
+  "schema_version": 1,
+  "document_version": "0.1-draft",
+  "title": "Rust Audiophile Player \u2014 Product and Engineering Specification",
+  "date_local": "2026-11-16",
+  "timezone": "America/Chicago",
+  "status": "design specification; no implementation or audio tests performed",
+  "q25": {
+    "selection": "D",
+    "option_text": null,
+    "status": "unresolved_option_text",
+    "release_plan_basis": "Proposed engineering baseline; not a reconstruction of missing answer text."
+  },
+  "requirements": [
+    {
+      "id": "ARCH-01",
+      "milestone": "M0",
+      "requirement": "Own the product model, session orchestration and DSP graph in Rust; keep UI and transport libraries outside the real-time engine.",
+      "acceptance_ids": [
+        "AC-01"
+      ],
+      "decision_ids": [
+        "D02",
+        "D03",
+        "D12"
+      ],
+      "depends_on": [],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "ARCH-02",
+      "milestone": "M1",
+      "requirement": "Expose one semantic command/query/event contract to GUI, CLI, local API and UniFFI clients.",
+      "acceptance_ids": [
+        "AC-02"
+      ],
+      "decision_ids": [
+        "D02",
+        "D09",
+        "D23"
+      ],
+      "depends_on": [
+        "ARCH-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "ARCH-03",
+      "milestone": "M1",
+      "requirement": "Run locally first with one authoritative engine owner per output; support embedding and a local standalone host without requiring a remote server.",
+      "acceptance_ids": [
+        "AC-03"
+      ],
+      "decision_ids": [
+        "D03",
+        "D23"
+      ],
+      "depends_on": [
+        "ARCH-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "ARCH-04",
+      "milestone": "M1",
+      "requirement": "Maintain separate typed PCM-preserving, floating-point DSP and DSD payload paths. Never process DoP transport words as PCM.",
+      "acceptance_ids": [
+        "AC-04",
+        "AC-13"
+      ],
+      "decision_ids": [
+        "D06",
+        "D17"
+      ],
+      "depends_on": [
+        "ARCH-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "ARCH-05",
+      "milestone": "M1",
+      "requirement": "Use bounded preallocated audio buffers and keep allocation, deallocation, blocking I/O, locks with unbounded waits and foreign callbacks out of the audio processing path.",
+      "acceptance_ids": [
+        "AC-05"
+      ],
+      "decision_ids": [
+        "D06",
+        "D12",
+        "D21"
+      ],
+      "depends_on": [
+        "ARCH-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "ARCH-06",
+      "milestone": "M0",
+      "requirement": "Provide deterministic offline rendering, a virtual output and fault-injection harnesses before qualifying real hardware.",
+      "acceptance_ids": [
+        "AC-01",
+        "AC-06"
+      ],
+      "decision_ids": [
+        "D16",
+        "D18"
+      ],
+      "depends_on": [],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "ARCH-07",
+      "milestone": "M0",
+      "requirement": "Define schema and control compatibility rules; reject unsupported features rather than accepting inert settings.",
+      "acceptance_ids": [
+        "AC-07"
+      ],
+      "decision_ids": [
+        "D02",
+        "D09",
+        "D12"
+      ],
+      "depends_on": [],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PLAY-01",
+      "milestone": "M1",
+      "requirement": "Play local WAV, FLAC and AIFF with open-file/open-folder and a basic ordered queue; preserve originals without retagging or reorganizing.",
+      "acceptance_ids": [
+        "AC-08"
+      ],
+      "decision_ids": [
+        "D04",
+        "D05",
+        "D22"
+      ],
+      "depends_on": [
+        "ARCH-04"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PLAY-02",
+      "milestone": "M1",
+      "requirement": "Implement play, pause, resume, stop and capability-aware seek with audible position distinct from decode position.",
+      "acceptance_ids": [
+        "AC-09"
+      ],
+      "decision_ids": [
+        "D05",
+        "D22"
+      ],
+      "depends_on": [
+        "PLAY-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PLAY-03",
+      "milestone": "M1",
+      "requirement": "Deliver sample-continuous gapless local playback for qualified compatible lossless tracks, with no inserted, duplicated or dropped frames.",
+      "acceptance_ids": [
+        "AC-10"
+      ],
+      "decision_ids": [
+        "D06",
+        "D22"
+      ],
+      "depends_on": [
+        "PLAY-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PLAY-04",
+      "milestone": "M2",
+      "requirement": "Maintain DSP state across compatible track boundaries and explicitly negotiate or interrupt incompatible rate/format transitions.",
+      "acceptance_ids": [
+        "AC-10",
+        "AC-11"
+      ],
+      "decision_ids": [
+        "D12",
+        "D22"
+      ],
+      "depends_on": [
+        "PLAY-03",
+        "DSP-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PLAY-05",
+      "milestone": "M1",
+      "requirement": "Allow only one active source per local zone. A source handoff stops the prior session and invalidates its buffered audio and commands.",
+      "acceptance_ids": [
+        "AC-12"
+      ],
+      "decision_ids": [
+        "D20"
+      ],
+      "depends_on": [
+        "ARCH-03"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PLAY-06",
+      "milestone": "M1",
+      "requirement": "Persist the local queue and recover into a paused/muted state after a crash; never autonomously resume into an unverified output.",
+      "acceptance_ids": [
+        "AC-09",
+        "AC-14"
+      ],
+      "decision_ids": [
+        "D05",
+        "D19",
+        "D22"
+      ],
+      "depends_on": [
+        "PLAY-01",
+        "SAFE-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PLAY-07",
+      "milestone": "M3",
+      "requirement": "Support qualified DSF and uncompressed DFF playback through DoP; native DSD is enabled only on specifically tested backend/device combinations.",
+      "acceptance_ids": [
+        "AC-13"
+      ],
+      "decision_ids": [
+        "D06",
+        "D08",
+        "D18"
+      ],
+      "depends_on": [
+        "ARCH-04",
+        "OUT-03"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PLAY-08",
+      "milestone": "LATER",
+      "requirement": "Add optional fades, crossfade, ReplayGain, shuffle and repeat with transformations visible and strict preservation policies enforced.",
+      "acceptance_ids": [
+        "AC-40"
+      ],
+      "decision_ids": [
+        "D22"
+      ],
+      "depends_on": [
+        "PLAY-04"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SRC-01",
+      "milestone": "M3",
+      "requirement": "Implement an interoperable UPnP AV renderer with discovery, transport, connection capabilities, rendering control and truthful event/state reporting.",
+      "acceptance_ids": [
+        "AC-15"
+      ],
+      "decision_ids": [
+        "D04"
+      ],
+      "depends_on": [
+        "PLAY-05",
+        "CTL-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SRC-02",
+      "milestone": "M3",
+      "requirement": "Integrate the Sendspin player role against a pinned protocol/SDK revision and a named Music Assistant test version; advertise only usable formats and controls.",
+      "acceptance_ids": [
+        "AC-16"
+      ],
+      "decision_ids": [
+        "D04"
+      ],
+      "depends_on": [
+        "PLAY-05",
+        "CTL-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SRC-03",
+      "milestone": "M3",
+      "requirement": "Schedule Sendspin audio against the protocol timeline, account for processing/output delay exactly once and qualify drift correction on independent clocks.",
+      "acceptance_ids": [
+        "AC-17"
+      ],
+      "decision_ids": [
+        "D04",
+        "D21"
+      ],
+      "depends_on": [
+        "SRC-02",
+        "DSP-04",
+        "OUT-04"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SRC-04",
+      "milestone": "M3",
+      "requirement": "Keep original source metadata, received transport format and actual output format separate. Report upstream processing as unknown when it is not evidenced.",
+      "acceptance_ids": [
+        "AC-18"
+      ],
+      "decision_ids": [
+        "D04",
+        "D16",
+        "D17"
+      ],
+      "depends_on": [
+        "SRC-01",
+        "SRC-02",
+        "OBS-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SRC-05",
+      "milestone": "M3",
+      "requirement": "Treat Music Assistant as authoritative for its queue and library; route supported control actions upstream without creating a competing queue.",
+      "acceptance_ids": [
+        "AC-16",
+        "AC-19"
+      ],
+      "decision_ids": [
+        "D01",
+        "D04"
+      ],
+      "depends_on": [
+        "SRC-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SRC-06",
+      "milestone": "M3",
+      "requirement": "Apply bounded parsing, trusted-origin fetch rules, session epochs and pairing/authorization policies to all network sources.",
+      "acceptance_ids": [
+        "AC-20"
+      ],
+      "decision_ids": [
+        "D04",
+        "D20"
+      ],
+      "depends_on": [
+        "PLAY-05",
+        "SAFE-05"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "OUT-01",
+      "milestone": "M1",
+      "requirement": "Implement tested macOS Core Audio and Linux direct-ALSA output adapters with device discovery and exact negotiated-format reporting.",
+      "acceptance_ids": [
+        "AC-21"
+      ],
+      "decision_ids": [
+        "D07",
+        "D08",
+        "D18"
+      ],
+      "depends_on": [
+        "ARCH-04"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "OUT-02",
+      "milestone": "M4",
+      "requirement": "Offer a Linux system/shared playback route compatible with the qualified PipeWire desktop setup; do not label an unverified shared route bit-perfect.",
+      "acceptance_ids": [
+        "AC-22"
+      ],
+      "decision_ids": [
+        "D07",
+        "D17"
+      ],
+      "depends_on": [
+        "OUT-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "OUT-03",
+      "milestone": "M1",
+      "requirement": "Track advertised, opened, exercised and independently measured device capabilities separately, keyed to a device/backend/OS environment.",
+      "acceptance_ids": [
+        "AC-21",
+        "AC-23"
+      ],
+      "decision_ids": [
+        "D18"
+      ],
+      "depends_on": [
+        "OUT-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "OUT-04",
+      "milestone": "M1",
+      "requirement": "Expose output clock position, buffering and latency with measurement basis and unknown values; invalidate stale timing after route changes.",
+      "acceptance_ids": [
+        "AC-09",
+        "AC-17"
+      ],
+      "decision_ids": [
+        "D16",
+        "D18",
+        "D21"
+      ],
+      "depends_on": [
+        "OUT-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "OUT-05",
+      "milestone": "M1",
+      "requirement": "Never silently reroute to a different physical output after unplug, busy-device or format failure. Pause/mute and report recovery choices.",
+      "acceptance_ids": [
+        "AC-14"
+      ],
+      "decision_ids": [
+        "D18",
+        "D19"
+      ],
+      "depends_on": [
+        "OUT-01",
+        "SAFE-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "OUT-06",
+      "milestone": "M1",
+      "requirement": "Apply explicit strict, compatible and manual negotiation policies; conversions and rejected overrides must be explained.",
+      "acceptance_ids": [
+        "AC-04",
+        "AC-21"
+      ],
+      "decision_ids": [
+        "D17",
+        "D18"
+      ],
+      "depends_on": [
+        "OUT-03"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "DSP-01",
+      "milestone": "M2",
+      "requirement": "Compile a validated typed feed-forward graph with reorderable nodes, branches, merges and channel matrices; reject unsupported cycles and incompatible domains.",
+      "acceptance_ids": [
+        "AC-24"
+      ],
+      "decision_ids": [
+        "D06",
+        "D12",
+        "D14"
+      ],
+      "depends_on": [
+        "ARCH-04"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "DSP-02",
+      "milestone": "M2",
+      "requirement": "Provide f64 PCM gain, parametric EQ, convolution and selectable resampling configurations behind interchangeable node implementations.",
+      "acceptance_ids": [
+        "AC-25",
+        "AC-26",
+        "AC-27"
+      ],
+      "decision_ids": [
+        "D10",
+        "D14"
+      ],
+      "depends_on": [
+        "DSP-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "DSP-03",
+      "milestone": "M2",
+      "requirement": "Keep sample-rate changes explicit and validate filter coefficients, channel layouts and processing-rate domains before activation.",
+      "acceptance_ids": [
+        "AC-24",
+        "AC-25"
+      ],
+      "decision_ids": [
+        "D10",
+        "D12"
+      ],
+      "depends_on": [
+        "DSP-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "DSP-04",
+      "milestone": "M2",
+      "requirement": "Track algorithmic latency and align parallel branches at merges where required; do not equate alignment with arbitrary phase correction.",
+      "acceptance_ids": [
+        "AC-28"
+      ],
+      "decision_ids": [
+        "D12",
+        "D16",
+        "D21"
+      ],
+      "depends_on": [
+        "DSP-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "DSP-05",
+      "milestone": "M2",
+      "requirement": "Prepare graph changes off the audio thread, commit atomically against a revision, retire old resources off-thread and preserve the last working graph on failure.",
+      "acceptance_ids": [
+        "AC-29"
+      ],
+      "decision_ids": [
+        "D12",
+        "D15"
+      ],
+      "depends_on": [
+        "DSP-01",
+        "ARCH-05"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "DSP-06",
+      "milestone": "M2",
+      "requirement": "Import a documented REW text/CamillaDSP-filter subset, AutoEq parametric presets and correction FIR WAVs with validation and provenance.",
+      "acceptance_ids": [
+        "AC-30"
+      ],
+      "decision_ids": [
+        "D10",
+        "D11"
+      ],
+      "depends_on": [
+        "DSP-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "DSP-07",
+      "milestone": "M2",
+      "requirement": "Reject unapproved correction-IR rate changes, unidentified measurement IRs, non-finite coefficients and resource-exhausting graphs.",
+      "acceptance_ids": [
+        "AC-30",
+        "AC-31"
+      ],
+      "decision_ids": [
+        "D11",
+        "D12",
+        "D19"
+      ],
+      "depends_on": [
+        "DSP-06",
+        "SAFE-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "DSP-08",
+      "milestone": "M2",
+      "requirement": "Implement quality-focused, balanced and low-latency policies as declared constraints; never silently remove correction or change sound to meet a latency target.",
+      "acceptance_ids": [
+        "AC-32"
+      ],
+      "decision_ids": [
+        "D21"
+      ],
+      "depends_on": [
+        "DSP-02",
+        "DSP-04"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "DSP-09",
+      "milestone": "LATER",
+      "requirement": "Add PCM-to-DSD, DSD processing, modulators, advanced noise shaping and DAC-specific correction only behind dedicated validation gates.",
+      "acceptance_ids": [
+        "AC-41"
+      ],
+      "decision_ids": [
+        "D06",
+        "D10"
+      ],
+      "depends_on": [
+        "PLAY-07",
+        "DSP-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SAFE-01",
+      "milestone": "M1",
+      "requirement": "Centralize mute, startup level, volume limits and route-change protection below all control surfaces; fixed output requires explicit arming.",
+      "acceptance_ids": [
+        "AC-14",
+        "AC-33"
+      ],
+      "decision_ids": [
+        "D19"
+      ],
+      "depends_on": [
+        "ARCH-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SAFE-02",
+      "milestone": "M2",
+      "requirement": "Validate headroom and monitor non-finite samples and clipping; any protective sample alteration must change the reported fidelity status.",
+      "acceptance_ids": [
+        "AC-31",
+        "AC-33"
+      ],
+      "decision_ids": [
+        "D17",
+        "D19"
+      ],
+      "depends_on": [
+        "SAFE-01",
+        "DSP-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SAFE-03",
+      "milestone": "M1",
+      "requirement": "Support fixed, hardware and software volume as separate per-profile modes, with known gain stages and no double attenuation or assumed hardware readback.",
+      "acceptance_ids": [
+        "AC-33"
+      ],
+      "decision_ids": [
+        "D19"
+      ],
+      "depends_on": [
+        "SAFE-01",
+        "OUT-03"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SAFE-04",
+      "milestone": "M3",
+      "requirement": "Refuse PCM gain/EQ/limiting on DSD payloads; use verified DSD-aware mute/transition behavior and never reinterpret DSD as audible PCM.",
+      "acceptance_ids": [
+        "AC-13",
+        "AC-33"
+      ],
+      "decision_ids": [
+        "D06",
+        "D17",
+        "D19"
+      ],
+      "depends_on": [
+        "PLAY-07"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SAFE-05",
+      "milestone": "M1",
+      "requirement": "Use local-user authorization for local IPC; make remote administration opt-in, paired and encrypted; redact secrets in diagnostics.",
+      "acceptance_ids": [
+        "AC-20",
+        "AC-34"
+      ],
+      "decision_ids": [
+        "D09",
+        "D23"
+      ],
+      "depends_on": [
+        "ARCH-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "SAFE-06",
+      "milestone": "M4",
+      "requirement": "Bound media/import/API resources, fuzz untrusted parsers and enforce safe failure without automatic protective-filter bypass.",
+      "acceptance_ids": [
+        "AC-31",
+        "AC-34"
+      ],
+      "decision_ids": [
+        "D04",
+        "D12",
+        "D14",
+        "D19"
+      ],
+      "depends_on": [
+        "SAFE-02",
+        "SRC-06"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PROF-01",
+      "milestone": "M2",
+      "requirement": "Provide versioned named profiles referencing graph, source policy, output policy, volume policy and latency mode.",
+      "acceptance_ids": [
+        "AC-35"
+      ],
+      "decision_ids": [
+        "D15"
+      ],
+      "depends_on": [
+        "DSP-01",
+        "SAFE-03"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PROF-02",
+      "milestone": "M2",
+      "requirement": "Support deterministic exact-device associations and manual listening-setup selection; do not infer headphones attached to an unchanged DAC.",
+      "acceptance_ids": [
+        "AC-35"
+      ],
+      "decision_ids": [
+        "D15"
+      ],
+      "depends_on": [
+        "PROF-01",
+        "OUT-03"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PROF-03",
+      "milestone": "M4",
+      "requirement": "Export/import self-contained profile packages with content hashes, source/license metadata and no auto-application of dangerous gain changes.",
+      "acceptance_ids": [
+        "AC-30",
+        "AC-35"
+      ],
+      "decision_ids": [
+        "D12",
+        "D15",
+        "D24"
+      ],
+      "depends_on": [
+        "PROF-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "PROF-04",
+      "milestone": "LATER",
+      "requirement": "Add context rules with explicit priority, bounded evaluation, preview and an explanation of why a profile was selected.",
+      "acceptance_ids": [
+        "AC-42"
+      ],
+      "decision_ids": [
+        "D15"
+      ],
+      "depends_on": [
+        "PROF-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CTL-01",
+      "milestone": "M1",
+      "requirement": "Expose typed commands, snapshots, capability queries and sequenced events; commands return receipts rather than pretending accepted means applied.",
+      "acceptance_ids": [
+        "AC-02",
+        "AC-36"
+      ],
+      "decision_ids": [
+        "D09"
+      ],
+      "depends_on": [
+        "ARCH-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CTL-02",
+      "milestone": "M2",
+      "requirement": "Use expected revisions and explicit session/device targets for configuration changes; reject stale mutations and deduplicate retried commands.",
+      "acceptance_ids": [
+        "AC-29",
+        "AC-36"
+      ],
+      "decision_ids": [
+        "D09",
+        "D12",
+        "D15"
+      ],
+      "depends_on": [
+        "CTL-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CTL-03",
+      "milestone": "M4",
+      "requirement": "Ship macOS and Linux GUIs covering source, playback, device, profile, DSP configuration, signal path and diagnostics without requiring a visual node editor.",
+      "acceptance_ids": [
+        "AC-37"
+      ],
+      "decision_ids": [
+        "D07",
+        "D09"
+      ],
+      "depends_on": [
+        "CTL-01",
+        "DSP-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CTL-04",
+      "milestone": "M1",
+      "requirement": "Ship scriptable CLI controls with structured output, stable errors and bounded waits through the same service contract.",
+      "acceptance_ids": [
+        "AC-02"
+      ],
+      "decision_ids": [
+        "D09",
+        "D23"
+      ],
+      "depends_on": [
+        "CTL-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CTL-05",
+      "milestone": "M4",
+      "requirement": "Ship versioned UniFFI bindings with Swift integration tests and Kotlin smoke tests; do not transport per-buffer audio through foreign UI callbacks.",
+      "acceptance_ids": [
+        "AC-02",
+        "AC-05"
+      ],
+      "decision_ids": [
+        "D02",
+        "D09"
+      ],
+      "depends_on": [
+        "ARCH-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "CTL-06",
+      "milestone": "M4",
+      "requirement": "Make slow/disconnected controllers harmless to playback, with bounded event queues, gap markers and snapshot recovery.",
+      "acceptance_ids": [
+        "AC-36"
+      ],
+      "decision_ids": [
+        "D09",
+        "D16"
+      ],
+      "depends_on": [
+        "CTL-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "OBS-01",
+      "milestone": "M1",
+      "requirement": "Report requested, resolved and observed source/graph/device state separately; model preservation, transformations and verification scope as independent fields.",
+      "acceptance_ids": [
+        "AC-18",
+        "AC-38"
+      ],
+      "decision_ids": [
+        "D16",
+        "D17",
+        "D18"
+      ],
+      "depends_on": [
+        "ARCH-04",
+        "OUT-03"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "OBS-02",
+      "milestone": "M2",
+      "requirement": "Provide a signal-path inspector with node identity, versions, formats, gain, latency, bypass state and conversion reasons.",
+      "acceptance_ids": [
+        "AC-38"
+      ],
+      "decision_ids": [
+        "D16"
+      ],
+      "depends_on": [
+        "OBS-01",
+        "DSP-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "OBS-03",
+      "milestone": "M2",
+      "requirement": "Record underruns, deadline misses, queue depths, CPU/latency summaries, clipping and source/graph epochs without blocking audio.",
+      "acceptance_ids": [
+        "AC-05",
+        "AC-32"
+      ],
+      "decision_ids": [
+        "D16",
+        "D21"
+      ],
+      "depends_on": [
+        "ARCH-05"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "OBS-04",
+      "milestone": "M4",
+      "requirement": "Export a redacted reproducible diagnostic/evidence bundle tied to build, environment, fixtures, graph and exact test outcomes.",
+      "acceptance_ids": [
+        "AC-34",
+        "AC-39"
+      ],
+      "decision_ids": [
+        "D16",
+        "D18"
+      ],
+      "depends_on": [
+        "OBS-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "OBS-05",
+      "milestone": "LATER",
+      "requirement": "Add FFT/spectrogram, impulse-response inspection, level-matched A/B and distortion analysis with digital versus acoustic measurement provenance.",
+      "acceptance_ids": [
+        "AC-43"
+      ],
+      "decision_ids": [
+        "D16"
+      ],
+      "depends_on": [
+        "OBS-02"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "COR-01",
+      "milestone": "M2",
+      "requirement": "Treat headphone/room corrections as graph assets with model, measurement source, target, preamp, sample rate and provenance.",
+      "acceptance_ids": [
+        "AC-30",
+        "AC-35"
+      ],
+      "decision_ids": [
+        "D10",
+        "D11",
+        "D13"
+      ],
+      "depends_on": [
+        "DSP-06"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "COR-02",
+      "milestone": "LATER",
+      "requirement": "Implement a guided phone measurement workflow using local capture, authenticated transfer, quality checks and acoustic timing/drift alignment.",
+      "acceptance_ids": [
+        "AC-44"
+      ],
+      "decision_ids": [
+        "D11",
+        "D13"
+      ],
+      "depends_on": [
+        "COR-01",
+        "SAFE-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "COR-03",
+      "milestone": "LATER",
+      "requirement": "Support calibrated measurement microphones, calibration files and multi-position capture in the same measurement project model.",
+      "acceptance_ids": [
+        "AC-45"
+      ],
+      "decision_ids": [
+        "D11",
+        "D13"
+      ],
+      "depends_on": [
+        "COR-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "COR-04",
+      "milestone": "LATER",
+      "requirement": "Generate bounded correction filters with explicit confidence, boost/energy limits and validation measurements; never equate uncalibrated phone capture with reference measurement.",
+      "acceptance_ids": [
+        "AC-44",
+        "AC-45"
+      ],
+      "decision_ids": [
+        "D11",
+        "D13"
+      ],
+      "depends_on": [
+        "COR-02",
+        "COR-03"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "EXT-01",
+      "milestone": "LATER",
+      "requirement": "Reuse the same engine/control model in a remote headless host and lightweight output endpoints; define transport and clocks before promising synchronized multi-output.",
+      "acceptance_ids": [
+        "AC-46"
+      ],
+      "decision_ids": [
+        "D03",
+        "D08"
+      ],
+      "depends_on": [
+        "ARCH-03",
+        "CTL-01"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "EXT-02",
+      "milestone": "LATER",
+      "requirement": "Add CLAP, VST3 and LV2 hosting incrementally with plugin identity/state, latency budgets, scanner isolation and tested crash behavior.",
+      "acceptance_ids": [
+        "AC-47"
+      ],
+      "decision_ids": [
+        "D14"
+      ],
+      "depends_on": [
+        "DSP-01",
+        "SAFE-06"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "EXT-03",
+      "milestone": "LATER",
+      "requirement": "Add Windows, iOS and Android playback clients, a lightweight local library and multichannel hardware only through platform-specific qualification.",
+      "acceptance_ids": [
+        "AC-48"
+      ],
+      "decision_ids": [
+        "D02",
+        "D05",
+        "D07",
+        "D08"
+      ],
+      "depends_on": [
+        "ARCH-02",
+        "OUT-03"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "REL-01",
+      "milestone": "M0",
+      "requirement": "License first-party code MIT and maintain an audited dependency/license/feature inventory; preserve third-party notices and applicable source obligations.",
+      "acceptance_ids": [
+        "AC-49"
+      ],
+      "decision_ids": [
+        "D24"
+      ],
+      "depends_on": [],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "REL-02",
+      "milestone": "M0",
+      "requirement": "Pin candidate dependencies and protocol revisions; isolate CamillaDSP library API changes and treat Sendspin Rust SDK maturity as a qualification question.",
+      "acceptance_ids": [
+        "AC-01",
+        "AC-49"
+      ],
+      "decision_ids": [
+        "D04",
+        "D14",
+        "D24"
+      ],
+      "depends_on": [],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "REL-03",
+      "milestone": "M4",
+      "requirement": "Deliver installable desktop apps plus Rust library, standalone local host, CLI and documented control API from one versioned workspace.",
+      "acceptance_ids": [
+        "AC-50"
+      ],
+      "decision_ids": [
+        "D23"
+      ],
+      "depends_on": [
+        "CTL-03",
+        "CTL-04",
+        "CTL-05"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "REL-04",
+      "milestone": "M4",
+      "requirement": "Gate release on traceable acceptance evidence, real macOS/Linux hardware coverage, bounded-resource stress tests and all in-scope safety cases.",
+      "acceptance_ids": [
+        "AC-39",
+        "AC-50"
+      ],
+      "decision_ids": [
+        "D07",
+        "D18",
+        "D19",
+        "D23"
+      ],
+      "depends_on": [
+        "REL-03"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    },
+    {
+      "id": "REL-05",
+      "milestone": "M4",
+      "requirement": "Keep basic local playback offline and account-free; make telemetry upload and asset redistribution explicit opt-ins.",
+      "acceptance_ids": [
+        "AC-34",
+        "AC-50"
+      ],
+      "decision_ids": [
+        "D01",
+        "D04",
+        "D24"
+      ],
+      "depends_on": [
+        "SAFE-05"
+      ],
+      "implementation_status": "not_started",
+      "verification_status": "not_run",
+      "evidence": []
+    }
+  ],
+  "acceptance_scenarios": [
+    {
+      "id": "AC-01",
+      "milestone": "M0",
+      "title": "Architecture and dependency spike",
+      "setup": "Virtual output; selected crate/protocol revisions recorded.",
+      "procedure": "Render a known PCM fixture offline; prepare one filter through each candidate adapter; build the workspace on macOS and Linux.",
+      "expected_result": "Stable product types do not expose upstream types; feature/license inventory and candidate decisions are committed; no unqualified backend is marked supported.",
+      "evidence_required": [
+        "dependency-lock.json",
+        "architecture-check.txt",
+        "offline-output.sha256"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "ARCH-01",
+        "ARCH-06",
+        "REL-02"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "milestone": "M4",
+      "title": "Control-surface equivalence",
+      "setup": "Same engine version, fixture, output and starting state for Rust, CLI, API and Swift clients; Kotlin binding smoke harness.",
+      "procedure": "Run equivalent play/pause/seek/profile/graph commands and inspect normalized state and receipts.",
+      "expected_result": "Identical semantic results and policy enforcement; unsupported operations give the same typed errors; FFI lifetimes/cancellation pass.",
+      "evidence_required": [
+        "control-transcripts.json",
+        "ffi-test-results.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "ARCH-02",
+        "CTL-01",
+        "CTL-04",
+        "CTL-05"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "milestone": "M1",
+      "title": "Single output owner",
+      "setup": "GUI owner and standalone-host executable on the same machine.",
+      "procedure": "Start a second owner, attach multiple controllers, disconnect the GUI and deliberately stop the host.",
+      "expected_result": "Second instance attaches or fails clearly; no competing device opens; documented host lifecycle and clean shutdown.",
+      "evidence_required": [
+        "owner-lifecycle.json",
+        "output-open-trace.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "ARCH-03"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "milestone": "M1",
+      "title": "PCM preservation and strict refusal",
+      "setup": "Integer fixtures covering signed limits, low-order bits and supported rates/widths; virtual capture and qualified real route.",
+      "procedure": "Decode, bypass processing, pack/unpack output and compare numeric sample payloads; request an unsupported format and enable software gain.",
+      "expected_result": "Zero sample/frame differences on preservation paths; strict mode rejects required alteration; lossless container padding is distinguished from quantization.",
+      "evidence_required": [
+        "pcm-comparison.json",
+        "negotiation-events.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "ARCH-04",
+        "OUT-06"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "milestone": "M4",
+      "title": "Real-time discipline",
+      "setup": "Instrumented allocator, callback/DSP thread markers and slow foreign observers.",
+      "procedure": "Warm the engine, then play, seek, replace graphs, disconnect observers and induce diagnostic pressure.",
+      "expected_result": "No real-time allocation/deallocation, forbidden blocking calls or FFI callback work; no playback dependence on observer speed.",
+      "evidence_required": [
+        "allocation-report.json",
+        "realtime-trace.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "ARCH-05",
+        "CTL-05",
+        "OBS-03"
+      ]
+    },
+    {
+      "id": "AC-06",
+      "milestone": "M0",
+      "title": "Repeatable fault harness",
+      "setup": "Deterministic virtual clock, bounded input source and controllable output.",
+      "procedure": "Inject short writes, underruns, backend failure, malformed chunks and stale-generation packets using fixed seeds.",
+      "expected_result": "Repeatable event sequences and output hashes; failures terminate or recover according to documented policy.",
+      "evidence_required": [
+        "fault-seeds.json",
+        "event-log.json",
+        "capture.sha256"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "ARCH-06"
+      ]
+    },
+    {
+      "id": "AC-07",
+      "milestone": "M0",
+      "title": "Schema compatibility",
+      "setup": "Current, older supported and future-version profile/command fixtures.",
+      "procedure": "Load and round-trip supported data; submit unknown required nodes/fields and malformed versions.",
+      "expected_result": "Supported migration preserves meaning; unsupported required features fail explicitly; original data remains recoverable.",
+      "evidence_required": [
+        "schema-tests.json",
+        "migration-diffs.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "ARCH-07"
+      ]
+    },
+    {
+      "id": "AC-08",
+      "milestone": "M1",
+      "title": "Minimal local playback",
+      "setup": "Owned/generated WAV, FLAC and AIFF fixtures, a large directory and a missing file.",
+      "procedure": "Open one file, append a directory, reorder the queue and compare source-file hashes before/after.",
+      "expected_result": "Correct tracks and order without modifying source files; bounded metadata work; missing files produce visible per-item errors.",
+      "evidence_required": [
+        "queue-tests.json",
+        "source-hashes.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "PLAY-01"
+      ]
+    },
+    {
+      "id": "AC-09",
+      "milestone": "M1",
+      "title": "Transport semantics and recovery",
+      "setup": "Known-duration fixture, variable output buffering and seek-capable/streaming inputs.",
+      "procedure": "Pause/resume/seek repeatedly; inspect audible vs decoded position; restart after abrupt termination.",
+      "expected_result": "Position follows output accounting; seeks flush stale data; unsupported seeks reject; restart restores queue paused/muted, not audibly playing.",
+      "evidence_required": [
+        "transport-timeline.json",
+        "recovery-state.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "PLAY-02",
+        "PLAY-06",
+        "OUT-04"
+      ]
+    },
+    {
+      "id": "AC-10",
+      "milestone": "M2",
+      "title": "Gapless continuity with DSP state",
+      "setup": "One generated signal split losslessly into multiple files, plus the unsplit reference.",
+      "procedure": "Play both through bypass, EQ and convolution; compare aligned captures including the join and final filter tail.",
+      "expected_result": "Equal sample count and no artificial discontinuity; state is not reset at compatible joins; final tail is drained exactly once.",
+      "evidence_required": [
+        "gapless-comparison.json",
+        "boundary-captures.wav"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "PLAY-03",
+        "PLAY-04"
+      ]
+    },
+    {
+      "id": "AC-11",
+      "milestone": "M2",
+      "title": "Incompatible track transition",
+      "setup": "Queue containing changed rates, channel layouts and PCM/DSD modes.",
+      "procedure": "Play transitions under strict and compatible policies with backend reopen delays.",
+      "expected_result": "Documented muted reconfiguration or explicit conversion, truthful discontinuity reporting and no false universal-gapless claim.",
+      "evidence_required": [
+        "transition-events.json",
+        "output-format-trace.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "PLAY-04"
+      ]
+    },
+    {
+      "id": "AC-12",
+      "milestone": "M3",
+      "title": "Exclusive source ownership",
+      "setup": "Local, UPnP and Sendspin adapters with tagged test audio and delayed packets.",
+      "procedure": "Start each source over another, then deliver old-source chunks and commands after the new session starts.",
+      "expected_result": "One owner; prior source stopped/flushed; old generations rejected; setting metadata alone does not steal ownership.",
+      "evidence_required": [
+        "handoff-events.json",
+        "tagged-output-analysis.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "PLAY-05"
+      ]
+    },
+    {
+      "id": "AC-13",
+      "milestone": "M3",
+      "title": "DSD transport and safety",
+      "setup": "Generated DSF/uncompressed DFF payloads, software DoP parser and at least one qualified hardware route on each launch OS.",
+      "procedure": "Pack/unpack DoP; switch PCM/DSD; pause/stop; inject underrun; request software attenuation and DSP on the passthrough path.",
+      "expected_result": "DSD payload preserved; markers and mute transitions validated; incompatible processing refused; no DSD bytes emitted as ordinary PCM. Native DSD advertised only where separately exercised.",
+      "evidence_required": [
+        "dsd-roundtrip.json",
+        "dop-transition-capture.bin",
+        "hardware-check.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "ARCH-04",
+        "PLAY-07",
+        "SAFE-04"
+      ]
+    },
+    {
+      "id": "AC-14",
+      "milestone": "M1",
+      "title": "Output change and crash safety",
+      "setup": "Two physical outputs, one fixed-output profile and one software-volume profile.",
+      "procedure": "Unplug active DAC, change defaults, fail reopen, restart process and switch profiles with different saved levels.",
+      "expected_result": "No silent reroute or unexpected level increase; fixed output remains unarmed until explicit approval; state and corrective action are visible.",
+      "evidence_required": [
+        "safety-event-log.json",
+        "device-trace.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "PLAY-06",
+        "OUT-05",
+        "SAFE-01"
+      ]
+    },
+    {
+      "id": "AC-15",
+      "milestone": "M3",
+      "title": "UPnP interoperability",
+      "setup": "Pinned Music Assistant version, another independent controller and network fault proxy.",
+      "procedure": "Discover; set URI; play/pause/seek/stop; change volume; subscribe/unsubscribe; test next-URI and renderer restart.",
+      "expected_result": "Correct advertised services and events; implemented next-URI behaves correctly or is clearly unsupported; no claim of third-party certification.",
+      "evidence_required": [
+        "upnp-conformance.json",
+        "controller-results.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "SRC-01"
+      ]
+    },
+    {
+      "id": "AC-16",
+      "milestone": "M3",
+      "title": "Sendspin interoperability",
+      "setup": "Pinned spec, SDK and Music Assistant revisions; PCM and FLAC fixtures.",
+      "procedure": "Pair/discover, negotiate roles/formats, play, change formats, clear/end streams, reconnect and control upstream playback.",
+      "expected_result": "Protocol-conformant lifecycle; only supported formats advertised; no stale buffered replay; queue stays authoritative on server.",
+      "evidence_required": [
+        "sendspin-transcript.json",
+        "protocol-version-lock.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "SRC-02",
+        "SRC-05"
+      ]
+    },
+    {
+      "id": "AC-17",
+      "milestone": "M3",
+      "title": "Clock drift and latency accounting",
+      "setup": "Two independent output clocks; instrumented simultaneous capture; declared jitter/drift and DSP-latency cases.",
+      "procedure": "Run long synchronized playback; change latency mode/FIR; inject jitter, a late chunk and an underrun; quantify output offsets.",
+      "expected_result": "Meet pinned protocol limits in the declared operating envelope; delay counted once; recovery is conformant; evidence separates simulated, digital-output and acoustic results.",
+      "evidence_required": [
+        "clock-test.json",
+        "paired-capture.wav",
+        "sync-error.csv"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "SRC-03",
+        "OUT-04"
+      ]
+    },
+    {
+      "id": "AC-18",
+      "milestone": "M3",
+      "title": "Truthful source/output fidelity",
+      "setup": "Original high-rate source deliberately transcoded upstream; local bypass and DSP cases.",
+      "procedure": "Inspect GUI/API signal path and preservation status before and after sync adjustment or gain changes.",
+      "expected_result": "Original metadata never substitutes for received format; transformations visible; unknown upstream/hardware facts remain unknown.",
+      "evidence_required": [
+        "fidelity-snapshots.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "SRC-04",
+        "OBS-01"
+      ]
+    },
+    {
+      "id": "AC-19",
+      "milestone": "M3",
+      "title": "Queue authority",
+      "setup": "Active Music Assistant stream and an existing local queue.",
+      "procedure": "Issue next/seek from GUI and CLI; leave and rejoin network playback; inspect both queue identities.",
+      "expected_result": "Supported commands routed to server; local queue is retained separately; no divergent shadow streaming queue.",
+      "evidence_required": [
+        "queue-authority-events.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "SRC-05"
+      ]
+    },
+    {
+      "id": "AC-20",
+      "milestone": "M4",
+      "title": "Network source abuse and authorization",
+      "setup": "Malformed protocol corpus, disallowed URL origins and unpaired peers.",
+      "procedure": "Attempt unauthorized controls, forbidden URI schemes, redirects to forbidden destinations, oversized messages and stale session replay.",
+      "expected_result": "Blocked with bounded resources and no secret/file disclosure; explicitly authorized LAN Music Assistant URLs still function.",
+      "evidence_required": [
+        "network-security-tests.json",
+        "parser-fuzz-summary.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "SRC-06",
+        "SAFE-05"
+      ]
+    },
+    {
+      "id": "AC-21",
+      "milestone": "M1",
+      "title": "Backend negotiation",
+      "setup": "Named macOS/Core Audio and Linux/ALSA machines and DACs; supported/unsupported formats.",
+      "procedure": "Enumerate, open, inspect actual mode, play, close and reopen; test busy-device, unplug and stale saved-profile conditions.",
+      "expected_result": "Requested vs actual format and evidence recorded; strict failures do not silently use mixers/converters; advertised capability is not marked measured.",
+      "evidence_required": [
+        "hardware-matrix.json",
+        "backend-negotiation.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "OUT-01",
+        "OUT-03",
+        "OUT-06"
+      ]
+    },
+    {
+      "id": "AC-22",
+      "milestone": "M4",
+      "title": "Shared Linux compatibility route",
+      "setup": "Qualified PipeWire desktop configuration with another application playing.",
+      "procedure": "Play through the system route, change server rate and switch to direct output.",
+      "expected_result": "Shared playback works with truthful transformations/unknowns; direct mode failure is explained; no automatic system-service termination.",
+      "evidence_required": [
+        "linux-route-test.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "OUT-02"
+      ]
+    },
+    {
+      "id": "AC-23",
+      "milestone": "M1",
+      "title": "Capability evidence invalidation",
+      "setup": "Device record with test evidence and changed OS/backend/device fingerprint fixtures.",
+      "procedure": "Change relevant environment inputs and reload the profile; initiate a user-approved capability test.",
+      "expected_result": "Old verification becomes stale; non-invasive checks are distinguished from emitted-signal tests; no audible automatic probe.",
+      "evidence_required": [
+        "capability-provenance.json",
+        "invalidation-tests.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "OUT-03"
+      ]
+    },
+    {
+      "id": "AC-24",
+      "milestone": "M2",
+      "title": "Graph compiler validity",
+      "setup": "Valid branched/matrix graphs plus cycles, invalid domains, excessive graphs and unsupported nodes.",
+      "procedure": "Validate and compile each; inspect plan, resource budget, latency and required conversions.",
+      "expected_result": "Valid graph scheduled deterministically; invalid graphs rejected before activation with actionable node/edge errors.",
+      "evidence_required": [
+        "graph-fixture-results.json",
+        "compiled-plan.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "DSP-01",
+        "DSP-03"
+      ]
+    },
+    {
+      "id": "AC-25",
+      "milestone": "M2",
+      "title": "PEQ and gain numerics",
+      "setup": "Independent analytical biquad reference; impulse, sweep, DC and limit-value fixtures.",
+      "procedure": "Render filters at qualified rates, compare frequency response and finite output, and update coefficients during playback.",
+      "expected_result": "Meets stated numerical tolerances; invalid frequencies/Q/gains rejected; coefficient changes follow the tested transition policy.",
+      "evidence_required": [
+        "peq-response.csv",
+        "numeric-test-results.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "DSP-02",
+        "DSP-03"
+      ]
+    },
+    {
+      "id": "AC-26",
+      "milestone": "M2",
+      "title": "Convolution correctness",
+      "setup": "Impulse identity, short direct-convolution reference, long stereo correction filters and rate-mismatch fixture.",
+      "procedure": "Compare partitioned output, latency and tail to reference; process silence; import incompatible-rate and measurement-IR files.",
+      "expected_result": "Matches stated tolerances and channel order; no hidden normalization; incompatible/ambiguous assets require rejection or explicit conversion.",
+      "evidence_required": [
+        "convolution-comparison.json",
+        "fir-provenance.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "DSP-02"
+      ]
+    },
+    {
+      "id": "AC-27",
+      "milestone": "M2",
+      "title": "Resampling qualification",
+      "setup": "Fixed and asynchronous rate pairs, impulses, sweeps, out-of-band tones and deterministic drift.",
+      "procedure": "Measure gain, passband, alias rejection, sample accounting, latency and ratio control for every exposed preset.",
+      "expected_result": "Each preset meets its declared measured envelope; no unsupported claims of algorithm equivalence or audible superiority.",
+      "evidence_required": [
+        "resampler-benchmarks.json",
+        "response-data.csv"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "DSP-02"
+      ]
+    },
+    {
+      "id": "AC-28",
+      "milestone": "M2",
+      "title": "Branch latency alignment",
+      "setup": "Parallel paths with known integer and supported fractional latency differences.",
+      "procedure": "Inject an impulse, merge branches and change one path latency under the allowed reconfiguration policy.",
+      "expected_result": "Correct alignment within declared precision; unsupported alignment rejected; phase response is not mislabeled as a scheduling offset.",
+      "evidence_required": [
+        "branch-alignment.json",
+        "impulse-capture.wav"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "DSP-04"
+      ]
+    },
+    {
+      "id": "AC-29",
+      "milestone": "M2",
+      "title": "Atomic graph/profile changes",
+      "setup": "Running graph; competing controllers; a replacement needing more resources than available.",
+      "procedure": "Prepare/commit two revisions concurrently, inject failure during preparation and observe transition behavior.",
+      "expected_result": "At most one valid revision commits; stale command rejected; old working graph retained; no real-time resource destruction or unsafe gain jump.",
+      "evidence_required": [
+        "graph-transaction-events.json",
+        "resource-lifecycle-trace.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "DSP-05",
+        "CTL-02"
+      ]
+    },
+    {
+      "id": "AC-30",
+      "milestone": "M2",
+      "title": "Correction import and provenance",
+      "setup": "Known REW/AutoEq text subsets and FIR WAV fixtures, unknown fields and hostile file paths.",
+      "procedure": "Import, preview, export and reimport; compare coefficients, preamp, units, sample rate, metadata and hashes.",
+      "expected_result": "Supported meaning preserved; unsupported content reported; no execution/network fetch from profiles; measured room IR not assumed to be correction.",
+      "evidence_required": [
+        "import-roundtrip.json",
+        "asset-manifest.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "DSP-06",
+        "DSP-07",
+        "PROF-03",
+        "COR-01"
+      ]
+    },
+    {
+      "id": "AC-31",
+      "milestone": "M4",
+      "title": "Unsafe DSP rejection",
+      "setup": "NaN/Inf and unstable coefficients, excessive gain/resource demands and malformed assets.",
+      "procedure": "Attempt activation and inject non-finite runtime output from a test node.",
+      "expected_result": "Invalid plans rejected; runtime faults cause safe stop/mute; protective filters are never silently bypassed; no unbounded resource growth.",
+      "evidence_required": [
+        "dsp-safety-tests.json",
+        "fault-events.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "DSP-07",
+        "SAFE-02",
+        "SAFE-06"
+      ]
+    },
+    {
+      "id": "AC-32",
+      "milestone": "M4",
+      "title": "Latency modes and sustained playback",
+      "setup": "Committed reference hardware, baseline graphs, stress workloads and memory budgets.",
+      "procedure": "Run stated endurance/performance suites, switch modes and request a graph outside the mode budget.",
+      "expected_result": "Meets declared performance gates; reports latency and underruns; refuses incompatible choices instead of changing DSP invisibly.",
+      "evidence_required": [
+        "performance.json",
+        "endurance.json",
+        "memory-trace.csv"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "DSP-08",
+        "OBS-03"
+      ]
+    },
+    {
+      "id": "AC-33",
+      "milestone": "M3",
+      "title": "Volume policy across every controller",
+      "setup": "Fixed/hardware/software profiles; UPnP/Sendspin mapping fixtures; DSD and PCM paths.",
+      "procedure": "Apply volume/mute concurrently, reconnect hardware, attempt profile-import escalation and issue maximum remote volume.",
+      "expected_result": "Consistent caps and mute semantics; no duplicate gain; readback uncertainty visible; incompatible DSD gain refused; no fixed-output escalation.",
+      "evidence_required": [
+        "volume-policy-tests.json",
+        "gain-ledger.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "SAFE-01",
+        "SAFE-02",
+        "SAFE-03",
+        "SAFE-04"
+      ]
+    },
+    {
+      "id": "AC-34",
+      "milestone": "M4",
+      "title": "Privacy and local-first operation",
+      "setup": "Network blocked; secrets and private paths in test state.",
+      "procedure": "Play local files offline, inspect outbound connections, export default diagnostics and try cross-user local IPC.",
+      "expected_result": "Local playback needs no account; no unsolicited upload; diagnostics redact secrets; other users cannot control the engine by default.",
+      "evidence_required": [
+        "privacy-tests.json",
+        "redaction-report.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "SAFE-05",
+        "SAFE-06",
+        "OBS-04",
+        "REL-05"
+      ]
+    },
+    {
+      "id": "AC-35",
+      "milestone": "M2",
+      "title": "Profiles and deterministic association",
+      "setup": "Several DAC identities and headphone/speaker setups sharing one DAC.",
+      "procedure": "Switch devices/setups, resolve overlapping bindings and round-trip a profile with correction assets.",
+      "expected_result": "Predictable selection with explanation; ambiguous hardware requires manual setup selection; gain policy survives export/import.",
+      "evidence_required": [
+        "profile-selection.json",
+        "profile-roundtrip.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "PROF-01",
+        "PROF-02",
+        "PROF-03",
+        "COR-01"
+      ]
+    },
+    {
+      "id": "AC-36",
+      "milestone": "M4",
+      "title": "Receipts, concurrency and slow clients",
+      "setup": "Two controllers, duplicate request IDs, disconnects and backpressured event consumers.",
+      "procedure": "Issue commands, replay retries, overflow telemetry queues and reconnect using cursors/snapshots.",
+      "expected_result": "At-most-once mutation within documented dedupe window; applied/failure state distinct from acceptance; event gaps recover without blocking playback.",
+      "evidence_required": [
+        "api-concurrency.json",
+        "event-recovery.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "CTL-01",
+        "CTL-02",
+        "CTL-06"
+      ]
+    },
+    {
+      "id": "AC-37",
+      "milestone": "M4",
+      "title": "Desktop usability parity",
+      "setup": "Packaged macOS and Linux applications on qualified systems.",
+      "procedure": "Complete first-run device selection, local/network playback, correction import, profile switch, signal-path inspection and safe recovery without CLI.",
+      "expected_result": "Both GUIs cover release features with accessible controls and actual state; no unavailable future feature masquerades as functional.",
+      "evidence_required": [
+        "gui-acceptance.json",
+        "screenshots-manifest.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "CTL-03"
+      ]
+    },
+    {
+      "id": "AC-38",
+      "milestone": "M2",
+      "title": "Signal path accuracy",
+      "setup": "Bypass, EQ, resampling, software/hardware gain and shared-output cases.",
+      "procedure": "Compare inspector/API reports against compiled graph and backend instrumentation.",
+      "expected_result": "Requested/resolved/observed are distinct; all active transformations and evidence limits shown; no unsupported end-to-end verification claim.",
+      "evidence_required": [
+        "signal-path-comparison.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "OBS-01",
+        "OBS-02"
+      ]
+    },
+    {
+      "id": "AC-39",
+      "milestone": "M4",
+      "title": "Evidence completeness",
+      "setup": "Requirements catalog and all release test runs.",
+      "procedure": "Validate references, hashes, environments, actual results and required platform coverage.",
+      "expected_result": "Every in-scope requirement has passing exact evidence; blocked/not-run does not count as pass; future requirements remain clearly deferred.",
+      "evidence_required": [
+        "release-traceability.json",
+        "evidence-validation.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "OBS-04",
+        "REL-04"
+      ]
+    },
+    {
+      "id": "AC-40",
+      "milestone": "LATER",
+      "title": "Advanced transitions",
+      "setup": "Lossless/lossy, rate-change and strict-mode fixtures.",
+      "procedure": "Exercise fades/crossfades/ReplayGain and queue modes with incompatible strict policies.",
+      "expected_result": "Transformations disclosed, strict conflicts rejected and rate-specific gapless claims tested.",
+      "evidence_required": [
+        "transition-feature-tests.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "PLAY-08"
+      ]
+    },
+    {
+      "id": "AC-41",
+      "milestone": "LATER",
+      "title": "Advanced DSD/DAC processing",
+      "setup": "Validated reference vectors, ultrasonic/noise measurements and qualified hardware.",
+      "procedure": "Qualify each new modulator/correction algorithm and all mute/start/stop/failure transitions.",
+      "expected_result": "Declared numerical, spectral, stability and hardware limits met; no generic HQPlayer/Dirac equivalence claim.",
+      "evidence_required": [
+        "advanced-dsp-qualification.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "DSP-09"
+      ]
+    },
+    {
+      "id": "AC-42",
+      "milestone": "LATER",
+      "title": "Context-aware profiles",
+      "setup": "Conflicting context rules, changing stream format and manual overrides.",
+      "procedure": "Evaluate, preview and apply rules during playback with rapid context changes.",
+      "expected_result": "Deterministic priorities, bounded evaluation, no oscillation and preserved safety constraints.",
+      "evidence_required": [
+        "context-rule-tests.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "PROF-04"
+      ]
+    },
+    {
+      "id": "AC-43",
+      "milestone": "LATER",
+      "title": "Advanced audio analysis",
+      "setup": "Synthetic known responses and calibrated loopback data.",
+      "procedure": "Compare spectral/impulse results and run latency-aligned, gain-matched A/B with output provenance.",
+      "expected_result": "Known inputs reproduced within declared tolerances; software estimates never presented as measured DAC/room performance.",
+      "evidence_required": [
+        "analysis-reference-tests.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "OBS-05"
+      ]
+    },
+    {
+      "id": "AC-44",
+      "milestone": "LATER",
+      "title": "Phone measurement confidence",
+      "setup": "Supported phones/routes, injected AGC/clipping/drift, acoustic-reference recordings and a comparison microphone.",
+      "procedure": "Capture locally, upload with hashes, align/de-drift, assess confidence and generate bounded correction.",
+      "expected_result": "Bad captures rejected; no unsupported absolute SPL/phase claim; confidence-qualified regions only; physical before/after validation recorded.",
+      "evidence_required": [
+        "phone-measurement-project.json",
+        "validation-captures.wav"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "COR-02",
+        "COR-04"
+      ]
+    },
+    {
+      "id": "AC-45",
+      "milestone": "LATER",
+      "title": "Precision room correction",
+      "setup": "Calibrated microphone/interface and multi-position listening-area project.",
+      "procedure": "Calibrate, capture positions, create target/constraints, generate filters and measure corrected results.",
+      "expected_result": "Calibration provenance retained; boost/energy limits respected; before/after distinguished from prediction and reversible profile created.",
+      "evidence_required": [
+        "precision-measurement-project.json",
+        "before-after-results.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "COR-03",
+        "COR-04"
+      ]
+    },
+    {
+      "id": "AC-46",
+      "milestone": "LATER",
+      "title": "Remote host and endpoint separation",
+      "setup": "One host, two endpoint clocks, network fault proxy and authenticated controllers.",
+      "procedure": "Use the same control contract remotely, negotiate endpoint formats and exercise disconnect/reconnect and grouped playback.",
+      "expected_result": "No UI requirement on host; preserved safety/identity; declared timing and quality envelope met without assuming NAA interoperability.",
+      "evidence_required": [
+        "remote-endpoint-qualification.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "EXT-01"
+      ]
+    },
+    {
+      "id": "AC-47",
+      "milestone": "LATER",
+      "title": "Plugin hosting failure containment",
+      "setup": "Test plugins with hangs, crashes, latency changes and malicious state.",
+      "procedure": "Scan, instantiate, restore, process and crash plugins under the isolation policy.",
+      "expected_result": "Engine survives where isolation is claimed; bounded overhead; safe stop rather than unsafe correction bypass; no blanket sandbox claim.",
+      "evidence_required": [
+        "plugin-host-tests.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "EXT-02"
+      ]
+    },
+    {
+      "id": "AC-48",
+      "milestone": "LATER",
+      "title": "Additional clients/platforms",
+      "setup": "Named Windows/mobile/multichannel targets and library migration fixtures.",
+      "procedure": "Repeat applicable control, output, interruption, permission, route-change and persistence suites.",
+      "expected_result": "Support published only for exercised features/platforms; mobile limits and multichannel routing independently validated.",
+      "evidence_required": [
+        "platform-expansion-matrix.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "EXT-03"
+      ]
+    },
+    {
+      "id": "AC-49",
+      "milestone": "M4",
+      "title": "License and feature audit",
+      "setup": "Locked dependency graph including platform/build features and bundled correction assets.",
+      "procedure": "Review SPDX declarations, actual licenses, notices, modifications, source-delivery obligations and asset provenance.",
+      "expected_result": "First-party MIT declaration accurate; no unreviewed restrictive feature in release; all distributed third-party obligations documented.",
+      "evidence_required": [
+        "sbom.json",
+        "THIRD_PARTY_NOTICES.txt",
+        "license-audit.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "REL-01",
+        "REL-02"
+      ]
+    },
+    {
+      "id": "AC-50",
+      "milestone": "M4",
+      "title": "Release installation and rollback",
+      "setup": "Fresh supported macOS/Linux environments and an older supported installation.",
+      "procedure": "Install packaged GUI/CLI/host, run offline, upgrade with migration, restore backup and uninstall.",
+      "expected_result": "Working binaries/docs and authenticated artifacts; no accidental duplicate host; user music untouched; rollback path documented and tested.",
+      "evidence_required": [
+        "installation-matrix.json",
+        "artifact-hashes.json",
+        "migration-results.json"
+      ],
+      "status": "not_run",
+      "evidence": [],
+      "requirement_ids": [
+        "REL-03",
+        "REL-04",
+        "REL-05"
+      ]
+    }
+  ]
+}

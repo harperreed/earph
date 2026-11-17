@@ -1,0 +1,31 @@
+{
+  "validation_scope": "Specification structure and cross-references only; no product/audio/hardware tests executed.",
+  "result": "pass",
+  "requirements": 69,
+  "acceptance_scenarios": 50,
+  "first_release_requirements": 59,
+  "deferred_requirements": 10,
+  "primary_source_entries": 24,
+  "decision_coverage": "D01-D24 mapped; D25 selection preserved with unknown option text",
+  "milestone_counts": {
+    "M0": 5,
+    "M1": 20,
+    "M2": 16,
+    "M3": 8,
+    "LATER": 10,
+    "M4": 10
+  },
+  "spec_words": 13645,
+  "checks": [
+    "JSON parses",
+    "unique IDs",
+    "all requirement-to-test references resolve",
+    "all test-to-requirement references resolve",
+    "dependency graph acyclic",
+    "D01-D24 covered",
+    "source references resolve",
+    "code fences balanced",
+    "no product test falsely marked passed"
+  ],
+  "spec_sha256": "46b270ee9680795b743372a02ae4508dea3a77e494c0862aa54c88ef38bd1118"
+}
