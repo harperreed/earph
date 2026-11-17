@@ -9,7 +9,14 @@ fn renderer_consumes_real_payload_and_keeps_capture_on_backend_failure() {
     let fixtures = temporary.0.join("fixtures");
     earph_harness::fixture::write_bundle(&fixtures).unwrap();
     let fixture = fixtures.join("signed24-stereo-48000-seeded_noise.json");
-    let original = std::fs::read(fixtures.join("signed24-stereo-48000-seeded_noise.pcm")).unwrap();
+    let payload = fixtures.join("signed24-stereo-48000-seeded_noise.pcm");
+    let mut original = std::fs::read(&payload).unwrap();
+    original[0] ^= 1;
+    std::fs::write(&payload, &original).unwrap();
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&fixture).unwrap()).unwrap();
+    document["payload_sha256"] = earph_harness::sha256(&original).into();
+    std::fs::write(&fixture, serde_json::to_vec(&document).unwrap()).unwrap();
     let output_dir = temporary.0.join("render");
     let output = Command::new(env!("CARGO_BIN_EXE_earph-harness"))
         .args(["render", "--fixture"])
@@ -146,4 +153,41 @@ fn invalid_command_and_missing_input_fail_with_json() {
         assert_eq!(result["status"], "fail");
         assert!(result["error"]["code"].is_string());
     }
+}
+
+#[test]
+fn qualification_command_writes_recheckable_evidence() {
+    let temporary = support::TestDir::new();
+    let directory = temporary.0.join("qualification");
+    let output = Command::new(env!("CARGO_BIN_EXE_earph-harness"))
+        .args(["qualify", "--output"])
+        .arg(&directory)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let record = directory.join("evidence.json");
+    let check = Command::new(env!("CARGO_BIN_EXE_earph-harness"))
+        .args(["evidence-check", "--record"])
+        .arg(&record)
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stdout)
+    );
+    let value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    assert!(!value.to_string().contains(temporary.0.to_str().unwrap()));
+    std::fs::write(directory.join("render-results.json"), b"[]").unwrap();
+    let check = Command::new(env!("CARGO_BIN_EXE_earph-harness"))
+        .args(["evidence-check", "--record"])
+        .arg(&record)
+        .output()
+        .unwrap();
+    assert!(!check.status.success());
 }

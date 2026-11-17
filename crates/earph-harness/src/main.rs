@@ -2,7 +2,7 @@
 // ABOUTME: Reports structured outcomes without opening physical audio devices.
 use earph_core::{EngineError, ErrorCode, audio::MemoryBudget, ids::Epochs};
 use earph_harness::render::{self, FaultSchedule, RenderRequest};
-use earph_harness::{catalog, fixture, inventory, read_bounded};
+use earph_harness::{catalog, evidence, fixture, inventory, read_bounded};
 use serde_json::{Value, json};
 use std::{env, fs, path::Path, process::ExitCode};
 
@@ -93,6 +93,19 @@ fn run(args: &[String]) -> Result<Value, CliFailure> {
         .collect::<Vec<_>>()
         .as_slice()
     {
+        ["qualify", "--output", directory] => {
+            let record = evidence::qualify(Path::new(directory))?;
+            Ok(
+                json!({"status":"pass","evidence_id":record["evidence_id"],"observed_result":record["observed_result"]}),
+            )
+        }
+        ["evidence-check", "--record", path] => {
+            let path = Path::new(path);
+            let record = serde_json::from_slice(&read_bounded(path, 2 * 1024 * 1024)?)
+                .map_err(|_| "invalid evidence document")?;
+            evidence::validate(&record, path.parent().unwrap_or_else(|| Path::new(".")))?;
+            Ok(json!({"status":"pass"}))
+        }
         [
             "render",
             "--fixture",
@@ -145,7 +158,7 @@ fn run(args: &[String]) -> Result<Value, CliFailure> {
             Ok(json!({"status":"pass"}))
         }
         ["--help"] => Ok(
-            json!({"commands":["catalog-check --catalog PATH","dependency-check --inventory PATH","dependency-lock --output PATH --notices PATH","fixtures --output DIR","render --fixture PATH --block-frames N --output DIR [--faults PATH]"],"physical_output":false}),
+            json!({"commands":["catalog-check --catalog PATH","dependency-check --inventory PATH","dependency-lock --output PATH --notices PATH","fixtures --output DIR","render --fixture PATH --block-frames N --output DIR [--faults PATH]","qualify --output DIR","evidence-check --record PATH"],"physical_output":false}),
         ),
         _ => Err("unsupported command or arguments; use --help".into()),
     }

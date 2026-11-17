@@ -46,6 +46,30 @@ Prepared processing uses bounded buffers and performs no filesystem work.
 The allocator test instruments allocations and frees during normal and faulty processing.
 This does not qualify real backends or their blocking behavior.
 
+Run the full offline qualification into a new directory:
+
+```sh
+mkdir -p target/evidence
+cargo run --locked -p earph-harness -- qualify --output target/evidence/foundation
+cargo run --locked -p earph-harness -- evidence-check \
+  --record target/evidence/foundation/evidence.json
+```
+
+Qualification runs 288 clean renders and 18 fault cases, each repeated twice.
+It compares actual decoded sample values and captures against on-disk fixtures.
+Records include source revision, dirty state, executable hash, dependency-lock hash, environment, and artifact hashes.
+Recorded arguments redact local output paths.
+Timestamps use Unix nanoseconds, declared in each record.
+
+`evidence-check` checks the current foundation matrix and its measurement boundary.
+It rejects corrupt artifacts, missing provenance, changed outcomes, and broader qualification claims.
+It does not authenticate an author or replace independent review.
+Interrupted writes leave partial artifacts without a passing final report.
+
+The qualified scope is AC-06 on Linux virtual output.
+Other scenarios have partial test coverage or remain not run.
+The next gate covers real backend spikes and the remaining M0 decisions.
+
 Inspect command syntax with `cargo run --locked -p earph-harness -- --help`.
 Output is JSON. Failures exit with status 2.
 No commands emit sound or silently select a physical output.
