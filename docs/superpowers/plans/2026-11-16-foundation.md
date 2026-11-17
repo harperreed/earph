@@ -189,11 +189,11 @@ Do not install decoder, DSP, GUI, network, or hardware libraries solely to fill 
 - `render(request: RenderRequest) -> Result<RenderReport, RenderFailure>` preserves the partial capture and events on failure.
 - `earph-harness render --fixture PATH --block-frames N --output DIR` runs the actual renderer. `--faults PATH` supplies a versioned schedule.
 
-- [ ] Test clean preservation at block sizes 1, 64, 256, and 1024. Compare captured numeric samples against independent source expectations, including the final partial block. Require exact counts and distinct requested/resolved/observed fields. Add clock unit tests proving block partitioning cannot accumulate timestamp drift.
-- [ ] Test scheduled short writes, zero-progress writes, underruns, disconnects, malformed blocks, and stale epochs. Inject faults at first frame, block joins, and final frame. Reject invalid schedules before rendering. Preserve partial output after failures.
-- [ ] Test repeated seek/takeover with delayed old blocks. Require no stale samples in capture. Verify output consumption, rather than decode progress, drives the virtual audible position.
-- [ ] Run tests red. Implement the bounded renderer and virtual clock. On short writes, resume from the first unaccepted frame. On zero progress, underrun, malformed input, or output failure, stop safely with a typed error. Stale blocks are rejected before capture. No automatic output replacement occurs.
-- [ ] Run each fault schedule twice. Require identical semantic events and capture hashes. Instrument prepared processing for zero allocation/deallocation; perform artifact I/O and destruction outside that region. Run `scripts/check`, review, and commit with `feat: add deterministic virtual rendering and fault injection`.
+- [x] Test clean preservation at block sizes 1, 64, 256, and 1024. Compare captured numeric samples against independent source expectations, including the final partial block. Require exact counts and distinct requested/resolved/observed fields. Add clock unit tests proving block partitioning cannot accumulate timestamp drift.
+- [x] Test scheduled short writes, zero-progress writes, underruns, disconnects, malformed blocks, and stale epochs. Inject faults at first frame, block joins, and final frame. Reject invalid schedules before rendering. Preserve partial output after failures.
+- [x] Test repeated seek/takeover with delayed old blocks. Require no stale samples in capture. Verify output consumption, rather than decode progress, drives the virtual audible position.
+- [x] Run tests red. Implement the bounded renderer and virtual clock. On short writes, resume from the first unaccepted frame. On zero progress, underrun, malformed input, or output failure, stop safely with a typed error. Stale blocks are rejected before capture. No automatic output replacement occurs.
+- [x] Run each fault schedule twice. Require identical semantic events and capture hashes. Instrument prepared processing for zero allocation/deallocation; perform artifact I/O and destruction outside that region. Run `scripts/check`, review, and commit with `feat: add deterministic virtual rendering and fault injection`.
 
 ## Task 6: Qualify the real executable and record scoped evidence
 

@@ -1,6 +1,6 @@
 // ABOUTME: Generates bounded integer fixtures with stable seeds and manifests.
 // ABOUTME: Keeps expected sample patterns independent of the offline renderer.
-use crate::sha256;
+use crate::{read_bounded, sha256};
 use earph_core::{EngineError, ErrorCode, audio::*, ids::Epochs};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -156,6 +156,57 @@ pub struct FixtureFile {
 pub struct FixtureBundle {
     pub schema_version: u32,
     pub fixtures: Vec<FixtureFile>,
+}
+
+pub fn load_fixture(path: &Path) -> Result<(FixtureFile, PcmBlock), String> {
+    let manifest: FixtureFile = serde_json::from_slice(&read_bounded(path, 64 * 1024)?)
+        .map_err(|_| "invalid fixture manifest")?;
+    if manifest.schema_version != 1 {
+        return Err("unsupported fixture schema".into());
+    }
+    FixtureSource::new(manifest.spec.clone()).map_err(|e| e.to_string())?;
+    let expected = manifest
+        .spec
+        .format
+        .payload_bytes(manifest.spec.frames)
+        .map_err(|e| e.to_string())?;
+    if expected != manifest.payload_bytes {
+        return Err("fixture size differs from declared format".into());
+    }
+    let relative = Path::new(&manifest.payload_file);
+    if relative.components().count() != 1
+        || !matches!(
+            relative.components().next(),
+            Some(std::path::Component::Normal(_))
+        )
+    {
+        return Err("fixture payload must be a local filename".into());
+    }
+    let payload = path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(relative);
+    let metadata = fs::symlink_metadata(&payload).map_err(|_| "cannot inspect fixture payload")?;
+    if !metadata.file_type().is_file() || metadata.len() != expected as u64 {
+        return Err("invalid fixture payload file or length".into());
+    }
+    let bytes = read_bounded(&payload, expected)?;
+    if sha256(&bytes) != manifest.payload_sha256 {
+        return Err("fixture payload hash mismatch".into());
+    }
+    let block = PcmBlock::from_le_bytes(
+        BlockHeader {
+            epochs: Epochs::default(),
+            sequence: 0,
+            frame_position: 0,
+            frame_count: manifest.spec.frames,
+            format: manifest.spec.format,
+            time_domain: TimeDomain::OfflineFrames,
+        },
+        &bytes,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok((manifest, block))
 }
 
 pub fn write_bundle(output: &Path) -> Result<FixtureBundle, String> {

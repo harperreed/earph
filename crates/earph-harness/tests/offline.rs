@@ -2,6 +2,161 @@
 // ABOUTME: Uses independent sample vectors instead of renderer-derived expectations.
 use earph_core::{audio::*, ids::Epochs};
 use earph_harness::fixture::*;
+use earph_harness::{render::*, virtual_output::*};
+
+fn request(fixture: FixtureSpec, block_frames: usize) -> RenderRequest {
+    RenderRequest {
+        fixture,
+        block_frames,
+        budget: MemoryBudget::default(),
+        epochs: Epochs {
+            session: 1,
+            stream: 1,
+        },
+        faults: FaultSchedule::default(),
+    }
+}
+
+#[test]
+fn virtual_render_preserves_every_integer_frame_across_block_sizes() {
+    for fixture in qualification_specs() {
+        let expected = collect(fixture.clone(), 1031);
+        for size in [1, 64, 256, 1024] {
+            let report = render(request(fixture.clone(), size)).unwrap();
+            assert_eq!(
+                report
+                    .capture
+                    .iter()
+                    .copied()
+                    .map(i64::from)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(report.output_frames, 1031);
+            assert_eq!(report.requested_format, report.observed_format.unwrap());
+        }
+    }
+}
+
+#[test]
+fn faults_at_precise_frames_are_repeatable_and_keep_partial_capture() {
+    for at_frame in [0, 64, 1030] {
+        for fault in [
+            FaultKind::ShortWrite { max_frames: 3 },
+            FaultKind::ZeroProgress,
+            FaultKind::Underrun,
+            FaultKind::BackendFailure,
+            FaultKind::MalformedChunk,
+            FaultKind::StaleEpoch,
+        ] {
+            let mut input = request(spec(FixturePattern::Boundary, 1031), 256);
+            input.faults.faults.push(ScheduledFault { at_frame, fault });
+            let a = render(input.clone());
+            let b = render(input);
+            match (a, b) {
+                (Ok(a), Ok(b)) => {
+                    assert!(matches!(fault, FaultKind::ShortWrite { .. }));
+                    assert_eq!(a.capture.len(), 1031);
+                    assert_eq!(a.capture, b.capture);
+                    assert_eq!(a.events, b.events);
+                }
+                (Err(a), Err(b)) => {
+                    assert_eq!(a.report.output_frames, at_frame);
+                    assert_eq!(a.report.capture.len(), at_frame as usize);
+                    assert_eq!(a.error, b.error);
+                    assert_eq!(a.report.events, b.report.events);
+                    assert_eq!(a.report.payload_sha256, b.report.payload_sha256);
+                }
+                _ => panic!("non-deterministic render"),
+            }
+        }
+    }
+}
+
+#[test]
+fn preparation_rejects_invalid_schedules_and_resource_overflow() {
+    let mut input = request(spec(FixturePattern::Silence, 10), 0);
+    assert!(render(input.clone()).is_err());
+    input.block_frames = 64;
+    input.budget = MemoryBudget::new(16).unwrap();
+    assert!(render(input.clone()).is_err());
+    input.budget = MemoryBudget::default();
+    input.faults.faults.push(ScheduledFault {
+        at_frame: 10,
+        fault: FaultKind::Underrun,
+    });
+    assert!(render(input.clone()).is_err());
+    input.faults.faults[0] = ScheduledFault {
+        at_frame: 0,
+        fault: FaultKind::ShortWrite { max_frames: 0 },
+    };
+    assert!(render(input.clone()).is_err());
+    input.faults.faults = vec![
+        ScheduledFault {
+            at_frame: 2,
+            fault: FaultKind::Underrun,
+        },
+        ScheduledFault {
+            at_frame: 1,
+            fault: FaultKind::BackendFailure,
+        },
+    ];
+    assert!(render(input).is_err());
+}
+
+#[test]
+fn stale_blocks_after_seek_or_takeover_never_reach_virtual_capture() {
+    let fixture = spec(FixturePattern::Boundary, 3);
+    let mut block = PcmBlock::prepare(
+        fixture.format,
+        3,
+        Epochs {
+            session: 1,
+            stream: 0,
+        },
+        MemoryBudget::default(),
+    )
+    .unwrap();
+    FixtureSource::new(fixture.clone())
+        .unwrap()
+        .read_into(&mut block)
+        .unwrap();
+    let mut output = VirtualOutput::prepare(fixture.format, 9, block.header().epochs).unwrap();
+    assert_eq!(output.write(&block, 0).unwrap(), 3);
+    for epochs in [
+        Epochs {
+            session: 1,
+            stream: 1,
+        },
+        Epochs {
+            session: 2,
+            stream: 0,
+        },
+    ] {
+        output.invalidate(epochs, 0).unwrap();
+        assert_eq!(
+            output.write(&block, 0).unwrap_err().code,
+            earph_core::ErrorCode::StaleSession
+        );
+        block.set_span(epochs, 0, 0, 3).unwrap();
+        assert_eq!(output.write(&block, 0).unwrap(), 3);
+    }
+    assert_eq!(
+        output.captured_samples(),
+        &[-32768, -32767, -1, -32768, -32767, -1, -32768, -32767, -1]
+    );
+}
+
+#[test]
+fn virtual_clock_has_no_partition_rounding_drift() {
+    let mut clock = VirtualClock::default();
+    for _ in 0..44100 {
+        clock.advance_frames(1, 44100).unwrap();
+    }
+    assert_eq!(clock.elapsed_ns(), 1000000000);
+    assert!(clock.advance_frames(1, 48000).is_err());
+    assert_eq!(clock.elapsed_ns(), 1000000000);
+}
 
 fn spec(pattern: FixturePattern, frames: u64) -> FixtureSpec {
     FixtureSpec {

@@ -4,6 +4,8 @@
 pub mod catalog;
 pub mod fixture;
 pub mod inventory;
+pub mod render;
+pub mod virtual_output;
 
 use sha2::{Digest, Sha256};
 use std::{fs::File, io::Read, path::Path};
