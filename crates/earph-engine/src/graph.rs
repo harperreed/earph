@@ -805,30 +805,32 @@ fn prepare(
         processing_input_format: processing_input,
         processing_output_format: processing_output,
         quantum_frames: quantum,
-        latency_frames: plan.latency_frames(),
-        tail_frames: plan.tail_frames(),
-        tail_policy: if plan.bounded_iir_truncation() {
-            earph_core::graph_control::GraphTailPolicy::BoundedIirTruncation
-        } else {
-            earph_core::graph_control::GraphTailPolicy::AuthoredFiniteSupport
+        timing: earph_core::graph_control::GraphTiming::SameRate {
+            latency_frames: plan.latency_frames(),
+            tail_frames: plan.tail_frames(),
+            tail_policy: if plan.bounded_iir_truncation() {
+                earph_core::graph_control::GraphTailPolicy::BoundedIirTruncation
+            } else {
+                earph_core::graph_control::GraphTailPolicy::AuthoredFiniteSupport
+            },
+            terminal_output_bounds: plan.terminal_output_bounds().to_vec(),
+            node_tails: plan
+                .schedule()
+                .iter()
+                .filter(|n| {
+                    matches!(
+                        n.kind(),
+                        NodeKind::Peq { .. } | NodeKind::Convolution { .. }
+                    )
+                })
+                .map(|n| earph_core::graph_control::FilterTailObservation {
+                    node: n.id().clone(),
+                    channels: n.format().channels,
+                    horizon_frames: n.tail_frames(),
+                    terminal_output_bounds: n.terminal_output_bounds().to_vec(),
+                })
+                .collect(),
         },
-        terminal_output_bounds: plan.terminal_output_bounds().to_vec(),
-        node_tails: plan
-            .schedule()
-            .iter()
-            .filter(|n| {
-                matches!(
-                    n.kind(),
-                    NodeKind::Peq { .. } | NodeKind::Convolution { .. }
-                )
-            })
-            .map(|n| earph_core::graph_control::FilterTailObservation {
-                node: n.id().clone(),
-                channels: n.format().channels,
-                horizon_frames: n.tail_frames(),
-                terminal_output_bounds: n.terminal_output_bounds().to_vec(),
-            })
-            .collect(),
         preservation: plan.preservation(),
         transformations,
         resources: GraphResidentUsage {

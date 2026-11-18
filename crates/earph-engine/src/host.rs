@@ -887,8 +887,10 @@ mod tests {
             resident_bytes: preview.resources.pipeline_bytes,
             audio_payload_bytes: 0,
             failure_node: None,
-            latency_frames: 0,
-            tail_frames: 0,
+            timing: earph_core::graph_control::PlaybackTiming::SameRate {
+                latency_frames: 0,
+                tail_frames: 0,
+            },
             saturation_count: 0,
             graph_peak: None,
             prequantization_peak: None,

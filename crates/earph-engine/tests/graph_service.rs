@@ -350,8 +350,8 @@ fn resolves_corrections_and_retires_frozen_filter_storage() {
         .unwrap();
     let success = completion(&mut service).result.unwrap();
     let hash = success.preview.kernel_hash.clone();
-    assert_eq!(success.preview.latency_frames, 256);
-    assert_eq!(success.preview.tail_frames, 258);
+    assert_eq!(success.preview.timing.latency_frames(), Some(256));
+    assert_eq!(success.preview.timing.tail_frames(), Some(258));
     assert!(
         success.preview.channel_peak_bounds[0] >= 0.75
             && success.preview.channel_peak_bounds[1] >= 0.25
@@ -796,7 +796,7 @@ fn prepared_bounds_cover_matrix_sum_gain_and_compensation_without_assuming_cance
     let mut service = GraphService::spawn(None).unwrap();
     service.submit(job, state, crate::active_source()).unwrap();
     let success = completion(&mut service).result.unwrap();
-    assert_eq!(success.preview.latency_frames, 3);
+    assert_eq!(success.preview.timing.latency_frames(), Some(3));
     assert!(success.preview.transformations.iter().any(|entry| matches!(
         entry,
         SignalTransformation::Kernel {

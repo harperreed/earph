@@ -360,6 +360,7 @@ fn executable_imported_fir_preserves_one_tail_across_a_real_queue_join() {
     graph["nodes"][1]["kind"] = json!({"kind":"convolution","asset":asset});
     let (_, ready) = prepare_graph(controller, graph);
     assert_eq!(ready["preview"]["tail_frames"], 258);
+    assert_eq!(ready["preview"]["timing_kind"], "same_rate");
     assert_eq!(ready["preview"]["latency_frames"], 256);
     assert_eq!(ready["preview"]["tail_policy"], "authored_finite_support");
     assert_eq!(ready["preview"]["node_tails"][0]["horizon_frames"], 258);
@@ -671,6 +672,7 @@ fn executable_paused_graph_swap_publishes_the_installed_observation() {
             inspection["active"]["graph_hash"]
         );
         assert_eq!(state["playback"]["processing"]["latency_frames"], delay);
+        assert_eq!(state["playback"]["processing"]["timing_kind"], "same_rate");
         assert_eq!(
             state["playback"]["processing"]["resident_bytes"],
             inspection["active"]["resources"]["pipeline_bytes"]
