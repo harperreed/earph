@@ -83,6 +83,7 @@ fn sdk_output_timestamps_require_valid_flags_and_are_invalidated_between_starts(
         ring: producer.ring.clone(),
         channels: 2,
         timing: Timing::new(),
+        entered: AtomicBool::new(false),
     };
     let mut bytes = [0_u8; 6];
     let mut output = AudioBufferList {
@@ -124,6 +125,66 @@ fn sdk_output_timestamps_require_valid_flags_and_are_invalidated_between_starts(
     );
     assert_eq!(context.timing.snapshot().output_sample_time_frames, None);
 }
+
+#[test]
+fn only_the_current_generation_last_payload_buffer_controls_scheduled_completion() {
+    use objc2_core_audio_types::AudioTimeStampFlags;
+    let timing = Timing::new();
+    // SAFETY: The SDK timestamp contains only numeric fields and accepts zero initialization.
+    let mut stamp: AudioTimeStamp = unsafe { std::mem::zeroed() };
+    stamp.mHostTime = 10000;
+    stamp.mSampleTime = 1024.0;
+    stamp.mFlags = AudioTimeStampFlags::SampleHostTimeValid;
+    without_heap(|| timing.record_buffer(&stamp, 16, 16, 512));
+    let first = timing.observation().payload.unwrap();
+    assert_eq!(first.delivered_frames, 16);
+    assert_eq!(first.end_sample_frames, 1536.0);
+    stamp.mSampleTime = 1536.0;
+    stamp.mHostTime = 20000;
+    timing.record_buffer(&stamp, 0, 16, 512);
+    assert_eq!(
+        timing.observation().payload.unwrap().start.sample_frames,
+        1024.0
+    );
+    timing.invalidate().unwrap();
+    assert!(timing.observation().payload.is_none());
+    timing.record_buffer(&stamp, 0, 16, 512);
+    assert!(timing.observation().payload.is_none());
+    timing.record_buffer(&stamp, 8, 24, 512);
+    assert_eq!(timing.observation().payload.unwrap().delivered_frames, 24);
+    stamp.mFlags = AudioTimeStampFlags::SampleTimeValid;
+    timing.record_buffer(&stamp, 8, 32, 512);
+    assert!(timing.observation().payload.is_none());
+}
+
+#[test]
+fn overlapping_sdk_callbacks_fault_without_publishing_delivery_or_timestamps() {
+    let mut producer = super::super::tests::producer(PlaybackRoute::StrictInteger);
+    producer
+        .write(&super::super::tests::block(0, &[123, -123]), 0, 1)
+        .unwrap();
+    producer.ring.enabled.store(true, Ordering::Release);
+    let mut context = Context {
+        ring: producer.ring.clone(),
+        channels: 2,
+        timing: Timing::new(),
+        entered: AtomicBool::new(true),
+    };
+    let mut bytes = [255_u8; 6];
+    let mut output = AudioBufferList {
+        mNumberBuffers: 1,
+        mBuffers: [AudioBuffer {
+            mNumberChannels: 2,
+            mDataByteSize: 6,
+            mData: bytes.as_mut_ptr().cast(),
+        }],
+    };
+    call(&mut context, &mut output);
+    assert_eq!(bytes, [0; 6]);
+    assert_eq!(producer.ring.consumed.load(Ordering::Acquire), 0);
+    assert_ne!(producer.ring.fault.load(Ordering::Acquire), 0);
+    assert!(context.timing.observation().payload.is_none());
+}
 #[test]
 fn sdk_callback_delivers_owned_frames_and_silences_after_underflow() {
     let mut producer = super::super::tests::producer(PlaybackRoute::StrictInteger);
@@ -134,6 +195,7 @@ fn sdk_callback_delivers_owned_frames_and_silences_after_underflow() {
         ring: producer.ring.clone(),
         channels: 2,
         timing: Timing::new(),
+        entered: AtomicBool::new(false),
     };
     context.ring.enabled.store(true, Ordering::Release);
     let mut bytes = [255_u8; 12];
@@ -159,6 +221,7 @@ fn sdk_callback_rejects_planar_or_changed_channels_with_silence() {
         ring: producer.ring.clone(),
         channels: 2,
         timing: Timing::new(),
+        entered: AtomicBool::new(false),
     };
     context.ring.enabled.store(true, Ordering::Release);
     let mut bytes = [255_u8; 12];
@@ -182,6 +245,7 @@ fn observed_device_changes_disable_callbacks_and_reject_future_submission() {
         ring: producer.ring.clone(),
         channels: 2,
         timing: Timing::new(),
+        entered: AtomicBool::new(false),
     };
     context.ring.enabled.store(true, Ordering::Release);
     let mut address = ca::AudioObjectPropertyAddress {

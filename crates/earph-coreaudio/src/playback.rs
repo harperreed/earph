@@ -608,6 +608,35 @@ impl CoreAudioOutput {
         let timing = CallbackTiming::unknown(0);
         timing.for_state(self.state())
     }
+    pub fn scheduled_output_complete(&self) -> Result<Option<bool>, CoreAudioError> {
+        let ring = &self.producer.ring;
+        if self.state() != OutputState::Running
+            || !ring.finished.load(Ordering::Acquire)
+            || ring.queued_frames() != 0
+            || ring.consumed.load(Ordering::Acquire) != self.producer.submitted
+        {
+            return Ok(None);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            match self
+                .native
+                .scheduled_output_complete(self.producer.submitted)
+            {
+                Ok(value) if self.state() == OutputState::Running => Ok(value),
+                Ok(_) => Ok(None),
+                Err(mut error) => {
+                    ring.fail();
+                    error.code = ErrorCode::OutputFault;
+                    Err(error)
+                }
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Ok(None)
+        }
+    }
     pub fn stop(&mut self) -> Result<(), CoreAudioError> {
         self.producer.ring.enabled.store(false, Ordering::Release);
         #[cfg(target_os = "macos")]
@@ -632,6 +661,8 @@ impl CoreAudioOutput {
         Ok(())
     }
 }
+#[cfg(any(target_os = "macos", test))]
+mod presentation;
 #[cfg(test)]
 mod tests;
 

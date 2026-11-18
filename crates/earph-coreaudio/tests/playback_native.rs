@@ -57,6 +57,7 @@ fn denied_start_queue_cancel_close_and_reopen_never_emit_or_change_settings() {
             ErrorCode::SafetyPolicyBlocked
         );
         assert_eq!(output.state(), OutputState::Prepared);
+        assert_eq!(output.scheduled_output_complete().unwrap(), None);
         let mut block = PcmBlock::prepare(
             input.format,
             input.buffer_frames as usize,
@@ -83,9 +84,11 @@ fn denied_start_queue_cancel_close_and_reopen_never_emit_or_change_settings() {
             "modified_integer_to_float32"
         );
         output.stop().unwrap();
+        assert_eq!(output.scheduled_output_complete().unwrap(), None);
         assert_eq!(output.progress().queued_frames, 0);
         assert!(output.write(&block, 0, 1).is_err());
         output.close().unwrap();
+        assert_eq!(output.scheduled_output_complete().unwrap(), None);
         output.close().unwrap();
         assert_eq!(output.progress().callbacks_observed, 0);
     }

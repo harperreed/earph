@@ -52,7 +52,8 @@ fn device_clock(device: u32) -> Value {
 }
 fn checkpoint(output: &CoreAudioOutput, phase: &str, observations: &mut Vec<Value>) {
     observations.push(json!({"phase":phase,"progress":output.progress(),"callback_timing":output.callback_timing(),
-        "device_clock":if output.state()==OutputState::Running {device_clock(output.report().observed.object_id)}else{Value::Null}}));
+        "device_clock":if output.state()==OutputState::Running {device_clock(output.report().observed.object_id)}else{Value::Null},
+        "scheduled_output_complete":match output.scheduled_output_complete() {Ok(value)=>json!(value),Err(error)=>json!({"error":error})}}));
 }
 fn wait_for(
     output: &CoreAudioOutput,
@@ -130,6 +131,24 @@ fn exercise(
         progress.callbacks_observed >= delivered.callbacks_observed + 2
     })?;
     checkpoint(output, "two_following_callbacks", observations);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if output
+            .scheduled_output_complete()
+            .map_err(|error| error.to_string())?
+            == Some(true)
+        {
+            break;
+        }
+        if output.progress().fault {
+            return Err("output faulted before the SDK scheduled handoff".into());
+        }
+        if Instant::now() >= deadline {
+            return Err("SDK scheduled handoff remained pending or unknown".into());
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    checkpoint(output, "sdk_hardware_handoff", observations);
     Ok(())
 }
 fn settings(device: &DeviceSnapshot) -> Value {
@@ -218,14 +237,23 @@ fn run() -> Check {
         item["device_clock"]["os_status"] == 0
             && !item["device_clock"]["sample_time_frames"].is_null()
     });
-    let passed =
-        result.is_ok() && stop.is_ok() && close.is_ok() && unchanged && timestamps && clock;
+    let handoff = observations.iter().any(|item| {
+        item["phase"] == "sdk_hardware_handoff" && item["scheduled_output_complete"] == true
+    });
+    let passed = result.is_ok()
+        && stop.is_ok()
+        && close.is_ok()
+        && unchanged
+        && timestamps
+        && clock
+        && handoff;
     let public = json!({"schema_version":1,"status":if passed {"pass"}else{"fail"},"route":"float32_compatibility",
         "source":"owned_generated_440hz_tones_with_linear_ramps","peak_level_dbfs_maximum":20.0*(1.0_f64/256.0).log10(),
         "format":format,"buffer_frames":before.buffer_frames,"generated_frames":fixture.block.header().frame_count,
         "stimulus_payload_encoding":"signed24_little_endian_interleaved","stimulus_payload_sha256":stimulus_sha256,
         "planned_operations":["start","pause","resume","finish","stop","close"],"final_progress":output.progress(),
         "valid_sdk_output_timestamps_observed":timestamps,"current_device_sample_clock_observed":clock,
+        "sdk_hardware_handoff_complete":handoff,
         "pause_delivery_held":result.is_ok(),"settings_unchanged":unchanged,"hardware_presentation":"unknown","dac_preservation":"unverified",
         "build":earph_harness::build_provenance()});
     write_report(

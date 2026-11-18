@@ -6,11 +6,13 @@ use objc2_core_audio_types::{AudioBufferList, AudioTimeStamp};
 use std::{ffi::c_void, marker::PhantomData, ptr::NonNull, rc::Rc};
 mod timing;
 use timing::Timing;
+mod presentation;
 
 struct Context {
     ring: Arc<Ring>,
     channels: u32,
     timing: Timing,
+    entered: AtomicBool,
 }
 unsafe extern "C-unwind" fn changed(
     _: u32,
@@ -75,13 +77,31 @@ unsafe extern "C-unwind" fn callback(
     let bytes = unsafe {
         std::slice::from_raw_parts_mut(buffer.mData.cast::<u8>(), buffer.mDataByteSize as usize)
     };
+    if context
+        .entered
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        context.ring.fail();
+        return 0;
+    }
+    let before = context.ring.consumed.load(Ordering::Acquire);
+    context.ring.render(bytes);
+    let total = context.ring.consumed.load(Ordering::Acquire);
     if context.ring.enabled.load(Ordering::Acquire)
         && context.ring.fault.load(Ordering::Acquire) == 0
     {
         // SAFETY: The SDK owns this output timestamp for the callback's duration.
-        context.timing.record(unsafe { output_time.as_ref() });
+        context.timing.record_buffer(
+            unsafe { output_time.as_ref() },
+            total.saturating_sub(before),
+            total,
+            bytes.len() / context.ring.frame_bytes,
+        );
+    } else if context.ring.fault.load(Ordering::Acquire) != 0 {
+        bytes.fill(0);
     }
-    context.ring.render(bytes);
+    context.entered.store(false, Ordering::Release);
     0
 }
 
@@ -106,6 +126,7 @@ impl Registration {
             ring,
             channels,
             timing: Timing::new(),
+            entered: AtomicBool::new(false),
         });
         let mut id = None;
         // SAFETY: The static callback uses this unique owned context until checked destruction.
@@ -272,6 +293,25 @@ impl Registration {
             .expect("registration retains context until drop")
             .timing
             .snapshot()
+    }
+    pub(super) fn scheduled_output_complete(
+        &self,
+        submitted: u64,
+    ) -> Result<Option<bool>, CoreAudioError> {
+        self.check()?;
+        if !self.started {
+            return Ok(None);
+        }
+        let observation = self
+            .context
+            .as_ref()
+            .expect("live registration owns context")
+            .timing
+            .observation();
+        let Some(payload) = observation.payload else {
+            return Ok(None);
+        };
+        presentation::complete(self.device, payload, submitted)
     }
     pub(super) fn close(&mut self) -> Result<(), CoreAudioError> {
         if self.closed {

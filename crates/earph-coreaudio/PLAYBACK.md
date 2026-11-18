@@ -35,6 +35,13 @@ Native start and stop invalidate prior timestamp generations.
 These observations describe SDK scheduling and do not prove DAC presentation.
 The tested device briefly reported different device-clock and IOProc sample epochs after start and resume.
 Do not infer presentation from their numerical order before establishing their clock relationship.
+`scheduled_output_complete()` returns an optional SDK hardware-handoff result after explicit EOF.
+It requires matching submitted and delivered totals and the current generation's last payload-bearing buffer.
+It translates sample times through the running device and checks paired sample and host clocks.
+Inconsistent epochs, unsupported clocks, missing timestamps, and inactive output return unknown.
+Unexpected native clock errors fault the stream.
+Later silence callbacks do not advance the tracked payload boundary.
+The check concerns the SDK buffer handoff and does not establish DAC or acoustic presentation.
 
 `finish()` closes producer admission and lets callbacks drain a final partial buffer with silence padding.
 This drains the application ring, not a measured hardware queue.

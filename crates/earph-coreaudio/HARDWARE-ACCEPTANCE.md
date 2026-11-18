@@ -36,12 +36,14 @@ The generated signed24 signal peaks at 32768, at least 48.16 dB below full scale
 Two ramped 440 Hz tone windows surround a prepared silent pause interval.
 The test reads the current device clock only while its owned IOProc runs.
 It does not capture audio.
-It closes the output after observing two callbacks beyond application-ring drain.
-Those extra callbacks do not establish a hardware drain or presentation guarantee.
+It observes two callbacks beyond application-ring drain before checking the last buffer's scheduled handoff.
+It waits for a consistent SDK sample and host clock result before closing the output.
+The wait has a five-second bound and fails if the handoff remains pending or unknown.
+Those checks do not establish DAC or acoustic presentation.
 
 ## Verified lifecycle run
 
-The approved native run passed on November 18, 2026.
+The first approved native run passed on November 18, 2026.
 It used the saved explicit UID at the observed 48000 Hz stereo rate and 512-frame buffer.
 It delivered all 36352 generated frames through 73 callbacks with no fault.
 Callback delivery and callback count held during the 100 ms pause.
@@ -58,3 +60,16 @@ The clock observations did not establish hardware drain or DAC preservation.
 The device sample clock still preceded the final payload buffer end after two following callbacks.
 Immediately after start and resume, its sample epoch also differed from the later IOProc epoch.
 These observations forbid treating callback equality or a fixed callback count as presentation proof.
+
+## Verified SDK handoff run
+
+A second approved run exercised the optional scheduled-output check with the same owned stimulus and current settings.
+The check returned false at application-ring drain and after two following callbacks.
+It then returned true when both translated SDK clocks crossed the final payload-bearing buffer end.
+The callback count stayed at 73 between the last false and true observations.
+The test stopped and closed the output after that true result.
+It delivered all 36352 frames with no fault and retained unchanged device settings.
+
+The [redacted handoff receipt](evidence/hardware-handoff-20261118.json) records the pass and exact build provenance.
+The result establishes the exercised SDK hardware-handoff boundary only.
+Hardware latency, audible position, DAC preservation, and acoustic presentation remain unknown.
