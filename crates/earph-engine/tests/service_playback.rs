@@ -336,6 +336,36 @@ fn prepare_graph(controller: &Controller, graph: Value) -> (Value, Value) {
 }
 
 #[test]
+fn executable_retains_bounded_semantic_rejections_over_ipc() {
+    let directory = directory();
+    let (config, _) = configuration(&directory);
+    let host = Host::start(&config);
+    let controller = &host.controller;
+    let mut graph = delay_gain_graph(0, 1.0);
+    graph["nodes"][1]["kind"] =
+        json!({"kind":"matrix", "input_channels":"stereo", "coefficients":[1,0,1]});
+    let mut request = controller.document(
+        json!({"method":"graph.prepare", "graph":graph,
+        "processing":{"kind":"integer_bypass"}}),
+        None,
+    );
+    let rejected = controller.send(&request);
+    assert_eq!(rejected["receipt"]["status"], "rejected", "{rejected}");
+    assert_eq!(
+        rejected["receipt"]["error"]["code"], "GRAPH_INVALID",
+        "{rejected}"
+    );
+    request["payload"] = json!({"method":"state.get"});
+    let reused = controller.send(&request);
+    assert_eq!(reused["receipt"]["status"], "rejected", "{reused}");
+    assert_eq!(
+        reused["receipt"]["error"]["code"], "ASSET_INVALID",
+        "{reused}"
+    );
+    controller.apply(json!({"method":"owner.shutdown"}));
+}
+
+#[test]
 fn executable_graph_rejects_competing_preparation_and_keeps_the_working_plan_on_failure() {
     let directory = directory();
     let source = directory.join("source.wav");
@@ -403,6 +433,7 @@ fn executable_paused_graph_swap_publishes_the_installed_observation() {
     controller.send(&pause);
     controller.settled(&pause);
     for delay in [3, 7] {
+        let before_epoch = controller.state()["graph_epoch"].as_u64().unwrap();
         let (_, ready) = prepare_graph(controller, delay_gain_graph(delay, 0.5));
         let commit = controller.document(
             json!({"method":"graph.commit",
@@ -414,6 +445,8 @@ fn executable_paused_graph_swap_publishes_the_installed_observation() {
         let state = controller.state();
         let inspection = controller.query(json!({"method":"graph.inspect"}));
         assert_eq!(state["transport"], "paused");
+        assert_eq!(state["muted"], true);
+        assert_eq!(state["graph_epoch"], before_epoch + 1);
         assert_eq!(
             state["playback"]["processing"]["graph_hash"],
             inspection["active"]["graph_hash"]

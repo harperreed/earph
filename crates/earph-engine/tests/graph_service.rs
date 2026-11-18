@@ -48,6 +48,17 @@ mod graph {
             returned,
             "service shutdown waited for a pipeline still held by its caller"
         );
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        while accounting.owners.load(Ordering::Acquire) != 0
+            || accounting.retiring.load(Ordering::Acquire) != 0
+            || accounting.resident.load(Ordering::Acquire) != 0
+        {
+            assert!(
+                Instant::now() < deadline,
+                "pipeline did not finish retiring"
+            );
+            thread::yield_now();
+        }
         assert_eq!(accounting.owners.load(Ordering::Acquire), 0);
         assert_eq!(accounting.retiring.load(Ordering::Acquire), 0);
         assert_eq!(accounting.resident.load(Ordering::Acquire), 0);
@@ -401,6 +412,27 @@ fn integer_meter_is_rejected_before_creating_a_silent_unobserved_pipeline() {
     );
     retired(&service);
     assert_eq!(service.resources().resident_bytes, 0);
+}
+
+#[test]
+fn strict_integer_bypass_rejects_a_gain_ramp_before_preparation() {
+    let mut state = snapshot();
+    state.software_gain_db = 0.0;
+    state.gain_ramp_frames = 32;
+    state.output.as_mut().unwrap().fidelity = FidelityPolicy::StrictPreservation;
+    let mut job = request(&state, serde_json::json!({"kind":"bypass"}));
+    let intent = Arc::make_mut(&mut job.intent);
+    intent.processing = GraphProcessingRequest::IntegerBypass;
+    for node in &mut Arc::make_mut(&mut intent.graph).nodes {
+        node.format.precision = PcmRepresentation::Signed16;
+    }
+    let mut service = GraphService::spawn().unwrap();
+    service.submit(job, state).unwrap();
+    assert_eq!(
+        completion(&mut service).result.err().unwrap().code,
+        ErrorCode::FidelityPolicyConflict
+    );
+    retired(&service);
 }
 
 #[test]

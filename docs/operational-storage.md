@@ -30,9 +30,13 @@ It never reports that rename was undone.
 Startup reconciles recovery before restoring a session.
 It syncs the directory before interpreting an existing recovery record.
 For `pending` with previous bytes, it restores and syncs those bytes, then settles that result.
+If the validated checkpoint already matches those bytes, startup reads it without another write.
+That read-only recovery can leave the pending record until the next transaction.
 For `pending` with initial absence, it restores an empty logical state and retains the pending record.
 The uncertain candidate stays on disk until a later successful transaction replaces it.
 No recovery path deletes a file.
+Failed replacement temporaries remain available for inspection under the task's explicit retention policy.
+Cleanup requires separate approval.
 For `settled`, it checks the checkpoint digest before loading any graph intent.
 Invalid records, digest mismatches, or failed recovery refuse startup.
 
