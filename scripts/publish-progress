@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# ABOUTME: Builds and publishes the private progress artifact or its live data only.
+# ABOUTME: Retains verified publication receipts without staging or committing source files.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec node dashboard/publish.mjs "$@"

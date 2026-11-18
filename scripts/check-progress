@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# ABOUTME: Runs dashboard model, builder, and syntax checks without touching audio devices.
+# ABOUTME: Offers real published-browser checks and an explicit live verification update.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+browser=false
+verification=false
+for argument in "$@"; do
+  case "$argument" in
+    --browser) browser=true ;;
+    --publish-verification) browser=true; verification=true ;;
+    *) echo 'Usage: scripts/check-progress [--browser] [--publish-verification]' >&2; exit 2 ;;
+  esac
+done
+node --test dashboard/model.test.mjs dashboard/build.test.mjs
+node --check dashboard/app.mjs
+node --check dashboard/publish.mjs
+node --check dashboard/browser-test.mjs
+node scripts/build-progress.mjs
+if "$browser"; then
+  if "$verification"; then
+    node dashboard/browser-test.mjs --publish-verification
+  else
+    node dashboard/browser-test.mjs
+  fi
+fi
