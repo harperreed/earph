@@ -56,7 +56,7 @@ Two muted Mac graph swaps report current playback observations without submittin
 Redacted review receipts now live under `docs/evidence/dsp/`.
 The fixes and receipts are pushed at `42eb803`.
 All twenty original review threads are resolved.
-A fresh review identified sixteen further findings before merge.
+A fresh review identified sixteen inline findings and four findings in its summary before merge.
 Root and the worker owner are fixing the underlying transition and completion boundaries.
 The prior platform receipts remain bound to `cbc2785`; they do not qualify these later changes.
 
@@ -67,6 +67,18 @@ It never wraps counters and requests owner shutdown before further controls.
 A fresh owner reseeds only an exhausted persisted revision.
 Ordinary revisions, queue intent, and startup safety retain their existing contracts.
 The final diff review found no further in-scope defects.
+
+Two summary findings required additional fixes after the inline review intake.
+Activation now publishes the acknowledged active and reserved queue entries atomically.
+Bounded semantic graph failures now reach owner receipt history over IPC.
+Regression tests reproduced both failures before the fixes.
+The claimed same-epoch graph rewind is unreachable through the inspected Session controls.
+An explicit mute and volume-cap test proves epoch advancement and repeated-mute stability.
+Keep the existing reset guard, which rejects unchanged epochs.
+Independent review approves this focused delta without material findings.
+The final integrated Linux check passes 361 tests, with two ignored.
+All thirty-six inline review threads are resolved on the remote PR.
+Platform checks for `f634853` remain historical and do not qualify this final delta.
 
 ## Second review fixes
 

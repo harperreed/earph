@@ -3,6 +3,26 @@
 use earph_core::{control::*, ids::*, session::Session};
 
 #[test]
+fn bounded_semantic_rejection_reaches_retained_owner_history() {
+    let frame = br#"{"schema_version":1,"request_id":"semantic","zone_id":"main","owner_id":null,"session_id":null,"expected_revision":0,"payload":{"method":"graph.prepare","graph":{"schema_version":1,"nodes":[{"id":"matrix","kind":{"kind":"matrix","input_channels":"stereo","coefficients":[1,0,1]},"format":{"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":64}}],"edges":[],"output":"matrix"},"processing":{"kind":"integer_bypass"}}}"#;
+    let mut command = decode_command(frame, &ControlLimits::default()).unwrap();
+    let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());
+    let receipt = session.submit(command.clone());
+    assert_eq!(receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(
+        receipt.error.unwrap().code,
+        earph_core::ErrorCode::GraphInvalid
+    );
+    command.payload = Command::State;
+    let receipt = session.submit(command);
+    assert_eq!(receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(
+        receipt.error.unwrap().code,
+        earph_core::ErrorCode::AssetInvalid
+    );
+}
+
+#[test]
 fn graph_inspection_is_a_read_only_shared_command() {
     let command = decode_command(
         br#"{"schema_version":1,"request_id":"inspect","zone_id":"main","owner_id":null,"session_id":null,"expected_revision":null,"payload":{"method":"graph.inspect"}}"#,

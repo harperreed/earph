@@ -601,6 +601,14 @@ impl Session {
             TransportState::Paused
         };
         staged.state.muted = true;
+        staged.state.active_entry_id = Some(observation.source_entry_id.clone());
+        staged.state.reserved_next_entry_id = staged
+            .queue
+            .entries()
+            .iter()
+            .position(|entry| entry.id == observation.source_entry_id)
+            .and_then(|index| staged.queue.entries().get(index + 1))
+            .map(|entry| entry.id.clone());
         staged.state.decoded_position_frames = observation.source_position_frames;
         staged.state.audible_position_frames = observation.audible_source_position_frames;
         staged.state.playback = Some(observation);
@@ -1400,6 +1408,96 @@ mod tests {
         let mut malformed = attenuated;
         malformed.channel_peak_bounds[0] = f64::NAN;
         assert!(malformed.validate_headroom(-40.0, 0.0).is_err());
+    }
+    #[test]
+    fn active_graph_mute_rewinds_only_at_a_new_stream_epoch() {
+        for payload in [
+            Command::Mute { muted: true },
+            Command::VolumeCaps {
+                software_millidecibels: -60000,
+                hardware_millidecibels: None,
+            },
+        ] {
+            let mut s = fixture();
+            let p = ready(&mut s, "prepare-mute", 1.0);
+            let c = commit(&s, "commit-mute", &p);
+            s.submit_graph(c.clone(), 21);
+            s.complete_graph_activation(
+                GraphActivationAck {
+                    request_id: c.request_id,
+                    epochs: s.state.epochs,
+                    graph_hash: p.preview.graph_hash.clone(),
+                    activation_frame: 0,
+                    observation: s.state.playback.clone().unwrap(),
+                },
+                22,
+                |_| Ok(()),
+            )
+            .unwrap();
+            let unmute = command(&s, "unmute-before-rewind", Command::Mute { muted: false });
+            assert_eq!(s.submit_graph(unmute, 23).status, ReceiptStatus::Applied);
+            let before = s.state.epochs;
+            let mute = command(&s, "mute-for-rewind", payload.clone());
+            assert_eq!(s.submit_graph(mute, 24).status, ReceiptStatus::Applied);
+            assert!(s.state.muted);
+            assert_eq!(s.state.epochs, before.next_stream().unwrap());
+            let after = s.state.epochs;
+            let repeat = command(&s, "repeat-mute-without-rewind", payload);
+            assert_eq!(s.submit_graph(repeat, 25).status, ReceiptStatus::Applied);
+            assert_eq!(s.state.epochs, after);
+        }
+    }
+    #[test]
+    fn activation_at_final_queue_join_updates_seek_authority_atomically() {
+        let mut s = fixture();
+        s.state.seekable = true;
+        let first = s.state.active_entry_id.clone().unwrap();
+        let last = s.queue.append("final.wav").unwrap();
+        let format = s.state.playback.as_ref().unwrap().format;
+        for (entry, total_frames) in [(&first, 48000), (&last, 12000)] {
+            s.queue
+                .update_status(
+                    entry,
+                    crate::queue::PreparationStatus::Ready {
+                        format,
+                        total_frames,
+                    },
+                )
+                .unwrap();
+        }
+        s.state.reserved_next_entry_id = Some(last.clone());
+        let p = ready(&mut s, "prepare-final-join", 1.0);
+        let c = commit(&s, "commit-final-join", &p);
+        s.submit_graph(c.clone(), 21);
+        let mut observation = s.state.playback.clone().unwrap();
+        observation.source_entry_id = last.clone();
+        observation.source_position_frames = 37;
+        s.complete_graph_activation(
+            GraphActivationAck {
+                request_id: c.request_id,
+                epochs: s.state.epochs,
+                graph_hash: p.preview.graph_hash.clone(),
+                activation_frame: 48037,
+                observation,
+            },
+            22,
+            |staged| {
+                assert_eq!(staged.state.active_entry_id.as_ref(), Some(&last));
+                assert_eq!(staged.state.reserved_next_entry_id, None);
+                Ok(())
+            },
+        )
+        .unwrap();
+        let seek = command(
+            &s,
+            "seek-past-final-file",
+            Command::Seek {
+                position_frames: 24000,
+            },
+        );
+        let receipt = s.submit_graph(seek, 23);
+        assert_eq!(receipt.status, ReceiptStatus::Rejected);
+        assert_eq!(receipt.error.unwrap().code, ErrorCode::AssetInvalid);
     }
     #[test]
     fn activation_persists_the_post_install_playback_observation_atomically() {
