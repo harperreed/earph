@@ -44,6 +44,12 @@ impl NodeId {
         self.0.capacity()
     }
 }
+impl PreparedGraphId {
+    /// Reports retained token storage before command receipt admission.
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

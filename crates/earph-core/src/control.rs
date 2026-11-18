@@ -250,6 +250,17 @@ impl CommandEnvelope {
                     "graph digest exceeds storage limit",
                 ))
             }
+            Command::GraphCommit { token, graph_hash }
+                if token
+                    .capacity_bytes()
+                    .checked_add(graph_hash.capacity())
+                    .is_none_or(|bytes| bytes > crate::graph::MAX_GRAPH_INTENT_BYTES) =>
+            {
+                Err(EngineError::new(
+                    ErrorCode::ResourceBudgetExceeded,
+                    "graph commit identities exceed storage limit",
+                ))
+            }
             _ => Ok(()),
         }
     }
