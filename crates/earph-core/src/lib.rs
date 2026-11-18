@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 pub mod audio;
 pub mod control;
+pub mod dsp_nodes;
 pub mod gain;
 pub mod graph;
 pub mod graph_control;
