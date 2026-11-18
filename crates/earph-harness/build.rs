@@ -61,6 +61,8 @@ fn main() {
         "crates/earph-engine/src",
         "crates/earph-dsp/Cargo.toml",
         "crates/earph-dsp/src",
+        "crates/earph-ffi/Cargo.toml",
+        "crates/earph-ffi/src",
         "docs/requirements.json",
         "docs/dependency-licenses",
         "fixtures/audio/manifest.json",

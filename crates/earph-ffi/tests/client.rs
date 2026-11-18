@@ -1,0 +1,343 @@
+// ABOUTME: Exercises the foreign client's real owner IPC and retained control limits.
+// ABOUTME: Verifies exact receipts, stale targets, parser failures, and independent owner lifetime.
+use earph_core::EngineError;
+use earph_engine::{EngineOwner, request};
+use earph_ffi::{ClientError, LocalClient};
+use serde_json::{Value, json};
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    thread::{self, JoinHandle},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+
+fn unique() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "ef-{:x}-{:x}-{:x}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+fn envelope(id: &str, state: Option<&Value>, payload: Value) -> Vec<u8> {
+    serde_json::to_vec(&json!({"schema_version":1,"request_id":id,"zone_id":"main",
+        "owner_id":state.map(|s|s["owner_id"].clone()),
+        "session_id":state.map(|s|s["session_id"].clone()),
+        "expected_revision":state.map(|s|s["revision"].clone()),"payload":payload}))
+    .unwrap()
+}
+struct Owner {
+    runtime: PathBuf,
+    join: Option<JoinHandle<Result<(), EngineError>>>,
+}
+impl Owner {
+    fn start() -> Self {
+        Self::at(PathBuf::from("/tmp").join(unique()))
+    }
+    fn at(runtime: PathBuf) -> Self {
+        let owner = EngineOwner::bind(&runtime).unwrap();
+        Self {
+            runtime,
+            join: Some(thread::spawn(move || owner.serve())),
+        }
+    }
+    fn client(&self) -> Arc<LocalClient> {
+        LocalClient::new(self.runtime.to_str().unwrap().to_owned()).unwrap()
+    }
+    fn state(&self) -> Value {
+        let bytes = request(
+            &self.runtime,
+            &envelope(&unique(), None, json!({"method":"state.get"})),
+        )
+        .unwrap();
+        serde_json::from_slice::<Value>(&bytes).unwrap()["receipt"]["result"]["value"].clone()
+    }
+    fn stop(&mut self) {
+        if self.join.is_none() {
+            return;
+        }
+        let state = self.state();
+        let bytes = request(
+            &self.runtime,
+            &envelope(&unique(), Some(&state), json!({"method":"owner.shutdown"})),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap()["receipt"]["status"],
+            "applied"
+        );
+        self.join.take().unwrap().join().unwrap().unwrap();
+    }
+}
+impl Drop for Owner {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+fn roundtrip(owner: &Owner, client: &LocalClient, command: Vec<u8>) -> Value {
+    let actual = client.request(command.clone()).unwrap();
+    assert_eq!(actual, request(&owner.runtime, &command).unwrap());
+    serde_json::from_slice(&actual).unwrap()
+}
+fn code(error: ClientError) -> String {
+    let ClientError::Engine { code, .. } = error;
+    code
+}
+
+#[test]
+fn real_owner_commands_keep_exact_receipts_dedupe_and_stale_rejections() {
+    let owner = Owner::start();
+    let client = owner.client();
+    let initial = owner.state();
+    for method in [
+        json!({"method":"state.get"}),
+        json!({"method":"capabilities.get"}),
+    ] {
+        assert_eq!(
+            roundtrip(&owner, &client, envelope(&unique(), None, method))["receipt"]["status"],
+            "applied"
+        );
+    }
+    let append = envelope(
+        "append",
+        Some(&initial),
+        json!({"method":"queue.append","path":"owned-雪.wav"}),
+    );
+    let first = roundtrip(&owner, &client, append.clone());
+    assert_eq!(first["receipt"]["status"], "applied");
+    assert_eq!(first["receipt"]["revision"], 1);
+    assert_eq!(
+        client.request(append).unwrap(),
+        serde_json::to_vec(&first).unwrap()
+    );
+    let stale = roundtrip(
+        &owner,
+        &client,
+        envelope(
+            "stale",
+            Some(&initial),
+            json!({"method":"queue.append","path":"other.wav"}),
+        ),
+    );
+    assert_eq!(stale["receipt"]["error"]["code"], "STALE_REVISION");
+    let page = roundtrip(
+        &owner,
+        &client,
+        envelope(
+            "queue",
+            None,
+            json!({"method":"queue.get","offset":0,"limit":16}),
+        ),
+    );
+    assert_eq!(
+        page["receipt"]["result"]["value"]["entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        page["receipt"]["result"]["value"]["entries"][0]["path"],
+        "owned-雪.wav"
+    );
+}
+
+#[test]
+fn malformed_bytes_and_unsupported_methods_reach_the_shared_owner_parser() {
+    let owner = Owner::start();
+    let client = owner.client();
+    for command in [vec![0xff], b"{".to_vec(), b"null".to_vec()] {
+        assert_eq!(
+            roundtrip(&owner, &client, command)["error"]["code"],
+            "ASSET_INVALID"
+        );
+    }
+    let value = roundtrip(
+        &owner,
+        &client,
+        envelope(
+            "unsupported",
+            Some(&owner.state()),
+            json!({"method":"future.operation"}),
+        ),
+    );
+    assert_eq!(value["error"]["code"], "CAPABILITY_UNSUPPORTED");
+}
+
+#[test]
+fn frame_preflight_rejects_invalid_frames_before_absent_owner_lookup() {
+    let runtime = PathBuf::from("/tmp").join(unique());
+    let client = LocalClient::new(runtime.to_str().unwrap().to_owned()).unwrap();
+    assert_eq!(
+        code(client.request(Vec::new()).unwrap_err()),
+        "RESOURCE_BUDGET_EXCEEDED"
+    );
+    assert_eq!(
+        code(
+            client
+                .request(vec![b' '; earph_engine::control_frame_limit() + 1])
+                .unwrap_err()
+        ),
+        "RESOURCE_BUDGET_EXCEEDED"
+    );
+    assert!(!runtime.exists());
+}
+
+#[test]
+fn exact_maximum_frame_passes_through_real_ipc() {
+    let owner = Owner::start();
+    let client = owner.client();
+    let mut command = envelope("maximum", None, json!({"method":"state.get"}));
+    command.resize(earph_engine::control_frame_limit(), b' ');
+    assert_eq!(
+        roundtrip(&owner, &client, command)["receipt"]["status"],
+        "applied"
+    );
+}
+
+#[test]
+fn bounded_client_storage_and_disposal_leave_owner_and_safety_unchanged() {
+    let owner = Owner::start();
+    let before = owner.state();
+    let mut path = String::with_capacity(4 * 1024 * 1024);
+    path.push_str(owner.runtime.to_str().unwrap());
+    let client = LocalClient::new(path).unwrap();
+    let weak = Arc::downgrade(&client);
+    let mut bytes = client
+        .request(envelope("copy", None, json!({"method":"state.get"})))
+        .unwrap();
+    bytes.fill(0);
+    drop(client);
+    assert!(weak.upgrade().is_none());
+    let after = owner.state();
+    for key in [
+        "owner_id",
+        "revision",
+        "muted",
+        "software_gain_db",
+        "output",
+        "output_consented",
+        "volume_policy",
+        "shutdown_requested",
+    ] {
+        assert!(
+            before.as_object().unwrap().contains_key(key),
+            "missing {key}"
+        );
+        assert!(
+            after.as_object().unwrap().contains_key(key),
+            "missing {key}"
+        );
+        assert_eq!(after[key], before[key], "{key}");
+    }
+    assert_eq!(after["muted"], true);
+    assert_eq!(after["shutdown_requested"], false);
+    let fresh = owner.client();
+    assert_eq!(
+        roundtrip(
+            &owner,
+            &fresh,
+            envelope("fresh", None, json!({"method":"state.get"}))
+        )["receipt"]["status"],
+        "applied"
+    );
+    assert_eq!(
+        code(LocalClient::new("é".repeat(31)).err().unwrap()),
+        "RESOURCE_BUDGET_EXCEEDED"
+    );
+    assert_eq!(
+        code(LocalClient::new(String::new()).err().unwrap()),
+        "ASSET_INVALID"
+    );
+}
+
+#[test]
+fn a_client_cannot_retarget_an_old_owner_envelope_after_restart() {
+    let mut owner = Owner::start();
+    let path = owner.runtime.clone();
+    let old = owner.state();
+    let client = owner.client();
+    let stale = envelope(
+        "old-owner",
+        Some(&old),
+        json!({"method":"queue.append","path":"old.wav"}),
+    );
+    owner.stop();
+    let restarted = Owner::at(path);
+    assert_ne!(old["owner_id"], restarted.state()["owner_id"]);
+    assert_eq!(
+        roundtrip(&restarted, &client, stale)["receipt"]["error"]["code"],
+        "STALE_SESSION"
+    );
+    assert_eq!(restarted.state()["muted"], true);
+}
+
+#[test]
+fn client_transport_failures_keep_the_core_code_and_static_message() {
+    let mut owner = Owner::start();
+    let runtime = owner.runtime.clone();
+    let client = owner.client();
+    owner.stop();
+    let command = envelope("disconnected", None, json!({"method":"state.get"}));
+    let expected = request(&runtime, &command).unwrap_err();
+    let ClientError::Engine { code, detail } = client.request(command).unwrap_err();
+    assert_eq!(serde_json::to_value(expected.code).unwrap(), code);
+    assert_eq!(detail, expected.message);
+    assert_eq!(code, "DEVICE_UNAVAILABLE");
+}
+
+#[test]
+fn accepted_profile_work_is_not_relabelled_as_terminal_by_the_binding() {
+    let owner = Owner::start();
+    let client = owner.client();
+    let before = owner.state();
+    let port = json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"signed16","max_quantum_frames":64});
+    let command = envelope(
+        "profile",
+        Some(&before),
+        json!({"method":"profiles.create","id":"ffi-profile",
+        "draft":{"name":"Owned FFI profile","source_policy":"local_file","fidelity":"compatible_conversion",
+        "output":{"backend":"alsa","route":"system","device_id":"offline","manual_setup":"headphones"},
+        "volume":{"mode":"software","software_cap_millidecibels":-20000,"hardware_cap_millidecibels":null},
+        "latency":{"mode":"balanced","max_resident_bytes":268435456,"max_preparation_bytes":268435456,"max_latency_frames":null},"corrections":[]},
+        "graph":{"graph":{"schema_version":1,"output":"out","nodes":[{"id":"in","kind":{"kind":"input"},"format":port},{"id":"out","kind":{"kind":"output"},"format":port}],"edges":[{"from":"in","to":"out","from_port":0,"to_port":0}]},"processing":{"kind":"integer_bypass"}}}),
+    );
+    let first: Value = serde_json::from_slice(&client.request(command.clone()).unwrap()).unwrap();
+    assert_eq!(first["receipt"]["status"], "accepted");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let reply: Value =
+            serde_json::from_slice(&client.request(command.clone()).unwrap()).unwrap();
+        if reply["receipt"]["status"] != "accepted" {
+            assert_eq!(reply["receipt"]["status"], "applied", "{reply}");
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(1));
+    }
+    let after = owner.state();
+    for key in [
+        "muted",
+        "software_gain_db",
+        "output",
+        "output_consented",
+        "volume_policy",
+    ] {
+        assert!(
+            before.as_object().unwrap().contains_key(key),
+            "missing {key}"
+        );
+        assert!(
+            after.as_object().unwrap().contains_key(key),
+            "missing {key}"
+        );
+        assert_eq!(before[key], after[key], "{key}");
+    }
+}
