@@ -19,6 +19,7 @@ use rubato::{
     Adjustable, Async, FixedAsync, Indexing, Resampler, SincInterpolationParameters,
     SincInterpolationType, WindowFunction,
 };
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 pub const ALGORITHM_VERSION: &str = "earph-rubato-5.1.0-guarded-sinc-v1";
@@ -64,12 +65,31 @@ pub struct SrcStats {
     /// Ordered fingerprint of accepted ppm/ramp commands and their historical call positions.
     pub ratio_history_hash: u64,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct SrcResources {
     /// Conservative requested allocation bytes; excludes allocator overhead and process RSS.
     pub resident_bytes: u64,
     /// Full simultaneous requested bytes, including private coefficient generation arrays.
     pub preparation_peak_bytes: u64,
+}
+
+/// Pure geometry and selected parameters. Library delay remains an instantiation observation.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct SrcParameters {
+    pub input_rate: u32,
+    pub output_rate: u32,
+    pub channels: ChannelLayout,
+    pub preset: SrcPreset,
+    pub chunk_frames: usize,
+    pub filter_length: usize,
+    pub phases: usize,
+    pub explicit_pre_scaling_cutoff: Option<f32>,
+    pub pre_scaling_cutoff: f32,
+    pub drain_zero_calls: usize,
+    pub max_output_frames: usize,
+    pub guard_time_numerator: u32,
+    pub library_max_relative_ratio: f64,
+    pub resources: SrcResources,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SrcStatus {
@@ -181,6 +201,36 @@ impl SrcGeometry {
             resources,
         })
     }
+    fn parameters(self) -> SrcParameters {
+        let cutoff = if self.preset == SrcPreset::Quality && self.output_rate <= self.input_rate {
+            let effective = (self.length as u64 * u64::from(self.output_rate)
+                / u64::from(self.input_rate)) as usize;
+            Some(
+                rubato::calculate_cutoff::<f32>(effective, WindowFunction::BlackmanHarris2)
+                    * 0.999_f32,
+            )
+        } else {
+            None
+        };
+        SrcParameters {
+            input_rate: self.input_rate,
+            output_rate: self.output_rate,
+            channels: self.channels,
+            preset: self.preset,
+            chunk_frames: self.chunk_frames,
+            filter_length: self.length,
+            phases: PHASES,
+            explicit_pre_scaling_cutoff: cutoff,
+            pre_scaling_cutoff: cutoff.unwrap_or_else(|| {
+                rubato::calculate_cutoff::<f32>(self.length, WindowFunction::BlackmanHarris2)
+            }),
+            drain_zero_calls: (2 * self.length).div_ceil(self.chunk_frames) + 1,
+            max_output_frames: self.output_bound,
+            guard_time_numerator: 1,
+            library_max_relative_ratio: 1.0 / 0.999,
+            resources: self.resources,
+        }
+    }
 }
 
 /// Immutable coefficient facts resolved outside processing. Analysis allocates a temporary table.
@@ -211,6 +261,19 @@ pub struct PreparedSrc {
     requested_ppm: f64,
 }
 impl SrcDesign {
+    /// Resolve selected parameters and full construction bounds without allocating coefficients.
+    pub fn preflight(
+        input_rate: u32,
+        output_rate: u32,
+        channels: ChannelLayout,
+        chunk_frames: usize,
+        preset: SrcPreset,
+    ) -> Result<SrcParameters, SrcError> {
+        Ok(SrcGeometry::new(input_rate, output_rate, channels, chunk_frames, preset)?.parameters())
+    }
+    pub fn parameters(&self) -> SrcParameters {
+        self.geometry.parameters()
+    }
     /// Check complete requested construction bytes without allocating or resolving coefficients.
     pub fn resource_requirements(
         input_rate: u32,
@@ -239,16 +302,8 @@ impl SrcDesign {
         let ratio = f64::from(output_rate) / f64::from(input_rate);
         // Scaling the automatic cutoff also scales its transition gap.
         // Quality uses effective length and the admitted minimum drift ratio.
-        let cutoff = if preset == SrcPreset::Quality && output_rate <= input_rate {
-            let effective =
-                (length as u64 * u64::from(output_rate) / u64::from(input_rate)) as usize;
-            Some(
-                rubato::calculate_cutoff::<f32>(effective, WindowFunction::BlackmanHarris2)
-                    * 0.999_f32,
-            )
-        } else {
-            None
-        };
+        let facts = geometry.parameters();
+        let cutoff = facts.explicit_pre_scaling_cutoff;
         // This temporary immutable table never overlaps Async's coefficient construction.
         let mut coefficients = Sha256::new();
         let (peak_gain, underflow_allowance, maximum_input_magnitude) = {
@@ -298,13 +353,7 @@ impl SrcDesign {
             chunk_frames as u64,
             length as u64,
             PHASES as u64,
-            u64::from(
-                cutoff
-                    .unwrap_or_else(|| {
-                        rubato::calculate_cutoff::<f32>(length, WindowFunction::BlackmanHarris2)
-                    })
-                    .to_bits(),
-            ),
+            u64::from(facts.pre_scaling_cutoff.to_bits()),
             u64::from(cutoff.is_some()),
         ] {
             parameters.update(word.to_le_bytes());
@@ -359,6 +408,7 @@ impl SrcDesign {
         }
     }
     pub fn instantiate(self, byte_budget: u64) -> Result<PreparedSrc, SrcError> {
+        let facts = self.parameters();
         let SrcGeometry {
             input_rate,
             output_rate,
@@ -390,7 +440,7 @@ impl SrcDesign {
         }
         let library = Async::<f64>::new_sinc(
             ratio,
-            1.0 / 0.999,
+            facts.library_max_relative_ratio,
             &parameters,
             chunk_frames,
             h,
@@ -409,17 +459,15 @@ impl SrcDesign {
             filter_length: length,
             phases: PHASES,
             cutoff: library.cutoff().ok_or(SrcError::Library)?,
-            drain_zero_calls: (2 * length).div_ceil(chunk_frames) + 1,
+            drain_zero_calls: facts.drain_zero_calls,
             max_output_frames: output_bound,
             truncated_output_delay: library.output_delay(),
-            guard_time_numerator: 1,
+            guard_time_numerator: facts.guard_time_numerator,
             peak_gain,
             underflow_allowance,
             maximum_input_magnitude,
-            library_max_relative_ratio: 1.0 / 0.999,
-            pre_scaling_cutoff: cutoff.unwrap_or_else(|| {
-                rubato::calculate_cutoff::<f32>(length, WindowFunction::BlackmanHarris2)
-            }),
+            library_max_relative_ratio: facts.library_max_relative_ratio,
+            pre_scaling_cutoff: facts.pre_scaling_cutoff,
             envelope: measured_envelope(input_rate, output_rate, preset),
             resources,
         };

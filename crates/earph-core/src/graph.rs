@@ -73,6 +73,11 @@ pub enum NodeKind {
     Convolution {
         asset: crate::dsp_nodes::FirAssetReference,
     },
+    Src {
+        input_rate_hz: u32,
+        preset: crate::dsp_nodes::SrcPreset,
+        chunk_frames: usize,
+    },
     Delay {
         delay_frames: u64,
     },
@@ -100,6 +105,11 @@ enum NodeFields {
     Convolution {
         asset: crate::dsp_nodes::FirAssetReference,
     },
+    Src {
+        input_rate_hz: u32,
+        preset: crate::dsp_nodes::SrcPreset,
+        chunk_frames: usize,
+    },
     Delay {
         delay_frames: u64,
     },
@@ -120,6 +130,15 @@ impl From<NodeFields> for NodeKind {
             NodeFields::Gain { gain_linear } => Self::Gain { gain_linear },
             NodeFields::Peq { filter } => Self::Peq { filter },
             NodeFields::Convolution { asset } => Self::Convolution { asset },
+            NodeFields::Src {
+                input_rate_hz,
+                preset,
+                chunk_frames,
+            } => Self::Src {
+                input_rate_hz,
+                preset,
+                chunk_frames,
+            },
             NodeFields::Delay { delay_frames } => Self::Delay { delay_frames },
             NodeFields::Matrix {
                 input_channels,
@@ -280,6 +299,7 @@ pub enum Transformation {
     Gain { node: NodeId },
     Peq { node: NodeId },
     Convolution { node: NodeId },
+    Src { node: NodeId },
     BoundedIirTruncation { node: NodeId, frames: u64 },
     Delay { node: NodeId },
     Matrix { node: NodeId },

@@ -1,6 +1,6 @@
 // ABOUTME: Schedules serial SRC boundaries and bounded same-rate graph islands.
 // ABOUTME: Separates external source acceptance, internal padding, and emitted output.
-use crate::resample::{PreparedSrc, SrcDesign, SrcError, SrcMetadata, SrcStats};
+use crate::resample::{PreparedSrc, SrcDesign, SrcError, SrcMetadata, SrcParameters, SrcStats};
 use crate::{CompiledPlan, GraphLifecycle, PreparedGraph, PreservationDecision};
 use earph_core::{
     ErrorCode,
@@ -83,6 +83,18 @@ pub enum StreamStagePlan {
     SameRate(Box<CompiledPlan>),
     Src(SrcDesign),
 }
+/// Geometry and storage facts for admission before SRC coefficients are analyzed.
+#[derive(Debug, Clone, Copy)]
+pub enum StreamStageRequirement {
+    SameRate {
+        input_format: PcmFormat,
+        output_format: PcmFormat,
+        quantum_frames: usize,
+        kernel_bytes: u64,
+        preparation_scratch_bytes: u64,
+    },
+    Src(SrcParameters),
+}
 #[derive(Debug, Clone, Copy)]
 pub struct StreamStageInfo {
     pub input_format: PcmFormat,
@@ -117,6 +129,28 @@ impl StreamPlan {
         input_bounds: &[f64],
         budget: StreamBudget,
     ) -> Result<Self> {
+        Self::new_with_metadata(stages, input_bounds, budget, 0)
+    }
+    /// Preflight resolved geometry without allocating stage or coefficient storage.
+    pub fn resource_preflight(
+        requirements: &[StreamStageRequirement],
+        retained_metadata_bytes: u64,
+        budget: StreamBudget,
+    ) -> Result<StreamResources> {
+        resource_preflight(
+            requirements.iter().copied().map(Ok),
+            requirements.len(),
+            requirements.len(),
+            retained_metadata_bytes,
+            budget,
+        )
+    }
+    pub(crate) fn new_with_metadata(
+        stages: Vec<StreamStagePlan>,
+        input_bounds: &[f64],
+        budget: StreamBudget,
+        retained_metadata_bytes: u64,
+    ) -> Result<Self> {
         let count = stages.len();
         if count == 0
             || count > budget.max_stages.min(MAX_STAGES)
@@ -136,69 +170,27 @@ impl StreamPlan {
         initial[..input_bounds.len()].copy_from_slice(input_bounds);
         let mut previous_format = first_format;
         let mut bounds = initial;
-        let mut fifo_bytes = 0;
-        let mut staging_bytes = 0;
-        let mut kernel_bytes = 0;
-        let mut metadata_bytes = (3 * size_of::<usize>()
-            + size_of::<PreparedStream>()
-            + count * (size_of::<StageState>() + size_of::<StreamStageInfo>())
-            + (count + 1) * size_of::<FrameFifo>()) as u64;
-        let mut construction_extra = 0;
-        let mut previous_quantum = 0;
         for (index, stage) in stages.iter().enumerate() {
             let info = stage_info(stage, bounds).map_err(|e| e.at(index))?;
             if info.input_format != previous_format {
                 return Err(StreamError::new(StreamErrorKind::Adjacency).at(index));
             }
-            let fifo_frames = info.input_quantum_frames.max(previous_quantum);
-            fifo_bytes = checked_add(fifo_bytes, audio_bytes(fifo_frames, info.input_format)?)?;
-            staging_bytes = checked_add(
-                staging_bytes,
-                checked_add(
-                    audio_bytes(info.input_quantum_frames, info.input_format)?,
-                    audio_bytes(info.output_quantum_frames, info.output_format)?,
-                )?,
-            )?;
-            match stage {
-                StreamStagePlan::SameRate(plan) => {
-                    if plan.bounded_iir_truncation() && index + 1 != count {
-                        return Err(StreamError::new(StreamErrorKind::UnsupportedTail).at(index));
-                    }
-                    kernel_bytes = checked_add(kernel_bytes, plan.resources().buffer_bytes)?;
-                    metadata_bytes = checked_add(metadata_bytes, ISLAND_METADATA_BYTES)?;
-                    construction_extra = construction_extra.max(plan.preparation_scratch_bytes());
-                }
-                StreamStagePlan::Src(design) => {
-                    let r = design.resources();
-                    kernel_bytes = checked_add(kernel_bytes, r.resident_bytes)?;
-                    construction_extra =
-                        construction_extra.max(r.preparation_peak_bytes - r.resident_bytes);
-                }
+            if let StreamStagePlan::SameRate(plan) = stage
+                && plan.bounded_iir_truncation()
+                && index + 1 != count
+            {
+                return Err(StreamError::new(StreamErrorKind::UnsupportedTail).at(index));
             }
             bounds = info.output_peak_bounds;
             previous_format = info.output_format;
-            previous_quantum = info.output_quantum_frames;
         }
-        fifo_bytes = checked_add(fifo_bytes, audio_bytes(previous_quantum, previous_format)?)?;
-        staging_bytes = checked_add(
-            staging_bytes,
-            audio_bytes(previous_quantum, previous_format)?,
+        let resources = resource_preflight(
+            stages.iter().map(stage_requirement),
+            count,
+            stages.capacity(),
+            retained_metadata_bytes,
+            budget,
         )?;
-        let resident_bytes = checked_add(
-            checked_add(fifo_bytes, staging_bytes)?,
-            checked_add(kernel_bytes, metadata_bytes)?,
-        )?;
-        // The descriptor allocation remains live while runtime stages instantiate sequentially.
-        let descriptors = (stages.capacity() * size_of::<StreamStagePlan>()) as u64;
-        let preparation_peak_bytes = checked_add(
-            resident_bytes,
-            checked_add(construction_extra, descriptors)?,
-        )?;
-        if resident_bytes > budget.max_resident_bytes
-            || preparation_peak_bytes > budget.max_preparation_bytes
-        {
-            return Err(StreamError::new(StreamErrorKind::Budget));
-        }
         let mut infos = Vec::new();
         infos
             .try_reserve_exact(count)
@@ -216,14 +208,7 @@ impl StreamPlan {
             stages,
             infos,
             input_bounds: initial,
-            resources: StreamResources {
-                resident_bytes,
-                preparation_peak_bytes,
-                fifo_bytes,
-                staging_bytes,
-                kernel_bytes,
-                metadata_bytes,
-            },
+            resources,
             max_sweeps: budget.max_sweeps,
         })
     }
@@ -242,6 +227,155 @@ impl StreamPlan {
     pub fn output_peak_bounds(&self) -> [f64; 2] {
         self.infos.last().unwrap().output_peak_bounds
     }
+}
+fn stage_requirement(stage: &StreamStagePlan) -> Result<StreamStageRequirement> {
+    Ok(match stage {
+        StreamStagePlan::SameRate(plan) => StreamStageRequirement::SameRate {
+            input_format: plan.context().input_format,
+            output_format: plan.context().output_format,
+            quantum_frames: plan.context().quantum_frames,
+            kernel_bytes: plan.resources().buffer_bytes,
+            preparation_scratch_bytes: plan.preparation_scratch_bytes(),
+        },
+        StreamStagePlan::Src(design) => StreamStageRequirement::Src(design.parameters()),
+    })
+}
+fn resource_preflight(
+    requirements: impl IntoIterator<Item = Result<StreamStageRequirement>>,
+    count: usize,
+    descriptor_capacity: usize,
+    retained_metadata_bytes: u64,
+    budget: StreamBudget,
+) -> Result<StreamResources> {
+    if count == 0
+        || count > budget.max_stages.min(MAX_STAGES)
+        || descriptor_capacity > MAX_STAGES
+        || descriptor_capacity < count
+        || budget.max_sweeps == 0
+        || budget.max_sweeps > MAX_SWEEPS
+    {
+        return Err(StreamError::new(StreamErrorKind::Budget));
+    }
+    let mut metadata_bytes = checked_add(
+        (3 * size_of::<usize>()
+            + size_of::<PreparedStream>()
+            + count * (size_of::<StageState>() + size_of::<StreamStageInfo>())
+            + (count + 1) * size_of::<FrameFifo>()) as u64,
+        retained_metadata_bytes,
+    )?;
+    let mut fifo_bytes = 0;
+    let mut staging_bytes = 0;
+    let mut kernel_bytes = 0;
+    let mut extra = 0;
+    let mut previous = None;
+    let mut previous_quantum = 0;
+    let mut seen = 0;
+    for (index, requirement) in requirements.into_iter().enumerate() {
+        if index >= count {
+            return Err(StreamError::new(StreamErrorKind::Geometry));
+        }
+        let (input, output, input_quantum, output_quantum, kernel, scratch, island) =
+            match requirement? {
+                StreamStageRequirement::SameRate {
+                    input_format,
+                    output_format,
+                    quantum_frames,
+                    kernel_bytes,
+                    preparation_scratch_bytes,
+                } => {
+                    if input_format.sample_rate_hz() != output_format.sample_rate_hz() {
+                        return Err(StreamError::new(StreamErrorKind::Adjacency).at(index));
+                    }
+                    (
+                        input_format,
+                        output_format,
+                        quantum_frames,
+                        quantum_frames,
+                        kernel_bytes,
+                        preparation_scratch_bytes,
+                        true,
+                    )
+                }
+                StreamStageRequirement::Src(p) => {
+                    let input =
+                        PcmFormat::new(p.input_rate, p.channels, PcmRepresentation::Float64)
+                            .map_err(|_| StreamError::new(StreamErrorKind::Geometry).at(index))?;
+                    let output =
+                        PcmFormat::new(p.output_rate, p.channels, PcmRepresentation::Float64)
+                            .map_err(|_| StreamError::new(StreamErrorKind::Geometry).at(index))?;
+                    let scratch = p
+                        .resources
+                        .preparation_peak_bytes
+                        .checked_sub(p.resources.resident_bytes)
+                        .ok_or(StreamError::new(StreamErrorKind::Budget).at(index))?;
+                    (
+                        input,
+                        output,
+                        p.chunk_frames,
+                        p.max_output_frames,
+                        p.resources.resident_bytes,
+                        scratch,
+                        false,
+                    )
+                }
+            };
+        if input.representation() != PcmRepresentation::Float64
+            || output.representation() != PcmRepresentation::Float64
+            || input_quantum == 0
+            || output_quantum == 0
+            || input_quantum > 8192
+            || output_quantum > 8192
+        {
+            return Err(StreamError::new(StreamErrorKind::Geometry).at(index));
+        }
+        if previous.is_some_and(|p| p != input) {
+            return Err(StreamError::new(StreamErrorKind::Adjacency).at(index));
+        }
+        fifo_bytes = checked_add(
+            fifo_bytes,
+            audio_bytes(input_quantum.max(previous_quantum), input)?,
+        )?;
+        staging_bytes = checked_add(
+            staging_bytes,
+            checked_add(
+                audio_bytes(input_quantum, input)?,
+                audio_bytes(output_quantum, output)?,
+            )?,
+        )?;
+        kernel_bytes = checked_add(kernel_bytes, kernel)?;
+        extra = extra.max(scratch);
+        if island {
+            metadata_bytes = checked_add(metadata_bytes, ISLAND_METADATA_BYTES)?;
+        }
+        previous = Some(output);
+        previous_quantum = output_quantum;
+        seen += 1;
+    }
+    if seen != count {
+        return Err(StreamError::new(StreamErrorKind::Geometry));
+    }
+    let output = previous.ok_or(StreamError::new(StreamErrorKind::Geometry))?;
+    fifo_bytes = checked_add(fifo_bytes, audio_bytes(previous_quantum, output)?)?;
+    staging_bytes = checked_add(staging_bytes, audio_bytes(previous_quantum, output)?)?;
+    let resident_bytes = checked_add(
+        checked_add(fifo_bytes, staging_bytes)?,
+        checked_add(kernel_bytes, metadata_bytes)?,
+    )?;
+    let descriptors = (descriptor_capacity * size_of::<StreamStagePlan>()) as u64;
+    let preparation_peak_bytes = checked_add(resident_bytes, checked_add(extra, descriptors)?)?;
+    if resident_bytes > budget.max_resident_bytes
+        || preparation_peak_bytes > budget.max_preparation_bytes
+    {
+        return Err(StreamError::new(StreamErrorKind::Budget));
+    }
+    Ok(StreamResources {
+        resident_bytes,
+        preparation_peak_bytes,
+        fifo_bytes,
+        staging_bytes,
+        kernel_bytes,
+        metadata_bytes,
+    })
 }
 fn stage_formats(stage: &StreamStagePlan) -> Result<(PcmFormat, PcmFormat)> {
     match stage {
