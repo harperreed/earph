@@ -28,6 +28,9 @@
   "playback_observation_matches_active": true,
   "graph_epoch": 1,
   "submitted_frames": 24003,
+  "submitted_frames_basis": "frames written to the producer ring; Core Audio acceptance and consumption remain unqualified",
+  "derived_tail_frames": 3,
+  "tail_frames_basis": "derived from graph_delay_frames; the raw observation has no separate tail-frame field",
   "saturation_count": 0,
   "final_graph_resident_bytes": 0,
   "final_graph_pending_retirements": 0,
@@ -73,5 +76,5 @@
     "first_graph_hash": "6133779650de54eeb55cf49429db4e23bece5de5dc9d47f8989729a741ea6fb0",
     "replacement_graph_hash": "a3cf31694d96a6c2ab5a434eb9289d240789f57d73a612474ca94d25df930b79"
   },
-  "qualification": "One approved attenuated generated signal, exact submitted source-plus-tail count, full graph retirement, clean owner exit, and muted readiness/replacement observations. Consumption, DAC/acoustic preservation, and whole-worker realtime remain unqualified."
+  "qualification": "One approved attenuated generated signal writes 24003 frames to the producer ring. The three-frame tail is derived from graph_delay_frames. Graph retirement, owner exit, and muted readiness/replacement observations pass. Core Audio acceptance and consumption, DAC/acoustic preservation, and whole-worker realtime remain unqualified."
 }

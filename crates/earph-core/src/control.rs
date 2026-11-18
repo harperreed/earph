@@ -10,6 +10,9 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+// Two digest widths bound retained capacity while allowing malformed owner rejections.
+pub const GRAPH_HASH_STORAGE_BYTES: usize = 128;
+
 #[derive(Debug, Clone, Copy)]
 pub struct ControlLimits {
     pub(crate) message_bytes: usize,
@@ -201,6 +204,14 @@ pub struct CommandEnvelope {
 impl CommandEnvelope {
     pub fn validate(&self) -> Result<(), EngineError> {
         self.validate_storage()?;
+        if let Command::GraphCommit { graph_hash, .. } = &self.payload
+            && !valid_graph_hash(graph_hash)
+        {
+            return Err(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "invalid graph resolution hash",
+            ));
+        }
         if let Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } =
             &self.payload
         {
@@ -224,20 +235,23 @@ impl CommandEnvelope {
         if let Command::OutputSelect { output } = &self.payload {
             output.validate()?;
         }
-        if let Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } =
-            &self.payload
-        {
-            graph.validate_storage()?;
+        self.validate_retained_storage()
+    }
+    pub(crate) fn validate_retained_storage(&self) -> Result<(), EngineError> {
+        match &self.payload {
+            Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } => {
+                graph.validate_storage()
+            }
+            Command::GraphCommit { graph_hash, .. }
+                if graph_hash.capacity() > GRAPH_HASH_STORAGE_BYTES =>
+            {
+                Err(EngineError::new(
+                    ErrorCode::ResourceBudgetExceeded,
+                    "graph digest exceeds storage limit",
+                ))
+            }
+            _ => Ok(()),
         }
-        if let Command::GraphCommit { graph_hash, .. } = &self.payload
-            && !valid_graph_hash(graph_hash)
-        {
-            return Err(EngineError::new(
-                ErrorCode::AssetInvalid,
-                "invalid graph resolution hash",
-            ));
-        }
-        Ok(())
     }
 }
 pub fn decode_command(

@@ -516,6 +516,45 @@ fn prepare_graph(controller: &Controller, graph: Value) -> (Value, Value) {
 }
 
 #[test]
+fn executable_retains_invalid_graph_digests_over_ipc() {
+    let directory = directory();
+    let (config, _) = configuration(&directory);
+    let host = Host::start(&config);
+    let controller = &host.controller;
+    let mut request = controller.document(
+        json!({"method":"graph.commit","token":"candidate","graph_hash":"invalid"}),
+        None,
+    );
+    let rejected = controller.send(&request);
+    assert_eq!(rejected["receipt"]["status"], "rejected", "{rejected}");
+    assert_eq!(
+        rejected["receipt"]["error"]["code"], "ASSET_INVALID",
+        "{rejected}"
+    );
+    assert_eq!(controller.send(&request), rejected);
+    request["payload"] = json!({"method":"state.get"});
+    let reused = controller.send(&request);
+    assert_eq!(reused["receipt"]["status"], "rejected", "{reused}");
+    assert_eq!(
+        reused["receipt"]["error"]["message"], "request ID reused for different content",
+        "{reused}"
+    );
+    let mut oversized = controller.document(
+        json!({"method":"graph.commit","token":"candidate","graph_hash":"x".repeat(129)}),
+        None,
+    );
+    let rejected = controller.send(&oversized);
+    assert_eq!(
+        rejected["error"]["code"], "RESOURCE_BUDGET_EXCEEDED",
+        "{rejected}"
+    );
+    oversized["payload"] = json!({"method":"state.get"});
+    let reused = controller.send(&oversized);
+    assert_eq!(reused["receipt"]["status"], "applied", "{reused}");
+    controller.apply(json!({"method":"owner.shutdown"}));
+}
+
+#[test]
 fn executable_retains_bounded_semantic_rejections_over_ipc() {
     let directory = directory();
     let (config, _) = configuration(&directory);
@@ -639,6 +678,55 @@ fn executable_paused_graph_swap_publishes_the_installed_observation() {
     }
     assert_no_capture(&capture);
     controller.apply(json!({"method":"owner.shutdown"}));
+}
+
+#[test]
+fn executable_restore_keeps_enough_revision_capacity_for_a_complete_startup() {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let directory = directory();
+    let source = directory.join("revision-source.wav");
+    let original = wave(&source, 0, 513);
+    let (config, _) = configuration(&directory);
+    let mut seed = Host::start(&config);
+    select_output(&seed.controller, "software", "compatible_conversion");
+    append_selected(&seed.controller, &source);
+    seed.controller.apply(json!({"method":"owner.shutdown"}));
+    assert!(seed.child.wait().unwrap().success());
+    let checkpoint: earph_core::session::SessionCheckpoint =
+        serde_json::from_slice(&fs::read(seed.controller.runtime.join("queue.json")).unwrap())
+            .unwrap();
+    for (revision, restored_revision) in [(u64::MAX - 1, 0), (u64::MAX - 64, u64::MAX - 64)] {
+        let runtime = support::runtime();
+        fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
+        let mut candidate = checkpoint.clone();
+        candidate.revision = revision;
+        let path = runtime.join("queue.json");
+        fs::write(&path, serde_json::to_vec(&candidate).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let mut host = Host::start_at(&config, runtime);
+        let controller = &host.controller;
+        assert_eq!(controller.state()["revision"], restored_revision);
+        consent(controller);
+        let started = start(controller);
+        controller.wait(|state| state["transport"] == "buffering");
+        let (_, ready) = prepare_graph(controller, delay_gain_graph(3, 0.5));
+        let commit = controller.document(
+            json!({"method":"graph.commit",
+            "token":ready["token"],"graph_hash":ready["preview"]["graph_hash"]}),
+            None,
+        );
+        controller.send(&commit);
+        controller.settled(&commit);
+        controller.apply(json!({"method":"mute.set","muted":false}));
+        let completed =
+            controller.wait(|state| state["transport"] == "idle" || state["transport"] == "failed");
+        assert_eq!(completed["transport"], "idle", "{completed}");
+        assert!(completed["error"].is_null(), "{completed}");
+        controller.settled(&started);
+        controller.apply(json!({"method":"owner.shutdown"}));
+        assert!(host.child.wait().unwrap().success());
+    }
+    assert_eq!(fs::read(source).unwrap()[44..], original);
 }
 
 #[test]

@@ -546,6 +546,30 @@ fn integer_bypass_preview_reports_captured_attenuation_and_unity_ramps() {
     }
 }
 #[test]
+fn activation_hash_distinguishes_gain_ramps_without_changing_the_kernel() {
+    let mut previews = Vec::new();
+    for ramp_frames in [0, 32] {
+        let mut state = snapshot();
+        state.software_gain_db = 0.0;
+        state.gain_ramp_frames = ramp_frames;
+        let mut job = request(&state, serde_json::json!({"kind":"bypass"}));
+        let intent = Arc::make_mut(&mut job.intent);
+        intent.processing = GraphProcessingRequest::IntegerBypass;
+        for node in &mut Arc::make_mut(&mut intent.graph).nodes {
+            node.format.precision = PcmRepresentation::Signed16;
+        }
+        let mut service = GraphService::spawn().unwrap();
+        service.submit(job, state).unwrap();
+        let success = completion(&mut service).result.unwrap();
+        previews.push(success.preview.clone());
+        drop(success);
+        retired(&service);
+    }
+    assert_ne!(previews[0].transformations, previews[1].transformations);
+    assert_eq!(previews[0].kernel_hash, previews[1].kernel_hash);
+    assert_ne!(previews[0].graph_hash, previews[1].graph_hash);
+}
+#[test]
 fn semantic_hash_excludes_binding_and_changes_for_safety_native_evidence() {
     fn hash(state: SessionSnapshot) -> String {
         let mut service = GraphService::spawn(None).unwrap();

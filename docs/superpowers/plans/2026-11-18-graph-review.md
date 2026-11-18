@@ -117,6 +117,76 @@ The original Linux and Mac hardware receipts qualify the earlier source snapshot
 Do not copy their success onto the review fixes.
 Run new source checks and record their scope before declaring this change qualified.
 
+## Retained source terminal results
+
+Doctor Biz reaffirmed hardware playback and evidence approval on November 18.
+Keep the existing quiet-signal limits and selected endpoints.
+Preserve all artifacts and private media.
+
+The combined third-round check passes 377 tests, with two ignored.
+Core and engine owners independently reviewed each other's changes.
+Source failures now retain their proof until successful owner application and exact acknowledgement.
+Mute still advances its safety epoch.
+Terminal closure never wraps counters and retires at the last available counter.
+Fresh owners reserve 64 revision advances near exhaustion.
+Ordinary checkpoint revisions stay unchanged.
+Graph and transport terminal events retain their separate request identities when capacity permits.
+Actual installed graph identity survives older queued settings.
+Ramp length contributes to activation identity, and replacements clear old sample peaks.
+Private oversized candidates no longer block valid pending checkpoint recovery.
+Ownership and permission failures still reject recovery.
+
+Fresh review `5956783637` adds three inline findings and two summary findings.
+Investigate pending transport receipt identity, activation readiness, and reservation publication before qualification.
+Move graph digest validation into retained semantic admission if the reported path reproduces.
+Clarify that Mac submitted frames measure producer-ring writes, with consumption still unknown.
+Earlier native receipts remain bound to their original source snapshots.
+
+The retained digest rejection now passes Core integration and real owner/CLI checks.
+Both regressions fail on the prior wire-admission path.
+The root canonical check passes 379 tests, with two ignored.
+Independent caller review approves the digest and evidence-wording changes.
+Mac receipt wording now identifies producer-ring writes and derives the tail from graph delay.
+Core Audio acceptance and consumption remain unqualified.
+The parallel state owner is fixing pending transport identity and activation queue readiness.
+
+## Sixth review checkpoint
+
+Review `5958674967` identifies four reproduced gaps against `5cb9fdc`.
+Hardware qualification remains held until the fixes pass review and checks.
+Earlier hardware evidence keeps its original source binding.
+
+Bound graph digest retained capacity to 128 bytes before decoding admission or owner history.
+Keep bounded malformed digests on retained semantic rejection paths.
+Typed commands also check reserved String capacity, including short values with oversized allocations.
+Rejected oversized intent does not reserve a request ID.
+
+Stage activation readiness privately until the matching acknowledgement persists.
+Publish current-file facts and deferred next-entry facts in the same transition.
+Drop deferred readiness when activation fails.
+Prune removed entries before staging another fact to preserve the queue bound.
+Ordinary readiness updates keep their existing behavior.
+
+Treat preparation cancellation as successful Stop settlement.
+Keep genuine source errors even when Stop sets the shared cancellation flag.
+Keep requested Stop binding and installed graph identity unchanged.
+
+Give the native write-fault subprocess its own ALSA configuration.
+Use its explicit file PCM to reach `/dev/full` under custom ambient configurations.
+Preserve logs and partial artifacts without changing host configuration.
+
+Focused regressions reproduce each original gap before its fix.
+Real IPC verifies oversized rejection and request-ID reuse.
+The typed capacity regression reproduces retained oversized allocation separately.
+Core activation tests cover persistence failure, reserved counters, next entries, and queue churn.
+Real worker and host tests distinguish cancelled preparation from genuine source errors.
+The native subprocess regression passes under a minimal ambient ALSA configuration.
+The combined canonical check passes 400 tests, with two ignored and no failures.
+Formatting, strict workspace Clippy, requirement checks, and dependency checks pass.
+Independent main-model review approves the actual diff without material findings.
+The reviewer passes 134 Core tests, 62 engine tests, and the real IPC regression.
+Fresh platform qualification remains required for this source snapshot.
+
 ## Continuity
 
 PR: https://github.com/harperreed/earph/pull/2

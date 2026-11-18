@@ -16,6 +16,9 @@ use std::{collections::VecDeque, sync::Arc};
 mod graph;
 use graph::GraphControl;
 
+// A fresh owner needs room for consent, preparation, activation, and transport acknowledgements.
+const RESTART_REVISION_HEADROOM: u64 = 64;
+
 const STALE: EngineError =
     EngineError::new(ErrorCode::StaleSession, "session or zone target changed");
 const STATE: EngineError = EngineError::new(
@@ -271,6 +274,7 @@ pub struct Session {
     state: SessionSnapshot,
     limits: ControlLimits,
     receipts: VecDeque<Arc<(CommandEnvelope, Receipt)>>,
+    transport_record: Option<Arc<(CommandEnvelope, Receipt)>>,
     events: VecDeque<StateEvent>,
     playback_intent: PlaybackIntent,
     queue: LocalQueue,
@@ -311,6 +315,7 @@ impl Session {
                 playback: None,
             },
             receipts: VecDeque::with_capacity(limits.receipts),
+            transport_record: None,
             events: VecDeque::with_capacity(limits.events),
             limits,
             playback_intent: PlaybackIntent::Playing,
@@ -332,6 +337,14 @@ impl Session {
     pub fn wants_playback(&self) -> bool {
         matches!(self.playback_intent, PlaybackIntent::Playing)
     }
+    pub fn pending_local_stop_request(&self) -> Option<&RequestId> {
+        let record = self.transport_record.as_ref()?;
+        (self.local_boundary == Some(LocalBoundary::Stop)
+            && self.state.operation.as_ref() == Some(&record.0.request_id)
+            && record.1.status == ReceiptStatus::Accepted
+            && matches!(record.0.payload, Command::Stop))
+        .then_some(&record.0.request_id)
+    }
     pub fn restore_owner(
         zone_id: ZoneId,
         owner_id: OwnerId,
@@ -346,8 +359,12 @@ impl Session {
         }
         let mut session = Self::new_owner(zone_id, owner_id, limits);
         session.queue = LocalQueue::restore(checkpoint.queue)?;
-        // Revisions belong to one owner. A new owner can reseed an exhausted revision.
-        session.state.revision = if checkpoint.revision == u64::MAX {
+        // Terminal observations can exhaust an owner after its last persisted command.
+        session.state.revision = if checkpoint
+            .revision
+            .checked_add(RESTART_REVISION_HEADROOM)
+            .is_none()
+        {
             0
         } else {
             checkpoint.revision
@@ -468,17 +485,25 @@ impl Session {
     ) {
         self.local_boundary = None;
         if let Some(id) = self.state.operation.take()
-            && let Some(record) = self
-                .receipts
-                .iter_mut()
-                .find(|record| record.0.request_id == id)
+            && let Some(prior) = self.transport_record.as_ref()
+            && prior.0.request_id == id
         {
-            let receipt = &mut Arc::make_mut(record).1;
+            let mut updated = (**prior).clone();
+            let receipt = &mut updated.1;
             receipt.status = status;
             receipt.error = error;
             receipt.activation_frame = activation_frame;
             receipt.revision = self.state.revision;
             receipt.epochs = self.state.epochs;
+            let updated = Arc::new(updated);
+            if let Some(slot) = self
+                .receipts
+                .iter_mut()
+                .find(|slot| Arc::ptr_eq(slot, prior))
+            {
+                *slot = updated.clone();
+            }
+            self.transport_record = Some(updated);
         }
     }
     pub fn submit(&mut self, command: CommandEnvelope) -> Receipt {
@@ -513,6 +538,11 @@ impl Session {
         if let Some(record) = self.live_graph_receipt(&command.request_id) {
             return self.replay_graph_record(&command, record);
         }
+        if let Some(record) = self.transport_record.as_ref()
+            && record.0.request_id == command.request_id
+        {
+            return self.replay_graph_record(&command, record);
+        }
         if let Some(record) = self
             .receipts
             .iter()
@@ -531,14 +561,11 @@ impl Session {
                 )
             };
         }
-        let mut staged = self.clone();
         // Do not retain structurally oversized intent, including rejected commands.
-        if let Command::GraphPrepare { graph, .. } | Command::GraphValidate { graph, .. } =
-            &command.payload
-            && let Err(error) = graph.validate_storage()
-        {
+        if let Err(error) = command.validate_retained_storage() {
             return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
         }
+        let mut staged = self.clone();
         let result = staged.apply_command(&command, now_ns, expand);
         let receipt = match result {
             Ok(status) => {
@@ -566,6 +593,11 @@ impl Session {
         }
         let record = Arc::new((command, receipt.clone()));
         self.retain_graph_record(record.clone());
+        if receipt.status == ReceiptStatus::Accepted
+            && self.state.operation.as_ref() == Some(&record.0.request_id)
+        {
+            self.transport_record = Some(record.clone());
+        }
         self.receipts.push_back(record);
         receipt
     }
@@ -1109,6 +1141,9 @@ impl Session {
         if epochs != self.state.epochs {
             return Err(STALE);
         }
+        if self.defer_graph_readiness(id, status)? {
+            return Ok(());
+        }
         let sequence = self.next_session_event_sequence(false)?;
         self.queue.update_status(id, status)?;
         self.state.event_sequence = sequence;
@@ -1124,13 +1159,33 @@ impl Session {
                 "non-monotonic event time",
             ));
         }
+        // The activation acknowledgement publishes reservation and playback together.
+        if self.graph_activation().is_some()
+            && matches!(event.kind, EngineEventKind::LocalReserved { .. })
+        {
+            return Ok(());
+        }
         let mut next = self.state.clone();
         next.monotonic_ns = event.monotonic_ns;
-        let proved_completion = matches!(event.kind, EngineEventKind::LocalCompleted { .. });
+        let failed_source = matches!(event.kind, EngineEventKind::LocalFailed { .. });
+        let completed_source = matches!(event.kind, EngineEventKind::LocalCompleted { .. });
+        let source_terminal = matches!(
+            event.kind,
+            EngineEventKind::LocalCompleted { .. }
+                | EngineEventKind::LocalFailed { .. }
+                | EngineEventKind::LocalStopped { .. }
+        );
+        let graph_request = source_terminal
+            .then(|| self.graph_activation().map(|a| a.request_id))
+            .flatten();
+        let transport_request = self.state.operation.clone();
+        let event_request = graph_request.clone().or(transport_request.clone());
+        let second_request =
+            transport_request.filter(|id| graph_request.as_ref().is_some_and(|g| g != id));
         let mut terminal_exhaustion = None;
         let mut next_counter = |value| match increment(value) {
             Ok(value) => Ok(value),
-            Err(error) if proved_completion => {
+            Err(error) if source_terminal => {
                 terminal_exhaustion = Some(error);
                 Ok(value)
             }
@@ -1145,7 +1200,7 @@ impl Session {
         ) {
             next.revision = next_counter(next.revision)?;
         }
-        next.event_sequence = if proved_completion {
+        next.event_sequence = if source_terminal {
             next_counter(next.event_sequence)?
         } else {
             self.next_session_event_sequence(matches!(
@@ -1160,6 +1215,7 @@ impl Session {
                     | EngineEventKind::Drained
             ))?
         };
+        let first_sequence = next.event_sequence;
         let mut completion = None;
         let mut graph_completion_error = None;
         match event.kind {
@@ -1196,10 +1252,7 @@ impl Session {
                 next.seekable = false;
                 next.active_entry_id = None;
                 next.reserved_next_entry_id = None;
-                match next.epochs.next_stream() {
-                    Ok(epochs) => next.epochs = epochs,
-                    Err(error) => terminal_exhaustion = Some(error),
-                }
+                next.epochs.stream = next_counter(next.epochs.stream)?;
             }
             EngineEventKind::LocalPrepared { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
@@ -1247,6 +1300,10 @@ impl Session {
             EngineEventKind::LocalStopped { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
             {
+                graph_completion_error = Some(EngineError::new(
+                    ErrorCode::OperationCancelled,
+                    "source stopped",
+                ));
                 if let Some(observation) = observation {
                     next.decoded_position_frames = observation.source_position_frames;
                     next.playback = Some(observation);
@@ -1262,7 +1319,10 @@ impl Session {
                 completion = Some((ReceiptStatus::Applied, None, None));
             }
             EngineEventKind::LocalFailed { code } => {
-                next.device_epoch = increment(next.device_epoch)?;
+                let error =
+                    EngineError::new(code, "local playback failed; explicit recovery is required");
+                graph_completion_error = Some(error);
+                next.device_epoch = next_counter(next.device_epoch)?;
                 next.audible_position_frames = None;
                 if let Some(playback) = &mut next.playback {
                     playback.consumed_frames = None;
@@ -1275,15 +1335,8 @@ impl Session {
                 next.output_consented = false;
                 next.volume_policy.disarm();
                 next.error = Some(code);
-                next.epochs = next.epochs.next_stream()?;
-                completion = Some((
-                    ReceiptStatus::Failed,
-                    Some(EngineError::new(
-                        code,
-                        "local playback failed; explicit recovery is required",
-                    )),
-                    None,
-                ));
+                next.epochs.stream = next_counter(next.epochs.stream)?;
+                completion = Some((ReceiptStatus::Failed, Some(error), None));
             }
             EngineEventKind::Prepared
                 if matches!(
@@ -1392,13 +1445,38 @@ impl Session {
             }
             _ => return Err(STATE),
         }
-        if let Some(error) = terminal_exhaustion {
-            next.error = Some(error.code);
-            next.shutdown_requested = true;
-            graph_completion_error = Some(error);
+        let second_sequence = if second_request.is_some() {
+            let sequence = next_counter(first_sequence)?;
+            (sequence > first_sequence).then_some(sequence)
+        } else {
+            None
+        };
+        if let Some(sequence) = second_sequence {
+            next.event_sequence = sequence;
         }
-        let publish_event = next.event_sequence != self.state.event_sequence;
-        let request_id = self.state.operation.clone();
+        if source_terminal
+            && [
+                next.revision,
+                next.event_sequence,
+                next.device_epoch,
+                next.epochs.session,
+                next.epochs.stream,
+            ]
+            .contains(&u64::MAX)
+        {
+            terminal_exhaustion.get_or_insert(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "owner terminal counter exhausted",
+            ));
+        }
+        if let Some(error) = terminal_exhaustion {
+            next.error.get_or_insert(error.code);
+            next.shutdown_requested = true;
+            if completed_source {
+                graph_completion_error = Some(error);
+            }
+        }
+        let publish_event = first_sequence != self.state.event_sequence;
         let invalidated =
             next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
         let clear_active = matches!(
@@ -1406,6 +1484,9 @@ impl Session {
             TransportState::Idle | TransportState::Failed | TransportState::Suspended
         );
         self.state = next;
+        if failed_source && graph_request.is_some() {
+            self.graph.recovery_required = true;
+        }
         if invalidated || clear_active {
             let error = if let Some(error) = graph_completion_error {
                 error
@@ -1427,7 +1508,12 @@ impl Session {
             self.finish_pending(status, error, activation);
         }
         if publish_event {
-            self.log(request_id);
+            self.state.event_sequence = first_sequence;
+            self.log(event_request);
+            if let Some(sequence) = second_sequence {
+                self.state.event_sequence = sequence;
+                self.log(second_request);
+            }
         }
         Ok(())
     }

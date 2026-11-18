@@ -277,4 +277,5 @@ pub struct GraphActivationAck {
     pub graph_hash: String,
     pub activation_frame: u64,
     pub observation: PlaybackObservation,
+    pub source_total_frames: u64,
 }

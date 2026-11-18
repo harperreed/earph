@@ -972,6 +972,7 @@ fn activation_hash(
             request.intent.processing,
             &snapshot.volume_policy,
             snapshot.software_gain_db,
+            snapshot.gain_ramp_frames,
             snapshot.output_consented,
             true,
         ),
