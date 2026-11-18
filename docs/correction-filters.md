@@ -5,6 +5,9 @@ Preparation resolves coefficients and checks resources before issuing a token.
 Processing performs no file access and allocates or frees no storage.
 Native platform and hardware qualification remain separate from these integration checks.
 
+Use the [offline correction text importer](correction-text-import.md) for supported REW, AutoEq, and CamillaDSP definitions.
+Its report contains graph intent and provenance, and requires the same owner validation flow.
+
 ## Parametric EQ
 
 Use the `peq` node with a `filter` object:

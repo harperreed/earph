@@ -101,10 +101,11 @@ pub fn snapshot() -> Result<(Value, String), String> {
             .map(|entry| entry.path())
             .filter(|path| {
                 path.is_file()
-                    && path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.starts_with("LICENSE") || n.starts_with("COPYING"))
+                    && path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                        n.starts_with("LICENSE")
+                            || n.starts_with("COPYING")
+                            || n.ends_with("-LICENSE")
+                    })
             })
             .collect();
         paths.sort();
