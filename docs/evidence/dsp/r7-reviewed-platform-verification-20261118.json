@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "reviewed_r7_graph_platform_evidence",
+  "runtime_commit": "ba6eb8f656c8a73919df2310dc572567735a24d2",
+  "source_inputs_sha256": "3780f9f4d34e01607e2f4b61677cecfcadbe1908ebf682bdc3d0c85076b280fd",
+  "dependency_lock_sha256": "411273dfa7d7db901ddace51fedcb2e6d8875459cea21ce57f07610c6a2e41fc",
+  "review_id": 5960734524,
+  "review_verdict": "approved",
+  "linux": {
+    "status": "pass",
+    "runtime_commit": "ba6eb8f656c8a73919df2310dc572567735a24d2",
+    "source_inputs_sha256": "3780f9f4d34e01607e2f4b61677cecfcadbe1908ebf682bdc3d0c85076b280fd",
+    "passed": 405,
+    "ignored": 2,
+    "source_frames": 48000,
+    "submitted_frames": 48007,
+    "signal_attempts": 1,
+    "saturation_count": 0,
+    "source_and_mixer_unchanged": true,
+    "endpoint_closed": true
+  },
+  "mac": {
+    "schema_version": 1,
+    "status": "pass",
+    "verified_on": "2026-11-18",
+    "scope": "r7_macos_independent_artifact_verification",
+    "runtime_commit": "ba6eb8f656c8a73919df2310dc572567735a24d2",
+    "source_inputs_sha256": "3780f9f4d34e01607e2f4b61677cecfcadbe1908ebf682bdc3d0c85076b280fd",
+    "receipt_sha256": "2d92465e9caa3d63581abb05aadb096acb154771d00a1fcc96d58def42b1528f",
+    "raw_artifacts_verified": 81,
+    "held_artifacts_unchanged": 50,
+    "source_files_verified": 1460,
+    "source_verification_phases": 6,
+    "passed": 361,
+    "ignored": 2,
+    "sdk_passed": 11,
+    "sdk_overlaps_canonical": true,
+    "signal_attempts": 1,
+    "source_frames": 24000,
+    "submitted_producer_ring_frames": 24003,
+    "consumed_frames": null,
+    "hardware_accepted_frames": null,
+    "dac_delivered_frames": null,
+    "device_and_source_unchanged": true
+  },
+  "receipts": [
+    {
+      "path": "linux-r7-reviewed-canonical-20261118.json",
+      "sha256": "5e0deeffd4799c526d218c9dd885dc03e7553172f219e0a8da9bd4a8993c52f5"
+    },
+    {
+      "path": "alsa-r7-reviewed-engine-20261118.json",
+      "sha256": "70da7722c311def98eda41ed94b12a5370a661e801d9816ad960928f53cd46c7"
+    },
+    {
+      "path": "coreaudio-r7-reviewed-engine-20261118.json",
+      "sha256": "2d92465e9caa3d63581abb05aadb096acb154771d00a1fcc96d58def42b1528f"
+    }
+  ],
+  "qualification": "One approved quiet generated signal per platform. Linux counts client submission; Mac counts producer-ring writes. Physical consumption, DAC delivery, acoustic behavior, and whole-worker realtime remain unqualified."
+}
