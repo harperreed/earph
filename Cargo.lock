@@ -125,6 +125,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "earph-dsp"
+version = "0.1.0"
+dependencies = [
+ "earph-core",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "earph-engine"
 version = "0.1.0"
 dependencies = [
