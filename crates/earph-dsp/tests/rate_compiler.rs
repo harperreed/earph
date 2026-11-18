@@ -122,6 +122,23 @@ fn serial() -> GraphDocument {
         &[("in", "down", 0), ("down", "up", 0), ("up", "out", 0)],
     )
 }
+
+#[test]
+fn audio_buffer_cap_excludes_metadata_but_stream_limits_still_include_it() {
+    let mut context = context(48000, 48000);
+    context.budget.max_buffer_bytes = 2 * 1024 * 1024;
+    let plan = compile_stream(&serial(), &context, &[], StreamBudget::default()).unwrap();
+    let resources = plan.resources();
+    assert!(resources.resident_bytes > context.budget.max_buffer_bytes);
+    assert!(resources.resident_bytes - resources.metadata_bytes <= context.budget.max_buffer_bytes);
+    let too_small = StreamBudget {
+        max_resident_bytes: resources.resident_bytes - 1,
+        ..StreamBudget::default()
+    };
+    assert!(compile_stream(&serial(), &context, &[], too_small).is_err());
+    context.budget.max_buffer_bytes = 1024;
+    assert!(compile_stream(&serial(), &context, &[], StreamBudget::default()).is_err());
+}
 fn convert(input_rate: u32, output_rate: u32, input: &[f64]) -> Vec<f64> {
     let mut src = PreparedSrc::prepare(
         input_rate,

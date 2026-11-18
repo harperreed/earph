@@ -327,5 +327,10 @@ fn streaming_chain_rejects_stale_endpoints_bounds_terminal_facts_and_intermediat
             .validate()
             .is_err()
     );
-    assert!(stream_preview(Arc::from(vec![island])).validate().is_err());
+    let mut without_src = stream_preview(Arc::from(vec![island]));
+    without_src.source_format = format(44100, PcmRepresentation::Signed16);
+    without_src.processing_input_format = format(44100, PcmRepresentation::Float64);
+    assert!(without_src.validate().is_err());
+    without_src.timing = preview().timing;
+    without_src.validate().unwrap();
 }

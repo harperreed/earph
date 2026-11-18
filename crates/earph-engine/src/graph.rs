@@ -643,8 +643,19 @@ fn prepare(
     let intent_bytes = intent_capacity(&request.intent)?;
     let metadata = METADATA_ALLOWANCE
         .checked_add(intent_bytes)
-        .and_then(|n| n.checked_add(snapshot.profile_storage_bytes))
         .ok_or(RESOURCE)?;
+    // Session-owned profile history can grow while compilation and receipt staging overlap.
+    // Keep that shared allowance outside per-pipeline residency to avoid charging every pipeline.
+    if snapshot.profile_storage_bytes > earph_core::profile_control::MAX_PROFILE_STORAGE_BYTES {
+        return Err(RESOURCE.into());
+    }
+    let profile_retention = if snapshot.profile_storage_bytes == 0 {
+        0
+    } else {
+        earph_core::profile_control::MAX_PROFILE_STORAGE_BYTES
+            .checked_mul(2)
+            .ok_or(RESOURCE)?
+    };
     let host_input = if float {
         processing_input
             .storage_bytes(quantum as u64)
@@ -715,6 +726,7 @@ fn prepare(
         existing_route_bytes,
         metadata,
         bridge_bytes,
+        profile_retention,
         if streaming { 0 } else { PREPARATION_SCRATCH },
         asset_scratch,
     ])?;
@@ -887,6 +899,7 @@ fn prepare(
         pipeline_bytes,
         PREPARATION_SCRATCH,
         asset_scratch,
+        profile_retention,
         plan.preparation_scratch_bytes(),
     ])?;
     if aggregate_peak_bytes > LIMIT {

@@ -25,7 +25,7 @@ use earph_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{self, File, TryLockError},
+    fs::{self, TryLockError},
     os::unix::{
         fs::{FileTypeExt, MetadataExt, PermissionsExt},
         net::UnixListener,
@@ -47,7 +47,7 @@ struct Endpoint {
 }
 
 pub struct EngineOwner {
-    _lock: File,
+    _lock: runtime::OwnerLock,
     listener: UnixListener,
     runtime: PathBuf,
     token: String,
@@ -60,17 +60,18 @@ impl EngineOwner {
     }
     pub fn bind(runtime: &Path) -> Result<Self, EngineError> {
         let runtime = runtime::directory(runtime, true)?;
-        let lock = runtime::open_lock(&runtime.join("owner.lock"))?;
-        match lock.try_lock() {
-            Ok(()) => {}
-            Err(TryLockError::WouldBlock) => {
-                return Err(EngineError::new(
-                    ErrorCode::SourceBusy,
-                    "another local owner holds this runtime",
-                ));
-            }
-            Err(TryLockError::Error(_)) => return Err(runtime::IO),
-        }
+        let lock =
+            match runtime::OwnerLock::try_acquire(runtime::open_lock(&runtime.join("owner.lock"))?)
+            {
+                Ok(lock) => lock,
+                Err(TryLockError::WouldBlock) => {
+                    return Err(EngineError::new(
+                        ErrorCode::SourceBusy,
+                        "another local owner holds this runtime",
+                    ));
+                }
+                Err(TryLockError::Error(_)) => return Err(runtime::IO),
+            };
         let generation = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| runtime::IO)?

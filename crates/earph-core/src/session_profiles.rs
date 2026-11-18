@@ -422,6 +422,13 @@ impl Session {
         if !command.payload.is_profile() {
             return Ok(());
         }
+        let inspection = self.graph_inspection();
+        if self.profile_storage_bytes() == 0
+            && (self.graph_job().is_some()
+                || inspection.service.preparing_or_candidate && inspection.prepared.is_none())
+        {
+            return Err(BUDGET);
+        }
         let record = Arc::new((command.clone(), receipt.clone()));
         self.validate_profile_response(&record)?;
         let mut staged = self.clone();

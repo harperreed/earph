@@ -317,3 +317,50 @@ fn cancelled_worker_keeps_its_allocation_slot_until_actual_retirement() {
     let next = create(&s, "after-retirement", false);
     assert_eq!(s.submit(next).status, ReceiptStatus::Accepted);
 }
+
+#[test]
+fn empty_profile_history_cannot_enter_an_unreserved_graph_construction() {
+    use earph_core::graph_control::GraphServiceObservation;
+    let mut s = session();
+    s.observe_graph_resources(
+        GraphServiceObservation {
+            resident_bytes: 0,
+            pending_retirements: 0,
+            preparing_or_candidate: true,
+        },
+        1,
+    )
+    .unwrap();
+    let query = command(
+        &s,
+        "profiles-during-graph",
+        Command::ProfilesList {
+            offset: 0,
+            limit: 16,
+        },
+    );
+    let result = s.submit(query);
+    assert_eq!(
+        result.error.unwrap().code,
+        ErrorCode::ResourceBudgetExceeded
+    );
+    assert_eq!(s.profile_storage_bytes(), 0);
+    s.observe_graph_resources(
+        GraphServiceObservation {
+            resident_bytes: 0,
+            pending_retirements: 0,
+            preparing_or_candidate: false,
+        },
+        2,
+    )
+    .unwrap();
+    let query = command(
+        &s,
+        "profiles-after-graph",
+        Command::ProfilesList {
+            offset: 0,
+            limit: 16,
+        },
+    );
+    assert_eq!(s.submit(query).status, ReceiptStatus::Applied);
+}

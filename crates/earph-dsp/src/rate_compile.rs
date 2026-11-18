@@ -118,7 +118,7 @@ pub fn compile_stream(
     document: &GraphDocument,
     context: &CompileContext,
     assets: &[FirCoefficients],
-    mut budget: StreamBudget,
+    budget: StreamBudget,
 ) -> Result<CompiledStreamPlan, GraphError> {
     if context.input_format.representation() != PcmRepresentation::Float64
         || context.output_format.representation() != PcmRepresentation::Float64
@@ -195,9 +195,6 @@ pub fn compile_stream(
             });
         }
     }
-    budget.max_resident_bytes = budget
-        .max_resident_bytes
-        .min(context.budget.max_buffer_bytes);
     let requirements: Vec<_> = pending
         .iter()
         .map(|s| match s {
@@ -207,6 +204,13 @@ pub fn compile_stream(
         .collect();
     let preflight = StreamPlan::resource_preflight(&requirements, COMPILER_METADATA_BYTES, budget)
         .map_err(|e| stream_error(e, &pending))?;
+    let audio_bytes = preflight
+        .resident_bytes
+        .checked_sub(preflight.metadata_bytes)
+        .ok_or_else(resource)?;
+    if audio_bytes > context.budget.max_buffer_bytes {
+        return Err(resource());
+    }
     let mut stages = Vec::with_capacity(pending.len());
     let mut metadata = Vec::with_capacity(pending.len());
     let input_bounds = vec![1.0; context.input_format.channels().count()];

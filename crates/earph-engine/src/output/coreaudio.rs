@@ -52,6 +52,37 @@ fn observed(format: &StreamFormat) -> ObservedStreamFormat {
     }
 }
 
+const FAULT_DIAGNOSTICS: usize = 32;
+#[derive(Debug, Clone, Copy)]
+struct FaultDiagnostic {
+    operation: &'static str,
+    error: Option<earph_coreaudio::CoreAudioError>,
+    progress: Option<earph_coreaudio::OutputProgress>,
+}
+fn spawn_fault_reporter(
+    mut writer: impl std::io::Write + Send + 'static,
+) -> std::io::Result<std::sync::mpsc::SyncSender<FaultDiagnostic>> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<FaultDiagnostic>(FAULT_DIAGNOSTICS);
+    // This process-owned writer may block on stderr. Playback never waits for it or joins it.
+    std::thread::Builder::new()
+        .name("earph-native-diagnostics".into())
+        .spawn(move || {
+            for record in receiver {
+                if write_fault_diagnostic(
+                    &mut writer,
+                    record.operation,
+                    record.error,
+                    record.progress,
+                )
+                .is_err()
+                {
+                    break;
+                }
+            }
+        })?;
+    Ok(sender)
+}
+
 fn write_fault_diagnostic(
     writer: &mut impl std::io::Write,
     operation: &'static str,
@@ -150,6 +181,72 @@ mod tests {
         assert_eq!(
             observed(&native).representation,
             ObservedSampleRepresentation::Unknown
+        );
+    }
+
+    #[test]
+    fn blocked_fault_writer_cannot_block_bounded_diagnostic_submission() {
+        use std::io::{Read, Write};
+        use std::sync::mpsc;
+        struct ObservedWriter {
+            stream: std::os::unix::net::UnixStream,
+            entered: Option<mpsc::SyncSender<()>>,
+        }
+        impl Write for ObservedWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if let Some(entered) = self.entered.take() {
+                    entered.send(()).unwrap();
+                }
+                self.stream.write(bytes)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.stream.flush()
+            }
+        }
+        let (mut writer, mut reader) = std::os::unix::net::UnixStream::pair().unwrap();
+        writer.set_nonblocking(true).unwrap();
+        loop {
+            match writer.write(&[b'\n'; 8192]) {
+                Ok(count) => assert!(count > 0),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("diagnostic socket fill failed: {error}"),
+            }
+        }
+        writer.set_nonblocking(false).unwrap();
+        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+        let reporter = spawn_fault_reporter(ObservedWriter {
+            stream: writer,
+            entered: Some(entered_tx),
+        })
+        .unwrap();
+        let record = FaultDiagnostic {
+            operation: "write",
+            error: None,
+            progress: None,
+        };
+        reporter.try_send(record).unwrap();
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+        for _ in 0..FAULT_DIAGNOSTICS {
+            reporter.try_send(record).unwrap();
+        }
+        let full = reporter.try_send(record);
+        // Drain the real socket and wait for writer EOF before checking the bounded overflow.
+        drop(reporter);
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).unwrap();
+        assert!(matches!(full, Err(mpsc::TrySendError::Full(_))));
+        let records: Vec<serde_json::Value> = bytes
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice(line).unwrap())
+            .collect();
+        assert_eq!(records.len(), FAULT_DIAGNOSTICS + 1);
+        assert!(
+            records
+                .iter()
+                .all(|record| record["backend_fault"]["operation"] == "write")
         );
     }
 

@@ -303,6 +303,21 @@ fn validate_file(metadata: &fs::Metadata) -> Result<(), EngineError> {
     }
 }
 
+pub(crate) struct OwnerLock(File);
+impl OwnerLock {
+    pub(crate) fn try_acquire(file: File) -> Result<Self, std::fs::TryLockError> {
+        file.try_lock()?;
+        Ok(Self(file))
+    }
+}
+impl Drop for OwnerLock {
+    fn drop(&mut self) {
+        // A concurrent pre-exec child can still hold this open file description.
+        // Unlock before close so that child cannot retain the retired owner's lease.
+        let _ = self.0.unlock();
+    }
+}
+
 pub(crate) fn open_lock(path: &Path) -> Result<File, EngineError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) => validate_file(&metadata)?,

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "candidate_sha256": "05d6bffcff76c7d571ee6d1d4a89749e7d00486881d10d19c0e08e763369a2ed",
+  "archive_sha256": "ce898b0eebd6aded04b951469156a7f81d58ecc83a474296dc1ae15a95c66cf7",
+  "manifest_sha256": "274efcdf7dcee4c223cf95515dc9797dec4ce70c621f42d7f75d7702a461a9a2",
+  "raw_files": 113,
+  "local_source_files_verified": 1550,
+  "source_phases": 11,
+  "ordered_operations_and_phases": 29,
+  "baseline_exit": 101,
+  "green_tests": 13,
+  "ignored": 0,
+  "expected_fault_records_each": 1,
+  "settings_unchanged": true,
+  "runtime_source_sha256": "55cd087eaae3dc22bbc3150965f07b3e33107e623b0c9c30583c81e6b13d4015",
+  "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+  "source_dirty": true,
+  "owner_started": false,
+  "granted_start": false,
+  "hardware_signal": false
+}

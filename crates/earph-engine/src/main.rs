@@ -26,9 +26,7 @@ fn execute() -> Result<u8, EngineError> {
         }
         let report = earph_engine::offline_render::command(&args[1..]);
         let code = if report.status == "pass" { 0 } else { 1 };
-        serde_json::to_writer(io::stdout().lock(), &report)
-            .map_err(|_| EngineError::new(ErrorCode::OutputFault, "cannot write offline report"))?;
-        println!();
+        earph_engine::offline_render::write_json_report(&report, &mut io::stdout().lock())?;
         return Ok(code);
     }
     if args.len() == 4 && args[0] == "import-fir" && args[1] == "--runtime" {
@@ -132,7 +130,10 @@ fn main() -> ExitCode {
     match execute() {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
-            eprintln!("{}", serde_json::json!({"error":error}));
+            let _ = earph_engine::offline_render::write_json_report(
+                &serde_json::json!({"error":error}),
+                &mut io::stderr().lock(),
+            );
             ExitCode::from(3)
         }
     }

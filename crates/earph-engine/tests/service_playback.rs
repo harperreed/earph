@@ -192,6 +192,95 @@ fn configuration(directory: &Path) -> (PathBuf, PathBuf) {
     fs::write(&config, format!("pcm.null {{ type null }}\npcm.earph_capture {{ type file slave.pcm null file \"{escaped}\" format raw }}\n")).unwrap();
     (config, capture)
 }
+
+struct CaptureGate {
+    fifo: fs::File,
+    capacity: usize,
+    release: Option<std::sync::mpsc::SyncSender<()>>,
+    finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    drain: Option<std::thread::JoinHandle<Vec<u8>>>,
+}
+impl CaptureGate {
+    fn new(path: &Path) -> Self {
+        use std::os::unix::fs::OpenOptionsExt;
+        rustix::fs::mkfifoat(
+            rustix::fs::CWD,
+            path,
+            rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+        )
+        .unwrap();
+        let fifo = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(i32::try_from(rustix::fs::OFlags::NONBLOCK.bits()).unwrap())
+            .open(path)
+            .unwrap();
+        rustix::pipe::fcntl_setpipe_size(&fifo, 4096).unwrap();
+        let capacity = rustix::pipe::fcntl_getpipe_size(&fifo).unwrap();
+        let mut reader = fifo.try_clone().unwrap();
+        let (release, ready) = std::sync::mpsc::sync_channel(1);
+        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopping = finished.clone();
+        let drain = std::thread::spawn(move || {
+            ready.recv().unwrap();
+            let mut result = Vec::new();
+            let mut buffer = [0; 8192];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(count) => result.extend_from_slice(&buffer[..count]),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if stopping.load(std::sync::atomic::Ordering::Acquire) {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(error) => panic!("capture FIFO read failed: {error}"),
+                }
+            }
+            result
+        });
+        Self {
+            fifo,
+            capacity,
+            release: Some(release),
+            finished,
+            drain: Some(drain),
+        }
+    }
+    fn wait_full(&self) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        // The selected native period is 64 stereo S24 frames, or 384 bytes.
+        while rustix::io::ioctl_fionread(&self.fifo).unwrap() + 384 <= self.capacity as u64 {
+            assert!(
+                Instant::now() < deadline,
+                "actual capture FIFO never filled"
+            );
+            std::thread::yield_now();
+        }
+    }
+    fn release(&mut self) {
+        if let Some(release) = self.release.take() {
+            release.send(()).unwrap();
+        }
+    }
+    fn finish(mut self) -> Vec<u8> {
+        self.release();
+        self.finished
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.drain.take().unwrap().join().unwrap()
+    }
+}
+impl Drop for CaptureGate {
+    fn drop(&mut self) {
+        self.release();
+        self.finished
+            .store(true, std::sync::atomic::Ordering::Release);
+        if let Some(drain) = self.drain.take() {
+            drain.join().unwrap();
+        }
+    }
+}
 fn select_output(controller: &Controller, mode: &str, fidelity: &str) {
     controller.apply(json!({"method":"output.select","output":{
         "backend":"alsa","route":"system","endpoint":"earph_capture",
@@ -636,6 +725,7 @@ fn executable_streaming_pause_and_resume_keep_one_continuous_guard_and_exact_cap
     original.extend(wave(&second, 32769, 32768));
     let expected = src_reference(&original);
     let (config, capture) = configuration(&directory);
+    let mut capture_gate = CaptureGate::new(&capture);
     let mut host = Host::start(&config);
     let controller = &host.controller;
     select_output(controller, "software", "compatible_conversion");
@@ -646,11 +736,13 @@ fn executable_streaming_pause_and_resume_keep_one_continuous_guard_and_exact_cap
     controller.wait(|s| s["transport"] == "buffering");
     install_src(controller);
     controller.apply(json!({"method":"mute.set","muted":false}));
+    capture_gate.wait_full();
     controller.wait(|s| {
         s["transport"] == "playing" && s["playback"]["submitted_frames"].as_u64().unwrap_or(0) > 0
     });
     let pause = controller.document(json!({"method":"sessions.pause"}), None);
     assert_eq!(controller.send(&pause)["receipt"]["status"], "accepted");
+    capture_gate.release();
     controller.settled(&pause);
     let paused = controller.wait(|s| s["transport"] == "paused");
     let before = &paused["playback"]["processing"]["streaming"];
@@ -672,7 +764,7 @@ fn executable_streaming_pause_and_resume_keep_one_continuous_guard_and_exact_cap
     );
     controller.apply(json!({"method":"owner.shutdown"}));
     assert!(host.child.wait().unwrap().success());
-    assert_eq!(fs::read(&capture).unwrap(), expected);
+    assert_eq!(capture_gate.finish(), expected);
     assert_eq!(fs::read(&source).unwrap()[44..], original[..32769 * 6]);
 }
 
@@ -763,6 +855,7 @@ fn executable_streaming_replacement_resumes_a_same_rate_graph_at_accepted_source
     let source = directory.join("replace.wav");
     let original = wave(&source, 0, 65537);
     let (config, capture) = configuration(&directory);
+    let mut capture_gate = CaptureGate::new(&capture);
     let mut host = Host::start(&config);
     let controller = &host.controller;
     select_output(controller, "software", "compatible_conversion");
@@ -773,10 +866,12 @@ fn executable_streaming_replacement_resumes_a_same_rate_graph_at_accepted_source
     controller.wait(|s| s["transport"] == "buffering");
     install_src(controller);
     controller.apply(json!({"method":"mute.set","muted":false}));
+    capture_gate.wait_full();
     controller.wait(|s| {
         s["transport"] == "playing" && s["playback"]["submitted_frames"].as_u64().unwrap_or(0) > 0
     });
     controller.apply(json!({"method":"mute.set","muted":true}));
+    capture_gate.release();
     let muted = controller
         .wait(|s| s["playback"]["processing"]["streaming"]["output_epochs"] == s["epochs"]);
     let accepted = muted["playback"]["source_position_frames"]
@@ -814,7 +909,7 @@ fn executable_streaming_replacement_resumes_a_same_rate_graph_at_accepted_source
     assert!(completed["error"].is_null(), "{completed}");
     controller.apply(json!({"method":"owner.shutdown"}));
     assert!(host.child.wait().unwrap().success());
-    let actual = fs::read(capture).unwrap();
+    let actual = capture_gate.finish();
     assert_eq!(&actual[retained * 6..], expected);
 }
 
@@ -824,6 +919,7 @@ fn executable_streaming_stop_closes_the_native_owner_and_preserves_its_written_p
     let source = directory.join("stop-stream.wav");
     let original = wave(&source, 0, 65537);
     let (config, capture) = configuration(&directory);
+    let mut capture_gate = CaptureGate::new(&capture);
     let mut host = Host::start(&config);
     let controller = &host.controller;
     select_output(controller, "software", "compatible_conversion");
@@ -834,11 +930,13 @@ fn executable_streaming_stop_closes_the_native_owner_and_preserves_its_written_p
     controller.wait(|s| s["transport"] == "buffering");
     install_src(controller);
     controller.apply(json!({"method":"mute.set","muted":false}));
+    capture_gate.wait_full();
     controller.wait(|s| {
         s["transport"] == "playing" && s["playback"]["submitted_frames"].as_u64().unwrap_or(0) > 0
     });
     let stop = controller.document(json!({"method":"sessions.stop"}), None);
     assert_eq!(controller.send(&stop)["receipt"]["status"], "accepted");
+    capture_gate.release();
     controller.settled(&stop);
     let stopped = controller.wait(|s| s["transport"] == "idle");
     assert!(stopped["error"].is_null(), "{stopped}");
@@ -851,7 +949,7 @@ fn executable_streaming_stop_closes_the_native_owner_and_preserves_its_written_p
     assert!(submitted > 0);
     controller.apply(json!({"method":"owner.shutdown"}));
     assert!(host.child.wait().unwrap().success());
-    let actual = fs::read(capture).unwrap();
+    let actual = capture_gate.finish();
     let expected = src_reference(&original[..accepted * 6]);
     assert_eq!(actual.len(), submitted * 6);
     assert_eq!(actual, expected[..actual.len()]);

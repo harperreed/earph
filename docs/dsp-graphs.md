@@ -54,16 +54,21 @@ Activation never grants consent or unmutes output.
 The preview's binding records its original preparation context.
 Session epochs describe the current playback generation.
 `graph_epoch` advances once per applied graph activation.
-Pause and seek preserve the chosen graph while resetting its history in a newer stream epoch.
+Pause and seek preserve the chosen graph.
+Streaming holds preserve source DSP history and replay under separate output epochs.
+True seek resets decoder, streaming DSP, and replay together.
 
 ## Intent and processing
 
 Core owns the graph document and checked finite scalars.
 DSP owns immutable compiled plans and prepared kernels.
 Ports declare domain, rate, mono/stereo layout, precision, and maximum quantum.
-The implemented nodes include input, output, bypass, gain, integer delay, matrix, sum, meter, PEQ, and convolution.
-Unsupported cycles, rate domains, fields, and conversions reject explicitly.
-SRC graph scheduling, DSD processing, and profiles remain future work.
+The implemented nodes include input, output, bypass, gain, integer delay, matrix, sum, meter, PEQ, convolution, and SRC.
+The stream compiler supports explicit serial rate changes around same-rate graph islands.
+Unsupported cycles, cross-rate reconvergence, fields, and implicit conversions reject explicitly.
+Live streaming graphs must return to the already-opened native output format.
+Named profile saves retain intent without applying it or granting output permission.
+Profile application, correction provenance imports through the owner, and DSD processing remain separate work.
 See [correction filters](correction-filters.md) for PEQ parameters and the private correction import workflow.
 
 Floating processing requires this explicit request:

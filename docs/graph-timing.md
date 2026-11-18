@@ -30,15 +30,15 @@ It checks that downstream peak admission covers the preceding stage's output bou
 It rejects intermediate bounded-IIR islands and invalid terminal bounds.
 It does not replace compiler topology, numerical proofs, or resource admission.
 
-This DTO change does not install a live SRC graph path.
-The existing worker preserves same-rate rewind and filter position behavior.
+The live worker executes compiled streaming graphs and preserves same-rate position behavior.
 Streaming timing has no scalar source projection.
-The old source-rewind path rejects that timing until the parent installs the streaming playback path.
+Streaming holds preserve source history and replay; true seeks reset decoder, DSP, and replay together.
 Offline graph capture remains available through `render-graph`.
 
 `graph.validate` now compiles actual serial SRC cuts and exposes their streaming timing facts.
 Validation creates no prepared token or runtime pipeline and leaves playback unchanged.
-Live SRC `graph.prepare` remains explicitly unsupported until its native worker path is installed.
+Live SRC `graph.prepare` supports explicit float64 processing when the graph returns to the opened native format.
+Preparation uses actual source cancellation and resource admission; activation remains muted and revision-bound.
 
 Backend observations include actual Rust-owned adapter `audio_storage_bytes`.
 Graph resource inspection separates those resident bytes from `backend_audio_peak_bytes`.

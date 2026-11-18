@@ -1,5 +1,10 @@
 # Gotchas
 
+- Use `runtime::OwnerLock` for every `owner.lock` writer.
+  A concurrent child inherits the open file description before exec closes it.
+  Explicit unlock must precede close, or a retired owner can leave its replacement busy.
+  The real pre-exec child regression covers replacement and continued exclusivity on Linux and macOS.
+
 - Serde can emit an f32 as a short decimal directly, then an expanded decimal through a JSON value.
   Compare declared f32 fields at f32 precision when checking CLI and IPC observations.
   Keep f64 fields, integer counters, identities, and fingerprints exact.

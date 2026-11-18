@@ -420,11 +420,7 @@ impl ProfileJobs {
         }
         let job = session.profile_job().ok_or(INVALID)?;
         let cancel = Arc::new(AtomicBool::new(false));
-        let retained = session
-            .profile_storage_bytes()
-            .checked_mul(2)
-            .and_then(|n| n.checked_add(session.profile_environment_bytes().ok()?))
-            .ok_or(BUDGET)?;
+        let retained = preparation_retained_bytes(session)?;
         self.sender
             .as_ref()
             .ok_or(runtime::IO)?
@@ -482,6 +478,13 @@ impl ProfileJobs {
         Ok(())
     }
 }
+fn preparation_retained_bytes(session: &Session) -> Result<u64, EngineError> {
+    // Existing receipt history may grow to its allowance while this worker owns compilation.
+    earph_core::profile_control::MAX_PROFILE_STORAGE_BYTES
+        .checked_mul(2)
+        .and_then(|n| n.checked_add(session.profile_environment_bytes().ok()?))
+        .ok_or(BUDGET)
+}
 impl Drop for ProfileJobs {
     fn drop(&mut self) {
         if let Some((_, cancel)) = self.active.take() {
@@ -497,6 +500,99 @@ impl Drop for ProfileJobs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn captured_preparation_allowance_covers_real_query_history_growth() {
+        use earph_core::{
+            control::{Command, CommandEnvelope, ControlLimits, QueryResult},
+            ids::{OwnerId, ProfileId, RequestId, ZoneId},
+        };
+        let runtime = PathBuf::from("/tmp").join(format!(
+            "epb-{:x}-{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
+        let mut session = Session::new_owner(
+            ZoneId::new("main").unwrap(),
+            OwnerId::new("owner").unwrap(),
+            ControlLimits::default(),
+        );
+        let draft = serde_json::from_value(serde_json::json!({"name":"Owned", "source_policy":"local_file", "fidelity":"compatible_conversion",
+            "output":{"backend":"alsa","route":"system","device_id":"owned","manual_setup":null},
+            "volume":{"mode":"software","software_cap_millidecibels":-20000,"hardware_cap_millidecibels":null},
+            "latency":{"mode":"balanced","max_resident_bytes":268435456,"max_preparation_bytes":268435456,"max_latency_frames":null},"corrections":[]})).unwrap();
+        let port = serde_json::json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"signed16","max_quantum_frames":64});
+        let graph = serde_json::from_value(serde_json::json!({"graph":{"schema_version":1,"output":"output","nodes":[
+            {"id":"input","kind":{"kind":"input"},"format":port}, {"id":"output","kind":{"kind":"output"},"format":port}],
+            "edges":[{"from":"input","to":"output","from_port":0,"to_port":0}]},"processing":{"kind":"integer_bypass"}})).unwrap();
+        let envelope = |session: &Session, id: &str, payload: Command| {
+            let state = session.snapshot();
+            CommandEnvelope {
+                schema_version: 1,
+                request_id: RequestId::new(id).unwrap(),
+                zone_id: state.zone_id,
+                owner_id: state.owner_id,
+                session_id: state.session_id,
+                expected_revision: Some(state.revision),
+                payload,
+            }
+        };
+        let create = envelope(
+            &session,
+            "create",
+            Command::ProfilesCreate {
+                id: ProfileId::new("owned").unwrap(),
+                draft: Arc::new(draft),
+                graph: Arc::new(graph),
+            },
+        );
+        session.submit_graph(create, 1);
+        let job = session.profile_job().unwrap();
+        let record = save(
+            &runtime,
+            &job,
+            preparation_retained_bytes(&session).unwrap(),
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        session
+            .complete_profile_save(&job.request_id, &job.binding, 2, Ok(record), |_| Ok(()))
+            .unwrap();
+        let update = envelope(
+            &session,
+            "pending-update",
+            Command::ProfilesUpdate {
+                id: ProfileId::new("owned").unwrap(),
+                expected_profile_revision: 1,
+                draft: job.draft.clone(),
+                graph: job.graph.clone(),
+            },
+        );
+        assert_eq!(
+            session.submit_graph(update, 3).status,
+            earph_core::control::ReceiptStatus::Accepted
+        );
+        let captured = preparation_retained_bytes(&session).unwrap();
+        for index in 0..32 {
+            let get = envelope(
+                &session,
+                &format!("get-{index}"),
+                Command::ProfilesGet {
+                    id: ProfileId::new("owned").unwrap(),
+                },
+            );
+            let receipt = session.submit(get);
+            assert!(matches!(receipt.result, Some(QueryResult::Profile(_))));
+        }
+        assert!(
+            captured >= session.profile_storage_bytes() * 2,
+            "live history escaped the compiler's captured metadata allowance"
+        );
+    }
 
     #[test]
     fn existing_complete_object_is_file_synced_before_it_becomes_reachable() {

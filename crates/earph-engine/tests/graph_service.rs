@@ -246,17 +246,43 @@ fn active_source() -> Arc<std::sync::atomic::AtomicBool> {
 
 #[test]
 fn retained_profile_metadata_refuses_a_graph_before_pipeline_publication() {
-    let mut state = snapshot();
-    state.profile_storage_bytes = 256 * 1024 * 1024;
-    let request = request(&state, serde_json::json!({"kind":"bypass"}));
-    let mut service = GraphService::spawn(None).unwrap();
-    service.submit(request, state, active_source()).unwrap();
-    let result = completion(&mut service);
-    assert_eq!(
-        result.result.err().unwrap().code,
-        earph_core::ErrorCode::ResourceBudgetExceeded
-    );
-    assert_eq!(service.resources().resident_bytes, 0);
+    for reported in [64 * 1024 * 1024 + 1, 256 * 1024 * 1024, u64::MAX] {
+        let mut state = snapshot();
+        state.profile_storage_bytes = reported;
+        let request = request(&state, serde_json::json!({"kind":"bypass"}));
+        let mut service = GraphService::spawn(None).unwrap();
+        service.submit(request, state, active_source()).unwrap();
+        let result = completion(&mut service);
+        assert_eq!(
+            result.result.err().unwrap().code,
+            earph_core::ErrorCode::ResourceBudgetExceeded
+        );
+        assert_eq!(service.resources().resident_bytes, 0);
+    }
+}
+
+#[test]
+fn graph_compilation_reserves_profile_history_growth_without_charging_unused_profiles() {
+    for profile_bytes in [0, 1024] {
+        let mut state = snapshot();
+        state.profile_storage_bytes = profile_bytes;
+        let mut job = request(
+            &state,
+            serde_json::json!({"kind":"delay","delay_frames":14000000}),
+        );
+        job.validate_only = true;
+        let mut service = GraphService::spawn(None).unwrap();
+        service.submit(job, state, active_source()).unwrap();
+        let completed = completion(&mut service);
+        if profile_bytes == 0 {
+            assert!(completed.result.is_ok());
+        } else {
+            assert_eq!(
+                completed.result.err().unwrap().code,
+                earph_core::ErrorCode::ResourceBudgetExceeded
+            );
+        }
+    }
 }
 fn request(state: &SessionSnapshot, effect: serde_json::Value) -> GraphJobRequest {
     let port = serde_json::json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":64});
@@ -533,7 +559,7 @@ fn resolves_corrections_and_retires_frozen_filter_storage() {
         success.preview.channel_peak_bounds[0] >= 0.75
             && success.preview.channel_peak_bounds[1] >= 0.25
     );
-    let pipeline = success.pipeline.unwrap();
+    let mut pipeline = success.pipeline.unwrap();
     assert!(pipeline.resources().kernel_audio_bytes > 33000);
     fs::write(
         runtime
@@ -543,6 +569,35 @@ fn resolves_corrections_and_retires_frozen_filter_storage() {
     )
     .unwrap();
     assert_eq!(pipeline.preview().kernel_hash, hash);
+    let mut input = PcmBlock::prepare(
+        state.playback.as_ref().unwrap().format,
+        64,
+        state.epochs,
+        MemoryBudget::default(),
+    )
+    .unwrap();
+    input.set_span(state.epochs, 0, 0, 1).unwrap();
+    input.set_integer_sample(0, 8192).unwrap();
+    input.set_integer_sample(1, -8192).unwrap();
+    let render = pipeline.render_mut().unwrap();
+    render.set_gain_target(Some(0.0), 0).unwrap();
+    render.process(&input, 0, 1).unwrap();
+    let mut actual = Vec::new();
+    loop {
+        let period = render.period();
+        for scalar in 0..period.header().frame_count as usize * 2 {
+            actual.push(period.integer_sample(scalar).unwrap());
+        }
+        if render.finish().unwrap().valid_frames == 0 {
+            break;
+        }
+    }
+    // The original stereo taps retain their 256-frame partition delay after disk corruption.
+    let mut expected = vec![0; 259 * 2];
+    expected[256 * 2] = 4096;
+    expected[256 * 2 + 1] = -2048;
+    expected[257 * 2] = -2048;
+    assert_eq!(actual, expected);
     drop(pipeline);
     retired(&service);
     service.submit(job, state, crate::active_source()).unwrap();

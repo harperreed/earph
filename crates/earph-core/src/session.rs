@@ -662,6 +662,9 @@ impl Session {
             .validate_profile_receipt_admission(&command, &receipt)
             .is_err()
         {
+            if receipt.status == ReceiptStatus::Rejected {
+                return receipt;
+            }
             return self.receipt(
                 &command,
                 ReceiptStatus::Rejected,
