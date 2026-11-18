@@ -525,6 +525,7 @@ impl Playback {
                 graph_hash: activation.prepared.preview.graph_hash.clone(),
                 activation_frame: self.stream_position,
                 observation: self.observe()?,
+                source_total_frames: self.current.file.total_frames(),
             }),
         )?;
         // FIFO puts this acknowledgement before later facts from the installed graph.

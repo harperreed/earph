@@ -554,6 +554,7 @@ impl Session {
             graph_hash,
             activation_frame,
             observation,
+            source_total_frames,
         } = ack;
         let id = &request_id;
         let hash = graph_hash.as_str();
@@ -572,6 +573,16 @@ impl Session {
                 "non-monotonic graph activation",
             ));
         }
+        if observation.source_position_frames > source_total_frames
+            || observation.format != activation.request.prepared.preview.source_format
+        {
+            let error = EngineError::new(
+                ErrorCode::AssetInvalid,
+                "invalid activated source readiness",
+            );
+            self.fail_graph_activation(id, error);
+            return Err(error);
+        }
         let counters = (|| {
             Ok::<_, EngineError>((
                 increment(self.state.graph_epoch)?,
@@ -587,6 +598,16 @@ impl Session {
             }
         };
         let mut staged = self.clone();
+        if let Err(error) = staged.queue.update_status(
+            &observation.source_entry_id,
+            crate::queue::PreparationStatus::Ready {
+                format: observation.format,
+                total_frames: source_total_frames,
+            },
+        ) {
+            self.fail_graph_activation(id, error);
+            return Err(error);
+        }
         let mut activated = staged.graph.activation.take().ok_or(STALE)?;
         staged.graph.active = Some(activated.request.prepared.preview.clone());
         staged.graph.configured = Some(activated.intent);
@@ -1230,7 +1251,7 @@ mod tests {
     }
     #[test]
     fn activation_completion_keeps_its_final_event_slot() {
-        for source in ["mute", "resource", "queue", "progress"] {
+        for source in ["mute", "resource", "queue", "progress", "reservation"] {
             let mut s = fixture();
             let p = ready(&mut s, "prepare", 1.0);
             s.state.event_sequence = u64::MAX - 2;
@@ -1275,6 +1296,19 @@ mod tests {
                         })
                         .is_err()
                     );
+                }
+                "reservation" => {
+                    let before = s.snapshot();
+                    s.advance(EngineEvent {
+                        epochs: s.state.epochs,
+                        monotonic_ns: 22,
+                        kind: EngineEventKind::LocalReserved {
+                            active: before.active_entry_id.clone().unwrap(),
+                            next: None,
+                        },
+                    })
+                    .unwrap();
+                    assert_eq!(s.snapshot(), before);
                 }
                 _ => unreachable!(),
             }
@@ -1350,6 +1384,7 @@ mod tests {
         assert!(
             s.complete_graph_activation(
                 GraphActivationAck {
+                    source_total_frames: 48000,
                     request_id: c.request_id.clone(),
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
@@ -1463,6 +1498,7 @@ mod tests {
         assert!(
             s.complete_graph_activation(
                 GraphActivationAck {
+                    source_total_frames: 48000,
                     request_id: RequestId::new("wrong").unwrap(),
                     epochs,
                     graph_hash: p.preview.graph_hash.clone(),
@@ -1476,6 +1512,7 @@ mod tests {
         );
         s.complete_graph_activation(
             GraphActivationAck {
+                source_total_frames: 48000,
                 request_id: c.request_id.clone(),
                 epochs,
                 graph_hash: p.preview.graph_hash.clone(),
@@ -1495,6 +1532,7 @@ mod tests {
         assert!(
             s.complete_graph_activation(
                 GraphActivationAck {
+                    source_total_frames: 48000,
                     request_id: c.request_id.clone(),
                     epochs,
                     graph_hash: p.preview.graph_hash.clone(),
@@ -1518,6 +1556,7 @@ mod tests {
         s.submit_graph(c.clone(), 21);
         s.complete_graph_activation(
             GraphActivationAck {
+                source_total_frames: 48000,
                 request_id: c.request_id.clone(),
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
@@ -1562,6 +1601,7 @@ mod tests {
             s.submit_graph(c.clone(), 21);
             s.complete_graph_activation(
                 GraphActivationAck {
+                    source_total_frames: 48000,
                     request_id: c.request_id,
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
@@ -1612,6 +1652,7 @@ mod tests {
         observation.source_position_frames = 37;
         s.complete_graph_activation(
             GraphActivationAck {
+                source_total_frames: 12000,
                 request_id: c.request_id,
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
@@ -1659,6 +1700,7 @@ mod tests {
         });
         s.complete_graph_activation(
             GraphActivationAck {
+                source_total_frames: 48000,
                 request_id: c.request_id.clone(),
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
@@ -1689,6 +1731,7 @@ mod tests {
         assert!(
             s.complete_graph_activation(
                 GraphActivationAck {
+                    source_total_frames: 48000,
                     request_id: c.request_id.clone(),
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
@@ -1750,6 +1793,7 @@ mod tests {
         s.submit_graph(c.clone(), 21);
         s.complete_graph_activation(
             GraphActivationAck {
+                source_total_frames: 48000,
                 request_id: c.request_id.clone(),
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
@@ -1832,6 +1876,7 @@ mod tests {
         s.submit_graph(c.clone(), 21);
         s.complete_graph_activation(
             GraphActivationAck {
+                source_total_frames: 48000,
                 request_id: c.request_id.clone(),
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
@@ -1898,6 +1943,7 @@ mod tests {
         }
         s.complete_graph_activation(
             GraphActivationAck {
+                source_total_frames: 48000,
                 request_id: c.request_id.clone(),
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
@@ -1980,5 +2026,260 @@ mod tests {
         }
         assert_eq!(s.receipts.len(), 1024);
         assert_eq!(s.submit_graph(c, 12), receipt);
+    }
+    #[test]
+    fn pending_transport_identity_survives_receipt_rotation_and_settlement() {
+        for payload in [
+            Command::Pause,
+            Command::Seek {
+                position_frames: 50,
+            },
+            Command::Stop,
+            Command::Start {
+                source: SourceKind::LocalFile,
+                device_id: DeviceId::new("dac").unwrap(),
+                takeover: true,
+                seekable: true,
+            },
+        ] {
+            let mut s = fixture();
+            s.state.seekable = true;
+            let value = s.state.playback.clone().unwrap();
+            s.queue
+                .update_status(
+                    &value.source_entry_id,
+                    crate::queue::PreparationStatus::Ready {
+                        format: value.format,
+                        total_frames: 1000,
+                    },
+                )
+                .unwrap();
+            let request = command(&s, "pending-transport", payload.clone());
+            let accepted = s.submit_graph(request.clone(), 1);
+            assert_eq!(accepted.status, ReceiptStatus::Accepted);
+            for i in 0..1025 {
+                let query = command(&s, &format!("transport-poll-{i}"), Command::State);
+                assert_eq!(s.submit_graph(query, 2).status, ReceiptStatus::Applied);
+            }
+            assert_eq!(s.submit_graph(request.clone(), 3), accepted);
+            let reused = prepare(&s, "pending-transport");
+            let rejected = s.submit_graph(reused.clone(), 3);
+            assert_eq!(rejected.status, ReceiptStatus::Rejected);
+            assert_eq!(rejected.error.unwrap().code, ErrorCode::AssetInvalid);
+            let kind = match payload {
+                Command::Stop => EngineEventKind::LocalStopped {
+                    observation: Some(value),
+                },
+                Command::Start { .. } => EngineEventKind::LocalCompleted { observation: value },
+                _ => EngineEventKind::LocalPaused { observation: value },
+            };
+            s.advance(EngineEvent {
+                epochs: s.state.epochs,
+                monotonic_ns: 4,
+                kind,
+            })
+            .unwrap();
+            assert_eq!(s.submit_graph(request, 5).status, ReceiptStatus::Applied);
+            assert_eq!(
+                s.submit_graph(reused, 5).error.unwrap().code,
+                ErrorCode::AssetInvalid
+            );
+            assert_eq!(s.receipts.len(), 1024);
+        }
+    }
+    #[test]
+    fn activation_defers_reservation_until_the_matching_playback_acknowledgement() {
+        let mut s = fixture();
+        let old = s.snapshot();
+        let last = s.queue.append("final.wav").unwrap();
+        let p = ready(&mut s, "reserve-prepare", 1.0);
+        let c = commit(&s, "reserve-commit", &p);
+        assert_eq!(s.submit_graph(c, 21).status, ReceiptStatus::Accepted);
+        s.advance(EngineEvent {
+            epochs: s.state.epochs,
+            monotonic_ns: 22,
+            kind: EngineEventKind::LocalReserved {
+                active: last,
+                next: None,
+            },
+        })
+        .unwrap();
+        assert_eq!(s.state.active_entry_id, old.active_entry_id);
+        assert_eq!(s.state.playback, old.playback);
+    }
+    #[test]
+    fn activation_restores_readiness_when_the_open_final_tracks_old_ready_was_dropped() {
+        let mut s = fixture();
+        s.state.seekable = true;
+        let last = s.queue.append("final.wav").unwrap();
+        let old_epochs = s.state.epochs;
+        let p = ready(&mut s, "ready-prepare", 1.0);
+        let c = commit(&s, "ready-commit", &p);
+        assert_eq!(
+            s.submit_graph(c.clone(), 21).status,
+            ReceiptStatus::Accepted
+        );
+        let mut value = s.state.playback.clone().unwrap();
+        value.source_entry_id = last.clone();
+        value.source_position_frames = 37;
+        assert_eq!(
+            s.set_queue_preparation(
+                old_epochs,
+                &last,
+                crate::queue::PreparationStatus::Ready {
+                    format: value.format,
+                    total_frames: 1000,
+                }
+            )
+            .unwrap_err()
+            .code,
+            ErrorCode::StaleSession
+        );
+        s.complete_graph_activation(
+            GraphActivationAck {
+                source_total_frames: 1000,
+                request_id: c.request_id,
+                epochs: s.state.epochs,
+                graph_hash: p.preview.graph_hash.clone(),
+                activation_frame: 37,
+                observation: value.clone(),
+            },
+            22,
+            |staged| {
+                assert_eq!(
+                    staged.queue_snapshot().entries.last().unwrap().status,
+                    crate::queue::PreparationStatus::Ready {
+                        format: value.format,
+                        total_frames: 1000
+                    }
+                );
+                Ok(())
+            },
+        )
+        .unwrap();
+        let seek = command(
+            &s,
+            "seek-ready-final",
+            Command::Seek {
+                position_frames: 999,
+            },
+        );
+        assert_eq!(s.submit_graph(seek, 23).status, ReceiptStatus::Accepted);
+    }
+    #[test]
+    fn failed_staged_stop_cannot_cancel_the_retained_transport_record() {
+        let mut s = fixture();
+        let pause = command(&s, "retained-pause", Command::Pause);
+        let accepted = s.submit_graph(pause.clone(), 1);
+        assert_eq!(accepted.status, ReceiptStatus::Accepted);
+        let stop = command(&s, "failed-stop", Command::Stop);
+        let failed = s.submit_with_graph_effects(
+            stop,
+            2,
+            |_| Err(STATE),
+            |_| {
+                Err(EngineError::new(
+                    ErrorCode::InternalFault,
+                    "checkpoint refused staged stop",
+                ))
+            },
+        );
+        assert_eq!(failed.status, ReceiptStatus::Failed);
+        assert_eq!(s.submit_graph(pause.clone(), 3), accepted);
+        s.advance(EngineEvent {
+            epochs: s.state.epochs,
+            monotonic_ns: 4,
+            kind: EngineEventKind::LocalPaused {
+                observation: s.state.playback.clone().unwrap(),
+            },
+        })
+        .unwrap();
+        assert_eq!(s.submit_graph(pause, 5).status, ReceiptStatus::Applied);
+    }
+    #[test]
+    fn retained_transport_records_keep_faults_and_shutdown_cancellation_after_rotation() {
+        for shutdown in [false, true] {
+            let mut s = fixture();
+            let pause = command(&s, "terminal-pause", Command::Pause);
+            assert_eq!(
+                s.submit_graph(pause.clone(), 1).status,
+                ReceiptStatus::Accepted
+            );
+            for i in 0..1025 {
+                let query = command(&s, &format!("terminal-poll-{i}"), Command::State);
+                s.submit_graph(query, 2);
+            }
+            let expected = if shutdown {
+                let command = command(&s, "shutdown-pending-pause", Command::OwnerShutdown);
+                assert_eq!(s.submit_graph(command, 3).status, ReceiptStatus::Applied);
+                ReceiptStatus::Cancelled
+            } else {
+                s.advance(EngineEvent {
+                    epochs: s.state.epochs,
+                    monotonic_ns: 3,
+                    kind: EngineEventKind::LocalFailed {
+                        code: ErrorCode::OutputFault,
+                    },
+                })
+                .unwrap();
+                ReceiptStatus::Failed
+            };
+            let receipt = s.submit_graph(pause, 4);
+            assert_eq!(receipt.status, expected);
+            assert_eq!(
+                receipt.error.unwrap().code,
+                if shutdown {
+                    ErrorCode::OperationCancelled
+                } else {
+                    ErrorCode::OutputFault
+                }
+            );
+            assert!(s.state.operation.is_none());
+        }
+    }
+    #[test]
+    fn invalid_activation_source_facts_fail_closed_without_publishing_readiness() {
+        for invalid in ["frames", "format", "entry"] {
+            let mut s = fixture();
+            let p = ready(&mut s, "invalid-source-prepare", 1.0);
+            let c = commit(&s, "invalid-source-commit", &p);
+            assert_eq!(
+                s.submit_graph(c.clone(), 21).status,
+                ReceiptStatus::Accepted
+            );
+            let queue = s.queue_snapshot();
+            let mut observation = s.state.playback.clone().unwrap();
+            match invalid {
+                "frames" => observation.source_position_frames = 1001,
+                "format" => {
+                    observation.format =
+                        PcmFormat::new(44100, ChannelLayout::Stereo, PcmRepresentation::Signed16)
+                            .unwrap()
+                }
+                "entry" => {
+                    observation.source_entry_id = QueueEntryId::new("missing-entry").unwrap()
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                s.complete_graph_activation(
+                    GraphActivationAck {
+                        request_id: c.request_id.clone(),
+                        epochs: s.state.epochs,
+                        graph_hash: p.preview.graph_hash.clone(),
+                        activation_frame: 0,
+                        observation,
+                        source_total_frames: 1000,
+                    },
+                    22,
+                    |_| panic!("invalid source facts reached persistence")
+                )
+                .is_err()
+            );
+            assert_eq!(s.queue_snapshot(), queue);
+            assert!(s.graph_activation().is_none());
+            assert!(s.graph_inspection().recovery_required);
+            assert_eq!(s.submit_graph(c, 23).status, ReceiptStatus::Failed);
+        }
     }
 }

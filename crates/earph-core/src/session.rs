@@ -274,6 +274,7 @@ pub struct Session {
     state: SessionSnapshot,
     limits: ControlLimits,
     receipts: VecDeque<Arc<(CommandEnvelope, Receipt)>>,
+    transport_record: Option<Arc<(CommandEnvelope, Receipt)>>,
     events: VecDeque<StateEvent>,
     playback_intent: PlaybackIntent,
     queue: LocalQueue,
@@ -314,6 +315,7 @@ impl Session {
                 playback: None,
             },
             receipts: VecDeque::with_capacity(limits.receipts),
+            transport_record: None,
             events: VecDeque::with_capacity(limits.events),
             limits,
             playback_intent: PlaybackIntent::Playing,
@@ -475,17 +477,25 @@ impl Session {
     ) {
         self.local_boundary = None;
         if let Some(id) = self.state.operation.take()
-            && let Some(record) = self
-                .receipts
-                .iter_mut()
-                .find(|record| record.0.request_id == id)
+            && let Some(prior) = self.transport_record.as_ref()
+            && prior.0.request_id == id
         {
-            let receipt = &mut Arc::make_mut(record).1;
+            let mut updated = (**prior).clone();
+            let receipt = &mut updated.1;
             receipt.status = status;
             receipt.error = error;
             receipt.activation_frame = activation_frame;
             receipt.revision = self.state.revision;
             receipt.epochs = self.state.epochs;
+            let updated = Arc::new(updated);
+            if let Some(slot) = self
+                .receipts
+                .iter_mut()
+                .find(|slot| Arc::ptr_eq(slot, prior))
+            {
+                *slot = updated.clone();
+            }
+            self.transport_record = Some(updated);
         }
     }
     pub fn submit(&mut self, command: CommandEnvelope) -> Receipt {
@@ -518,6 +528,11 @@ impl Session {
     ) -> Receipt {
         self.expire_graph_work(now_ns);
         if let Some(record) = self.live_graph_receipt(&command.request_id) {
+            return self.replay_graph_record(&command, record);
+        }
+        if let Some(record) = self.transport_record.as_ref()
+            && record.0.request_id == command.request_id
+        {
             return self.replay_graph_record(&command, record);
         }
         if let Some(record) = self
@@ -573,6 +588,11 @@ impl Session {
         }
         let record = Arc::new((command, receipt.clone()));
         self.retain_graph_record(record.clone());
+        if receipt.status == ReceiptStatus::Accepted
+            && self.state.operation.as_ref() == Some(&record.0.request_id)
+        {
+            self.transport_record = Some(record.clone());
+        }
         self.receipts.push_back(record);
         receipt
     }
@@ -1130,6 +1150,12 @@ impl Session {
                 ErrorCode::AssetInvalid,
                 "non-monotonic event time",
             ));
+        }
+        // The activation acknowledgement publishes reservation and playback together.
+        if self.graph_activation().is_some()
+            && matches!(event.kind, EngineEventKind::LocalReserved { .. })
+        {
+            return Ok(());
         }
         let mut next = self.state.clone();
         next.monotonic_ns = event.monotonic_ns;

@@ -677,6 +677,13 @@ mod tests {
         activation_at_revision(0)
     }
     fn activation_at_revision(revision: u64) -> (Session, GraphActivationAck) {
+        let (session, ack, _) = activation_resources(revision, "fixture.wav");
+        (session, ack)
+    }
+    fn activation_resources(
+        revision: u64,
+        path: &str,
+    ) -> (Session, GraphActivationAck, PreparedPipeline) {
         let mut session = Session::new_owner(
             ZoneId::new("main").unwrap(),
             OwnerId::new("owner").unwrap(),
@@ -731,12 +738,7 @@ mod tests {
                     profile_id: output.profile_id.clone(),
                 },
             ),
-            (
-                "queue",
-                Command::QueueAppend {
-                    path: "fixture.wav".into(),
-                },
-            ),
+            ("queue", Command::QueueAppend { path: path.into() }),
         ] {
             let request = command(&session, id, payload);
             assert_eq!(
@@ -821,7 +823,7 @@ mod tests {
         session
             .complete_graph_preparation(&prepare.request_id, &job.binding, 5, Ok(preview.clone()))
             .unwrap();
-        drop(result);
+        let pipeline = result.pipeline.unwrap();
         drop(service);
         let prepared = session.graph_inspection().prepared.unwrap();
         let commit = command(
@@ -849,13 +851,14 @@ mod tests {
             prequantization_peak: None,
         });
         let acknowledgement = GraphActivationAck {
+            source_total_frames: 48000,
             epochs: session.snapshot().epochs,
             request_id: commit.request_id,
             graph_hash: preview.graph_hash.clone(),
             activation_frame: 0,
             observation,
         };
-        (session, acknowledgement)
+        (session, acknowledgement, pipeline)
     }
     #[test]
     fn stale_acknowledgement_during_recovery_keeps_the_owner_and_stop_alive() {
@@ -1316,5 +1319,115 @@ mod tests {
             ErrorCode::StaleSession
         );
         assert_eq!(session.snapshot(), before);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn native_activation_recovers_readiness_from_the_reused_open_file() {
+        use std::{fs, time::SystemTime};
+        let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/activation-readiness")
+            .join(format!(
+                "{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("source.wav");
+        let mut bytes = Vec::new();
+        bytes.extend(b"RIFF");
+        bytes.extend(296_u32.to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        bytes.extend(16_u32.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(2_u16.to_le_bytes());
+        bytes.extend(48000_u32.to_le_bytes());
+        bytes.extend(192000_u32.to_le_bytes());
+        bytes.extend(4_u16.to_le_bytes());
+        bytes.extend(16_u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend(260_u32.to_le_bytes());
+        bytes.extend([0_u8; 260]);
+        fs::write(&path, bytes).unwrap();
+        let (mut session, _, pipeline) = activation_resources(0, path.to_str().unwrap());
+        let activation = session.graph_activation().unwrap();
+        let mut settings = Settings {
+            snapshot: session.snapshot(),
+            playing: false,
+        };
+        settings.snapshot.epochs = activation.previous_binding.epochs;
+        let entries = session.queue_snapshot().entries;
+        let id = entries[0].id.clone();
+        let mut worker = Worker::spawn();
+        worker
+            .view
+            .lock()
+            .unwrap()
+            .publish(session.queue_snapshot());
+        worker
+            .send(Action::Start {
+                settings,
+                entries,
+                cancel: Arc::new(AtomicBool::new(false)),
+            })
+            .unwrap();
+        let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        loop {
+            let event = worker.events.recv_timeout(Duration::from_secs(5)).unwrap();
+            let ready = matches!(event, Event::Ready { .. });
+            observation(&mut session, event, &clock).unwrap();
+            if ready {
+                break;
+            }
+        }
+        assert!(matches!(
+            session.queue_snapshot().entries[0].status,
+            earph_core::queue::PreparationStatus::Unprepared
+        ));
+        worker
+            .send(Action::ActivateGraph {
+                settings: Settings {
+                    snapshot: session.snapshot(),
+                    playing: false,
+                },
+                activation,
+                pipeline,
+            })
+            .unwrap();
+        loop {
+            let event = worker.events.recv_timeout(Duration::from_secs(5)).unwrap();
+            if let Event::GraphActivated(ack) = event {
+                assert_eq!(ack.source_total_frames, 65);
+                reconcile_graph_activation(&mut session, ack, monotonic(&clock), |staged| {
+                    assert_eq!(staged.snapshot().active_entry_id.as_ref(), Some(&id));
+                    assert!(matches!(
+                        staged.queue_snapshot().entries[0].status,
+                        earph_core::queue::PreparationStatus::Ready {
+                            total_frames: 65,
+                            ..
+                        }
+                    ));
+                    Ok(())
+                })
+                .unwrap();
+                break;
+            }
+            let before = session.snapshot();
+            observation(&mut session, event, &clock).unwrap();
+            assert_eq!(session.snapshot().active_entry_id, before.active_entry_id);
+        }
+        let seek = command(
+            &session,
+            "seek-reused-open-file",
+            Command::Seek {
+                position_frames: 64,
+            },
+        );
+        assert_eq!(
+            session.submit_graph(seek, monotonic(&clock)).status,
+            ReceiptStatus::Accepted
+        );
     }
 }
