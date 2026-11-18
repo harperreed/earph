@@ -938,6 +938,15 @@ fn validate_receipt(directory: &Path) -> Result<Receipt> {
             if numbers.len() != 6 || numbers[0] != i as u64 || numbers[5] != case.quantum as u64 {
                 return Err("CSV sample contract changed".into());
             }
+            if matches!(
+                case.workload,
+                Workload::SameRateGain | Workload::SameRatePeq10 | Workload::SameRateFir4096
+            ) && (numbers[2] != 1
+                || numbers[3] != case.quantum as u64
+                || numbers[4] != case.quantum as u64)
+            {
+                return Err("same-rate CSV frame contract changed".into());
+            }
             samples.push(Sample {
                 duration_ns: numbers[1],
                 pump_calls: numbers[2],
@@ -1064,6 +1073,37 @@ fn fixed_workloads_render_real_periods_and_finish_without_processing_allocations
             render.cancel();
             assert_eq!(render.graph().lifecycle(), GraphLifecycle::Cancelled);
         }
+    }
+}
+
+#[test]
+fn receipt_consumer_rejects_impossible_same_rate_rows_even_when_totals_balance() {
+    let directory = test_directory();
+    let mut receipt = produce(&directory, RunConfig::smoke()).unwrap();
+    let csv_path = directory.join(&receipt.cases[0].csv.path);
+    let original = fs::read_to_string(&csv_path).unwrap();
+    for column in [2, 3, 4] {
+        let mut lines: Vec<_> = original.lines().map(str::to_owned).collect();
+        let mut first: Vec<_> = lines[1].split(',').map(str::to_owned).collect();
+        let mut second: Vec<_> = lines[2].split(',').map(str::to_owned).collect();
+        let transferred = first[column].parse::<u64>().unwrap();
+        first[column] = "0".into();
+        second[column] = (second[column].parse::<u64>().unwrap() + transferred).to_string();
+        lines[1] = first.join(",");
+        lines[2] = second.join(",");
+        let csv = format!("{}\n", lines.join("\n"));
+        receipt.cases[0].csv.bytes = csv.len() as u64;
+        receipt.cases[0].csv.sha256 = hash(csv.as_bytes());
+        fs::write(&csv_path, csv).unwrap();
+        fs::write(
+            directory.join("cpu-qualification.json"),
+            serde_json::to_vec(&receipt).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            validate_receipt(&directory).is_err(),
+            "impossible same-rate CSV column {column} passed validation"
+        );
     }
 }
 

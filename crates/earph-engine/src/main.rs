@@ -17,19 +17,6 @@ use std::{
 const MAX_BYTES: u64 = 1_048_576;
 const USAGE: &str = "usage: earph-engine <owner|request> --runtime ABSOLUTE_PRIVATE_DIRECTORY | import-fir --runtime ABSOLUTE_PRIVATE_DIRECTORY FILE | render-graph --help";
 
-fn write_offline_report(
-    report: &earph_engine::offline_render::OfflineGraphReport,
-    output: &mut impl Write,
-) -> Result<(), EngineError> {
-    const FAULT: EngineError =
-        EngineError::new(ErrorCode::OutputFault, "cannot write offline report");
-    serde_json::to_writer(&mut *output, report).map_err(|_| FAULT)?;
-    output
-        .write_all(b"\n")
-        .and_then(|_| output.flush())
-        .map_err(|_| FAULT)
-}
-
 fn execute() -> Result<u8, EngineError> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "render-graph") {
@@ -39,8 +26,7 @@ fn execute() -> Result<u8, EngineError> {
         }
         let report = earph_engine::offline_render::command(&args[1..]);
         let code = if report.status == "pass" { 0 } else { 1 };
-        let mut stdout = io::stdout().lock();
-        write_offline_report(&report, &mut stdout)?;
+        earph_engine::offline_render::write_json_report(&report, &mut io::stdout().lock())?;
         return Ok(code);
     }
     if args.len() == 4 && args[0] == "import-fir" && args[1] == "--runtime" {
@@ -150,63 +136,11 @@ fn main() -> ExitCode {
     match execute() {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
-            eprintln!("{}", serde_json::json!({"error":error}));
+            let _ = earph_engine::offline_render::write_json_report(
+                &serde_json::json!({"error":error}),
+                &mut io::stderr().lock(),
+            );
             ExitCode::from(3)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::{
-        fs::{self, File, OpenOptions},
-        io::BufWriter,
-        os::unix::fs::{DirBuilderExt, OpenOptionsExt},
-    };
-
-    #[test]
-    fn offline_report_delivery_flushes_one_complete_json_line_and_reports_real_io_failure() {
-        let directory = std::env::temp_dir().join(format!(
-            "earph-report-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&directory)
-            .unwrap();
-        let path = directory.join("report.json");
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)
-            .unwrap();
-        let report = earph_engine::offline_render::command(&[]);
-        write_offline_report(&report, &mut file).unwrap();
-        let bytes = fs::read(&path).unwrap();
-        assert_eq!(bytes.last(), Some(&b'\n'));
-        assert_eq!(bytes.iter().filter(|byte| **byte == b'\n').count(), 1);
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
-            serde_json::to_value(&report).unwrap()
-        );
-        let mut read_only = BufWriter::new(File::open(&path).unwrap());
-        assert_eq!(
-            write_offline_report(&report, &mut read_only)
-                .unwrap_err()
-                .code,
-            ErrorCode::OutputFault
-        );
-        assert_eq!(
-            read_only.buffer().last(),
-            Some(&b'\n'),
-            "failure should come from actual buffered-file flush"
-        );
-        assert_eq!(fs::read(&path).unwrap(), bytes);
     }
 }

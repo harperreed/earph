@@ -120,6 +120,8 @@ pub struct PreparedStreamRender {
     finishing: bool,
     failure: Option<EngineError>,
     cancel: Arc<AtomicBool>,
+    #[cfg(test)]
+    cancel_after_pump: bool,
     resources: StreamRenderResources,
 }
 impl PreparedStreamRender {
@@ -228,6 +230,8 @@ impl PreparedStreamRender {
             finishing: false,
             failure: None,
             cancel,
+            #[cfg(test)]
+            cancel_after_pump: false,
             resources,
         })
     }
@@ -242,6 +246,10 @@ impl PreparedStreamRender {
     }
     pub fn control_epochs(&self) -> Epochs {
         self.control_epochs
+    }
+    #[cfg(test)]
+    pub(crate) fn cancel_after_next_pump(&mut self) {
+        self.cancel_after_pump = true;
     }
     pub fn period(&self) -> &PcmBlock {
         &self.period
@@ -307,6 +315,11 @@ impl PreparedStreamRender {
                 &mut self.output[..output_frames * channels],
             )
             .map_err(|e| self.retain_stream_error(e))?;
+        #[cfg(test)]
+        if std::mem::take(&mut self.cancel_after_pump) {
+            self.cancel.store(true, Ordering::Release);
+        }
+        self.check_live()?;
         self.replay
             .append(&self.output[..step.produced_frames * channels])
             .map_err(|e| self.retain_error(e))?;
@@ -551,6 +564,80 @@ mod tests {
         resample::SrcDesign,
         stream::{StreamBudget, StreamStagePlan},
     };
+
+    #[test]
+    fn cancellation_after_actual_dsp_pump_keeps_new_output_out_of_replay() {
+        use earph_dsp::{CompileContext, GraphBudget, ProcessingPolicy, compile_with_input_bounds};
+        let format =
+            PcmFormat::new(48000, ChannelLayout::Mono, PcmRepresentation::Signed16).unwrap();
+        let float = PcmFormat::new(48000, ChannelLayout::Mono, PcmRepresentation::Float64).unwrap();
+        let port = serde_json::json!({"domain":"pcm","sample_rate_hz":48000,"channels":"mono","precision":"float64","max_quantum_frames":4});
+        let graph = serde_json::from_value(
+            serde_json::json!({"schema_version":1,"output":"out","nodes":[
+            {"id":"in","kind":{"kind":"input"},"format":port},
+            {"id":"out","kind":{"kind":"output"},"format":port}],
+            "edges":[{"from":"in","to":"out","from_port":0,"to_port":0}]}),
+        )
+        .unwrap();
+        let compiled = compile_with_input_bounds(
+            &graph,
+            &CompileContext {
+                input_format: float,
+                output_format: float,
+                quantum_frames: 4,
+                policy: ProcessingPolicy::AllowProcessing,
+                budget: GraphBudget::default(),
+            },
+            &[],
+            &[1.0],
+        )
+        .unwrap();
+        let plan = StreamPlan::new(
+            vec![StreamStagePlan::SameRate(Box::new(compiled))],
+            &[1.0],
+            StreamBudget::default(),
+        )
+        .unwrap();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut render = PreparedStreamRender::prepare(
+            plan,
+            StreamRenderConfig {
+                input_format: format,
+                native_format: format,
+                period_frames: 4,
+                queue_frames: 8,
+                epochs: Epochs::default(),
+                budget_bytes: 64 << 20,
+            },
+            cancel.clone(),
+        )
+        .unwrap();
+        let mut block = PcmBlock::prepare(
+            format,
+            4,
+            Epochs::default(),
+            earph_core::audio::MemoryBudget::default(),
+        )
+        .unwrap();
+        for index in 0..4 {
+            block.set_integer_sample(index, 8192).unwrap();
+        }
+        block.set_span(Epochs::default(), 0, 0, 4).unwrap();
+        render.cancel_after_next_pump();
+        let result = render.pump(Some(SourceSpan {
+            block: &block,
+            offset: 0,
+            frames: 4,
+        }));
+        assert_eq!(render.stream().stats().source_frames, 4);
+        assert!(
+            render.stream().stats().output_frames > 0,
+            "the actual DSP call must succeed before cancellation"
+        );
+        assert!(cancel.load(Ordering::Acquire));
+        assert_eq!(result.unwrap_err().code, ErrorCode::OperationCancelled);
+        assert_eq!(render.output_positions().generated, 0);
+    }
 
     #[test]
     fn cancellation_between_quantization_and_publication_preserves_the_last_period_and_gain() {

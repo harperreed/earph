@@ -432,14 +432,25 @@ fn requested_preparation_bytes_fit_admitted_bound_and_worker_paths_do_not_alloca
                 kernel.process(&[0.125; 128], &mut output).unwrap();
             }
             kernel.begin_finish().unwrap();
+            let mut terminal = false;
             for _ in 0..10000 {
                 if kernel.finish(&mut output).unwrap().terminal {
+                    terminal = true;
                     break;
                 }
             }
+            assert!(terminal, "drain did not finish: {:?}", kernel.stats());
+            kernel.reset();
+            assert_eq!(
+                kernel.process(&[f64::NAN; 2], &mut output).unwrap_err(),
+                SrcError::NonFinite
+            );
             kernel.reset();
             kernel.cancel();
-            kernel.process(&[f64::NAN; 2], &mut output).unwrap_err();
+            assert_eq!(
+                kernel.process(&[0.125; 2], &mut output).unwrap_err(),
+                SrcError::Lifecycle
+            );
         });
         assert_eq!((runtime.allocs, runtime.frees), (0, 0), "{runtime:?}");
     }
@@ -532,29 +543,46 @@ fn drift_trace(kernel: &mut PreparedSrc) -> serde_json::Value {
             kernel.set_offline_ratio_ppm(ppm, ramp).unwrap();
         }
         let before = kernel.stats();
-        let step = kernel.process(&input, &mut output).unwrap();
-        assert!(kernel.stats().library_calls - before.library_calls <= 1);
-        for sample in &output[..step.produced_frames * h] {
-            hash.update(sample.to_bits().to_le_bytes());
+        let mut accepted = 0;
+        let mut produced = 0;
+        let mut process_calls = 0;
+        for _ in 0..10000 {
+            let calls_before = kernel.stats().library_calls;
+            let step = kernel.process(&input[accepted * h..], &mut output).unwrap();
+            assert!(kernel.stats().library_calls - calls_before <= 1);
+            accepted += step.consumed_frames;
+            produced += step.produced_frames;
+            process_calls += 1;
+            for sample in &output[..step.produced_frames * h] {
+                hash.update(sample.to_bits().to_le_bytes());
+            }
+            if accepted == 128 {
+                break;
+            }
         }
+        assert_eq!(accepted, 128, "drift packet stalled: {:?}", kernel.stats());
         if let Some((ppm, ramp)) = command {
             let ratio = kernel.ratio_state();
             trace.push(serde_json::json!({"requested_ppm":ppm,"ramp":ramp,"source_before":before.real_input_frames,
                 "library_calls_before":before.library_calls,"generated_before":before.generated_frames,
-                "accepted_this_step":step.consumed_frames,"produced_this_step":step.produced_frames,
+                "accepted_this_step":accepted,"produced_this_step":produced,"process_calls":process_calls,
                 "actual_ratio_after":ratio.current_ratio,"target_ratio":ratio.target_ratio}));
         }
     }
     kernel.begin_finish().unwrap();
-    loop {
+    let mut terminal = false;
+    for _ in 0..10000 {
         let step = kernel.finish(&mut output).unwrap();
         for sample in &output[..step.produced_frames * h] {
             hash.update(sample.to_bits().to_le_bytes());
         }
         if step.terminal {
+            terminal = true;
             break;
         }
     }
+    assert!(terminal, "drift drain did not finish: {:?}", kernel.stats());
+    assert_eq!(kernel.stats().real_input_frames, 32768);
     let hash = hash
         .finalize()
         .iter()

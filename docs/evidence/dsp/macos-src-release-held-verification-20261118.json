@@ -1,0 +1,68 @@
+{
+  "status": "pass",
+  "candidate_sha256": "92dfdbcc8c2ea051fea196cc3c746d2206b119c3f039e023089185ec1eb0b108",
+  "archive_sha256": "0405a8390069928aa67555080e079158720ce05921b3883c948b82d5863f3b19",
+  "manifest_sha256": "e55e51785314174ec68722593709dbd47b59b67fc4b354594edc80d06eb06840",
+  "source_files": 1546,
+  "source_phases": 25,
+  "raw_files": 413,
+  "counts": {
+    "canonical": [
+      576,
+      0,
+      4
+    ],
+    "clean-components-release": [
+      59,
+      0,
+      1
+    ],
+    "clean-stream-release": [
+      32,
+      0,
+      0
+    ],
+    "clean-src-numeric": [
+      1,
+      0,
+      0
+    ],
+    "clean-first-fault-release": [
+      26,
+      0,
+      0
+    ],
+    "clean-profile-owner-release": [
+      12,
+      0,
+      0
+    ]
+  },
+  "proposal": {
+    "graph_document_sha256": "b11737a2768feb38835e1e496fa859b972f02719d3f2b9db00e97608e2b25b9e",
+    "kernel_hash": "c8c4ce8ded9a949b6823c3beefca68eb1305a0209a71ef7a249cfcc53c4fbf2c",
+    "source_sha256": "414e78bb8568df9ce120e9fdcba661adc739861b55227fac1cea7cfe59447dad",
+    "fir_sha256": "14fbf4c67facc21b9c4b50f1abcc80c278962b24b9d88c5acbd356edea172cea",
+    "source_frames": 24000,
+    "expected_producer_ring_writes": 26313,
+    "expected_count_basis": "actual offline capture from the same clean release and exact authored graph",
+    "offline_capture_sha256": "24918b6534598c8335a4b9cfd1b509a95508c1799e51accd106db1aa5adebb82",
+    "offline_capture_bytes": 157878,
+    "native_period_frames": 512,
+    "source_and_native_input": "signed24_stereo_48000",
+    "sdk_client": "float32_stereo_48000",
+    "source_peak_measured": 0.04418349266052246,
+    "admitted_source_peak_bound": 1,
+    "channel_peak_bounds": [
+      1.3557279002773488,
+      1.3557279002773488
+    ],
+    "required_headroom_db": 2.643450674603103,
+    "software_gain_db": -44,
+    "independent_software_cap_db": -40,
+    "gain_ramp_frames": 960,
+    "pre_src_gain_linear": 0.125,
+    "offline_graph_peak": 0.002425303648995292,
+    "offline_output_peak": 0.0000152587890625
+  }
+}

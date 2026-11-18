@@ -51,14 +51,14 @@ fn stream_resource_preflight_covers_geometry_metadata_and_full_construction_befo
         16 << 20,
     )
     .unwrap();
-    let plan = StreamPlan::new(
-        vec![StreamStagePlan::Src(design)],
-        &[1.0; 2],
-        StreamBudget::default(),
-    )
-    .unwrap();
-    assert_eq!(plan.resources(), base);
     let (_, allocated) = measured(|| {
+        let plan = StreamPlan::new(
+            vec![StreamStagePlan::Src(design)],
+            &[1.0; 2],
+            StreamBudget::default(),
+        )
+        .unwrap();
+        assert_eq!(plan.resources(), base);
         PreparedStream::prepare(plan, Epochs::default(), Arc::new(AtomicBool::new(false))).unwrap()
     });
     assert!(allocated.peak as u64 <= base.preparation_peak_bytes);
@@ -290,14 +290,16 @@ fn full_output_preserves_bounded_backpressure_and_numeric_failure_preserves_call
     let mut graph =
         PreparedStream::prepare(plan, Epochs::default(), Arc::new(AtomicBool::new(false))).unwrap();
     let mut accepted = 0;
+    let mut blocked = false;
     for _ in 0..10000 {
         let step = graph.pump(&[0.25; 4], &mut []).unwrap();
         accepted += step.consumed_frames;
         if step.consumed_frames == 0 && step.work_units == 0 {
+            blocked = true;
             break;
         }
     }
-    assert!(accepted > 0 && accepted < 10000);
+    assert!(accepted > 0 && accepted < 10000 && blocked);
     let mut output = [5.0; 6];
     graph
         .reset(Epochs {
@@ -731,18 +733,21 @@ fn processing_finish_reset_cancel_and_faults_retain_all_storage() {
         serde_json::json!({"kind":"delay","delay_frames":3}),
         source.peak_bound(1.0).unwrap(),
     );
-    let plan = StreamPlan::new(
-        vec![
-            StreamStagePlan::Src(source),
-            StreamStagePlan::SameRate(Box::new(bounded)),
-        ],
-        &[1.0; 2],
-        StreamBudget::default(),
-    )
-    .unwrap();
-    let resources = plan.resources();
-    let (mut graph, preparation) = measured(|| {
-        PreparedStream::prepare(plan, Epochs::default(), Arc::new(AtomicBool::new(false))).unwrap()
+    let ((mut graph, resources), preparation) = measured(|| {
+        let plan = StreamPlan::new(
+            vec![
+                StreamStagePlan::Src(source),
+                StreamStagePlan::SameRate(Box::new(bounded)),
+            ],
+            &[1.0; 2],
+            StreamBudget::default(),
+        )
+        .unwrap();
+        let resources = plan.resources();
+        let graph =
+            PreparedStream::prepare(plan, Epochs::default(), Arc::new(AtomicBool::new(false)))
+                .unwrap();
+        (graph, resources)
     });
     assert!(
         preparation.peak as u64 <= resources.preparation_peak_bytes,

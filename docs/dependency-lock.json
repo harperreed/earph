@@ -906,6 +906,7 @@
         "event",
         "fs",
         "net",
+        "pipe",
         "process",
         "std"
       ],

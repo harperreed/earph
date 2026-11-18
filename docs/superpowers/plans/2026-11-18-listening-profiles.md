@@ -277,6 +277,19 @@ No native device opens or signal exercises occur in this gate.
 
 ## Resume point
 
+The correction import commit is integrated with PR3's separately qualified engine fixes.
+One independent bounded merge review finds no remaining integration regression.
+The [combined precommit receipt](../../evidence/profiles/task2b-integrated-precommit-verification-20261118.json) records 701 passed tests and four ignored.
+The actual canonical child exits zero, without warnings or errors.
+The stronger shared report writer retains real flush and closed-consumer coverage.
+FIR forwarding remains intact, and offline FIR import uses the shared owner-lock guard.
+Both parents' test coverage remains; one byte-identical duplicate history test is consolidated.
+The first duplicate-symbol build failure and original merge inputs remain preserved.
+Earlier platform receipts keep their original source bindings.
+
+
+## Task3a integration checkpoint
+
 Task3a implements manual application to the current consented software output.
 The backend, route, device, and fidelity must match the selected output.
 Saved intent supplies no endpoint, consent, arming, or trusted native identity.
@@ -292,9 +305,32 @@ Core and actual owner tests grant consent before update and require revocation a
 The executable reads the persisted checkpoint and verifies muted, unconsented, unselected recovery.
 Coverage-setup REDs remain classified separately from production regression proof.
 
-This is a source checkpoint before integrated Mac qualification.
-Keep the Task3a commit local until PR3 integration and supported-platform checks finish.
-Merge the separately qualified OwnerLock and PR3 fixes before the Mac gate.
-Then freeze the combined source and run the actual platform scenarios.
+This integration has completed the source-bound Linux and Mac qualification recorded below.
+The qualified OwnerLock and PR3 c0e27b9 fixes are present.
+Keep this integration local until later PR3 review corrections are integrated and verified.
 Full Task3 native associations and fixed/hardware transitions remain incomplete.
 Task4 packages and full desktop workflows also remain incomplete.
+
+## Verified Task3a integration checkpoint
+
+The [combined precommit receipt](../../evidence/profiles/task3a-integrated-precommit-verification-20261118.json) records 722 passed tests and four ignored.
+The actual canonical child exits zero without warnings or errors.
+The same independent review approves the bounded merge with the qualified PR3 source.
+The [Mac candidate](../../evidence/profiles/macos-task3a-integrated-precommit-candidate-20261118.json) records scoped contracts and real muted owner control.
+Root [verifies](../../evidence/profiles/macos-task3a-integrated-precommit-root-verification-20261118.json) all 503 artifacts and 1566 source files across ten phases.
+All three final owners exit zero and remain absent on fresh lookup.
+All observed states stay muted, with nineteen observed zero producer-write counters.
+Requested caps remain separate from independent caps, and lower gain survives profile changes.
+Stopped revision replacement revokes fresh consent and clears persisted selection before the next restart.
+Selected device settings, source bytes, and executable hashes stay unchanged.
+
+The first helper omitted the actual correction CLI build prerequisite.
+Its fifteen passing profile cases remain retained; the one failed case passes after the explicit build.
+The first muted helper expected exit zero for a correct rejected command.
+Its owner shuts down cleanly; the corrected helper passes the full workflow in a fresh runtime.
+Both helper failures and their artifacts remain preserved.
+No signal, unmute, callback, private arming, DAC, or acoustic claim follows from this muted gate.
+
+These receipts bind the dirty precommit integration of source24e9970 with parentc0e27b9.
+Keep this integration local until PR3 merges and its later review corrections are integrated and verified.
+The broader Task3 and Task4 work remains open.

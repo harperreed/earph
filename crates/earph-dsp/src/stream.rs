@@ -558,6 +558,11 @@ struct StageState {
     stats: StageStats,
     src_stats: Option<SrcStats>,
 }
+#[cfg(test)]
+struct PublicationGate {
+    reached: std::sync::mpsc::SyncSender<()>,
+    resume: std::sync::mpsc::Receiver<()>,
+}
 pub struct PreparedStream {
     stages: Vec<StageState>,
     fifos: Vec<FrameFifo>,
@@ -570,6 +575,8 @@ pub struct PreparedStream {
     max_sweeps: usize,
     failure: Option<StreamError>,
     cancel: Arc<AtomicBool>,
+    #[cfg(test)]
+    publication_gate: Option<PublicationGate>,
 }
 impl PreparedStream {
     pub fn prepare(plan: StreamPlan, epochs: Epochs, cancel: Arc<AtomicBool>) -> Result<Self> {
@@ -648,6 +655,8 @@ impl PreparedStream {
             max_sweeps: plan.max_sweeps,
             failure: None,
             cancel,
+            #[cfg(test)]
+            publication_gate: None,
         })
     }
     pub fn resources(&self) -> StreamResources {
@@ -745,14 +754,26 @@ impl PreparedStream {
             return Err(StreamError::new(StreamErrorKind::Geometry));
         }
         let capacity = (output.len() / out_channels).min(self.publish.len() / out_channels);
-        match self.run_inner(input, capacity) {
-            Ok(step) => {
+        let result = self.run_inner(input, capacity).and_then(|step| {
+            checked_add(self.stats.output_frames, step.produced_frames as u64)
+                .map(|output_frames| (step, output_frames))
+        });
+        match result {
+            Ok((step, output_frames)) => {
+                #[cfg(test)]
+                if let Some(gate) = &self.publication_gate {
+                    gate.reached.send(()).unwrap();
+                    gate.resume
+                        .recv_timeout(std::time::Duration::from_secs(10))
+                        .unwrap();
+                }
                 if self.cancel.load(Ordering::Acquire) {
                     self.cancel();
                     return Err(StreamError::new(StreamErrorKind::Cancelled));
                 }
                 output[..step.produced_frames * out_channels]
                     .copy_from_slice(&self.publish[..step.produced_frames * out_channels]);
+                self.stats.output_frames = output_frames;
                 Ok(step)
             }
             Err(error) => {
@@ -804,7 +825,6 @@ impl PreparedStream {
                 break;
             }
         }
-        self.stats.output_frames = checked_add(self.stats.output_frames, produced as u64)?;
         self.stats.work_units = checked_add(self.stats.work_units, work as u64)?;
         if self.lifecycle == StreamLifecycle::Finishing
             && self.stages.iter().all(|s| s.terminal)
@@ -982,6 +1002,9 @@ impl PreparedStream {
         if self.lifecycle == StreamLifecycle::Cancelled {
             return Err(StreamError::new(StreamErrorKind::Lifecycle));
         }
+        if self.cancel.load(Ordering::Acquire) {
+            return Err(StreamError::new(StreamErrorKind::Cancelled));
+        }
         if (epochs.session, epochs.stream) <= (self.epochs.session, self.epochs.stream) {
             return Err(StreamError::new(StreamErrorKind::StaleEpoch));
         }
@@ -1033,4 +1056,111 @@ fn buffer(samples: usize) -> Result<Vec<f64>> {
     }
     result.resize(samples, 0.0);
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{CompileContext, GraphBudget, ProcessingPolicy};
+    use earph_core::audio::ChannelLayout;
+
+    fn graph(cancel: Arc<AtomicBool>) -> PreparedStream {
+        let format =
+            PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Float64).unwrap();
+        let port = serde_json::json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":4});
+        let document = serde_json::from_value(
+            serde_json::json!({"schema_version":1,"output":"out","nodes":[
+            {"id":"in","kind":{"kind":"input"},"format":port},
+            {"id":"out","kind":{"kind":"output"},"format":port}],
+            "edges":[{"from":"in","to":"out","from_port":0,"to_port":0}]}),
+        )
+        .unwrap();
+        let plan = crate::compile_with_input_bounds(
+            &document,
+            &CompileContext {
+                input_format: format,
+                output_format: format,
+                quantum_frames: 4,
+                policy: ProcessingPolicy::AllowProcessing,
+                budget: GraphBudget::default(),
+            },
+            &[],
+            &[1.0; 2],
+        )
+        .unwrap();
+        let plan = StreamPlan::new(
+            vec![StreamStagePlan::SameRate(Box::new(plan))],
+            &[1.0; 2],
+            StreamBudget::default(),
+        )
+        .unwrap();
+        PreparedStream::prepare(plan, Epochs::default(), cancel).unwrap()
+    }
+
+    #[test]
+    fn cancellation_before_publication_keeps_output_private_and_uncounted() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut graph = graph(cancel.clone());
+        let (reached, ready) = std::sync::mpsc::sync_channel(1);
+        let (resume, continuation) = std::sync::mpsc::sync_channel(1);
+        graph.publication_gate = Some(PublicationGate {
+            reached,
+            resume: continuation,
+        });
+        let (graph, output, result) = std::thread::scope(|scope| {
+            let worker = scope.spawn(move || {
+                let mut output = [99.0; 8];
+                let result = graph.pump(&[0.25; 8], &mut output);
+                (graph, output, result)
+            });
+            let ready = ready.recv_timeout(std::time::Duration::from_secs(10));
+            cancel.store(true, Ordering::Release);
+            let _ = resume.send(());
+            let result = worker.join().unwrap();
+            assert_eq!(ready, Ok(()), "the real pump did not reach publication");
+            result
+        });
+        assert_eq!(result.unwrap_err().kind, StreamErrorKind::Cancelled);
+        assert_eq!(output, [99.0; 8]);
+        assert_eq!(graph.stats().source_frames, 4);
+        assert_eq!(graph.stats().output_frames, 0);
+    }
+
+    #[test]
+    fn shared_cancellation_rejects_reset_before_changing_progress_or_epochs() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut graph = graph(cancel.clone());
+        graph.pump(&[0.25; 8], &mut [0.0; 8]).unwrap();
+        let before = graph.stats();
+        let epochs = graph.epochs();
+        cancel.store(true, Ordering::Release);
+        assert_eq!(
+            graph
+                .reset(Epochs {
+                    session: 0,
+                    stream: 1
+                })
+                .unwrap_err()
+                .kind,
+            StreamErrorKind::Cancelled
+        );
+        assert_eq!(graph.stats(), before);
+        assert_eq!(graph.epochs(), epochs);
+        assert_eq!(graph.lifecycle(), StreamLifecycle::Running);
+    }
+
+    #[test]
+    fn publication_counter_overflow_is_terminal_without_exposing_output() {
+        let mut graph = graph(Arc::new(AtomicBool::new(false)));
+        graph.stats.output_frames = u64::MAX - 1;
+        let mut output = [99.0; 8];
+        assert_eq!(
+            graph.pump(&[0.25; 8], &mut output).unwrap_err().kind,
+            StreamErrorKind::Counter
+        );
+        assert_eq!(output, [99.0; 8]);
+        assert_eq!(graph.stats().source_frames, 4);
+        assert_eq!(graph.stats().output_frames, u64::MAX - 1);
+        assert_eq!(graph.lifecycle(), StreamLifecycle::Failed);
+    }
 }

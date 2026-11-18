@@ -8,6 +8,8 @@ use std::{
 };
 
 static RESTART_REQUIRED: AtomicBool = AtomicBool::new(false);
+static DIAGNOSTICS: std::sync::OnceLock<Option<std::sync::mpsc::SyncSender<FaultDiagnostic>>> =
+    std::sync::OnceLock::new();
 fn error(error: earph_coreaudio::CoreAudioError) -> EngineError {
     if error.code == ErrorCode::OutputFault && error.os_status.is_some() {
         RESTART_REQUIRED.store(true, Ordering::Release);
@@ -19,8 +21,15 @@ fn report_fault(
     error: Option<earph_coreaudio::CoreAudioError>,
     progress: Option<earph_coreaudio::OutputProgress>,
 ) {
-    // Report on the worker thread, outside the callback's allocation and I/O restrictions.
-    let _ = write_fault_diagnostic(&mut std::io::stderr().lock(), operation, error, progress);
+    if let Some(Some(sender)) = DIAGNOSTICS.get() {
+        // Bounded, best-effort diagnostics never delay native close or terminal publication.
+        // The original native error and first-fault latch remain authoritative if this queue fills.
+        let _ = sender.try_send(FaultDiagnostic {
+            operation,
+            error,
+            progress,
+        });
+    }
 }
 fn open_error(operation: &'static str, failure: earph_coreaudio::CoreAudioError) -> EngineError {
     report_fault(operation, Some(failure), None);
@@ -50,6 +59,8 @@ pub(in crate::output) struct NativeOutput {
     request: OutputRequest,
     drain_deadline: Option<Instant>,
     complete: Option<Counters>,
+    #[cfg(test)]
+    start_permission: Option<SignalPermission>,
 }
 impl NativeOutput {
     pub(in crate::output) fn open(
@@ -63,6 +74,15 @@ impl NativeOutput {
                 "native output recovery requires an owner process restart",
             ));
         }
+        if DIAGNOSTICS
+            .get_or_init(|| spawn_fault_reporter(std::io::stderr()).ok())
+            .is_none()
+        {
+            return Err(EngineError::new(
+                ErrorCode::OutputFault,
+                "native fault diagnostics could not start",
+            ));
+        }
         let request = request(config, format)?;
         let native = CoreAudioOutput::open(request.clone(), epochs)
             .map_err(|failure| open_error("open", failure))?;
@@ -71,6 +91,8 @@ impl NativeOutput {
             request,
             drain_deadline: None,
             complete: None,
+            #[cfg(test)]
+            start_permission: None,
         })
     }
     fn native_error(
@@ -88,8 +110,12 @@ impl NativeOutput {
                 || self.native.progress().queued_frames
                     >= u64::from(self.request.buffer_frames) * 2)
         {
+            #[cfg(test)]
+            let permission = self.start_permission.unwrap_or(SignalPermission::Granted);
+            #[cfg(not(test))]
+            let permission = SignalPermission::Granted;
             self.native
-                .start(SignalPermission::Granted)
+                .start(permission)
                 .map_err(|failure| self.native_error("start", failure))?;
         }
         Ok(())
@@ -124,11 +150,12 @@ impl Output for NativeOutput {
         offset: usize,
         frames: usize,
     ) -> Result<Option<usize>, EngineError> {
+        // Start only an already acknowledged prefix. A start error must not hide this write's acceptance.
+        self.start_ready(false)?;
         let result = self
             .native
             .write(block, offset, frames)
             .map_err(|failure| self.native_error("write", failure))?;
-        self.start_ready(false)?;
         match result {
             WriteProgress::Accepted { frames } => Ok(Some(frames)),
             WriteProgress::WouldBlock => Ok(None),
@@ -198,10 +225,101 @@ impl Output for NativeOutput {
             .map_err(|failure| self.native_error("stop", failure))
     }
 }
+
 impl Drop for NativeOutput {
     fn drop(&mut self) {
         if let Err(failure) = self.native.close() {
             let _ = self.native_error("drop_close", failure);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use earph_core::{
+        audio::{ChannelLayout, MemoryBudget, PcmRepresentation},
+        ids::{DeviceId, ProfileId},
+        safety::{FidelityPolicy, VolumeMode},
+    };
+
+    #[test]
+    fn denied_prebuffer_start_never_hides_an_accepted_native_prefix() {
+        let device = earph_coreaudio::devices()
+            .unwrap()
+            .devices
+            .into_iter()
+            .find(|device| {
+                device.alive
+                    && device.output_streams.len() == 1
+                    && device.output_streams[0].virtual_format.format_flags & !64 == 9
+                    && device.output_streams[0].virtual_format.bits_per_channel == 32
+                    && [1, 2].contains(&device.output_streams[0].virtual_format.channels_per_frame)
+            })
+            .expect("silent native test requires an interleaved float32 mono/stereo output");
+        let before = earph_coreaudio::inspect(&device.uid).unwrap();
+        let observed = &device.output_streams[0].virtual_format;
+        assert_eq!(observed.sample_rate_hz.fract(), 0.0);
+        let format = PcmFormat::new(
+            observed.sample_rate_hz as u32,
+            if observed.channels_per_frame == 1 {
+                ChannelLayout::Mono
+            } else {
+                ChannelLayout::Stereo
+            },
+            PcmRepresentation::Signed24,
+        )
+        .unwrap();
+        let config = OutputConfiguration {
+            backend: OutputBackend::CoreAudio,
+            route: OutputRoute::System,
+            endpoint: device.uid.clone(),
+            device_id: DeviceId::new("silent-start-test").unwrap(),
+            profile_id: ProfileId::new("silent-start-test").unwrap(),
+            period_frames: device.buffer_frames,
+            buffer_frames: device.buffer_frames.checked_mul(4).unwrap(),
+            volume_mode: VolumeMode::Software,
+            fidelity: FidelityPolicy::CompatibleConversion,
+        };
+        let mut output = NativeOutput::open(&config, format, Epochs::default()).unwrap();
+        output.start_permission = Some(SignalPermission::Denied);
+        let frames = device.buffer_frames as usize;
+        let mut block =
+            PcmBlock::prepare(format, frames, Epochs::default(), MemoryBudget::default()).unwrap();
+        for sequence in 0..2 {
+            block
+                .set_span(
+                    Epochs::default(),
+                    sequence,
+                    sequence * frames as u64,
+                    frames as u64,
+                )
+                .unwrap();
+            assert_eq!(output.write(&block, 0, frames).unwrap(), Some(frames));
+        }
+        let accepted = output.native.progress().submitted_frames;
+        assert_eq!(accepted, frames as u64 * 2);
+        block
+            .set_span(Epochs::default(), 2, accepted, frames as u64)
+            .unwrap();
+        assert_eq!(
+            output.write(&block, 0, frames).unwrap_err().code,
+            ErrorCode::SafetyPolicyBlocked
+        );
+        let progress = output.native.progress();
+        assert_eq!(progress.submitted_frames, accepted);
+        assert_eq!(progress.callback_delivered_frames, 0);
+        assert_eq!(progress.callbacks_observed, 0);
+        assert_eq!(output.native.state(), OutputState::Prepared);
+        output.stop().unwrap();
+        drop(output);
+        let after = earph_coreaudio::inspect(&device.uid).unwrap();
+        assert_eq!(before.nominal_rate_hz, after.nominal_rate_hz);
+        assert_eq!(before.buffer_frames, after.buffer_frames);
+        assert_eq!(before.hog_owner_pid, after.hog_owner_pid);
+        assert_eq!(
+            serde_json::to_value(before.output_streams).unwrap(),
+            serde_json::to_value(after.output_streams).unwrap()
+        );
     }
 }

@@ -500,7 +500,7 @@ fn prepared_numeric_spans_and_native_packing_allocate_and_free_nothing() {
 }
 
 #[test]
-fn terminal_bound_failure_and_repeated_diagnostics_allocate_and_free_nothing() {
+fn input_bound_failure_and_repeated_diagnostics_allocate_and_free_nothing() {
     let native = format(ChannelLayout::Stereo, PcmRepresentation::Signed16);
     let graph = chain_plan_with_bounds(
         &[
@@ -520,10 +520,17 @@ fn terminal_bound_failure_and_repeated_diagnostics_allocate_and_free_nothing() {
         MemoryBudget::default(),
     )
     .unwrap();
+    let silence = block(PcmRepresentation::Signed16, &[0, 0]);
+    assert_eq!(render.process(&silence, 0, 1).unwrap().valid_frames, 1);
     let packet = block(PcmRepresentation::Signed16, &[-32768, 32767]);
     let (_, counts) = tracked(|| {
         let error = render.process(&packet, 0, 1).unwrap_err();
         assert_eq!(error.code, ErrorCode::OutputFault);
+        assert_eq!(error.failure_node_index, Some(0));
+        assert_eq!(
+            error.message,
+            "graph input exceeds its admitted channel peak"
+        );
         assert_eq!(render.finish().unwrap_err(), error);
         assert_eq!(render.process(&packet, 0, 1).unwrap_err(), error);
     });

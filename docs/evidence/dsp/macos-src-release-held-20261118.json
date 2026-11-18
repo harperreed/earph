@@ -1,0 +1,150 @@
+{
+  "loader_repair": {
+    "scope": "build_commands_only",
+    "library": "verified_Rust_1.98.1_toolchain_libLLVM",
+    "rust_objcopy_sha256": "a7a547d50b4f643710e30238f451b355514cdcf819bd1d3b3e0d6264fca9a121",
+    "libLLVM_sha256": "6f65eb3fd2cef5fa962c20b0520ee91a393b15bbe8b19b46d363d791b6bab028",
+    "runtime_loader_override": false,
+    "compiler_flags_changed": false
+  },
+  "tooling": {
+    "helper_sha256": "f58eb73dfe9a62c5219b73c923f673c4fb03469ff4676dfd8e348a24a15b752f",
+    "wrapper_sha256": "c065d680cb186ea08aef2ab6e5844f79c1fd66f3f617dd434bfba009645b90bf",
+    "stage_comparator_sha256": "0698bdef18e05f864f35fce5ed238932189f3a9d1ddc341e46e5c5bd1b913409",
+    "source_summary_sha256": "1cca5b42971497049d093194b40bb065f846b081c25c98bb3e5875b821f7813e"
+  },
+  "historical_preflights": [
+    "Original release build emitted a missing LLVM loader warning; original binaries remain preserved",
+    "A verbose diagnostic compile exposed existing memchr dependency warnings and stopped before runtime tests",
+    "The original muted scenario completed safely; redundant cleanup Stop was rejected, preserved, and corrected"
+  ],
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "clean_macos_release_tests_numeric_offline_oracle_and_muted_owner_lifecycle",
+  "build": {
+    "commit": "29a50ddf94e87369ad9f66ac3b3066615618bbeb",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "profile": "release",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": false,
+    "source_inputs_sha256": "d4b96c9548fed14324a0738f5db64f79324ef82bf7afac7fc3f48b0767517138",
+    "target": "aarch64-apple-darwin"
+  },
+  "counts": {
+    "canonical": [
+      576,
+      0,
+      4
+    ],
+    "clean-components-release": [
+      59,
+      0,
+      1
+    ],
+    "clean-stream-release": [
+      32,
+      0,
+      0
+    ],
+    "clean-src-numeric": [
+      1,
+      0,
+      0
+    ],
+    "clean-first-fault-release": [
+      26,
+      0,
+      0
+    ],
+    "clean-profile-owner-release": [
+      12,
+      0,
+      0
+    ]
+  },
+  "log_sha256": {
+    "canonical": "47d6fe36e8c0d23764c6f97c8f3619f6db74de11065ae53e73ec970823253051",
+    "clean-components-release": "1a9a7f3caca6d5276022548915cb505cd263e52a86c5b3846ba058774e62a6be",
+    "clean-stream-release": "7e2470502d7cb48614033e858ca588e739b93afbbeba1271c0ac88c2ad8f074f",
+    "clean-src-numeric": "d1016aedadf45b955f547f2d5c109c4fb9a223c7e7537e34ef391b17f4eb7348",
+    "clean-first-fault-release": "6084351df50d3278da335b5e46168c6fbbae7763ef675d3c222472ac54940d72",
+    "clean-profile-owner-release": "02e74445ec8632085afd4a8b68b281b2edcdd2c516535588cb4fd107f18d8637"
+  },
+  "source_files_verified": 1546,
+  "source_manifest_verifications": 25,
+  "snapshot_archive_sha256": "e29fd2128e4edcd219db459cca90742b2684f0417a7cbb6425d6d6e9633106bf",
+  "snapshot_manifest_sha256": "0d706053fc104b4d6d71398d588b40fdbca92cb881222d0a6ccfe83e2a2fa6a6",
+  "engine_executable_sha256": "3abeaef056b8c742b84b5ddf77182fee6f72cbe690988e0f611fb35569db4588",
+  "native_executable_sha256": "b6bea5f3de8aab5473fb42cc4f52c2fc5a5b34f09bf809e794be84f0c566ea4b",
+  "numeric": {
+    "peq_maximum_response_error_db": 5.992362162032805e-11,
+    "fir_max_absolute_error": 1.6653345369377348e-16,
+    "fir_relative_l2_error": 2.9899572310457566e-16,
+    "src_cases": 30,
+    "src_drift_cases": 10,
+    "src_response_csv_sha256": "fe06088d27d3aa3cab21a35fc398489891d5bace836b41177d2ec2a59f81ba26",
+    "src_output_sha256_producer_reported": "6dcfd37fda4834d041defa24afd3e206d014ef8e6041e1e364585382d49d2770",
+    "output_sample_bytes_retained": false
+  },
+  "proposal": {
+    "graph_document_sha256": "b11737a2768feb38835e1e496fa859b972f02719d3f2b9db00e97608e2b25b9e",
+    "kernel_hash": "c8c4ce8ded9a949b6823c3beefca68eb1305a0209a71ef7a249cfcc53c4fbf2c",
+    "source_sha256": "414e78bb8568df9ce120e9fdcba661adc739861b55227fac1cea7cfe59447dad",
+    "fir_sha256": "14fbf4c67facc21b9c4b50f1abcc80c278962b24b9d88c5acbd356edea172cea",
+    "source_frames": 24000,
+    "expected_producer_ring_writes": 26313,
+    "expected_count_basis": "actual offline capture from the same clean release and exact authored graph",
+    "offline_capture_sha256": "24918b6534598c8335a4b9cfd1b509a95508c1799e51accd106db1aa5adebb82",
+    "offline_capture_bytes": 157878,
+    "native_period_frames": 512,
+    "source_and_native_input": "signed24_stereo_48000",
+    "sdk_client": "float32_stereo_48000",
+    "source_peak_measured": 0.04418349266052246,
+    "admitted_source_peak_bound": 1,
+    "channel_peak_bounds": [
+      1.3557279002773488,
+      1.3557279002773488
+    ],
+    "required_headroom_db": 2.643450674603103,
+    "software_gain_db": -44,
+    "independent_software_cap_db": -40,
+    "gain_ramp_frames": 960,
+    "pre_src_gain_linear": 0.125,
+    "offline_graph_peak": 0.002425303648995292,
+    "offline_output_peak": 0.0000152587890625
+  },
+  "muted_owner": {
+    "readiness_binding_verified": true,
+    "typed_stage_comparison": "pass",
+    "streaming_observations_match_active": true,
+    "paused_replacement_pre_src_gain_linear": 0.0625,
+    "seek_frames": 1200,
+    "resume_status": "accepted_pending_while_muted_buffering",
+    "final_transport": "idle",
+    "owner_exit_code": 0,
+    "producer_ring_writes": 0,
+    "settings_unchanged": true,
+    "source_and_fir_unchanged": true,
+    "final_graph_resident_bytes": 0,
+    "final_graph_pending_retirements": 0,
+    "backend_fault_records": 0
+  },
+  "hardware_signal_status": "held_until_root_source_bound_release",
+  "signal_attempts": 0,
+  "hardware_accepted_frames": null,
+  "consumed_frames": null,
+  "dac_delivered_frames": null,
+  "audible_source_position_frames": null,
+  "sdk_scope": "SDK tests include never-started rings, denied starts, and isolated callbacks; their ring writes are not claimed zero",
+  "qualification_limits": [
+    "No hardware signal for this frozen release",
+    "Muted lifecycle does not qualify nonzero running native replay",
+    "No real disk-sync failure or power-loss claim",
+    "Numeric envelopes are sampled; SRC output sample bytes are not retained",
+    "No new complete FIR stack proof, CPU deadline, DAC, acoustic, or whole-worker realtime claim"
+  ],
+  "evidence_artifacts_verified": 413,
+  "evidence_archive_sha256": "0405a8390069928aa67555080e079158720ce05921b3883c948b82d5863f3b19",
+  "evidence_manifest_sha256": "e55e51785314174ec68722593709dbd47b59b67fc4b354594edc80d06eb06840"
+}

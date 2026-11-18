@@ -1,6 +1,23 @@
 // ABOUTME: Checks partitioned convolution against independent direct time-domain sums.
 // ABOUTME: Exercises exact stream lengths, channel isolation, and prepared ownership offline.
 use earph_dsp::convolution::{self, ConvolutionDesign, ConvolutionError, PreparedConvolution};
+#[path = "support/evidence.rs"]
+mod evidence;
+
+#[test]
+fn explicit_fir_export_roundtrips_without_overwriting_evidence() {
+    let (report, _) = evidence::check_export(
+        "generated_long_stereo_correction_emits_numeric_receipt",
+        "convolution",
+        "convolution-comparison.json",
+    );
+    assert_eq!(report["source_frames"], 2053);
+    assert_eq!(report["channels"], 2);
+    assert_eq!(report["authored_taps_per_channel"], 4097);
+    assert_eq!(report["rendered_frames"], 2053 + 256 + 4097 - 1);
+    assert!(report["max_absolute_error"].as_f64().unwrap() <= 1e-9);
+    assert!(report["relative_l2_error"].as_f64().unwrap() <= 1e-10);
+}
 
 fn reference(input: &[f64], taps: &[Vec<f64>]) -> Vec<f64> {
     let channels = taps.len();
@@ -482,12 +499,13 @@ fn generated_long_stereo_correction_emits_numeric_receipt() {
         "runtime_peak_bounds": [kernel.peak_bound(0, 0.3).unwrap(), kernel.peak_bound(1, 0.2).unwrap()],
         "model": "IEEE binary64, round-to-nearest, gradual underflow; enclosure is not a machine-checked formal proof"
     });
-    std::fs::create_dir_all("../../target/convolution-audit").unwrap();
-    std::fs::write(
-        "../../target/convolution-audit/convolution-comparison.json",
-        serde_json::to_vec_pretty(&receipt).unwrap(),
-    )
-    .unwrap();
+    if let Some(root) = evidence::directory("convolution") {
+        evidence::write_file(
+            &root,
+            "convolution-comparison.json",
+            &serde_json::to_vec_pretty(&receipt).unwrap(),
+        );
+    }
 }
 
 #[test]

@@ -71,6 +71,17 @@ fn run_with_runtime(
     format: &str,
     runtime: Option<&Path>,
 ) -> std::process::Output {
+    render_command(dir, graph, files, format, runtime)
+        .output()
+        .unwrap()
+}
+fn render_command(
+    dir: &Path,
+    graph: &Value,
+    files: &[PathBuf],
+    format: &str,
+    runtime: Option<&Path>,
+) -> Command {
     fs::create_dir_all(dir).unwrap();
     let graph_path = dir.join("graph.json");
     fs::write(&graph_path, serde_json::to_vec(graph).unwrap()).unwrap();
@@ -94,7 +105,20 @@ fn run_with_runtime(
     if let Some(runtime) = runtime {
         command.arg("--runtime").arg(runtime);
     }
-    command.arg("--").args(files).output().unwrap()
+    command.arg("--").args(files);
+    command
+}
+fn set_child_file_limit(command: &mut Command, bytes: u64) {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: The child closure only calls resource-limit syscalls and constructs an OS error.
+    unsafe {
+        command.pre_exec(move || {
+            let mut limit = rustix::process::getrlimit(rustix::process::Resource::Fsize);
+            limit.current = Some(bytes);
+            rustix::process::setrlimit(rustix::process::Resource::Fsize, limit)
+                .map_err(std::io::Error::from)
+        });
+    }
 }
 fn convert(input: &[f64], input_rate: u32, output_rate: u32) -> Vec<f64> {
     let mut src = PreparedSrc::prepare(
@@ -370,17 +394,21 @@ fn same_rate_q_shelf_and_src_final_q_shelf_match_literal_direct_form_reference()
         let dir = directory();
         let source = dir.join("impulse.wav");
         wave(&source, 48000, &[8192]);
-        let mut graph = graph(&rates);
+        let mut document = graph(&rates);
         let rate = *rates.last().unwrap();
-        let port = graph["nodes"].as_array().unwrap().last().unwrap()["format"].clone();
-        graph["nodes"].as_array_mut().unwrap().push(json!({"id":"shelf","kind":{"kind":"peq","filter":{"kind":"low_shelf_q","frequency_hz":105.0,"q":0.7,"gain_db":6.0}},"format":port}));
-        let edge = graph["edges"].as_array_mut().unwrap().last_mut().unwrap();
+        let port = document["nodes"].as_array().unwrap().last().unwrap()["format"].clone();
+        document["nodes"].as_array_mut().unwrap().push(json!({"id":"shelf","kind":{"kind":"peq","filter":{"kind":"low_shelf_q","frequency_hz":105.0,"q":0.7,"gain_db":6.0}},"format":port}));
+        let edge = document["edges"]
+            .as_array_mut()
+            .unwrap()
+            .last_mut()
+            .unwrap();
         edge["to"] = "shelf".into();
-        graph["edges"]
+        document["edges"]
             .as_array_mut()
             .unwrap()
             .push(json!({"from":"shelf","to":"out","from_port":0,"to_port":0}));
-        let result = run(&dir, &graph, &[source], "signed16");
+        let result = run(&dir, &document, &[source], "signed16");
         assert!(
             result.status.success(),
             "rate{rate}: {}",
@@ -392,10 +420,60 @@ fn same_rate_q_shelf_and_src_final_q_shelf_match_literal_direct_form_reference()
         } else {
             convert(&[0.25], 48000, rate)
         };
-        let expected = packed(
-            &filter_reference(&input, actual.len() / 2, coefficients),
-            16,
+        let mut filter_graph = graph(&[rate]);
+        filter_graph["nodes"].as_array_mut().unwrap().push(
+            document["nodes"]
+                .as_array()
+                .unwrap()
+                .last()
+                .unwrap()
+                .clone(),
         );
+        filter_graph["edges"] = json!([{"from":"in","to":"shelf","from_port":0,"to_port":0},{"from":"shelf","to":"out","from_port":0,"to_port":0}]);
+        let format = earph_core::audio::PcmFormat::new(
+            rate,
+            ChannelLayout::Mono,
+            earph_core::audio::PcmRepresentation::Float64,
+        )
+        .unwrap();
+        let input_peak = if rates.len() == 1 {
+            1.0
+        } else {
+            earph_dsp::resample::SrcDesign::analyze(
+                48000,
+                rate,
+                ChannelLayout::Mono,
+                64,
+                SrcPreset::Responsive,
+                16 << 20,
+            )
+            .unwrap()
+            .peak_bound(1.0)
+            .unwrap()
+        };
+        let filter_graph = serde_json::from_value(filter_graph).unwrap();
+        let plan = earph_dsp::compile_with_input_bounds(
+            &filter_graph,
+            &earph_dsp::CompileContext {
+                input_format: format,
+                output_format: format,
+                quantum_frames: 64,
+                policy: earph_dsp::ProcessingPolicy::AllowProcessing,
+                budget: Default::default(),
+            },
+            &[],
+            &[input_peak],
+        )
+        .unwrap();
+        let expected_frames = input.len() + usize::try_from(plan.tail_frames()).unwrap();
+        assert_eq!(
+            actual.len(),
+            expected_frames * 2,
+            "capture must include the standalone SRC output and declared filter tail"
+        );
+        let report: Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(report["capture_frames"], expected_frames);
+        let expected = packed(&filter_reference(&input, expected_frames, coefficients), 16);
         assert_pcm_near(&actual, &expected);
     }
 }
@@ -467,18 +545,59 @@ fn intermediate_fir_uses_only_explicit_private_assets_and_matches_convolution_re
 
 #[test]
 fn missing_duplicate_unknown_options_and_oversized_graph_return_typed_failures() {
-    for args in [
-        vec!["render-graph"],
-        vec!["render-graph", "--policy", "strict"],
-        vec!["render-graph", "--graph", "a", "--graph", "b"],
-    ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_earph-engine"))
-            .args(args)
-            .output()
-            .unwrap();
+    let missing = Command::new(env!("CARGO_BIN_EXE_earph-engine"))
+        .arg("render-graph")
+        .output()
+        .unwrap();
+    assert!(!missing.status.success());
+    let baseline = directory();
+    let source = baseline.join("input.wav");
+    wave(&source, 48000, &[1024]);
+    let document = graph(&[48000]);
+    let success = run(
+        &baseline,
+        &document,
+        std::slice::from_ref(&source),
+        "signed16",
+    );
+    assert!(
+        success.status.success(),
+        "{}",
+        String::from_utf8_lossy(&success.stdout)
+    );
+    let graph_path = baseline.join("graph.json");
+    for (index, extra) in [
+        vec![std::ffi::OsString::from("--policy"), "strict".into()],
+        vec!["--graph".into(), graph_path.clone().into_os_string()],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_earph-engine"));
+        command
+            .arg("render-graph")
+            .arg("--graph")
+            .arg(&graph_path)
+            .arg("--output")
+            .arg(baseline.join(format!("rejected-{index}")))
+            .args([
+                "--sample-format",
+                "signed16",
+                "--gain-db",
+                "0",
+                "--ramp-frames",
+                "0",
+                "--quantum",
+                "64",
+            ])
+            .args(extra)
+            .arg("--")
+            .arg(&source);
+        let output = command.output().unwrap();
         assert!(!output.status.success());
         let report: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(report["status"], "fail");
+        assert_eq!(report["error"]["detail"]["code"], "ASSET_INVALID");
         assert!(report["capture_bytes"].is_null());
     }
     let dir = directory();
@@ -593,35 +712,15 @@ fn real_file_size_failure_reports_readback_prefix_and_partial_frame_without_ackn
     let dir = directory();
     let source = dir.join("input.wav");
     wave(&source, 48000, &vec![1024; 65536]);
-    let graph_file = dir.join("graph.json");
-    fs::write(&graph_file, serde_json::to_vec(&graph(&[48000])).unwrap()).unwrap();
-    let result = Command::new("bash")
-        .args([
-            "-c",
-            "trap '' XFSZ; ulimit -f 64; exec \"$@\"",
-            "offline-file-limit",
-        ])
-        .arg(env!("CARGO_BIN_EXE_earph-engine"))
-        .arg("render-graph")
-        .arg("--graph")
-        .arg(graph_file)
-        .arg("--output")
-        .arg(dir.join("capture"))
-        .args([
-            "--sample-format",
-            "signed24",
-            "--gain-db",
-            "0",
-            "--ramp-frames",
-            "0",
-            "--quantum",
-            "64",
-            "--",
-        ])
-        .arg(source)
-        .output()
-        .unwrap();
-    assert!(!result.status.success());
+    let mut command = render_command(&dir, &graph(&[48000]), &[source], "signed24", None);
+    set_child_file_limit(&mut command, 65536);
+    let result = command.output().unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(1),
+        "capture limit terminated the CLI: {:?}",
+        result.status
+    );
     let report: Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(report["status"], "fail");
     let bytes = fs::read(dir.join("capture/capture.pcm")).unwrap();
@@ -644,6 +743,161 @@ fn real_file_size_failure_reports_readback_prefix_and_partial_frame_without_ackn
             .unwrap(),
         report
     );
+}
+
+#[test]
+fn source_format_error_survives_a_real_report_file_limit_failure() {
+    let dir = directory();
+    let first = dir.join("first.wav");
+    let wrong = dir.join("wrong.wav");
+    wave(&first, 48000, &[1024; 64]);
+    wave(&wrong, 44100, &[2048]);
+    let mut command = render_command(&dir, &graph(&[48000]), &[first, wrong], "signed16", None);
+    set_child_file_limit(&mut command, 512);
+    let output = command.output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        report["error"]["detail"]["code"], "FORMAT_UNSUPPORTED",
+        "{report}"
+    );
+    assert!(
+        report["finalization_errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|error| error["stage"] == "report_write")
+    );
+    assert_eq!(report["capture_bytes"], 128);
+    assert_eq!(
+        fs::read(dir.join("capture/report.json")).unwrap().len(),
+        512
+    );
+}
+
+#[test]
+fn tiny_file_limits_reach_json_failure_without_a_signal_during_report_finalization() {
+    for limit in [0_u64, 128] {
+        let dir = directory();
+        let source = dir.join("input.wav");
+        wave(&source, 48000, &[1024; 128]);
+        let original = fs::read(&source).unwrap();
+        let mut command = render_command(
+            &dir,
+            &graph(&[48000]),
+            std::slice::from_ref(&source),
+            "signed24",
+            None,
+        );
+        set_child_file_limit(&mut command, limit);
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let actual = fs::read(dir.join("capture/capture.pcm")).unwrap();
+        assert_eq!(actual.len() as u64, limit);
+        assert_eq!(report["capture_bytes"], limit);
+        assert_eq!(report["partial_frame_bytes"], limit % 3);
+        assert_eq!(report["acknowledged_output_frames"], 0);
+        assert!(fs::metadata(dir.join("capture/report.json")).unwrap().len() <= limit);
+        assert_eq!(fs::read(source).unwrap(), original);
+    }
+}
+
+#[test]
+fn regular_stdout_file_limit_returns_delivery_fault_instead_of_a_signal() {
+    use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt, process::Stdio};
+    let dir = directory();
+    let source = dir.join("input.wav");
+    wave(&source, 48000, &[1024; 64]);
+    let stdout = dir.join("stdout.json");
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&stdout)
+        .unwrap();
+    let mut command = render_command(&dir, &graph(&[48000]), &[source], "signed16", None);
+    set_child_file_limit(&mut command, 512);
+    let output = command.stdout(Stdio::from(file)).output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout delivery exceeded the inherited limit: {:?}",
+        output.status
+    );
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "OUTPUT_FAULT");
+    assert!(fs::metadata(stdout).unwrap().len() <= 512);
+}
+
+#[test]
+fn zero_file_limit_on_stdout_and_stderr_keeps_the_delivery_failure_exit() {
+    use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt, process::Stdio};
+    let dir = directory();
+    let source = dir.join("input.wav");
+    wave(&source, 48000, &[1024]);
+    let stdout = dir.join("stdout.json");
+    let stderr = dir.join("stderr.json");
+    let out = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&stdout)
+        .unwrap();
+    let err = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&stderr)
+        .unwrap();
+    let mut command = render_command(&dir, &graph(&[48000]), &[source], "signed16", None);
+    set_child_file_limit(&mut command, 0);
+    let output = command
+        .stdout(Stdio::from(out))
+        .stderr(Stdio::from(err))
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "error delivery exceeded its zero-byte limit: {:?}",
+        output.status
+    );
+    assert_eq!(fs::metadata(stdout).unwrap().len(), 0);
+    assert_eq!(fs::metadata(stderr).unwrap().len(), 0);
+}
+
+#[test]
+fn append_stdout_uses_remaining_space_after_existing_bytes_without_overwriting_them() {
+    use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt, process::Stdio};
+    let dir = directory();
+    let source = dir.join("input.wav");
+    wave(&source, 48000, &[1024]);
+    let path = dir.join("stdout.json");
+    let mut initial = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .unwrap();
+    use std::io::Write;
+    initial.write_all(&[b'p'; 511]).unwrap();
+    drop(initial);
+    let append = OpenOptions::new().append(true).open(&path).unwrap();
+    let mut command = render_command(&dir, &graph(&[48000]), &[source], "signed16", None);
+    set_child_file_limit(&mut command, 512);
+    let output = command.stdout(Stdio::from(append)).output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "append delivery exceeded its actual remaining byte: {:?}",
+        output.status
+    );
+    let bytes = fs::read(path).unwrap();
+    assert_eq!(bytes.len(), 512);
+    assert_eq!(&bytes[..511], &[b'p'; 511]);
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "OUTPUT_FAULT");
 }
 
 #[test]
