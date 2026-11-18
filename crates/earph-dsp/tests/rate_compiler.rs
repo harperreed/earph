@@ -583,6 +583,32 @@ fn src_timing_reports_guard_padding_and_unknown_library_delay_without_fake_exact
     assert!(runtime.src_metadata(1).is_some());
 }
 
+#[test]
+fn core_stage_facts_share_storage_and_outlive_the_compiled_plan() {
+    let plan = compile_stream(
+        &serial(),
+        &context(48000, 48000),
+        &[],
+        StreamBudget::default(),
+    )
+    .unwrap();
+    let before = serde_json::to_vec(plan.stages()).unwrap();
+    let (facts, allocations) = measured(|| plan.stage_metadata());
+    let core_facts: Arc<[earph_core::graph_control::CompiledStreamStage]> = facts;
+    assert_eq!(allocations.live, 0);
+    assert_eq!(allocations.peak, 0);
+    assert!(std::ptr::eq(core_facts.as_ref(), plan.stages()));
+    assert!(Arc::ptr_eq(&core_facts, &plan.stage_metadata()));
+    let weak = Arc::downgrade(&core_facts);
+    let (_, runtime) = render(plan, &[0.25, -0.25]);
+    assert!(runtime.src_metadata(1).is_some());
+    drop(runtime);
+    assert!(Arc::ptr_eq(&core_facts, &weak.upgrade().unwrap()));
+    assert_eq!(serde_json::to_vec(core_facts.as_ref()).unwrap(), before);
+    drop(core_facts);
+    assert!(weak.upgrade().is_none());
+}
+
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
@@ -671,17 +697,18 @@ fn complete_peak_admission_precedes_src_coefficient_allocation() {
         "coefficient construction occurred before aggregate admission: {allocations:?}"
     );
     drop(valid);
-    let ((prepared, resources), allocations) = measured(|| {
+    let ((prepared, resources, facts), allocations) = measured(|| {
         let plan =
             compile_stream(&graph, &context(48000, 48000), &[], StreamBudget::default()).unwrap();
         let resources = plan.resources();
+        let facts = plan.stage_metadata();
         let prepared = PreparedStream::prepare(
             plan.into_stream_plan(),
             Epochs::default(),
             Arc::new(AtomicBool::new(false)),
         )
         .unwrap();
-        (prepared, resources)
+        (prepared, resources, facts)
     });
     assert!(
         allocations.peak as u64 <= resources.preparation_peak_bytes,
@@ -689,6 +716,7 @@ fn complete_peak_admission_precedes_src_coefficient_allocation() {
     );
     assert!(allocations.live as u64 <= resources.resident_bytes);
     drop(prepared);
+    assert!(!facts.is_empty());
 }
 
 #[test]

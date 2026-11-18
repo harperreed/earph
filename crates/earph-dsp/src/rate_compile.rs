@@ -9,51 +9,25 @@ use crate::{
     },
     *,
 };
+pub use earph_core::graph_control::{CompiledStreamStage, CompiledStreamStageKind};
 use earph_core::{
     ErrorCode,
     audio::{PcmFormat, PcmRepresentation},
 };
-use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 const VERSION: &str = "earph-dsp/0.1.0/serial-rate-compiler-1";
-// Covers bounded graph maps, deferred builders, hash workspace, and retained stage metadata.
+// Covers bounded maps, builders, hash workspace, and overlapping Vec/Arc stage metadata.
 const COMPILER_METADATA_BYTES: u64 = 2 * 1024 * 1024;
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum CompiledStreamStageKind {
-    Island {
-        kernel_hash: String,
-        local_latency_frames: u64,
-        emitted_tail_frames: u64,
-        bounded_iir_truncation: bool,
-        terminal_output_bounds: Vec<f64>,
-    },
-    Src {
-        parameters: SrcParameters,
-        coefficient_fingerprint: [u8; 32],
-        parameter_fingerprint: [u8; 32],
-        guard_time_denominator: u32,
-        maximum_adapter_finish_output_frames: u64,
-        /// Actual library delay is observed only after instantiation; it is not exact group delay.
-        truncated_library_output_delay_frames: Option<u64>,
-    },
-}
-#[derive(Debug, Clone, Serialize)]
-pub struct CompiledStreamStage {
-    pub original_nodes: Vec<NodeId>,
-    pub input_format: PcmFormat,
-    pub output_format: PcmFormat,
-    pub input_peak_bounds: Vec<f64>,
-    pub output_peak_bounds: Vec<f64>,
-    pub kind: CompiledStreamStageKind,
-}
 pub struct CompiledStreamPlan {
     plan: StreamPlan,
     hash: String,
-    stages: Vec<CompiledStreamStage>,
+    stages: Arc<[CompiledStreamStage]>,
     transformations: Vec<Transformation>,
     context: CompileContext,
     input_bounds: Vec<f64>,
@@ -68,6 +42,10 @@ impl CompiledStreamPlan {
     }
     pub fn stages(&self) -> &[CompiledStreamStage] {
         &self.stages
+    }
+    /// Shares immutable resolved facts with observers without copying their arrays.
+    pub fn stage_metadata(&self) -> Arc<[CompiledStreamStage]> {
+        self.stages.clone()
     }
     pub fn transformations(&self) -> &[Transformation] {
         &self.transformations
@@ -372,7 +350,7 @@ pub fn compile_stream(
     Ok(CompiledStreamPlan {
         plan,
         hash,
-        stages: metadata,
+        stages: metadata.into(),
         transformations,
         context: *context,
         input_bounds,

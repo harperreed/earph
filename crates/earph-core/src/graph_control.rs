@@ -3,6 +3,7 @@
 use crate::{
     EngineError, ErrorCode,
     audio::PcmFormat,
+    dsp_nodes::SrcParameters,
     graph::{
         Edge, GraphDocument, GraphProcessingRequest, PreservationDecision, QuantizationPolicy,
         Transformation,
@@ -79,6 +80,36 @@ pub struct FilterTailObservation {
     pub channels: crate::audio::ChannelLayout,
     pub horizon_frames: u64,
     pub terminal_output_bounds: Vec<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CompiledStreamStageKind {
+    Island {
+        kernel_hash: String,
+        local_latency_frames: u64,
+        emitted_tail_frames: u64,
+        bounded_iir_truncation: bool,
+        terminal_output_bounds: Vec<f64>,
+    },
+    Src {
+        parameters: SrcParameters,
+        coefficient_fingerprint: [u8; 32],
+        parameter_fingerprint: [u8; 32],
+        guard_time_denominator: u32,
+        maximum_adapter_finish_output_frames: u64,
+        /// Actual library delay is observed only after instantiation; it is not exact group delay.
+        truncated_library_output_delay_frames: Option<u64>,
+    },
+}
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CompiledStreamStage {
+    pub original_nodes: Vec<NodeId>,
+    pub input_format: PcmFormat,
+    pub output_format: PcmFormat,
+    pub input_peak_bounds: Vec<f64>,
+    pub output_peak_bounds: Vec<f64>,
+    pub kind: CompiledStreamStageKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

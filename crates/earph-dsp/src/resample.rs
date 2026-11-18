@@ -13,13 +13,13 @@
 //! The source audit and real boundary scenarios support this conservative frontier.
 //! No amplitude test decides EOF. No output is trimmed for nominal delay or duration.
 use audioadapter_buffers::direct::SequentialSliceOfVecs;
+pub use earph_core::dsp_nodes::{SrcParameters, SrcResources};
 use earph_core::{audio::ChannelLayout, dsp_nodes::SrcPreset};
 use rubato::sinc_interpolator::{SincInterpolator, make_interpolator};
 use rubato::{
     Adjustable, Async, FixedAsync, Indexing, Resampler, SincInterpolationParameters,
     SincInterpolationType, WindowFunction,
 };
-use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 pub const ALGORITHM_VERSION: &str = "earph-rubato-5.1.0-guarded-sinc-v1";
@@ -64,32 +64,6 @@ pub struct SrcStats {
     pub ratio_commands: u64,
     /// Ordered fingerprint of accepted ppm/ramp commands and their historical call positions.
     pub ratio_history_hash: u64,
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct SrcResources {
-    /// Conservative requested allocation bytes; excludes allocator overhead and process RSS.
-    pub resident_bytes: u64,
-    /// Full simultaneous requested bytes, including private coefficient generation arrays.
-    pub preparation_peak_bytes: u64,
-}
-
-/// Pure geometry and selected parameters. Library delay remains an instantiation observation.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
-pub struct SrcParameters {
-    pub input_rate: u32,
-    pub output_rate: u32,
-    pub channels: ChannelLayout,
-    pub preset: SrcPreset,
-    pub chunk_frames: usize,
-    pub filter_length: usize,
-    pub phases: usize,
-    pub explicit_pre_scaling_cutoff: Option<f32>,
-    pub pre_scaling_cutoff: f32,
-    pub drain_zero_calls: usize,
-    pub max_output_frames: usize,
-    pub guard_time_numerator: u32,
-    pub library_max_relative_ratio: f64,
-    pub resources: SrcResources,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SrcStatus {

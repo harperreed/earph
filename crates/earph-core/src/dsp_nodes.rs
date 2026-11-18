@@ -1,6 +1,6 @@
 // ABOUTME: Defines product-owned equalizer parameters and resampler presets.
 // ABOUTME: Rejects unsupported controls and parameters outside declared processing limits.
-use crate::{EngineError, ErrorCode, graph::FiniteGraphScalar};
+use crate::{EngineError, ErrorCode, audio::ChannelLayout, graph::FiniteGraphScalar};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -93,6 +93,33 @@ impl FirAssetReference {
 pub enum SrcPreset {
     Quality,
     Responsive,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SrcResources {
+    /// Conservative requested allocation bytes; excludes allocator overhead and process RSS.
+    pub resident_bytes: u64,
+    /// Full simultaneous requested bytes, including private coefficient generation arrays.
+    pub preparation_peak_bytes: u64,
+}
+
+/// Pure geometry and selected parameters. Library delay remains an instantiation observation.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct SrcParameters {
+    pub input_rate: u32,
+    pub output_rate: u32,
+    pub channels: ChannelLayout,
+    pub preset: SrcPreset,
+    pub chunk_frames: usize,
+    pub filter_length: usize,
+    pub phases: usize,
+    pub explicit_pre_scaling_cutoff: Option<f32>,
+    pub pre_scaling_cutoff: f32,
+    pub drain_zero_calls: usize,
+    pub max_output_frames: usize,
+    pub guard_time_numerator: u32,
+    pub library_max_relative_ratio: f64,
+    pub resources: SrcResources,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
