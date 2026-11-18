@@ -187,6 +187,35 @@ Independent main-model review approves the actual diff without material findings
 The reviewer passes 134 Core tests, 62 engine tests, and the real IPC regression.
 Fresh platform qualification remains required for this source snapshot.
 
+## Seventh review checkpoint
+
+Review `5959834316` identifies two correctness gaps and two test improvements against `034edde2`.
+Both correctness regressions fail before their fixes.
+Prepared token and digest capacities now share the existing graph intent bound before receipt insertion.
+The token getter preserves identifier construction and NodeId's separate capacity contract.
+Oversized moved tokens leave request IDs reusable.
+Other identifier retention paths remain outside this scoped fix and are not claimed bounded by it.
+
+Successful newer non-Ready updates now clear that entry's deferred Ready fact.
+Failed queue or counter updates preserve both private readiness and visible state.
+The matching acknowledgement still uses its reserved final event slot.
+
+The host cancellation fixture now creates owned WAV files without starting unrelated playback.
+It passes under a private ALSA configuration with no null PCM.
+A worker-local test gate pauses after the actual preparation cancellation check.
+Actual Stop sets cancellation before a real missing-file error reaches terminal classification.
+The test verifies original AssetInvalid proof and the exact requested StopFailed result.
+The gate's scoped release and timeout prevent indefinite joins.
+The gate compiles only for Linux library tests and changes no production policy.
+Its missing-API red log proves instrumentation absence, not a production policy defect.
+The already-correct policy passes the added race coverage.
+
+Independent main-model reviews approve both scoped units without material findings.
+The combined canonical check passes 405 tests, with two ignored and no warnings.
+Formatting, strict workspace Clippy, requirements, and dependency checks pass.
+Earlier platform receipts, including the silent `034edde2` Mac run, retain their original bindings.
+Hardware stays held until this new source qualifies.
+
 ## Continuity
 
 PR: https://github.com/harperreed/earph/pull/2

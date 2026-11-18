@@ -80,6 +80,13 @@ impl Session {
         }
         increment(self.state.event_sequence)
     }
+    pub(super) fn clear_deferred_graph_readiness(&mut self, id: &QueueEntryId) {
+        if let Some(activation) = self.graph.activation.as_mut()
+            && activation.readiness.contains_key(id)
+        {
+            Arc::make_mut(&mut activation.readiness).remove(id);
+        }
+    }
     pub fn graph_inspection(&self) -> GraphInspection {
         GraphInspection {
             service: self.graph.service,
@@ -2357,6 +2364,126 @@ mod tests {
                 ..
             }
         ));
+    }
+    #[test]
+    fn newer_nonready_status_is_not_overwritten_by_deferred_ready_after_activation() {
+        use crate::queue::PreparationStatus;
+        for status in [
+            PreparationStatus::Unprepared,
+            PreparationStatus::Failed {
+                code: ErrorCode::AssetInvalid,
+            },
+        ] {
+            let mut s = fixture();
+            let next = s.queue.append("following.wav").unwrap();
+            let p = ready(&mut s, "prepare-newer-status", 1.0);
+            let c = commit(&s, "commit-newer-status", &p);
+            assert_eq!(
+                s.submit_graph(c.clone(), 21).status,
+                ReceiptStatus::Accepted
+            );
+            let format = s.state.playback.as_ref().unwrap().format;
+            let before = s.queue_snapshot();
+            s.set_queue_preparation(
+                s.state.epochs,
+                &next,
+                PreparationStatus::Ready {
+                    format,
+                    total_frames: 12000,
+                },
+            )
+            .unwrap();
+            assert_eq!(s.queue_snapshot(), before);
+            s.set_queue_preparation(s.state.epochs, &next, status)
+                .unwrap();
+            assert_eq!(s.queue_snapshot().entries[1].status, status);
+            s.complete_graph_activation(
+                GraphActivationAck {
+                    source_total_frames: 48000,
+                    request_id: c.request_id,
+                    epochs: s.state.epochs,
+                    graph_hash: p.preview.graph_hash.clone(),
+                    activation_frame: 0,
+                    observation: s.state.playback.clone().unwrap(),
+                },
+                22,
+                |staged| {
+                    assert_eq!(staged.queue_snapshot().entries[1].status, status);
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert_eq!(s.queue_snapshot().entries[1].status, status);
+        }
+    }
+    #[test]
+    fn failed_nonready_updates_preserve_deferred_ready_and_the_reserved_terminal_slot() {
+        use crate::queue::PreparationStatus;
+        for failure in ["counter", "queue"] {
+            let mut s = fixture();
+            let next = s.queue.append("following.wav").unwrap();
+            let p = ready(&mut s, "prepare-failed-status", 1.0);
+            let c = commit(&s, "commit-failed-status", &p);
+            assert_eq!(
+                s.submit_graph(c.clone(), 21).status,
+                ReceiptStatus::Accepted
+            );
+            let status = PreparationStatus::Ready {
+                format: s.state.playback.as_ref().unwrap().format,
+                total_frames: 12000,
+            };
+            s.set_queue_preparation(s.state.epochs, &next, status)
+                .unwrap();
+            if failure == "counter" {
+                s.state.event_sequence = u64::MAX - 1;
+            } else {
+                s.queue.remove(&next).unwrap();
+            }
+            let before = s.queue_snapshot();
+            let sequence = s.state.event_sequence;
+            let error = s
+                .set_queue_preparation(
+                    s.state.epochs,
+                    &next,
+                    PreparationStatus::Failed {
+                        code: ErrorCode::AssetInvalid,
+                    },
+                )
+                .unwrap_err();
+            assert_eq!(
+                error.code,
+                if failure == "counter" {
+                    ErrorCode::ResourceBudgetExceeded
+                } else {
+                    ErrorCode::AssetInvalid
+                }
+            );
+            assert_eq!(s.queue_snapshot(), before);
+            assert_eq!(s.state.event_sequence, sequence);
+            assert_eq!(
+                s.graph.activation.as_ref().unwrap().readiness.get(&next),
+                Some(&status)
+            );
+            s.complete_graph_activation(
+                GraphActivationAck {
+                    source_total_frames: 48000,
+                    request_id: c.request_id,
+                    epochs: s.state.epochs,
+                    graph_hash: p.preview.graph_hash.clone(),
+                    activation_frame: 0,
+                    observation: s.state.playback.clone().unwrap(),
+                },
+                22,
+                |_| Ok(()),
+            )
+            .unwrap();
+            if failure == "counter" {
+                assert_eq!(s.state.event_sequence, u64::MAX);
+                assert_eq!(s.queue_snapshot().entries[1].status, status);
+            } else {
+                assert_eq!(s.queue_snapshot().entries.len(), 1);
+            }
+        }
     }
     #[test]
     fn failed_staged_stop_cannot_cancel_the_retained_transport_record() {

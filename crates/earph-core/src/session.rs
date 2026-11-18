@@ -1149,6 +1149,7 @@ impl Session {
         let sequence = self.next_session_event_sequence(false)?;
         self.queue.update_status(id, status)?;
         self.state.event_sequence = sequence;
+        self.clear_deferred_graph_readiness(id);
         Ok(())
     }
     pub fn advance(&mut self, event: EngineEvent) -> Result<(), EngineError> {

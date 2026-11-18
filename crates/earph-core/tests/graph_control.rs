@@ -67,6 +67,44 @@ fn typed_digest_storage_counts_reserved_string_capacity() {
 }
 
 #[test]
+fn oversized_prepared_token_storage_does_not_reserve_a_receipt() {
+    let mut text = String::with_capacity(earph_core::graph::MAX_GRAPH_INTENT_BYTES + 1);
+    text.push_str("candidate");
+    let mut command = digest_command("a".repeat(64));
+    command.payload = Command::GraphCommit {
+        token: PreparedGraphId::new(text).unwrap(),
+        graph_hash: "a".repeat(64),
+    };
+    let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());
+    // Move the original token. Cloning String would discard the oversized spare capacity.
+    let rejected = session.submit(command);
+    assert_eq!(
+        rejected.error.unwrap().code,
+        earph_core::ErrorCode::ResourceBudgetExceeded
+    );
+    let mut reused = digest_command(String::new());
+    reused.payload = Command::State;
+    assert_eq!(session.submit(reused).status, ReceiptStatus::Applied);
+}
+
+#[test]
+fn prepared_token_and_digest_share_the_existing_graph_storage_bound() {
+    for (capacity, accepted) in [
+        (earph_core::graph::MAX_GRAPH_INTENT_BYTES - 64, true),
+        (earph_core::graph::MAX_GRAPH_INTENT_BYTES - 63, false),
+    ] {
+        let mut text = String::with_capacity(capacity);
+        text.push_str("candidate");
+        let mut command = digest_command("a".repeat(64));
+        command.payload = Command::GraphCommit {
+            token: PreparedGraphId::new(text).unwrap(),
+            graph_hash: "a".repeat(64),
+        };
+        assert_eq!(command.validate().is_ok(), accepted);
+    }
+}
+
+#[test]
 fn bounded_invalid_graph_digests_retain_their_request_identity() {
     for hash in [
         String::new(),

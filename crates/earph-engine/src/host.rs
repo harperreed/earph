@@ -1694,10 +1694,8 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn stop_cancelled_preparation_settles_without_revoking_consent() {
-        let (completed, _, _, _) = crate::worker::tests::drain_proof(1);
-        let path = completed.view.lock().unwrap().entries[0].path.clone();
-        drop(completed);
-        let (mut session, _, pipeline) = activation_resources(0, &path);
+        let path = crate::worker::tests::owned_silence_waves(1).pop().unwrap();
+        let (mut session, _, pipeline) = activation_resources(0, path.to_str().unwrap());
         drop(pipeline);
         let origin = session.graph_activation().unwrap().previous_binding.epochs;
         let mut settings = Settings {
