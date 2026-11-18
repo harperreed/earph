@@ -6,6 +6,7 @@ mod directory;
 mod graph;
 mod host;
 mod ipc;
+pub mod offline_render;
 mod output;
 mod plan;
 mod render;
