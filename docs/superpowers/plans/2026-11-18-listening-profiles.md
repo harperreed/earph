@@ -1,0 +1,165 @@
+# Listening profiles implementation plan
+
+> Use `executing-plans` for root implementation and one independent review per bounded implementation unit.
+
+**Goal:** Save named listening intent and apply it through the existing Session transaction.
+
+**Architecture:** Keep immutable profile, graph, report, and FIR objects in private storage.
+Publish reachability through one persisted catalog checkpoint.
+Use Session and GraphService for application, consent, cancellation, and activation acknowledgments.
+
+**Tech stack:** Existing Rust, serde JSON, private owner storage, CLI, and graph preparation.
+
+**Spec:** `docs/SPEC.md` sections 10–12, 14.1, and 15.
+Implement PROF-01/02, DSP-06/07, COR-01, and the bounded PROF-03 package contract.
+PROF-03 says M4, while AC-30/35 reference it at M2.
+Keep this scheduling mismatch explicit until the complete package evidence passes.
+
+## Constraints and approval
+
+Doctor Biz authorizes autonomous implementation, parallel work, integration, push, and merge.
+Keep private media local and unchanged.
+Preserve all existing files, worktrees, and artifacts.
+Save and import never activate, unmute, consent, arm fixed output, or raise independent volume caps.
+Profile application stays muted and binds the exact saved revision.
+Never infer passive headphones or speakers from an unchanged DAC identity.
+Do not add a second activation authority or restore runtime authorization after restart.
+Keep unsupported hardware volume and context rules truthful and unavailable.
+Preserve existing output-only configurations until a profile is explicitly selected.
+Do not infer saved profiles from existing arbitrary output profile IDs.
+
+## Review focus
+
+- A stale profile revision cannot consume a candidate prepared for another revision.
+- An imported cap cannot weaken a persistent local cap or restore fixed arming.
+- Two listening setups on one DAC require explicit selection when associations are ambiguous.
+- A failed import, missing correction, or uncertain checkpoint cannot publish an applied profile.
+- A package cannot export private paths, recordings, authorization, or unreviewed third-party measurement bytes.
+
+## File ownership
+
+Root owns `earph-core/src/profiles.rs`, its public export, and focused tests.
+Root owns later profile storage and Session integration until an explicit delegation transfers ownership.
+Existing media parsers remain the text and WAV validation authorities.
+The T11 CPU, Linux evidence, Mac evidence, and dashboard agents own their separate worktrees or ignored artifacts.
+
+## Task 1: Pure profile contracts and selection
+
+Files: `crates/earph-core/src/profiles.rs`, `src/lib.rs`, `src/ids.rs`, and `tests/profiles.rs`.
+
+Expose strict schema-1 `ProfileDocument` and `read_profile(&[u8])`.
+Store stable ProfileId, positive revision, bounded name, graph object hash, source/fidelity policy, output selector, volume intent, latency intent, and correction object references.
+Use a fixed-size lowercase SHA-256 type for object references.
+Output selectors carry backend, route, DeviceId, and an optional manual setup label.
+They do not carry native endpoint paths, consent, or trusted readback.
+Keep named latency modes with explicit resident, preparation, and optional frame limits.
+Do not treat a saved latency label as successful executable admission.
+
+Use 8 KiB encoded and retained document bounds.
+Bound names and setup labels to 128 UTF-8 bytes and correction references to 32.
+Bound each retained association to 512 bytes, including spare identifier capacity.
+Reject unknown fields, future versions, zero revisions, control characters, invalid hashes, and excess retained capacity.
+Add narrow ProfileId and DeviceId capacity accessors for the new retained model.
+Do not audit or change unrelated ID retention paths.
+
+Expose `ProfileVolumeIntent::effective_policy(&VolumePolicy)`.
+Intersect requested caps with local caps and return a fresh unarmed VolumePolicy.
+Keep volume intent separate from output authorization and runtime hardware support.
+
+Expose `resolve_profile` over validated profile documents, exact associations, optional manual choice, and verified device context.
+Return selected ID/revision plus manual or exact-device reason.
+Return explicit ambiguity or no verified match with bounded candidates.
+Exact association uses an owner-supplied native identity digest, never a caller's logical DeviceId alone.
+This context cannot deserialize from imported documents.
+Manual choice has priority but cannot silently select another output.
+Never choose the first of multiple exact-device setups.
+
+- [x] Write failing public tests for strict document roundtrip, limits, policy intersection, and deterministic resolution.
+- [x] Retain the expected missing-contract failure before adding production code.
+- [x] Implement the smallest pure model and resolver.
+- [x] Run focused Core tests and the canonical check.
+- [x] Complete one independent review and commit only this unit.
+
+## Task 2: Immutable storage and owner save/import
+
+Files: new `earph-engine/src/profiles.rs`, existing `assets.rs`, `runtime.rs`, `host.rs`, `main.rs`, and Core control/session modules.
+
+Store immutable JSON objects by verified byte hash.
+Reuse private-directory, create-new, owner, bounded-read, sync, and uncertain-outcome contracts.
+Write all objects before a catalog checkpoint makes them reachable.
+Preserve interrupted unreferenced objects under the no-deletion instruction.
+Load validated documents into immutable shared owners.
+Keep checkpoint references separate from loaded executable resources.
+
+Bound the catalog to 32 profiles, 64 exact associations, and 16 results per page.
+Keep only one pending import or profile preparation.
+Preflight command receipt, response, catalog, checkpoint, and preparation capacities.
+Use existing expected revisions and exact owner/session targeting for mutations.
+Use `profiles.list/get/create/update/resolve/bind` through the shared owner command path.
+Binding takes the owner’s actual selected-device evidence, not a caller-supplied trusted identity digest.
+Read large local files through a bounded cancellable import worker.
+Revalidate reports with `read_correction_report` and WAVs with the existing strict FIR importer.
+Import creates saved intent and provenance without changing playback.
+
+- [ ] Reproduce missing save/import behavior through actual owner/CLI requests.
+- [ ] Implement private objects, bounded catalog, and persisted owner commands.
+- [ ] Verify real text/FIR imports, stale edits, capacity limits, recovery, and persistence failures.
+- [ ] Validate restart as paused/muted without consent, fixed arming, or prepared tokens.
+- [ ] Run canonical checks, one independent review, and commit.
+
+## Task 3: Bound profile preparation and atomic application
+
+Files: Core profile/control/session modules, `session_graph.rs`, and Engine `graph.rs`, `host.rs`, and worker callers.
+
+Bind one existing graph candidate to profile ID, revision, object hash, and current graph/session/device bindings.
+Keep idle save and structural preview independent of backend availability.
+Prepare live execution using actual source cancellation and current backend facts.
+Pass declared profile resource and latency constraints into compiler admission.
+Reject unsupported finite aggregate SRC latency constraints explicitly.
+Do not silently rewrite quality, remove correction, or change rates.
+
+Recheck selected revision and effective caps before installation.
+Reject live output migration with SOURCE_BUSY; require explicit Stop and output selection.
+Stage selected revision, graph intent, effective policy, and readiness at the existing activation acknowledgment.
+Persist that staged checkpoint before publishing applied.
+Keep independent local caps distinct from profile-requested and effective caps.
+Mute, disarm, and revoke old profile authorization on a changed saved revision.
+Preserve the lower current level and expose blocked policy conditions.
+Keep Stop and emergency mute available during preparation and activation.
+
+- [ ] Write failing tests for stale revision, same graph with changed policy, cap escalation, and delayed acknowledgments.
+- [ ] Implement one candidate path and the existing persisted acknowledgment transaction.
+- [ ] Verify real owner captures, competing revisions, cancellation, Stop, restart, and failure recovery.
+- [ ] Run canonical checks, one independent review, and commit.
+
+## Task 4: Self-contained packages and final evidence
+
+Use a strict manifest and fixed hash-named objects in an explicitly selected directory.
+No archive or decompression support is required for this bounded first format.
+Bound manifests to 64 KiB, packages to 64 objects, and total bytes to 32 MiB.
+Verify every object type, size, hash, required reference, and provenance before catalog publication.
+Reject symlinks, special files, traversal, arbitrary paths, undeclared assets, and identity collisions.
+Never fetch URLs, execute content, auto-apply, or infer redistribution rights.
+Never import local exact-device associations or verified-device context from a package.
+Require an explicit redistribution choice before exporting third-party or unknown-rights measurement bytes.
+Export no secrets, queue recordings, local paths, consent, arming, or runtime readback.
+
+- [ ] Write failing real producer/consumer package and hostile-input tests.
+- [ ] Implement bounded export/import through the owner contract.
+- [ ] Verify fresh-runtime roundtrips for AutoEq PK/LSC/HSC, supported REW/Camilla text, and FIR correction assets.
+- [ ] Verify two setups on one DAC, missing/corrupt assets, no auto-application, and truthful capabilities.
+- [ ] Update requirements, state machines, public evidence, and the delegated dashboard.
+- [ ] Run canonical and supported-platform checks, one independent review, then push and merge through a PR.
+
+## Resume point
+
+Base runtime: `2396efb38789038b20c2727afe8bc58409580be9`.
+Worktree: `8837`, branch `feat/listening-profiles`.
+Task 1 implements pure contracts and selection, without owner commands or application.
+Seven public API tests pass after retained missing-contract failures.
+The canonical check passes 610 tests, with three ignored and no warnings.
+Its log SHA-256 is `bd1312784f51fcec1ec15b84b037d8ae055398ff458441b1aa63c5eb78f44f08`.
+One independent main-model review approves the five-file unit without material findings.
+Its receipt SHA-256 is `241247137625e5cac6fa52cc772de83d22e3fc699d97305e32678973d75e506e`.
+Task 2 is next; object existence and trusted native identity production remain unwired.
+T11 qualification continues independently against its frozen source.
