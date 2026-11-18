@@ -3,6 +3,56 @@
 mod graph {
     include!("../src/graph.rs");
 
+    pub(super) fn wait_for_validation_publication(service: &GraphService) {
+        let end = Instant::now() + std::time::Duration::from_secs(5);
+        // A validation job releases its Retirement owner only after publishing its completion.
+        while Arc::strong_count(&service.retirement) != 1 {
+            assert!(
+                Instant::now() < end,
+                "validation did not publish its completion"
+            );
+            thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn shutdown_does_not_wait_for_an_external_owner_during_retirement_accounting() {
+        let state = crate::snapshot();
+        let request = crate::request(&state, serde_json::json!({"kind":"bypass"}));
+        let mut service = GraphService::spawn().unwrap();
+        service.submit(request, state).unwrap();
+        let pipeline = crate::completion(&mut service)
+            .result
+            .unwrap()
+            .pipeline
+            .unwrap()
+            .activate();
+        let accounting = service.retirement.accounting.clone();
+        assert_eq!(accounting.owners.load(Ordering::Acquire), 1);
+        // Select the valid intermediate state after B releases its owner, before its retirement acknowledgement.
+        // A remains owned by this caller and cannot retire until service shutdown returns.
+        accounting.retiring.store(1, Ordering::Release);
+        let (finished_tx, finished_rx) = mpsc::sync_channel(1);
+        let shutdown = thread::spawn(move || {
+            drop(service);
+            finished_tx.send(()).unwrap();
+        });
+        let returned = finished_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .is_ok();
+        // Complete B's selected accounting interval, then release A even when the regression fails.
+        accounting.retiring.store(0, Ordering::Release);
+        drop(pipeline);
+        shutdown.join().unwrap();
+        assert!(
+            returned,
+            "service shutdown waited for a pipeline still held by its caller"
+        );
+        assert_eq!(accounting.owners.load(Ordering::Acquire), 0);
+        assert_eq!(accounting.retiring.load(Ordering::Acquire), 0);
+        assert_eq!(accounting.resident.load(Ordering::Acquire), 0);
+    }
+
     #[test]
     fn cancellation_before_compile_is_deterministic() {
         let state = crate::snapshot();
@@ -331,6 +381,58 @@ fn integer_bypass_uses_strict_compiler_and_no_float_render() {
     );
     retired(&service);
 }
+
+#[test]
+fn integer_meter_is_rejected_before_creating_a_silent_unobserved_pipeline() {
+    let mut state = snapshot();
+    state.software_gain_db = 0.0;
+    state.output.as_mut().unwrap().fidelity = FidelityPolicy::StrictPreservation;
+    let mut job = request(&state, serde_json::json!({"kind":"meter"}));
+    let intent = Arc::make_mut(&mut job.intent);
+    intent.processing = GraphProcessingRequest::IntegerBypass;
+    for node in &mut Arc::make_mut(&mut intent.graph).nodes {
+        node.format.precision = PcmRepresentation::Signed16;
+    }
+    let mut service = GraphService::spawn().unwrap();
+    service.submit(job, state).unwrap();
+    assert_eq!(
+        completion(&mut service).result.err().unwrap().code,
+        ErrorCode::CapabilityUnsupported
+    );
+    retired(&service);
+    assert_eq!(service.resources().resident_bytes, 0);
+}
+
+#[test]
+fn integer_bypass_preview_reports_captured_attenuation_and_unity_ramps() {
+    for (gain_db, ramp_frames, volume_expected) in
+        [(-12.0, 0, true), (0.0, 32, true), (0.0, 0, false)]
+    {
+        let mut state = snapshot();
+        state.software_gain_db = gain_db;
+        state.gain_ramp_frames = ramp_frames;
+        let mut job = request(&state, serde_json::json!({"kind":"bypass"}));
+        let intent = Arc::make_mut(&mut job.intent);
+        intent.processing = GraphProcessingRequest::IntegerBypass;
+        for node in &mut Arc::make_mut(&mut intent.graph).nodes {
+            node.format.precision = PcmRepresentation::Signed16;
+        }
+        let mut service = GraphService::spawn().unwrap();
+        service.submit(job, state).unwrap();
+        let pipeline = completion(&mut service).result.unwrap().pipeline.unwrap();
+        assert_eq!(
+            pipeline.preview().transformations,
+            if volume_expected {
+                vec![SignalTransformation::SoftwareVolume]
+            } else {
+                vec![]
+            }
+        );
+        assert!(pipeline.render().is_none());
+        drop(pipeline);
+        retired(&service);
+    }
+}
 #[test]
 fn semantic_hash_excludes_binding_and_changes_for_safety_native_evidence() {
     fn hash(state: SessionSnapshot) -> String {
@@ -581,10 +683,7 @@ fn unconsumed_validation_completion_keeps_candidate_slot_reserved() {
     job.validate_only = true;
     let mut service = GraphService::spawn().unwrap();
     service.submit(job.clone(), state.clone()).unwrap();
-    // The executor can finish, but only taking its completion releases this slot.
-    for _ in 0..1000 {
-        thread::yield_now();
-    }
+    graph::wait_for_validation_publication(&service);
     assert_eq!(
         service.submit(job, state).err().unwrap().code,
         ErrorCode::SourceBusy

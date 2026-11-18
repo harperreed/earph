@@ -67,7 +67,7 @@ fn scalar_rejects_nonfinite_values_from_constructors_and_deserializers() {
 
 #[test]
 fn scalar_roundtrips_numbers_and_compares_signed_zero_by_bits() {
-    for value in [-0.0, 0.0, -0.5, f64::MIN, f64::MAX] {
+    for value in [-0.0, 0.0, -0.5, 0.9999999999999999, f64::MIN, f64::MAX] {
         let scalar = FiniteGraphScalar::new(value).unwrap();
         assert_eq!(scalar.get().to_bits(), value.to_bits());
         let encoded = serde_json::to_string(&scalar).unwrap();

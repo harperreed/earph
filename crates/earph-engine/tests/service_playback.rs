@@ -387,6 +387,48 @@ fn executable_graph_rejects_competing_preparation_and_keeps_the_working_plan_on_
 }
 
 #[test]
+fn executable_paused_graph_swap_publishes_the_installed_observation() {
+    let directory = directory();
+    let source = directory.join("paused-graph.wav");
+    wave(&source, 0, 513);
+    let (config, capture) = configuration(&directory);
+    let host = Host::start(&config);
+    let controller = &host.controller;
+    select_output(controller, "software", "compatible_conversion");
+    consent(controller);
+    append_selected(controller, &source);
+    start(controller);
+    controller.wait(|state| state["transport"] == "buffering");
+    let pause = controller.document(json!({"method":"sessions.pause"}), None);
+    controller.send(&pause);
+    controller.settled(&pause);
+    for delay in [3, 7] {
+        let (_, ready) = prepare_graph(controller, delay_gain_graph(delay, 0.5));
+        let commit = controller.document(
+            json!({"method":"graph.commit",
+            "token":ready["token"],"graph_hash":ready["preview"]["graph_hash"]}),
+            None,
+        );
+        controller.send(&commit);
+        controller.settled(&commit);
+        let state = controller.state();
+        let inspection = controller.query(json!({"method":"graph.inspect"}));
+        assert_eq!(state["transport"], "paused");
+        assert_eq!(
+            state["playback"]["processing"]["graph_hash"],
+            inspection["active"]["graph_hash"]
+        );
+        assert_eq!(state["playback"]["processing"]["latency_frames"], delay);
+        assert_eq!(
+            state["playback"]["processing"]["resident_bytes"],
+            inspection["active"]["resources"]["pipeline_bytes"]
+        );
+    }
+    assert_no_capture(&capture);
+    controller.apply(json!({"method":"owner.shutdown"}));
+}
+
+#[test]
 fn executable_graph_rebuffer_keeps_the_plan_and_reports_only_source_position() {
     let directory = directory();
     let source = directory.join("graph-seek.wav");

@@ -359,8 +359,8 @@ impl Drop for GraphService {
         }
         let accounting = &self.retirement.accounting;
         // External pipelines retain the handle and perform this join after retirement.
-        // When every owner is already retiring, shutdown can finish synchronously.
-        if accounting.owners.load(Ordering::Acquire) == accounting.retiring.load(Ordering::Acquire)
+        // Separate retirement counters cannot prove that all external owners released their pipelines.
+        if accounting.owners.load(Ordering::Acquire) == 0
             && let Some(join) = self
                 .retirement
                 .join
@@ -631,6 +631,18 @@ fn prepare(
         )
         .into());
     }
+    if !float
+        && plan
+            .schedule()
+            .iter()
+            .any(|node| matches!(node.kind(), NodeKind::Meter))
+    {
+        return Err(EngineError::new(
+            ErrorCode::CapabilityUnsupported,
+            "integer graph metering is not implemented",
+        )
+        .into());
+    }
     let bounds = peak_bounds(&plan)?;
     let maximum = bounds.iter().copied().fold(1.0_f64, f64::max);
     let mut transformations: Vec<_> = plan
@@ -645,6 +657,8 @@ fn prepare(
         transformations.push(SignalTransformation::Quantization {
             policy: quantization,
         });
+    } else if snapshot.software_gain_db != 0.0 || snapshot.gain_ramp_frames != 0 {
+        transformations.push(SignalTransformation::SoftwareVolume);
     }
     if let Some(backend) = &playback.backend
         && backend.client_format.representation != ObservedStreamFormat::from(native).representation

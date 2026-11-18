@@ -151,12 +151,7 @@ impl GraphDocument {
     /// Check structural limits before retaining caller-constructed graph intent.
     /// Compilation separately checks topology, formats, and node semantics.
     pub fn validate_structure(&self) -> Result<(), EngineError> {
-        if self.nodes.len() > MAX_GRAPH_NODES || self.edges.len() > MAX_GRAPH_EDGES {
-            return Err(EngineError::new(
-                ErrorCode::ResourceBudgetExceeded,
-                "graph intent exceeds structural limits",
-            ));
-        }
+        self.validate_storage()?;
         for node in &self.nodes {
             if let NodeKind::Matrix {
                 input_channels,
@@ -169,6 +164,16 @@ impl GraphDocument {
                     "matrix requires output by input coefficients",
                 ));
             }
+        }
+        Ok(())
+    }
+    /// Check retained storage separately from semantic graph validation.
+    pub(crate) fn validate_storage(&self) -> Result<(), EngineError> {
+        if self.nodes.len() > MAX_GRAPH_NODES || self.edges.len() > MAX_GRAPH_EDGES {
+            return Err(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "graph intent exceeds structural limits",
+            ));
         }
         if self.retained_capacity_bytes()? > MAX_GRAPH_INTENT_BYTES {
             return Err(EngineError::new(

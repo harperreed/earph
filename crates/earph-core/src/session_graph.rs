@@ -43,6 +43,18 @@ pub(super) struct GraphControl {
     service: GraphServiceObservation,
 }
 impl Session {
+    pub(super) fn next_session_event_sequence(&self, terminal: bool) -> Result<u64, EngineError> {
+        if !terminal
+            && self.graph.activation.is_some()
+            && self.state.event_sequence.checked_add(2).is_none()
+        {
+            return Err(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "graph activation reserves the final event slot",
+            ));
+        }
+        increment(self.state.event_sequence)
+    }
     pub fn graph_inspection(&self) -> GraphInspection {
         GraphInspection {
             service: self.graph.service,
@@ -98,7 +110,11 @@ impl Session {
         if now_ns < self.state.monotonic_ns {
             return Err(STALE);
         }
-        let sequence = increment(self.state.event_sequence)?;
+        let sequence = match self.next_session_event_sequence(false) {
+            Ok(sequence) => sequence,
+            Err(_) if self.graph.activation.is_some() => return Ok(()),
+            Err(error) => return Err(error),
+        };
         self.graph.service = observation;
         self.state.event_sequence = sequence;
         self.state.monotonic_ns = now_ns;
@@ -247,6 +263,14 @@ impl Session {
         }
     }
     pub(super) fn validate_graph_control(&self, command: &Command) -> Result<(), EngineError> {
+        if self.local_stop_pending
+            && matches!(
+                command,
+                Command::Pause | Command::Resume | Command::Seek { .. }
+            )
+        {
+            return Err(BUSY);
+        }
         if self.graph.activation.is_some()
             && !matches!(
                 command,
@@ -306,6 +330,7 @@ impl Session {
                 }
                 if self.state.source != Some(SourceKind::LocalFile)
                     || self.state.playback.is_none()
+                    || self.local_stop_pending
                     || !matches!(
                         self.state.transport,
                         TransportState::Buffering
@@ -368,6 +393,9 @@ impl Session {
                 )?;
                 let epochs = self.state.epochs.next_stream()?;
                 let revision = increment(self.state.revision)?;
+                increment(revision)?;
+                increment(self.state.graph_epoch)?;
+                increment(increment(self.state.event_sequence)?)?;
                 let ready = self.graph.ready.take().ok_or(STALE)?;
                 self.graph.activation = Some(Activation {
                     request: GraphActivationRequest {
@@ -508,13 +536,19 @@ impl Session {
     }
     pub fn complete_graph_activation(
         &mut self,
-        id: &RequestId,
-        epochs: Epochs,
-        hash: &str,
+        ack: GraphActivationAck,
         now_ns: u64,
-        activation_frame: u64,
         persist: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Result<(), EngineError> {
+        let GraphActivationAck {
+            request_id,
+            epochs,
+            graph_hash,
+            activation_frame,
+            observation,
+        } = ack;
+        let id = &request_id;
+        let hash = graph_hash.as_str();
         let activation = self.graph.activation.as_ref().ok_or(STALE)?;
         if &activation.request.request_id != id
             || activation.request.epochs != epochs
@@ -530,14 +564,28 @@ impl Session {
                 "non-monotonic graph activation",
             ));
         }
+        let counters = (|| {
+            Ok::<_, EngineError>((
+                increment(self.state.graph_epoch)?,
+                increment(self.state.revision)?,
+                increment(self.state.event_sequence)?,
+            ))
+        })();
+        let (graph_epoch, revision, event_sequence) = match counters {
+            Ok(values) => values,
+            Err(error) => {
+                self.fail_graph_activation(id, error);
+                return Err(error);
+            }
+        };
         let mut staged = self.clone();
         let mut activated = staged.graph.activation.take().ok_or(STALE)?;
         staged.graph.active = Some(activated.request.prepared.preview.clone());
         staged.graph.configured = Some(activated.intent);
         staged.graph.recovery_required = false;
-        staged.state.graph_epoch = increment(staged.state.graph_epoch)?;
-        staged.state.revision = increment(staged.state.revision)?;
-        staged.state.event_sequence = increment(staged.state.event_sequence)?;
+        staged.state.graph_epoch = graph_epoch;
+        staged.state.revision = revision;
+        staged.state.event_sequence = event_sequence;
         staged.state.monotonic_ns = now_ns;
         staged.state.transport = if staged.wants_playback() {
             TransportState::Buffering
@@ -545,6 +593,9 @@ impl Session {
             TransportState::Paused
         };
         staged.state.muted = true;
+        staged.state.decoded_position_frames = observation.source_position_frames;
+        staged.state.audible_position_frames = observation.audible_source_position_frames;
+        staged.state.playback = Some(observation);
         if let Err(error) = persist(&staged) {
             self.fail_graph_activation(id, error);
             return Err(error);
@@ -575,6 +626,7 @@ impl Session {
         {
             self.state.muted = true;
             self.state.transport = TransportState::Failed;
+            self.local_stop_pending = false;
             self.state.output_consented = false;
             self.state.error = Some(error.code);
             self.graph.active = None;
@@ -589,6 +641,10 @@ impl Session {
                 None,
             );
             self.finish_pending(ReceiptStatus::Failed, Some(error), None);
+            if let Ok(sequence) = increment(self.state.event_sequence) {
+                self.state.event_sequence = sequence;
+                self.log(Some(id.clone()));
+            }
         }
     }
 }
@@ -766,6 +822,203 @@ mod tests {
         assert_eq!(s.state.revision, 0);
     }
     #[test]
+    fn pending_stop_cannot_prepare_from_the_old_playback_observation() {
+        let mut s = fixture();
+        let stop = command(&s, "stop", Command::Stop);
+        assert_eq!(
+            s.submit_graph(stop.clone(), 1).status,
+            ReceiptStatus::Accepted
+        );
+        let c = prepare(&s, "prepare-after-stop");
+        assert_eq!(s.submit_graph(c, 2).status, ReceiptStatus::Rejected);
+        assert!(s.graph_job().is_none());
+        assert_eq!(s.submit_graph(stop, 3).status, ReceiptStatus::Accepted);
+    }
+    #[test]
+    fn pending_stop_cannot_resume_or_prepare_after_receipt_rotation() {
+        let mut s = fixture();
+        let stop = command(&s, "stop", Command::Stop);
+        assert_eq!(s.submit_graph(stop, 1).status, ReceiptStatus::Accepted);
+        for i in 0..1025 {
+            let query = command(&s, &format!("poll-{i}"), Command::GraphInspect {});
+            assert_eq!(s.submit_graph(query, 2).status, ReceiptStatus::Applied);
+        }
+        for payload in [
+            Command::Resume,
+            Command::Pause,
+            Command::Seek { position_frames: 0 },
+        ] {
+            let c = command(&s, &format!("closing-{payload:?}"), payload);
+            assert_eq!(s.submit_graph(c, 3).status, ReceiptStatus::Rejected);
+        }
+        let c = prepare(&s, "prepare-after-closing-resume");
+        assert_eq!(s.submit_graph(c, 4).status, ReceiptStatus::Rejected);
+        assert!(s.graph_job().is_none());
+    }
+    #[test]
+    fn activation_completion_keeps_its_final_event_slot() {
+        for source in ["mute", "resource", "queue", "progress"] {
+            let mut s = fixture();
+            let p = ready(&mut s, "prepare", 1.0);
+            s.state.event_sequence = u64::MAX - 2;
+            let c = commit(&s, "commit", &p);
+            s.submit_graph(c.clone(), 21);
+            let cursor = s.state.event_sequence;
+            match source {
+                "mute" => {
+                    let c = command(&s, "mute", Command::Mute { muted: true });
+                    assert_eq!(s.submit_graph(c, 22).status, ReceiptStatus::Rejected);
+                }
+                "resource" => {
+                    s.observe_graph_resources(
+                        GraphServiceObservation {
+                            resident_bytes: 1,
+                            pending_retirements: 0,
+                            preparing_or_candidate: true,
+                        },
+                        22,
+                    )
+                    .unwrap();
+                }
+                "queue" => {
+                    let entry = s.state.active_entry_id.clone().unwrap();
+                    assert!(
+                        s.set_queue_preparation(
+                            s.state.epochs,
+                            &entry,
+                            crate::queue::PreparationStatus::Unprepared
+                        )
+                        .is_err()
+                    );
+                }
+                "progress" => {
+                    assert!(
+                        s.advance(EngineEvent {
+                            epochs: s.state.epochs,
+                            monotonic_ns: 22,
+                            kind: EngineEventKind::LocalProgress {
+                                observation: s.state.playback.as_ref().unwrap().clone(),
+                            }
+                        })
+                        .is_err()
+                    );
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(s.state.event_sequence, cursor, "{source}");
+            s.fail_graph_activation(
+                &c.request_id,
+                EngineError::new(ErrorCode::OutputFault, "test failure"),
+            );
+            let events = s.events_since(cursor).events;
+            assert_eq!(events.len(), 1, "{source}");
+            assert_eq!(events[0].request_id.as_ref(), Some(&c.request_id));
+            assert_eq!(events[0].transport, TransportState::Failed);
+        }
+    }
+    #[test]
+    fn stopped_source_settles_activation_before_consuming_its_terminal_event_slot() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 1.0);
+        s.state.event_sequence = u64::MAX - 2;
+        let c = commit(&s, "commit", &p);
+        s.submit_graph(c.clone(), 21);
+        s.advance(EngineEvent {
+            epochs: s.state.epochs,
+            monotonic_ns: 22,
+            kind: EngineEventKind::LocalStopped {
+                observation: s.state.playback.clone(),
+            },
+        })
+        .unwrap();
+        assert!(s.graph_activation().is_none());
+        assert_eq!(s.submit_graph(c, 23).status, ReceiptStatus::Cancelled);
+    }
+    #[test]
+    fn activation_reserves_a_revision_before_consuming_the_token() {
+        let mut s = fixture();
+        s.state.revision = u64::MAX - 1;
+        let p = ready(&mut s, "prepare", 1.0);
+        let before = s.state.clone();
+        let c = commit(&s, "commit", &p);
+        assert_eq!(s.submit_graph(c, 21).status, ReceiptStatus::Rejected);
+        assert_eq!(s.state, before);
+        assert_eq!(s.graph_inspection().prepared.unwrap().token, p.token);
+        assert!(s.graph_activation().is_none());
+    }
+    #[test]
+    fn activation_failure_publishes_one_terminal_event() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "commit", &p);
+        s.submit_graph(c.clone(), 21);
+        let cursor = s.state.event_sequence;
+        let error = EngineError::new(ErrorCode::OutputFault, "test activation failure");
+        s.fail_graph_activation(&c.request_id, error);
+        let events = s.events_since(cursor).events;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].request_id.as_ref(), Some(&c.request_id));
+        assert_eq!(events[0].transport, TransportState::Failed);
+        s.fail_graph_activation(&c.request_id, error);
+        assert_eq!(s.events_since(cursor).events.len(), 1);
+    }
+    #[test]
+    fn counter_exhaustion_after_emergency_mute_settles_activation_failure() {
+        let mut s = fixture();
+        s.state.revision = u64::MAX - 2;
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "commit", &p);
+        assert_eq!(
+            s.submit_graph(c.clone(), 21).status,
+            ReceiptStatus::Accepted
+        );
+        let mute = command(&s, "mute", Command::Mute { muted: true });
+        assert_eq!(s.submit_graph(mute, 22).status, ReceiptStatus::Applied);
+        assert!(
+            s.complete_graph_activation(
+                GraphActivationAck {
+                    request_id: c.request_id.clone(),
+                    epochs: s.state.epochs,
+                    graph_hash: p.preview.graph_hash.clone(),
+                    activation_frame: 0,
+                    observation: s.state.playback.as_ref().unwrap().clone()
+                },
+                23,
+                |_| panic!("exhausted counters cannot persist activation")
+            )
+            .is_err()
+        );
+        assert_eq!(s.submit_graph(c, 24).status, ReceiptStatus::Failed);
+        assert!(s.graph_activation().is_none());
+        assert!(s.graph_inspection().recovery_required);
+        assert!(!s.state.output_consented);
+    }
+    #[test]
+    fn bounded_semantic_graph_rejection_reserves_the_request_identity() {
+        let mut s = fixture();
+        let mut c = prepare(&s, "bad-matrix");
+        let Command::GraphPrepare { graph, .. } = &mut c.payload else {
+            unreachable!()
+        };
+        Arc::make_mut(graph).nodes[0].kind = NodeKind::Matrix {
+            input_channels: ChannelLayout::Stereo,
+            coefficients: vec![FiniteGraphScalar::new(1.0).unwrap(); 3],
+        };
+        assert_eq!(
+            s.submit_graph(c.clone(), 1).error.unwrap().code,
+            ErrorCode::GraphInvalid
+        );
+        let reused = command(&s, "bad-matrix", Command::Mute { muted: true });
+        assert_eq!(
+            s.submit_graph(reused, 2).error.unwrap().code,
+            ErrorCode::AssetInvalid
+        );
+        assert_eq!(
+            s.submit_graph(c, 3).error.unwrap().code,
+            ErrorCode::GraphInvalid
+        );
+    }
+    #[test]
     fn readiness_revision_and_token_expiry_cannot_be_bypassed() {
         let mut s = fixture();
         let p = ready(&mut s, "prepare", 1.0);
@@ -836,18 +1089,29 @@ mod tests {
         let epochs = s.state.epochs;
         assert!(
             s.complete_graph_activation(
-                &RequestId::new("wrong").unwrap(),
-                epochs,
-                &p.preview.graph_hash,
+                GraphActivationAck {
+                    request_id: RequestId::new("wrong").unwrap(),
+                    epochs,
+                    graph_hash: p.preview.graph_hash.clone(),
+                    activation_frame: 0,
+                    observation: s.state.playback.as_ref().unwrap().clone()
+                },
                 24,
-                0,
                 |_| Ok(())
             )
             .is_err()
         );
-        s.complete_graph_activation(&c.request_id, epochs, &p.preview.graph_hash, 25, 37, |_| {
-            Ok(())
-        })
+        s.complete_graph_activation(
+            GraphActivationAck {
+                request_id: c.request_id.clone(),
+                epochs,
+                graph_hash: p.preview.graph_hash.clone(),
+                activation_frame: 37,
+                observation: s.state.playback.as_ref().unwrap().clone(),
+            },
+            25,
+            |_| Ok(()),
+        )
         .unwrap();
         assert_eq!(s.state.graph_epoch, 1);
         assert_eq!(s.graph.active.as_ref().unwrap().binding, p.preview.binding);
@@ -857,11 +1121,14 @@ mod tests {
         assert_eq!(s.submit_graph(c.clone(), 26).activation_frame, Some(37));
         assert!(
             s.complete_graph_activation(
-                &c.request_id,
-                epochs,
-                &p.preview.graph_hash,
+                GraphActivationAck {
+                    request_id: c.request_id.clone(),
+                    epochs,
+                    graph_hash: p.preview.graph_hash.clone(),
+                    activation_frame: 0,
+                    observation: s.state.playback.as_ref().unwrap().clone()
+                },
                 27,
-                0,
                 |_| Ok(())
             )
             .is_err()
@@ -877,11 +1144,14 @@ mod tests {
         let c = commit(&s, "commit", &p);
         s.submit_graph(c.clone(), 21);
         s.complete_graph_activation(
-            &c.request_id,
-            s.state.epochs,
-            &p.preview.graph_hash,
+            GraphActivationAck {
+                request_id: c.request_id.clone(),
+                epochs: s.state.epochs,
+                graph_hash: p.preview.graph_hash.clone(),
+                activation_frame: 0,
+                observation: s.state.playback.as_ref().unwrap().clone(),
+            },
             22,
-            0,
             |_| Ok(()),
         )
         .unwrap();
@@ -905,6 +1175,49 @@ mod tests {
         assert!(malformed.validate_headroom(-40.0, 0.0).is_err());
     }
     #[test]
+    fn activation_persists_the_post_install_playback_observation_atomically() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "commit", &p);
+        s.submit_graph(c.clone(), 21);
+        let mut observation = s.state.playback.as_ref().unwrap().clone();
+        observation.source_position_frames = 37;
+        observation.audible_source_position_frames = Some(31);
+        observation.processing = Some(PlaybackProcessingObservation {
+            graph_hash: p.preview.graph_hash.clone(),
+            resident_bytes: 123,
+            audio_payload_bytes: 64,
+            failure_node: None,
+            latency_frames: 6,
+            tail_frames: 6,
+            saturation_count: 0,
+            graph_peak: None,
+            prequantization_peak: None,
+        });
+        s.complete_graph_activation(
+            GraphActivationAck {
+                request_id: c.request_id.clone(),
+                epochs: s.state.epochs,
+                graph_hash: p.preview.graph_hash.clone(),
+                activation_frame: 37,
+                observation: observation.clone(),
+            },
+            22,
+            |staged| {
+                assert_eq!(staged.state.playback.as_ref(), Some(&observation));
+                assert_eq!(staged.state.decoded_position_frames, 37);
+                assert_eq!(staged.state.audible_position_frames, Some(31));
+                assert_eq!(
+                    staged.graph.active.as_ref().unwrap().graph_hash,
+                    observation.processing.as_ref().unwrap().graph_hash
+                );
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(s.state.playback.as_ref(), Some(&observation));
+    }
+    #[test]
     fn persistence_failure_never_publishes_applied_graph_or_unmutes() {
         let mut s = fixture();
         let p = ready(&mut s, "prepare", 1.0);
@@ -912,11 +1225,14 @@ mod tests {
         s.submit_graph(c.clone(), 21);
         assert!(
             s.complete_graph_activation(
-                &c.request_id,
-                s.state.epochs,
-                &p.preview.graph_hash,
+                GraphActivationAck {
+                    request_id: c.request_id.clone(),
+                    epochs: s.state.epochs,
+                    graph_hash: p.preview.graph_hash.clone(),
+                    activation_frame: 0,
+                    observation: s.state.playback.as_ref().unwrap().clone()
+                },
                 22,
-                0,
                 |_| Err(EngineError::new(
                     ErrorCode::InternalFault,
                     "test persistence failure"
@@ -970,11 +1286,14 @@ mod tests {
         let c = commit(&s, "commit", &p);
         s.submit_graph(c.clone(), 21);
         s.complete_graph_activation(
-            &c.request_id,
-            s.state.epochs,
-            &p.preview.graph_hash,
+            GraphActivationAck {
+                request_id: c.request_id.clone(),
+                epochs: s.state.epochs,
+                graph_hash: p.preview.graph_hash.clone(),
+                activation_frame: 0,
+                observation: s.state.playback.as_ref().unwrap().clone(),
+            },
             22,
-            0,
             |_| Ok(()),
         )
         .unwrap();
@@ -1049,11 +1368,14 @@ mod tests {
         let c = commit(&s, "commit", &p);
         s.submit_graph(c.clone(), 21);
         s.complete_graph_activation(
-            &c.request_id,
-            s.state.epochs,
-            &p.preview.graph_hash,
+            GraphActivationAck {
+                request_id: c.request_id.clone(),
+                epochs: s.state.epochs,
+                graph_hash: p.preview.graph_hash.clone(),
+                activation_frame: 0,
+                observation: s.state.playback.as_ref().unwrap().clone(),
+            },
             22,
-            0,
             |_| Ok(()),
         )
         .unwrap();
@@ -1112,11 +1434,14 @@ mod tests {
             s.submit_graph(q, 22);
         }
         s.complete_graph_activation(
-            &c.request_id,
-            s.state.epochs,
-            &p.preview.graph_hash,
+            GraphActivationAck {
+                request_id: c.request_id.clone(),
+                epochs: s.state.epochs,
+                graph_hash: p.preview.graph_hash.clone(),
+                activation_frame: 0,
+                observation: s.state.playback.as_ref().unwrap().clone(),
+            },
             23,
-            0,
             |_| Ok(()),
         )
         .unwrap();

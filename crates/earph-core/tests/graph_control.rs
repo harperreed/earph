@@ -40,4 +40,26 @@ fn graph_byte_limit_includes_the_original_frame_whitespace() {
             .code,
         earph_core::ErrorCode::ResourceBudgetExceeded
     );
+    let escaped = String::from_utf8(frame)
+        .unwrap()
+        .replace("graph.prepare", r"graph.\u0070repare");
+    assert_eq!(
+        decode_command(escaped.as_bytes(), &ControlLimits::default())
+            .unwrap_err()
+            .code,
+        earph_core::ErrorCode::ResourceBudgetExceeded
+    );
+}
+
+#[test]
+fn oversized_graph_is_rejected_before_its_invalid_parameters() {
+    let command = br#"{"schema_version":1,"request_id":"prepare","zone_id":"main","owner_id":"owner","session_id":"session","expected_revision":0,"payload":{"method":"graph.prepare","graph":{"schema_version":1,"nodes":[],"edges":[],"output":"out","invalid":true},"processing":{"kind":"integer_bypass"}}}"#;
+    let mut frame = vec![b' '; 128 * 1024 + 1];
+    frame.extend_from_slice(command);
+    assert_eq!(
+        decode_command(&frame, &ControlLimits::default())
+            .unwrap_err()
+            .code,
+        earph_core::ErrorCode::ResourceBudgetExceeded
+    );
 }

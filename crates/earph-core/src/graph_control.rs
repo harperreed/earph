@@ -8,7 +8,7 @@ use crate::{
         Transformation,
     },
     ids::*,
-    session::{BackendObservation, ObservedSampleRepresentation},
+    session::{BackendObservation, ObservedSampleRepresentation, PlaybackObservation},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -206,4 +206,13 @@ pub struct GraphActivationRequest {
     pub previous_binding: GraphBinding,
     pub epochs: Epochs,
     pub prepared: GraphPrepared,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphActivationAck {
+    pub request_id: RequestId,
+    pub epochs: Epochs,
+    pub graph_hash: String,
+    pub activation_frame: u64,
+    pub observation: PlaybackObservation,
 }

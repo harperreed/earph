@@ -507,23 +507,19 @@ fn documents_roundtrip_and_unsupported_features_reject() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let evidence = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/dsp-compiler-fixtures")
-        .join(format!("{}-{nonce}", std::process::id()));
-    std::fs::create_dir_all(&evidence).unwrap();
-    std::fs::write(evidence.join("branch-merge.graph.json"), document).unwrap();
-    std::fs::write(
-        evidence.join("branch-merge.plan.json"),
-        serde_json::to_vec_pretty(&resolved).unwrap(),
-    )
-    .unwrap();
-    let preview: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(evidence.join("branch-merge.plan.json")).unwrap())
-            .unwrap();
+    let plan_document = serde_json::to_vec_pretty(&resolved).unwrap();
+    let preview: serde_json::Value = serde_json::from_slice(&plan_document).unwrap();
     assert_eq!(preview["latency_frames"], 3);
     assert_eq!(preview["tail_frames"], 3);
     assert_eq!(preview["resources"]["buffer_bytes"], 5216);
     assert_eq!(preview["preservation"], "process_float64");
+    if let Some(destination) = std::env::var_os("EARPH_DSP_FIXTURE_DIR") {
+        let evidence =
+            std::path::PathBuf::from(destination).join(format!("{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&evidence).unwrap();
+        std::fs::write(evidence.join("branch-merge.graph.json"), document).unwrap();
+        std::fs::write(evidence.join("branch-merge.plan.json"), plan_document).unwrap();
+    }
     let mut unknown = graph;
     unknown.schema_version = 2;
     assert_eq!(

@@ -9,12 +9,12 @@ use earph_core::{
     EngineError, ErrorCode,
     audio::{MemoryBudget, PcmBlock, PcmFormat},
     gain::GainRamp,
-    graph_control::GraphActivationRequest,
+    graph_control::{GraphActivationAck, GraphActivationRequest},
     ids::{Epochs, QueueEntryId, RequestId},
     queue::{PreparationStatus, QueueEntry},
     session::{
         BackendObservation, PlaybackObservation, PlaybackProcessingObservation, PreservationState,
-        SessionSnapshot,
+        SessionSnapshot, TransportState,
     },
 };
 use earph_media::LocalFile;
@@ -34,6 +34,10 @@ pub(crate) const COMMANDS: usize = ORDINARY_COMMANDS + 32;
 const FAILED: EngineError =
     EngineError::new(ErrorCode::OutputFault, "playback worker is unavailable");
 const BUSY: EngineError = EngineError::new(ErrorCode::SourceBusy, "playback control queue is full");
+const ENDED: EngineError = EngineError::new(
+    ErrorCode::CapabilityUnsupported,
+    "source ended before reposition",
+);
 #[derive(Clone)]
 pub(crate) struct Settings {
     pub snapshot: SessionSnapshot,
@@ -68,12 +72,7 @@ impl Action {
     }
 }
 pub(crate) enum Event {
-    GraphActivated {
-        epochs: Epochs,
-        request_id: RequestId,
-        graph_hash: String,
-        activation_frame: u64,
-    },
+    GraphActivated(GraphActivationAck),
     GraphFailed {
         epochs: Epochs,
         request_id: RequestId,
@@ -483,12 +482,13 @@ impl Playback {
         self.set_gain()?;
         emit(
             events,
-            Event::GraphActivated {
+            Event::GraphActivated(GraphActivationAck {
                 epochs: self.epochs(),
                 request_id: activation.request_id,
                 graph_hash: activation.prepared.preview.graph_hash.clone(),
                 activation_frame: self.stream_position,
-            },
+                observation: self.observe()?,
+            }),
         )
     }
     fn set_gain(&mut self) -> Result<(), EngineError> {
@@ -708,6 +708,7 @@ impl Playback {
         }
         if self.phase == RenderPhase::BackendDrain {
             if let Some(counters) = self.output.finish()? {
+                self.last_counters = counters;
                 self.phase = RenderPhase::Finished;
                 emit(
                     events,
@@ -897,6 +898,55 @@ impl Playback {
     }
 }
 
+struct CompletedDrain {
+    epochs: Epochs,
+    graph_epoch: u64,
+    session_id: Option<earph_core::ids::SessionId>,
+    observation: PlaybackObservation,
+}
+impl CompletedDrain {
+    fn reconcile(
+        self,
+        settings: &Settings,
+        events: &SyncSender<Event>,
+    ) -> Result<Option<Self>, EngineError> {
+        let snapshot = &settings.snapshot;
+        if self.graph_epoch != snapshot.graph_epoch
+            || self.session_id != snapshot.session_id
+            || snapshot.active_entry_id.as_ref() != Some(&self.observation.source_entry_id)
+            || !matches!(
+                snapshot.transport,
+                TransportState::Buffering | TransportState::Playing | TransportState::Draining
+            )
+        {
+            return Ok(None);
+        }
+        if self.epochs == snapshot.epochs {
+            return Ok(Some(self));
+        }
+        if !snapshot.muted
+            || self.epochs.session != snapshot.epochs.session
+            || self.epochs.stream.checked_add(1) != Some(snapshot.epochs.stream)
+        {
+            return Ok(None);
+        }
+        // End may also be stale when mute crossed the final native finish call.
+        emit(
+            events,
+            Event::End {
+                epochs: snapshot.epochs,
+            },
+        )?;
+        emit(
+            events,
+            Event::Drained {
+                epochs: snapshot.epochs,
+                observation: self.observation,
+            },
+        )?;
+        Ok(None)
+    }
+}
 fn run(
     receiver: Receiver<Action>,
     events: SyncSender<Event>,
@@ -906,6 +956,7 @@ fn run(
 ) {
     let mut playback: Option<Playback> = None;
     let mut stopped: Option<(PlaybackObservation, Option<EngineError>)> = None;
+    let mut drained: Option<CompletedDrain> = None;
     loop {
         let action = if playback.is_some() {
             match receiver.try_recv() {
@@ -921,6 +972,9 @@ fn run(
         };
         if let Some(action) = action {
             queued.fetch_sub(1, Ordering::AcqRel);
+            if !matches!(action, Action::Settings(_)) {
+                drained = None;
+            }
             let failure_epochs = match &action {
                 Action::ActivateGraph { settings, .. }
                 | Action::Pause(settings)
@@ -1032,6 +1086,14 @@ fn run(
                         } else {
                             Ok(())
                         }
+                    } else if let Some(completed) = drained.take() {
+                        match completed.reconcile(&settings, &events) {
+                            Ok(retained) => {
+                                drained = retained;
+                                Ok(())
+                            }
+                            Err(error) => Err(error),
+                        }
                     } else {
                         Ok(())
                     }
@@ -1040,31 +1102,36 @@ fn run(
                     if let Some(current) = &mut playback {
                         current.reposition(settings, None, &events, true)
                     } else {
-                        Ok(())
+                        Err(ENDED)
                     }
                 }
                 Action::Seek { settings, position } => {
                     if let Some(current) = &mut playback {
                         current.reposition(settings, Some(position), &events, true)
                     } else {
-                        Ok(())
+                        Err(ENDED)
                     }
                 }
             };
-            if let Err(error) = result
-                && let Some(mut current) = playback.take()
-            {
-                let observation = current.failure_observation();
-                let _ = current.output.stop();
-                clear_reservation(&view, current.epochs());
-                let _ = emit(
-                    &events,
-                    Event::Failed {
-                        epochs: failure_epochs.unwrap_or(current.epochs()),
-                        error,
-                        observation: Some(observation),
-                    },
-                );
+            if let Err(error) = result {
+                let mut epochs = failure_epochs;
+                let observation = playback.take().map(|mut current| {
+                    let observation = current.failure_observation();
+                    let _ = current.output.stop();
+                    clear_reservation(&view, current.epochs());
+                    epochs = Some(failure_epochs.unwrap_or(current.epochs()));
+                    observation
+                });
+                if let Some(epochs) = epochs {
+                    let _ = emit(
+                        &events,
+                        Event::Failed {
+                            epochs,
+                            error,
+                            observation,
+                        },
+                    );
+                }
             }
         }
         if let Some(current) = &mut playback {
@@ -1072,6 +1139,13 @@ fn run(
                 Ok(true) => {
                     if current.cancel.load(Ordering::Acquire) {
                         stopped = Some((current.failure_observation(), None));
+                    } else if current.phase == RenderPhase::Finished {
+                        drained = Some(CompletedDrain {
+                            epochs: current.epochs(),
+                            graph_epoch: current.settings.snapshot.graph_epoch,
+                            session_id: current.settings.snapshot.session_id.clone(),
+                            observation: current.observation(current.last_counters),
+                        });
                     }
                     clear_reservation(&view, current.epochs());
                     playback = None;
@@ -1145,6 +1219,214 @@ mod tests {
             },
             receiver,
         )
+    }
+    #[cfg(target_os = "linux")]
+    fn naturally_drained_worker() -> (Worker, Settings, PlaybackObservation) {
+        use earph_core::{
+            control::{OutputBackend, OutputConfiguration, OutputRoute, SourceKind},
+            ids::{DeviceId, ProfileId, SessionId},
+            queue::LocalQueue,
+            safety::{FidelityPolicy, VolumeMode},
+            session::TransportState,
+        };
+        use std::{
+            fs,
+            time::{Instant, SystemTime, UNIX_EPOCH},
+        };
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/terminal-drain")
+            .join(format!(
+                "{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+        fs::create_dir_all(&path).unwrap();
+        let source = path.join("silence.wav");
+        let mut bytes = Vec::new();
+        bytes.extend(b"RIFF");
+        bytes.extend(296_u32.to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        bytes.extend(16_u32.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(2_u16.to_le_bytes());
+        bytes.extend(48000_u32.to_le_bytes());
+        bytes.extend(192000_u32.to_le_bytes());
+        bytes.extend(4_u16.to_le_bytes());
+        bytes.extend(16_u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend(260_u32.to_le_bytes());
+        bytes.extend([0_u8; 260]);
+        fs::write(&source, bytes).unwrap();
+        let mut queue = LocalQueue::default();
+        let entry = queue.append(source.to_str().unwrap()).unwrap();
+        let mut settings = settings(false);
+        settings.snapshot.epochs.session = 1;
+        settings.snapshot.session_id = Some(SessionId::new("terminal-session").unwrap());
+        settings.snapshot.source = Some(SourceKind::LocalFile);
+        settings.snapshot.transport = TransportState::Buffering;
+        settings.snapshot.active_entry_id = Some(entry);
+        settings.snapshot.output_consented = true;
+        settings.snapshot.output = Some(OutputConfiguration {
+            backend: OutputBackend::Alsa,
+            route: OutputRoute::System,
+            endpoint: "null".into(),
+            device_id: DeviceId::new("null").unwrap(),
+            profile_id: ProfileId::new("profile").unwrap(),
+            period_frames: 64,
+            buffer_frames: 256,
+            volume_mode: VolumeMode::Software,
+            fidelity: FidelityPolicy::CompatibleConversion,
+        });
+        let mut worker = Worker::spawn();
+        worker.view.lock().unwrap().publish(queue.snapshot());
+        worker
+            .send(Action::Start {
+                settings: settings.clone(),
+                entries: queue.snapshot().entries,
+                cancel: Arc::new(AtomicBool::new(false)),
+            })
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let observation = loop {
+            let event = worker
+                .events
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("native null worker did not finish");
+            if let Event::Drained {
+                epochs,
+                observation,
+            } = event
+            {
+                assert_eq!(epochs, settings.snapshot.epochs);
+                break observation;
+            }
+        };
+        assert_eq!(observation.submitted_frames, 65);
+        (worker, settings, observation)
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn terminal_drain_survives_a_matching_mute_before_or_after_end_observation() {
+        use earph_core::session::TransportState;
+        for transport in [
+            TransportState::Buffering,
+            TransportState::Playing,
+            TransportState::Draining,
+        ] {
+            let (mut worker, mut settings, expected) = naturally_drained_worker();
+            settings.snapshot.muted = true;
+            settings.snapshot.epochs.stream += 1;
+            settings.snapshot.transport = transport;
+            worker.send(Action::Settings(settings.clone())).unwrap();
+            assert!(matches!(worker.events.recv_timeout(Duration::from_secs(5)),
+                Ok(Event::End { epochs }) if epochs == settings.snapshot.epochs));
+            match worker.events.recv_timeout(Duration::from_secs(5)).unwrap() {
+                Event::Drained {
+                    epochs,
+                    observation,
+                } => {
+                    assert_eq!(epochs, settings.snapshot.epochs);
+                    assert_eq!(observation, expected);
+                }
+                _ => panic!("terminal handoff omitted its final counters"),
+            }
+            worker.send(Action::Settings(settings)).unwrap();
+            assert!(
+                worker
+                    .events
+                    .recv_timeout(Duration::from_millis(30))
+                    .is_err()
+            );
+        }
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn terminal_drain_cannot_cross_an_unrelated_action_or_generation() {
+        for changed in ["seek", "session", "stream", "graph", "source"] {
+            let (mut worker, mut settings, _) = naturally_drained_worker();
+            settings.snapshot.muted = true;
+            settings.snapshot.epochs.stream += 1;
+            match changed {
+                "seek" => worker
+                    .send(Action::Seek {
+                        settings: settings.clone(),
+                        position: 0,
+                    })
+                    .unwrap(),
+                "session" => settings.snapshot.epochs.session += 1,
+                "stream" => settings.snapshot.epochs.stream += 1,
+                "graph" => settings.snapshot.graph_epoch += 1,
+                "source" => settings.snapshot.active_entry_id = None,
+                _ => unreachable!(),
+            }
+            if changed == "seek" {
+                assert!(matches!(worker.events.recv_timeout(Duration::from_secs(5)),
+                    Ok(Event::Failed { epochs, error, .. })
+                    if epochs == settings.snapshot.epochs && error.code == ErrorCode::CapabilityUnsupported));
+            }
+            worker.send(Action::Settings(settings)).unwrap();
+            assert!(
+                worker
+                    .events
+                    .recv_timeout(Duration::from_millis(30))
+                    .is_err(),
+                "{changed}"
+            );
+        }
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn same_stream_volume_settings_preserve_the_terminal_mute_handoff() {
+        let (mut worker, mut settings, expected) = naturally_drained_worker();
+        settings.snapshot.software_gain_db = -48.0;
+        worker.send(Action::Settings(settings.clone())).unwrap();
+        settings.snapshot.muted = true;
+        settings.snapshot.epochs.stream += 1;
+        worker.send(Action::Settings(settings.clone())).unwrap();
+        assert!(matches!(worker.events.recv_timeout(Duration::from_secs(5)),
+            Ok(Event::End { epochs }) if epochs == settings.snapshot.epochs));
+        match worker.events.recv_timeout(Duration::from_secs(5)).unwrap() {
+            Event::Drained { observation, .. } => assert_eq!(observation, expected),
+            _ => panic!("same-stream settings lost the terminal result"),
+        }
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn reposition_after_native_finish_reports_a_current_generation_failure() {
+        for seek in [false, true] {
+            let (mut worker, mut settings, _) = naturally_drained_worker();
+            settings.snapshot.muted = true;
+            settings.snapshot.epochs.stream += 1;
+            let epochs = settings.snapshot.epochs;
+            let action = if seek {
+                Action::Seek {
+                    settings,
+                    position: 0,
+                }
+            } else {
+                Action::Pause(settings)
+            };
+            worker.send(action).unwrap();
+            match worker
+                .events
+                .recv_timeout(Duration::from_secs(5))
+                .expect("reposition receipt would remain pending")
+            {
+                Event::Failed {
+                    epochs: failed,
+                    error,
+                    ..
+                } => {
+                    assert_eq!(failed, epochs);
+                    assert_eq!(error.code, ErrorCode::CapabilityUnsupported);
+                    assert_eq!(error.message, "source ended before reposition");
+                }
+                _ => panic!("reposition fabricated a live source after native finish"),
+            }
+        }
     }
     #[test]
     fn ordinary_saturation_preserves_mute_and_stop_admission_in_fifo_order() {

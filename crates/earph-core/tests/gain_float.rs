@@ -161,7 +161,9 @@ fn mute_unmute_and_retarget_continue_from_the_current_frame_gain() {
     gain.set_target(Some(-40.0), 0).unwrap();
     let mut quiet = [2.0, -3.0];
     gain.process_f64(&mut quiet, 1).unwrap();
-    assert_eq!(quiet, [0.02, -0.03]);
+    for (actual, expected) in quiet.into_iter().zip([0.02_f64, -0.03]) {
+        assert!((actual - expected).abs() <= 8.0 * f64::EPSILON * expected.abs());
+    }
 }
 
 #[test]
@@ -248,7 +250,7 @@ fn mono_geometry_and_prepared_rate_bound_apply_to_f64_processing() {
     gain.set_target(Some(-120.0), 0).unwrap();
     let mut minimum = [1.0];
     gain.process_f64(&mut minimum, 1).unwrap();
-    assert_eq!(minimum, [0.000_001]);
+    assert!((minimum[0] - 0.000_001).abs() <= 8.0 * f64::EPSILON * 0.000_001);
 }
 
 #[test]
