@@ -54,10 +54,12 @@ fn preview() -> GraphPreview {
 fn processing(timing: PlaybackTiming) -> PlaybackProcessingObservation {
     PlaybackProcessingObservation {
         resident_bytes: 1024,
-        audio_payload_bytes: 64,
+        audio_payload_bytes: Some(64),
         failure_node: None,
         graph_hash: "a".repeat(64),
         timing,
+        streaming: None,
+        source_boundary: None,
         saturation_count: 0,
         graph_peak: None,
         prequantization_peak: None,
@@ -141,7 +143,57 @@ fn same_rate_preview_and_playback_keep_existing_numeric_wire_meaning() {
     assert_eq!(playback["timing_kind"], "same_rate");
     assert_eq!(playback["latency_frames"], 123);
     assert_eq!(playback["tail_frames"], 456);
+    assert_eq!(playback["audio_payload_bytes"], 64);
+    assert!(playback.get("streaming").is_none());
+    assert!(playback.get("source_boundary").is_none());
     assert!(playback.get("node_tails").is_none());
+}
+#[test]
+fn streaming_runtime_keeps_source_and_output_counters_distinct_and_shares_the_boundary() {
+    use earph_core::session::{StreamingReplacementBoundary, StreamingRuntimeObservation};
+    let boundary = Arc::new(StreamingReplacementBoundary {
+        source_entry_id: QueueEntryId::new("entry").unwrap(),
+        source_position_frames: 31,
+        source_epochs: Epochs {
+            session: 1,
+            stream: 2,
+        },
+        discarded_output_frames: 17,
+    });
+    let mut observation = processing(PlaybackTiming::Streaming {
+        stages: streaming(),
+    });
+    observation.audio_payload_bytes = None;
+    observation.source_boundary = Some(boundary.clone());
+    observation.streaming = Some(StreamingRuntimeObservation {
+        source_epochs: Epochs {
+            session: 1,
+            stream: 3,
+        },
+        output_epochs: Epochs {
+            session: 1,
+            stream: 4,
+        },
+        source_accepted_frames: 64,
+        generated_output_frames: 37,
+        submission_frontier_frames: 29,
+        backend_origin_frames: 11,
+        retained_start_frames: 13,
+    });
+    let cloned = observation.clone();
+    assert!(Arc::ptr_eq(
+        cloned.source_boundary.as_ref().unwrap(),
+        &boundary
+    ));
+    let wire = serde_json::to_value(cloned).unwrap();
+    assert!(wire["audio_payload_bytes"].is_null());
+    assert_eq!(wire["streaming"]["source_accepted_frames"], 64);
+    assert_eq!(wire["streaming"]["generated_output_frames"], 37);
+    assert_eq!(wire["streaming"]["submission_frontier_frames"], 29);
+    assert_eq!(wire["streaming"]["backend_origin_frames"], 11);
+    assert_eq!(wire["source_boundary"]["source_position_frames"], 31);
+    assert_eq!(wire["source_boundary"]["discarded_output_frames"], 17);
+    assert!(wire.get("latency_frames").is_none());
 }
 #[test]
 fn streaming_shares_stage_facts_without_fabricating_aggregate_timing() {
