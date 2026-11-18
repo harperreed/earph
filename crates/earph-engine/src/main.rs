@@ -15,10 +15,22 @@ use std::{
 };
 
 const MAX_BYTES: u64 = 1_048_576;
-const USAGE: &str = "usage: earph-engine <owner|request> --runtime ABSOLUTE_PRIVATE_DIRECTORY | import-fir --runtime ABSOLUTE_PRIVATE_DIRECTORY FILE";
+const USAGE: &str = "usage: earph-engine <owner|request> --runtime ABSOLUTE_PRIVATE_DIRECTORY | import-fir --runtime ABSOLUTE_PRIVATE_DIRECTORY FILE | render-graph --help";
 
 fn execute() -> Result<u8, EngineError> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "render-graph") {
+        if args.len() == 2 && args[1] == "--help" {
+            println!("{}", earph_engine::offline_render::USAGE);
+            return Ok(0);
+        }
+        let report = earph_engine::offline_render::command(&args[1..]);
+        let code = if report.status == "pass" { 0 } else { 1 };
+        serde_json::to_writer(io::stdout().lock(), &report)
+            .map_err(|_| EngineError::new(ErrorCode::OutputFault, "cannot write offline report"))?;
+        println!();
+        return Ok(code);
+    }
     if args.len() == 4 && args[0] == "import-fir" && args[1] == "--runtime" {
         let asset =
             earph_engine::assets::import(&PathBuf::from(&args[2]), &PathBuf::from(&args[3]))?;
