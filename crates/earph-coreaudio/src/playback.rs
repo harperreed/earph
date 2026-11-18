@@ -9,6 +9,9 @@ use earph_core::{
     ids::Epochs,
 };
 use serde::{Deserialize, Serialize};
+mod fault;
+use fault::FaultSignal;
+pub use fault::{OutputFaultDetail, OutputFaultReason};
 #[cfg(any(target_os = "macos", test))]
 use std::sync::atomic::AtomicUsize;
 use std::sync::{
@@ -90,6 +93,7 @@ pub struct OutputProgress {
     pub audible_position_frames: Option<u64>,
     pub backend_delay_frames: Option<u64>,
     pub fault: bool,
+    pub fault_detail: Option<OutputFaultDetail>,
 }
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct CallbackTiming {
@@ -180,18 +184,18 @@ fn negotiate(request: &OutputRequest, device: &DeviceSnapshot) -> Result<usize, 
 // Atomic bytes keep storage safe even while a terminal fault silences concurrent work.
 #[cfg(any(target_os = "macos", test))]
 struct FaultSignals<const N: usize> {
-    slots: [AtomicU8; N],
+    slots: [FaultSignal; N],
     next: AtomicUsize,
 }
 #[cfg(any(target_os = "macos", test))]
 impl<const N: usize> FaultSignals<N> {
     const fn new() -> Self {
         Self {
-            slots: [const { AtomicU8::new(0) }; N],
+            slots: [const { FaultSignal::new() }; N],
             next: AtomicUsize::new(0),
         }
     }
-    fn reserve(&'static self) -> Result<&'static AtomicU8, CoreAudioError> {
+    fn reserve(&'static self) -> Result<&'static FaultSignal, CoreAudioError> {
         let index = self
             .next
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |next| {
@@ -207,6 +211,7 @@ impl<const N: usize> FaultSignals<N> {
     }
 }
 // SDK listener removal does not document callback quiescence. Slots are never reused or freed.
+// The 65536 eight-byte slots retain 512 KiB of lifetime metadata, separate from ring audio storage.
 #[cfg(any(target_os = "macos", test))]
 static FAULT_SIGNALS: FaultSignals<65536> = FaultSignals::new();
 
@@ -220,7 +225,7 @@ struct Ring {
     callbacks: AtomicU64,
     enabled: AtomicBool,
     finished: AtomicBool,
-    fault: &'static AtomicU8,
+    fault: &'static FaultSignal,
     #[cfg(any(target_os = "macos", test))]
     rendering: AtomicBool,
 }
@@ -263,15 +268,24 @@ impl Ring {
             .min(self.capacity)
     }
     #[cfg(any(target_os = "macos", test))]
-    fn fail(&self) {
-        self.fault.store(1, Ordering::Release);
+    fn fail(&self, reason: OutputFaultReason) {
+        self.fail_with_frames(reason, None, None);
+    }
+    #[cfg(any(target_os = "macos", test))]
+    fn fail_with_frames(
+        &self,
+        reason: OutputFaultReason,
+        requested: Option<u64>,
+        queued: Option<u64>,
+    ) {
+        self.fault.latch(reason, requested, queued);
         self.enabled.store(false, Ordering::Release);
     }
     #[cfg(any(target_os = "macos", test))]
     fn render(&self, destination: &mut [u8]) {
         destination.fill(0);
         self.callbacks.fetch_add(1, Ordering::Relaxed);
-        if !self.enabled.load(Ordering::Acquire) || self.fault.load(Ordering::Acquire) != 0 {
+        if !self.enabled.load(Ordering::Acquire) || self.fault.is_set() {
             return;
         }
         if self
@@ -279,7 +293,7 @@ impl Ring {
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_err()
         {
-            self.fail();
+            self.fail(OutputFaultReason::RingReentry);
             return;
         }
         self.render_locked(destination);
@@ -290,7 +304,7 @@ impl Ring {
         if !destination.len().is_multiple_of(self.frame_bytes)
             || destination.len() / self.frame_bytes > 8192
         {
-            self.fail();
+            self.fail(OutputFaultReason::CallbackBufferSize);
             return;
         }
         let requested = (destination.len() / self.frame_bytes) as u64;
@@ -300,7 +314,12 @@ impl Ring {
         let write = self.write.load(Ordering::Acquire);
         let available = write.saturating_sub(read);
         if available > self.capacity || (!finished && available < requested) {
-            self.fail();
+            let reason = if write < read || available > self.capacity {
+                OutputFaultReason::RingCursorInvalid
+            } else {
+                OutputFaultReason::RingUnderrun
+            };
+            self.fail_with_frames(reason, Some(requested), Some(available));
             return;
         }
         let frames = available.min(requested);
@@ -356,9 +375,7 @@ impl Producer {
         offset: usize,
         frames: usize,
     ) -> Result<WriteProgress, CoreAudioError> {
-        if self.cancelled
-            || self.ring.fault.load(Ordering::Acquire) != 0
-            || self.ring.finished.load(Ordering::Acquire)
+        if self.cancelled || self.ring.fault.is_set() || self.ring.finished.load(Ordering::Acquire)
         {
             return Err(error(
                 ErrorCode::OutputFault,
@@ -449,7 +466,7 @@ impl Producer {
         Ok(WriteProgress::Accepted { frames: count })
     }
     fn finish(&mut self) -> Result<(), CoreAudioError> {
-        if self.cancelled || self.ring.fault.load(Ordering::Acquire) != 0 {
+        if self.cancelled || self.ring.fault.is_set() {
             return Err(error(ErrorCode::OutputFault, "output is terminal"));
         }
         self.ring.finished.store(true, Ordering::Release);
@@ -516,7 +533,7 @@ impl CoreAudioOutput {
         self.producer.ring.audio_storage_bytes()
     }
     pub fn state(&self) -> OutputState {
-        if self.producer.ring.fault.load(Ordering::Acquire) != 0 {
+        if self.producer.ring.fault.is_set() {
             OutputState::Failed
         } else {
             self.state
@@ -558,19 +575,23 @@ impl CoreAudioOutput {
         {
             let current = crate::inspect(&self.report.requested.device_uid)?;
             if current.object_id != self.report.observed.object_id {
-                self.producer.ring.fail();
+                self.producer
+                    .ring
+                    .fail(OutputFaultReason::DeviceIdentityChanged);
                 return Err(error(
                     ErrorCode::DeviceUnavailable,
                     "selected device identity changed",
                 ));
             }
             if let Err(error) = negotiate(&self.report.requested, &current) {
-                self.producer.ring.fail();
+                self.producer
+                    .ring
+                    .fail(OutputFaultReason::DeviceConfigurationChanged);
                 return Err(error);
             }
             self.producer.ring.enabled.store(true, Ordering::Release);
             if let Err(error) = self.native.start() {
-                self.producer.ring.fail();
+                self.producer.ring.fail(OutputFaultReason::NativeStart);
                 return Err(error);
             }
             self.state = OutputState::Running;
@@ -595,7 +616,7 @@ impl CoreAudioOutput {
         self.producer.ring.enabled.store(false, Ordering::Release);
         #[cfg(target_os = "macos")]
         if let Err(error) = self.native.stop() {
-            self.producer.ring.fail();
+            self.producer.ring.fail(OutputFaultReason::NativeStop);
             return Err(error);
         }
         self.state = OutputState::Paused;
@@ -603,8 +624,13 @@ impl CoreAudioOutput {
     }
     pub fn progress(&self) -> OutputProgress {
         let ring = &self.producer.ring;
+        let fault_detail = ring.fault.detail();
         OutputProgress {
-            state: self.state(),
+            state: if fault_detail.is_some() {
+                OutputState::Failed
+            } else {
+                self.state
+            },
             submitted_frames: self.producer.submitted,
             callback_delivered_frames: ring.consumed.load(Ordering::Acquire),
             queued_frames: ring.queued_frames(),
@@ -612,7 +638,8 @@ impl CoreAudioOutput {
             measurement_boundary: "core_audio_ioproc_delivery",
             audible_position_frames: None,
             backend_delay_frames: None,
-            fault: ring.fault.load(Ordering::Acquire) != 0,
+            fault: fault_detail.is_some(),
+            fault_detail,
         }
     }
     pub fn callback_timing(&self) -> CallbackTiming {
@@ -640,7 +667,7 @@ impl CoreAudioOutput {
                 Ok(value) if self.state() == OutputState::Running => Ok(value),
                 Ok(_) => Ok(None),
                 Err(mut error) => {
-                    ring.fail();
+                    ring.fail(OutputFaultReason::NativePresentation);
                     error.code = ErrorCode::OutputFault;
                     Err(error)
                 }
@@ -655,7 +682,7 @@ impl CoreAudioOutput {
         self.producer.ring.enabled.store(false, Ordering::Release);
         #[cfg(target_os = "macos")]
         if let Err(error) = self.native.stop() {
-            self.producer.ring.fail();
+            self.producer.ring.fail(OutputFaultReason::NativeStop);
             return Err(error);
         }
         self.producer.cancel();
@@ -668,7 +695,7 @@ impl CoreAudioOutput {
         self.stop()?;
         #[cfg(target_os = "macos")]
         if let Err(error) = self.native.close() {
-            self.producer.ring.fail();
+            self.producer.ring.fail(OutputFaultReason::NativeClose);
             return Err(error);
         }
         self.state = OutputState::Closed;

@@ -14,8 +14,24 @@ fn error(error: earph_coreaudio::CoreAudioError) -> EngineError {
     }
     EngineError::new(error.code, error.message)
 }
-fn counters(progress: earph_coreaudio::OutputProgress) -> Result<Counters, EngineError> {
+fn report_fault(
+    operation: &'static str,
+    error: Option<earph_coreaudio::CoreAudioError>,
+    progress: Option<earph_coreaudio::OutputProgress>,
+) {
+    // Report on the worker thread, outside the callback's allocation and I/O restrictions.
+    let _ = write_fault_diagnostic(&mut std::io::stderr().lock(), operation, error, progress);
+}
+fn open_error(operation: &'static str, failure: earph_coreaudio::CoreAudioError) -> EngineError {
+    report_fault(operation, Some(failure), None);
+    error(failure)
+}
+fn counters(
+    operation: &'static str,
+    progress: earph_coreaudio::OutputProgress,
+) -> Result<Counters, EngineError> {
     if progress.fault {
+        report_fault(operation, None, Some(progress));
         return Err(EngineError::new(
             ErrorCode::OutputFault,
             "Core Audio output faulted; explicit recovery is required",
@@ -48,13 +64,22 @@ impl NativeOutput {
             ));
         }
         let request = request(config, format)?;
-        let native = CoreAudioOutput::open(request.clone(), epochs).map_err(error)?;
+        let native = CoreAudioOutput::open(request.clone(), epochs)
+            .map_err(|failure| open_error("open", failure))?;
         Ok(Self {
             native,
             request,
             drain_deadline: None,
             complete: None,
         })
+    }
+    fn native_error(
+        &self,
+        operation: &'static str,
+        failure: earph_coreaudio::CoreAudioError,
+    ) -> EngineError {
+        report_fault(operation, Some(failure), Some(self.native.progress()));
+        error(failure)
     }
     fn start_ready(&mut self, eof: bool) -> Result<(), EngineError> {
         if self.native.state() == OutputState::Prepared
@@ -65,7 +90,7 @@ impl NativeOutput {
         {
             self.native
                 .start(SignalPermission::Granted)
-                .map_err(error)?;
+                .map_err(|failure| self.native_error("start", failure))?;
         }
         Ok(())
     }
@@ -99,7 +124,10 @@ impl Output for NativeOutput {
         offset: usize,
         frames: usize,
     ) -> Result<Option<usize>, EngineError> {
-        let result = self.native.write(block, offset, frames).map_err(error)?;
+        let result = self
+            .native
+            .write(block, offset, frames)
+            .map_err(|failure| self.native_error("write", failure))?;
         self.start_ready(false)?;
         match result {
             WriteProgress::Accepted { frames } => Ok(Some(frames)),
@@ -108,15 +136,20 @@ impl Output for NativeOutput {
     }
     fn progress(&mut self) -> Result<Counters, EngineError> {
         self.complete
-            .map_or_else(|| counters(self.native.progress()), Ok)
+            .map_or_else(|| counters("progress", self.native.progress()), Ok)
     }
     fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError> {
         if self.native.state() == OutputState::Running {
-            self.native.pause().map_err(error)?;
+            self.native
+                .pause()
+                .map_err(|failure| self.native_error("suspend_pause", failure))?;
         }
-        let progress = counters(self.native.progress())?;
-        self.native.close().map_err(error)?;
-        self.native = CoreAudioOutput::open(self.request.clone(), epochs).map_err(error)?;
+        let progress = counters("suspend_progress", self.native.progress())?;
+        self.native
+            .close()
+            .map_err(|failure| self.native_error("suspend_close", failure))?;
+        self.native = CoreAudioOutput::open(self.request.clone(), epochs)
+            .map_err(|failure| open_error("suspend_reopen", failure))?;
         self.drain_deadline = None;
         self.complete = None;
         Ok(progress)
@@ -128,17 +161,26 @@ impl Output for NativeOutput {
         let deadline = *self
             .drain_deadline
             .get_or_insert_with(|| Instant::now() + Duration::from_secs(5));
-        self.native.finish().map_err(error)?;
+        self.native
+            .finish()
+            .map_err(|failure| self.native_error("finish", failure))?;
         self.start_ready(true)?;
-        let progress = counters(self.native.progress())?;
+        let progress = counters("finish_progress", self.native.progress())?;
         if progress.submitted == 0
-            || self.native.scheduled_output_complete().map_err(error)? == Some(true)
+            || self
+                .native
+                .scheduled_output_complete()
+                .map_err(|failure| self.native_error("finish_presentation", failure))?
+                == Some(true)
         {
-            self.native.close().map_err(error)?;
+            self.native
+                .close()
+                .map_err(|failure| self.native_error("finish_close", failure))?;
             self.complete = Some(progress);
             return Ok(Some(progress));
         }
         if Instant::now() >= deadline {
+            report_fault("finish_deadline", None, Some(self.native.progress()));
             return Err(EngineError::new(
                 ErrorCode::OutputFault,
                 "Core Audio scheduled handoff remained pending or unknown",
@@ -151,13 +193,15 @@ impl Output for NativeOutput {
         Ok(())
     }
     fn stop(&mut self) -> Result<(), EngineError> {
-        self.native.close().map_err(error)
+        self.native
+            .close()
+            .map_err(|failure| self.native_error("stop", failure))
     }
 }
 impl Drop for NativeOutput {
     fn drop(&mut self) {
         if let Err(failure) = self.native.close() {
-            let _ = error(failure);
+            let _ = self.native_error("drop_close", failure);
         }
     }
 }
