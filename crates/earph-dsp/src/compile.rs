@@ -67,6 +67,10 @@ fn compile_inner(
     input_bounds: &[f64],
     enforce_input_bounds: bool,
 ) -> Result<CompiledPlan, GraphError> {
+    validate_input_bounds(context, input_bounds)?;
+    resolve_island(document, context, assets)?.finish(input_bounds, enforce_input_bounds)
+}
+fn validate_input_bounds(context: &CompileContext, input_bounds: &[f64]) -> Result<(), GraphError> {
     if input_bounds.len() != context.input_format.channels().count()
         || input_bounds.iter().any(|v| !v.is_finite() || *v < 0.0)
     {
@@ -74,6 +78,22 @@ fn compile_inner(
             "input peak bounds must match finite channel geometry",
         ));
     }
+    Ok(())
+}
+
+pub(crate) struct ValidatedGraph<'a> {
+    pub nodes: BTreeMap<NodeId, &'a Node>,
+    pub incoming: BTreeMap<NodeId, Vec<&'a Edge>>,
+    pub outgoing: BTreeMap<NodeId, Vec<&'a Edge>>,
+    pub order: Vec<NodeId>,
+    pub input: &'a Node,
+    pub output: &'a Node,
+}
+pub(crate) fn validate_graph<'a>(
+    document: &'a GraphDocument,
+    context: &CompileContext,
+    allow_src: bool,
+) -> Result<ValidatedGraph<'a>, GraphError> {
     if document.schema_version != 1 {
         return Err(GraphError::new(
             ErrorCode::CapabilityUnsupported,
@@ -94,10 +114,11 @@ fn compile_inner(
         if nodes.insert(node.id.clone(), node).is_some() {
             return Err(invalid("duplicate node identifier").at_node(&node.id));
         }
-        validate_node(node, context)?;
+        validate_node(node, context, allow_src)?;
     }
     let output = nodes
         .get(&document.output)
+        .copied()
         .ok_or_else(|| invalid("selected output is missing").at_node(&document.output))?;
     if !matches!(output.kind, NodeKind::Output) {
         return Err(invalid("selected node is not an output").at_node(&output.id));
@@ -145,8 +166,12 @@ fn compile_inner(
             NodeKind::Matrix { input_channels, .. } => input_channels,
             _ => to.format.channels,
         };
+        let target_rate = match to.kind {
+            NodeKind::Src { input_rate_hz, .. } => input_rate_hz,
+            _ => to.format.sample_rate_hz,
+        };
         if from.format.domain != to.format.domain
-            || from.format.sample_rate_hz != to.format.sample_rate_hz
+            || from.format.sample_rate_hz != target_rate
             || from.format.precision != to.format.precision
             || from.format.channels != target_channels
         {
@@ -191,12 +216,56 @@ fn compile_inner(
         return Err(invalid("node does not reach selected output").at_node(id));
     }
 
+    Ok(ValidatedGraph {
+        nodes,
+        incoming,
+        outgoing,
+        order,
+        input,
+        output,
+    })
+}
+
+pub(crate) struct IslandBuilder {
+    document: GraphDocument,
+    context: CompileContext,
+    schedule: Vec<CompiledNode>,
+    input_index: usize,
+    output_index: usize,
+    resources: ResourceUsage,
+    transformations: Vec<Transformation>,
+    preservation: PreservationDecision,
+    kernel_state_bytes: u64,
+    asset_bytes: u64,
+    preparation_scratch_bytes: u64,
+    bounded_iir: bool,
+}
+pub(crate) fn resolve_island(
+    document: &GraphDocument,
+    context: &CompileContext,
+    assets: &[FirCoefficients],
+) -> Result<IslandBuilder, GraphError> {
+    let ValidatedGraph {
+        nodes,
+        incoming,
+        order,
+        input,
+        output,
+        ..
+    } = validate_graph(document, context, false)?;
     let mut transformations = Vec::new();
     for id in &order {
         let transformation = match nodes[id].kind {
             NodeKind::Gain { .. } => Some(Transformation::Gain { node: id.clone() }),
             NodeKind::Peq { .. } => Some(Transformation::Peq { node: id.clone() }),
             NodeKind::Convolution { .. } => Some(Transformation::Convolution { node: id.clone() }),
+            NodeKind::Src { .. } => {
+                return Err(GraphError::new(
+                    ErrorCode::CapabilityUnsupported,
+                    "SRC requires the stream compiler",
+                )
+                .at_node(id));
+            }
             NodeKind::Delay { delay_frames } if delay_frames > 0 => {
                 Some(Transformation::Delay { node: id.clone() })
             }
@@ -284,6 +353,13 @@ fn compile_inner(
             });
         }
         let kernel = match &node.kind {
+            NodeKind::Src { .. } => {
+                return Err(GraphError::new(
+                    ErrorCode::CapabilityUnsupported,
+                    "SRC requires the stream compiler",
+                )
+                .at_node(&id));
+            }
             NodeKind::Peq { filter } => {
                 let design =
                     PeqDesign::prepare(filter, node.format.sample_rate_hz, node.format.channels)
@@ -428,25 +504,71 @@ fn compile_inner(
             kernel,
         });
     }
-    resolve_bounds(&mut schedule, bounded_iir, input_bounds)?;
-    for node in &schedule {
-        if matches!(node.kind, NodeKind::Peq { .. }) {
-            transformations.push(Transformation::BoundedIirTruncation {
-                node: node.id.clone(),
-                frames: node.tail_frames,
-            });
+
+    Ok(IslandBuilder {
+        document: document.clone(),
+        context: *context,
+        input_index: indexes[&input.id],
+        output_index: indexes[&output.id],
+        schedule,
+        resources,
+        transformations,
+        preservation,
+        kernel_state_bytes,
+        asset_bytes,
+        preparation_scratch_bytes,
+        bounded_iir,
+    })
+}
+impl IslandBuilder {
+    pub(crate) fn requirement(&self) -> crate::stream::StreamStageRequirement {
+        crate::stream::StreamStageRequirement::SameRate {
+            input_format: self.context.input_format,
+            output_format: self.context.output_format,
+            quantum_frames: self.context.quantum_frames,
+            kernel_bytes: self.resources.buffer_bytes,
+            preparation_scratch_bytes: self.preparation_scratch_bytes,
         }
     }
-    let input_index = indexes[&input.id];
-    let output_index = indexes[&output.id];
-    let latency_frames = schedule[output_index].latency_frames;
-    let tail_frames = schedule[output_index].tail_frames;
-    let mut canonical = document.clone();
-    canonical.nodes.sort_by(|a, b| a.id.cmp(&b.id));
-    canonical.edges.sort_by(|a, b| {
-        (&a.from, &a.to, a.from_port, a.to_port).cmp(&(&b.from, &b.to, b.from_port, b.to_port))
-    });
-    let bytes = serde_json::to_vec(&(
+    pub(crate) fn finish(
+        self,
+        input_bounds: &[f64],
+        enforce_input_bounds: bool,
+    ) -> Result<CompiledPlan, GraphError> {
+        let Self {
+            document,
+            context,
+            mut schedule,
+            input_index,
+            output_index,
+            resources,
+            mut transformations,
+            preservation,
+            kernel_state_bytes,
+            asset_bytes,
+            preparation_scratch_bytes,
+            bounded_iir,
+        } = self;
+        let context = &context;
+        validate_input_bounds(context, input_bounds)?;
+
+        resolve_bounds(&mut schedule, bounded_iir, input_bounds)?;
+        for node in &schedule {
+            if matches!(node.kind, NodeKind::Peq { .. }) {
+                transformations.push(Transformation::BoundedIirTruncation {
+                    node: node.id.clone(),
+                    frames: node.tail_frames,
+                });
+            }
+        }
+        let latency_frames = schedule[output_index].latency_frames;
+        let tail_frames = schedule[output_index].tail_frames;
+        let mut canonical = document;
+        canonical.nodes.sort_by(|a, b| a.id.cmp(&b.id));
+        canonical.edges.sort_by(|a, b| {
+            (&a.from, &a.to, a.from_port, a.to_port).cmp(&(&b.from, &b.to, b.from_port, b.to_port))
+        });
+        let bytes = serde_json::to_vec(&(
         IMPLEMENTATION_VERSION,
         canonical,
         context.input_format,
@@ -462,28 +584,29 @@ fn compile_inner(
         }).collect::<Vec<_>>(),
     ))
     .map_err(|_| invalid("graph cannot be hashed"))?;
-    let content_hash = Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    Ok(CompiledPlan {
-        content_hash,
-        implementation_version: IMPLEMENTATION_VERSION,
-        schedule,
-        input_index,
-        output_index,
-        context: *context,
-        latency_frames,
-        tail_frames,
-        resources,
-        transformations,
-        preservation,
-        kernel_state_bytes,
-        asset_bytes,
-        preparation_scratch_bytes,
-        bounded_iir,
-        enforce_input_bounds: enforce_input_bounds || kernel_state_bytes > 0,
-    })
+        let content_hash = Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        Ok(CompiledPlan {
+            content_hash,
+            implementation_version: IMPLEMENTATION_VERSION,
+            schedule,
+            input_index,
+            output_index,
+            context: *context,
+            latency_frames,
+            tail_frames,
+            resources,
+            transformations,
+            preservation,
+            kernel_state_bytes,
+            asset_bytes,
+            preparation_scratch_bytes,
+            bounded_iir,
+            enforce_input_bounds: enforce_input_bounds || kernel_state_bytes > 0,
+        })
+    }
 }
 
 fn matches_external(port: PortFormat, external: PcmFormat) -> bool {
@@ -541,6 +664,13 @@ fn structural_bounds(
         previous[node.inputs[0].source_index].clone()
     };
     let output = match &node.kind {
+        NodeKind::Src { .. } => {
+            return Err(GraphError::new(
+                ErrorCode::CapabilityUnsupported,
+                "SRC requires the stream compiler",
+            )
+            .at_node(&node.id));
+        }
         NodeKind::Gain { gain_linear } => input
             .iter()
             .map(|v| upper_product(*v, gain_linear.get().abs()))
@@ -753,7 +883,14 @@ fn resolve_bounds(
     ))
 }
 
-fn validate_node(node: &Node, context: &CompileContext) -> Result<(), GraphError> {
+fn validate_node(node: &Node, context: &CompileContext, allow_src: bool) -> Result<(), GraphError> {
+    if matches!(node.kind, NodeKind::Src { .. }) && !allow_src {
+        return Err(GraphError::new(
+            ErrorCode::CapabilityUnsupported,
+            "SRC requires the stream compiler",
+        )
+        .at_node(&node.id));
+    }
     if node.format.domain != SampleDomain::Pcm {
         return Err(GraphError::new(
             ErrorCode::CapabilityUnsupported,
@@ -768,6 +905,45 @@ fn validate_node(node: &Node, context: &CompileContext) -> Result<(), GraphError
         || node.format.max_quantum_frames > 8192
     {
         return Err(budget().at_node(&node.id));
+    }
+    if let NodeKind::Src {
+        input_rate_hz,
+        preset,
+        chunk_frames,
+    } = node.kind
+    {
+        if context.policy == ProcessingPolicy::StrictPreservation {
+            return Err(GraphError::new(
+                ErrorCode::FidelityPolicyConflict,
+                "SRC changes samples under strict preservation",
+            )
+            .at_node(&node.id));
+        }
+        if node.format.precision != PcmRepresentation::Float64 {
+            return Err(format_error().at_node(&node.id));
+        }
+        let parameters = crate::resample::SrcDesign::preflight(
+            input_rate_hz,
+            node.format.sample_rate_hz,
+            node.format.channels,
+            chunk_frames,
+            preset,
+        )
+        .map_err(|_| {
+            GraphError::new(
+                ErrorCode::FormatUnsupported,
+                "SRC rate or block geometry is not qualified",
+            )
+            .at_node(&node.id)
+        })?;
+        if node.format.max_quantum_frames
+            < parameters
+                .max_output_frames
+                .max(chunk_frames)
+                .max(context.quantum_frames)
+        {
+            return Err(budget().at_node(&node.id));
+        }
     }
     match &node.kind {
         NodeKind::Matrix {

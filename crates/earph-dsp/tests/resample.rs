@@ -4,6 +4,36 @@ use earph_core::{audio::ChannelLayout, dsp_nodes::SrcPreset};
 use earph_dsp::resample::{self, PreparedSrc, SrcDesign, SrcError};
 
 #[test]
+fn pure_parameter_preflight_matches_actual_prepared_geometry_without_allocating() {
+    let (facts, allocations) = measured(|| {
+        SrcDesign::preflight(48000, 96000, ChannelLayout::Stereo, 64, SrcPreset::Quality).unwrap()
+    });
+    assert_eq!(allocations.allocs, 0);
+    assert_eq!(allocations.frees, 0);
+    let design = SrcDesign::analyze(
+        48000,
+        96000,
+        ChannelLayout::Stereo,
+        64,
+        SrcPreset::Quality,
+        16 << 20,
+    )
+    .unwrap();
+    assert_eq!(facts, design.parameters());
+    let prepared = design.instantiate(16 << 20).unwrap();
+    let observed = prepared.metadata();
+    assert_eq!(facts.max_output_frames, observed.max_output_frames);
+    assert_eq!(facts.drain_zero_calls, observed.drain_zero_calls);
+    assert_eq!(facts.pre_scaling_cutoff, observed.pre_scaling_cutoff);
+    assert_eq!(facts.guard_time_numerator, observed.guard_time_numerator);
+    assert_eq!(
+        facts.library_max_relative_ratio,
+        observed.library_max_relative_ratio
+    );
+    assert_eq!(facts.resources, observed.resources);
+}
+
+#[test]
 fn design_preflight_admits_full_construction_before_resolving_coefficients() {
     let (resources, counts) = measured(|| {
         SrcDesign::resource_requirements(

@@ -11,7 +11,58 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use stream::{PreparedStream, StreamBudget, StreamErrorKind, StreamPlan, StreamStagePlan};
+use stream::{
+    PreparedStream, StreamBudget, StreamErrorKind, StreamPlan, StreamStagePlan,
+    StreamStageRequirement,
+};
+
+#[test]
+fn stream_resource_preflight_covers_geometry_metadata_and_full_construction_before_coefficients() {
+    let parameters =
+        SrcDesign::preflight(48000, 96000, ChannelLayout::Stereo, 64, SrcPreset::Quality).unwrap();
+    let requirement = StreamStageRequirement::Src(parameters);
+    let (base, counts) = measured(|| {
+        StreamPlan::resource_preflight(&[requirement], 0, StreamBudget::default()).unwrap()
+    });
+    assert_eq!(counts.allocs, 0);
+    assert_eq!(counts.frees, 0);
+    let metadata =
+        StreamPlan::resource_preflight(&[requirement], 4096, StreamBudget::default()).unwrap();
+    assert_eq!(metadata.resident_bytes, base.resident_bytes + 4096);
+    assert_eq!(
+        metadata.preparation_peak_bytes,
+        base.preparation_peak_bytes + 4096
+    );
+    let rejected = StreamPlan::resource_preflight(
+        &[requirement],
+        4096,
+        StreamBudget {
+            max_preparation_bytes: metadata.preparation_peak_bytes - 1,
+            ..StreamBudget::default()
+        },
+    );
+    assert_eq!(rejected.unwrap_err().kind, StreamErrorKind::Budget);
+    let design = SrcDesign::analyze(
+        48000,
+        96000,
+        ChannelLayout::Stereo,
+        64,
+        SrcPreset::Quality,
+        16 << 20,
+    )
+    .unwrap();
+    let plan = StreamPlan::new(
+        vec![StreamStagePlan::Src(design)],
+        &[1.0; 2],
+        StreamBudget::default(),
+    )
+    .unwrap();
+    assert_eq!(plan.resources(), base);
+    let (_, allocated) = measured(|| {
+        PreparedStream::prepare(plan, Epochs::default(), Arc::new(AtomicBool::new(false))).unwrap()
+    });
+    assert!(allocated.peak as u64 <= base.preparation_peak_bytes);
+}
 
 fn design(input: u32, output: u32, chunk: usize) -> SrcDesign {
     SrcDesign::analyze(

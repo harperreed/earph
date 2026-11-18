@@ -371,6 +371,9 @@ fn execute_node(
     let channels = node.format().channels.count();
     let samples = frames * channels;
     match node.kind() {
+        NodeKind::Src { .. } => {
+            return Err(geometry_error("SRC cannot execute in a same-rate island"));
+        }
         NodeKind::Input => {
             if let Some(input) = input {
                 state.output[..samples].copy_from_slice(input);
