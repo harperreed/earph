@@ -114,7 +114,10 @@ The worker retains one terminal source result until the owner applies and acknow
 Normal EOF and source faults share that bounded lifetime.
 Mute keeps its stream boundary, while source faults survive later matching mute generations.
 Stale results cannot close a replacement source.
-Output facts carry the installed graph generation even when queued settings are older.
+Terminal source tokens carry the installed graph generation even when queued settings are older.
+Ordinary progress carries stream epochs and a playback observation.
+Stop faults also bind to the exact pending Stop and its captured source identity.
+Stop preserves unacknowledged faults for that source; replacement Start discards the old source's result.
 Normal EOF preserves consent; actual source faults revoke it and can require graph recovery.
 
 The session retains at most 1024 command receipts in memory.

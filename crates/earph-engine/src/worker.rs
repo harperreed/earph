@@ -8,6 +8,7 @@ use crate::{
 use earph_core::{
     EngineError, ErrorCode,
     audio::{MemoryBudget, PcmBlock, PcmFormat},
+    control::SourceKind,
     gain::GainRamp,
     graph_control::{GraphActivationAck, GraphActivationRequest},
     ids::{Epochs, OwnerId, QueueEntryId, RequestId, SessionId},
@@ -43,6 +44,36 @@ pub(crate) struct Settings {
     pub snapshot: SessionSnapshot,
     pub playing: bool,
 }
+#[derive(Clone)]
+pub(crate) struct StopRequest {
+    pub request_id: RequestId,
+    pub settings: Settings,
+}
+impl StopRequest {
+    pub fn matches_snapshot(&self, snapshot: &SessionSnapshot) -> bool {
+        let captured = &self.settings.snapshot;
+        captured.owner_id == snapshot.owner_id
+            && captured.session_id.is_some()
+            && captured.session_id == snapshot.session_id
+            && captured.source == Some(SourceKind::LocalFile)
+            && snapshot.source == Some(SourceKind::LocalFile)
+            && captured.epochs == snapshot.epochs
+            && captured.graph_epoch == snapshot.graph_epoch
+            && captured.device_epoch == snapshot.device_epoch
+            && snapshot.operation.as_ref() == Some(&self.request_id)
+    }
+    pub fn matches_source(&self, token: &SourceTerminalToken) -> bool {
+        let captured = &self.settings.snapshot;
+        captured.owner_id == token.owner_id
+            && captured.session_id.as_ref() == Some(&token.session_id)
+            && captured.epochs.session == token.origin_epochs.session
+            && captured.epochs.stream >= token.origin_epochs.stream
+            && captured.device_epoch == token.device_epoch
+            // One cancelled activation may have installed the owner's next generation.
+            && (captured.graph_epoch == token.graph_epoch
+                || captured.graph_epoch.checked_add(1) == Some(token.graph_epoch))
+    }
+}
 pub(crate) enum Action {
     ActivateGraph {
         settings: Settings,
@@ -60,15 +91,13 @@ pub(crate) enum Action {
         settings: Settings,
         position: u64,
     },
-    Stop {
-        epochs: Epochs,
-    },
+    Stop(StopRequest),
     AcknowledgeSourceTerminal(SourceTerminalToken),
     Shutdown,
 }
 impl Action {
     fn is_safety(&self) -> bool {
-        matches!(self, Self::Pause(_) | Self::Stop { .. } | Self::Shutdown)
+        matches!(self, Self::Pause(_) | Self::Stop(_) | Self::Shutdown)
             || matches!(self, Self::Settings(settings) if settings.snapshot.muted)
     }
 }
@@ -115,6 +144,12 @@ pub(crate) enum Event {
     Failed {
         epochs: Epochs,
         token: Option<SourceTerminalToken>,
+        error: EngineError,
+        observation: Option<PlaybackObservation>,
+    },
+    StopFailed {
+        request: Box<StopRequest>,
+        token: SourceTerminalToken,
         error: EngineError,
         observation: Option<PlaybackObservation>,
     },
@@ -188,7 +223,7 @@ impl Worker {
         }
         if matches!(
             action,
-            Action::Stop { .. } | Action::Shutdown | Action::Start { .. }
+            Action::Stop(_) | Action::Shutdown | Action::Start { .. }
         ) && let Some(cancel) = &self.cancel
         {
             cancel.store(true, Ordering::Release);
@@ -970,6 +1005,7 @@ enum SourceTerminalOutcome {
     Failed {
         error: EngineError,
         observation: Option<PlaybackObservation>,
+        stop: Option<Box<StopRequest>>,
     },
 }
 impl SourceTerminal {
@@ -1012,11 +1048,22 @@ impl SourceTerminal {
             },
             control_epochs: snapshot.epochs,
             reported_epochs: None,
-            outcome: SourceTerminalOutcome::Failed { error, observation },
+            outcome: SourceTerminalOutcome::Failed {
+                error,
+                observation,
+                stop: None,
+            },
         })
     }
     fn matches_source(&self, snapshot: &SessionSnapshot) -> bool {
-        self.token.matches_source(snapshot)
+        let matches = match &self.outcome {
+            SourceTerminalOutcome::Failed {
+                stop: Some(request),
+                ..
+            } => request.matches_snapshot(snapshot) && request.matches_source(&self.token),
+            _ => self.token.matches_source(snapshot),
+        };
+        matches
             && matches!(
                 snapshot.transport,
                 TransportState::Preparing
@@ -1037,9 +1084,23 @@ impl SourceTerminal {
                 token: self.token.clone(),
                 observation: observation.clone(),
             },
-            SourceTerminalOutcome::Failed { error, observation } => Event::Failed {
+            SourceTerminalOutcome::Failed {
+                error,
+                observation,
+                stop: None,
+            } => Event::Failed {
                 epochs: self.control_epochs,
                 token: Some(self.token.clone()),
+                error: *error,
+                observation: observation.clone(),
+            },
+            SourceTerminalOutcome::Failed {
+                error,
+                observation,
+                stop: Some(request),
+            } => Event::StopFailed {
+                request: request.clone(),
+                token: self.token.clone(),
                 error: *error,
                 observation: observation.clone(),
             },
@@ -1047,6 +1108,30 @@ impl SourceTerminal {
         emit(events, event)?;
         self.reported_epochs = Some(self.control_epochs);
         Ok(())
+    }
+    fn bind_stop(
+        &mut self,
+        request: &StopRequest,
+        events: &SyncSender<Event>,
+    ) -> Result<bool, EngineError> {
+        if !request.matches_source(&self.token) {
+            return Ok(false);
+        }
+        let SourceTerminalOutcome::Failed { stop, .. } = &mut self.outcome else {
+            return Ok(false);
+        };
+        if stop.as_ref().is_some_and(|prior| {
+            prior.request_id == request.request_id
+                && prior.settings.snapshot == request.settings.snapshot
+        }) {
+            self.report(events)?;
+            return Ok(true);
+        }
+        *stop = Some(Box::new(request.clone()));
+        self.control_epochs = request.settings.snapshot.epochs;
+        self.reported_epochs = None;
+        self.report(events)?;
+        Ok(true)
     }
     fn reconcile(
         &mut self,
@@ -1114,6 +1199,48 @@ fn retain_source_failure(
         }
     }
 }
+type StoppedSource = (Settings, PlaybackObservation, Option<EngineError>);
+fn stop_source(
+    request: StopRequest,
+    playback: &mut Option<Playback>,
+    stopped: &mut Option<StoppedSource>,
+    terminal: &mut Option<SourceTerminal>,
+    view: &Mutex<PlanView>,
+    events: &SyncSender<Event>,
+) -> Result<(), EngineError> {
+    if let Some(mut current) = playback.take() {
+        let observation = current.failure_observation();
+        let failure = current.output.stop().err();
+        clear_reservation(view, current.epochs());
+        *stopped = Some((current.failure_context(None), observation, failure));
+    }
+    if let Some(failed) = terminal.as_mut()
+        && failed.bind_stop(&request, events)?
+    {
+        *stopped = None;
+        return Ok(());
+    }
+    match stopped.take() {
+        Some((settings, observation, Some(error))) => {
+            let mut failed = SourceTerminal::failed(&settings, error, Some(observation))?;
+            if !failed.bind_stop(&request, events)? {
+                failed.report(events)?;
+            }
+            *terminal = Some(failed);
+            Ok(())
+        }
+        value => {
+            *terminal = None;
+            emit(
+                events,
+                Event::Stopped {
+                    epochs: request.settings.snapshot.epochs,
+                    observation: value.map(|(_, observation, _)| observation),
+                },
+            )
+        }
+    }
+}
 fn run(
     receiver: Receiver<Action>,
     events: SyncSender<Event>,
@@ -1122,7 +1249,7 @@ fn run(
     progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
 ) {
     let mut playback: Option<Playback> = None;
-    let mut stopped: Option<(Settings, PlaybackObservation, Option<EngineError>)> = None;
+    let mut stopped: Option<StoppedSource> = None;
     let mut terminal: Option<SourceTerminal> = None;
     loop {
         let action = if playback.is_some() {
@@ -1139,10 +1266,7 @@ fn run(
         };
         if let Some(action) = action {
             queued.fetch_sub(1, Ordering::AcqRel);
-            if matches!(
-                action,
-                Action::Start { .. } | Action::Stop { .. } | Action::Shutdown
-            ) {
+            if matches!(action, Action::Start { .. } | Action::Shutdown) {
                 terminal = None;
             }
             let failure_settings = match &action {
@@ -1199,34 +1323,14 @@ fn run(
                     Ok(())
                 }
                 Action::Shutdown => break,
-                Action::Stop { epochs } => {
-                    if let Some(mut current) = playback.take() {
-                        let observation = current.failure_observation();
-                        let failure = current.output.stop().err();
-                        clear_reservation(&view, current.epochs());
-                        stopped = Some((current.failure_context(None), observation, failure));
-                    }
-                    match stopped.take() {
-                        Some((mut settings, observation, Some(error))) => {
-                            settings.snapshot.epochs = epochs;
-                            retain_source_failure(
-                                &mut terminal,
-                                &settings,
-                                error,
-                                Some(observation),
-                                &events,
-                            );
-                            Ok(())
-                        }
-                        value => emit(
-                            &events,
-                            Event::Stopped {
-                                epochs,
-                                observation: value.map(|(_, observation, _)| observation),
-                            },
-                        ),
-                    }
-                }
+                Action::Stop(request) => stop_source(
+                    request,
+                    &mut playback,
+                    &mut stopped,
+                    &mut terminal,
+                    &view,
+                    &events,
+                ),
                 Action::Start {
                     settings,
                     entries,
@@ -1978,6 +2082,235 @@ mod tests {
     }
     #[test]
     #[cfg(target_os = "linux")]
+    fn stop_preserves_an_unacknowledged_native_fault_for_the_same_source() {
+        let name =
+            "worker::tests::stop_preserves_an_unacknowledged_native_fault_for_the_same_source";
+        if std::env::var("EARPH_STOP_FAULT_TEST_CHILD").as_deref() != Ok(name) {
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", name, "--nocapture"])
+                .env("EARPH_STOP_FAULT_TEST_CHILD", name)
+                .output()
+                .unwrap();
+            let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../target/stop-native-fault")
+                .join(format!(
+                    "{}-{}",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos()
+                ));
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(directory.join("stdout.log"), &result.stdout).unwrap();
+            std::fs::write(directory.join("stderr.log"), &result.stderr).unwrap();
+            assert!(
+                result.status.success(),
+                "{} / {}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let diagnostic = String::from_utf8_lossy(&result.stderr);
+            assert!(diagnostic.contains("/dev/full write failed"));
+            assert!(diagnostic.contains("\"code\":\"OUTPUT_FAULT\""));
+            return;
+        }
+        let (mut worker, mut settings, _, _) = drain_proof(1);
+        let mut entries = worker.view.lock().unwrap().entries.clone();
+        let path = std::path::Path::new(&entries[0].path).with_file_name("native-fault.wav");
+        let mut bytes = std::fs::read(&entries[0].path).unwrap()[..44].to_vec();
+        bytes[4..8].copy_from_slice(&(36_u32 + 8193 * 4).to_le_bytes());
+        bytes[40..44].copy_from_slice(&(8193_u32 * 4).to_le_bytes());
+        bytes.resize(44 + 8193 * 4, 0);
+        std::fs::write(&path, bytes).unwrap();
+        entries[0].path = path.to_str().unwrap().into();
+        settings.snapshot.epochs.session += 1;
+        settings.snapshot.session_id = Some(SessionId::new("fault-before-stop").unwrap());
+        settings.snapshot.output.as_mut().unwrap().endpoint = "file:/dev/full,raw".into();
+        worker
+            .send(Action::Start {
+                settings: settings.clone(),
+                entries,
+                cancel: Arc::new(AtomicBool::new(false)),
+            })
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let token = loop {
+            match worker
+                .events
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .unwrap()
+            {
+                Event::Failed {
+                    error,
+                    token: Some(token),
+                    ..
+                } => {
+                    assert_eq!(error.code, ErrorCode::OutputFault);
+                    break token;
+                }
+                Event::Drained { .. } => panic!("full device unexpectedly completed"),
+                _ => {}
+            }
+        };
+        for _ in 0..2 {
+            settings.snapshot.muted = false;
+            worker.send(Action::Settings(settings.clone())).unwrap();
+            settings.snapshot.muted = true;
+            settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
+            worker.send(Action::Settings(settings.clone())).unwrap();
+            assert!(matches!(worker.events.recv_timeout(Duration::from_secs(5)),
+                Ok(Event::Failed {token:Some(actual),error,..}) if actual==token && error.code==ErrorCode::OutputFault));
+        }
+        settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
+        settings.snapshot.muted = true;
+        let request_id = RequestId::new("stop-after-native-fault").unwrap();
+        settings.snapshot.operation = Some(request_id.clone());
+        worker
+            .send(Action::Stop(StopRequest {
+                request_id,
+                settings: settings.clone(),
+            }))
+            .unwrap();
+        assert!(matches!(worker.events.recv_timeout(Duration::from_secs(5)),
+            Ok(Event::StopFailed { error,token:actual, .. }) if error.code==ErrorCode::OutputFault && actual==token));
+        let mut wrong = token.clone();
+        wrong.final_entry_id = QueueEntryId::new("other-entry").unwrap();
+        worker
+            .send(Action::AcknowledgeSourceTerminal(wrong))
+            .unwrap();
+        settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
+        let request_id = RequestId::new("retry-stop-after-native-fault").unwrap();
+        settings.snapshot.operation = Some(request_id.clone());
+        worker
+            .send(Action::Stop(StopRequest {
+                request_id,
+                settings: settings.clone(),
+            }))
+            .unwrap();
+        assert!(matches!(worker.events.recv_timeout(Duration::from_secs(5)),
+            Ok(Event::StopFailed {token:actual,..}) if actual==token));
+        worker
+            .send(Action::AcknowledgeSourceTerminal(token))
+            .unwrap();
+        settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
+        let request_id = RequestId::new("stop-after-fault-ack").unwrap();
+        settings.snapshot.operation = Some(request_id.clone());
+        worker
+            .send(Action::Stop(StopRequest {
+                request_id,
+                settings,
+            }))
+            .unwrap();
+        assert!(matches!(
+            worker.events.recv_timeout(Duration::from_secs(5)),
+            Ok(Event::Stopped { .. })
+        ));
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn stop_binds_a_cancelled_native_fault_without_relabeling_the_installed_graph() {
+        let (mut current, events, receiver) = prepared_nonzero_source();
+        let captured = current.settings.clone();
+        let observed = current.observe().unwrap();
+        let (settings, activation, pipeline) = prepare_activation(&captured, &observed);
+        current
+            .activate_graph(settings, activation, pipeline, &events)
+            .unwrap();
+        current.output.stop().unwrap();
+        let error = current
+            .reposition(current.settings.clone(), None, &events, true)
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::OutputFault);
+        let context = current.failure_context(None);
+        assert_eq!(context.snapshot.graph_epoch, 1);
+        let native_observation = current.failure_observation();
+        let mut settings = captured;
+        settings.snapshot.epochs = current.epochs().next_stream().unwrap();
+        settings.snapshot.muted = true;
+        let request_id = RequestId::new("stop-cancelled-native-fault").unwrap();
+        settings.snapshot.operation = Some(request_id.clone());
+        let request = StopRequest {
+            request_id,
+            settings,
+        };
+        let mut playback = None;
+        let mut stopped = Some((context, native_observation, Some(error)));
+        let mut terminal = None;
+        let view = Mutex::new(PlanView::default());
+        stop_source(
+            request.clone(),
+            &mut playback,
+            &mut stopped,
+            &mut terminal,
+            &view,
+            &events,
+        )
+        .unwrap();
+        let mut saw_ack = false;
+        let mut saw_fault = false;
+        for event in receiver.try_iter() {
+            match event {
+                Event::GraphActivated(_) => saw_ack = true,
+                Event::StopFailed {
+                    request: actual,
+                    token,
+                    error,
+                    ..
+                } => {
+                    saw_fault = true;
+                    assert!(saw_ack);
+                    assert_eq!(actual.settings.snapshot.graph_epoch, 0);
+                    assert_eq!(token.graph_epoch, 1);
+                    assert_eq!(token.origin_epochs.stream, 1);
+                    assert_eq!(actual.settings.snapshot.epochs.stream, 2);
+                    assert_eq!(error.code, ErrorCode::OutputFault);
+                }
+                Event::Stopped { .. } | Event::Failed { .. } => {
+                    panic!("native fault lost its exact Stop binding")
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_fault);
+        assert!(terminal.is_some());
+        stop_source(
+            request,
+            &mut playback,
+            &mut stopped,
+            &mut terminal,
+            &view,
+            &events,
+        )
+        .unwrap();
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_millis(30)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn stop_after_unacknowledged_normal_eof_keeps_its_successful_result() {
+        let (mut worker, mut settings, _, _) = drain_proof(2);
+        settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
+        let request_id = RequestId::new("stop-after-normal-eof").unwrap();
+        settings.snapshot.operation = Some(request_id.clone());
+        worker
+            .send(Action::Stop(StopRequest {
+                request_id,
+                settings: settings.clone(),
+            }))
+            .unwrap();
+        assert!(
+            matches!(worker.events.recv_timeout(Duration::from_secs(5)),Ok(Event::Stopped {epochs,..}) if epochs==settings.snapshot.epochs)
+        );
+        assert!(matches!(
+            worker.events.recv_timeout(Duration::from_millis(30)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
     fn graph_activation_after_proven_native_finish_reports_normal_completion() {
         let (mut worker, settings, token, final_observation) = drain_proof(1);
         let (settings, activation, pipeline) = prepare_activation(&settings, &final_observation);
@@ -2168,9 +2501,10 @@ mod tests {
         assert!(!worker.has_capacity(false));
         assert!(worker.send(Action::Settings(settings(false))).is_err());
         let mute = worker.send(Action::Settings(settings(true)));
-        let stop = worker.send(Action::Stop {
-            epochs: Epochs::default(),
-        });
+        let stop = worker.send(Action::Stop(StopRequest {
+            request_id: RequestId::new("reserved-stop").unwrap(),
+            settings: settings(true),
+        }));
         let actions: Vec<_> = receiver.try_iter().collect();
         assert!(mute.is_ok(), "ordinary commands blocked mute: {mute:?}");
         assert!(stop.is_ok(), "ordinary commands blocked stop: {stop:?}");
@@ -2180,7 +2514,7 @@ mod tests {
             assert!(matches!(action, Action::Settings(s) if !s.snapshot.muted));
         }
         assert!(matches!(&actions[32], Action::Settings(s) if s.snapshot.muted));
-        assert!(matches!(&actions[33], Action::Stop { .. }));
+        assert!(matches!(&actions[33], Action::Stop(_)));
     }
     #[test]
     fn exhausted_safety_reserve_cancels_without_claiming_delivery() {
@@ -2196,9 +2530,10 @@ mod tests {
         assert_eq!(worker.queued.load(Ordering::Acquire), 64);
         assert!(!worker.has_capacity(true));
         let error = worker
-            .send(Action::Stop {
-                epochs: Epochs::default(),
-            })
+            .send(Action::Stop(StopRequest {
+                request_id: RequestId::new("overflow-stop").unwrap(),
+                settings: settings(true),
+            }))
             .unwrap_err();
         assert_eq!(error.code, ErrorCode::SourceBusy);
         assert!(cancel.load(Ordering::Acquire));
@@ -2208,7 +2543,7 @@ mod tests {
         assert!(
             !actions
                 .iter()
-                .any(|action| matches!(action, Action::Stop { .. }))
+                .any(|action| matches!(action, Action::Stop(_)))
         );
     }
     #[test]

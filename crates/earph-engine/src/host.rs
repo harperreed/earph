@@ -4,7 +4,7 @@ use crate::{
     directory,
     graph::{GraphCancellation, GraphService, PreparedPipeline},
     ipc, runtime,
-    worker::{Action, Event, Settings, SourceTerminalToken, Worker},
+    worker::{Action, Event, Settings, SourceTerminalToken, StopRequest, Worker},
 };
 use earph_core::{
     EngineError, ErrorCode,
@@ -363,9 +363,10 @@ fn dispatch(
             entries: session.queue_snapshot().entries,
             cancel: Arc::new(AtomicBool::new(false)),
         }),
-        Command::OwnerShutdown | Command::Stop => Some(Action::Stop {
-            epochs: settings.snapshot.epochs,
-        }),
+        Command::OwnerShutdown | Command::Stop => Some(Action::Stop(StopRequest {
+            request_id: command.request_id.clone(),
+            settings,
+        })),
         Command::Pause if settings.snapshot.source == Some(SourceKind::LocalFile) => {
             Some(Action::Pause(settings))
         }
@@ -519,6 +520,40 @@ fn observation(
                 return Ok(token);
             }
         }
+        Event::StopFailed {
+            request,
+            token,
+            error,
+            observation,
+        } => {
+            let snapshot = session.snapshot();
+            if session.pending_local_stop_request() != Some(&request.request_id)
+                || !request.matches_snapshot(&snapshot)
+                || !request.matches_source(&token)
+                || observation
+                    .as_ref()
+                    .is_some_and(|value| value.source_entry_id != token.final_entry_id)
+            {
+                return Err(EngineError::new(
+                    ErrorCode::StaleSession,
+                    "Stop failure no longer matches the pending source Stop",
+                ));
+            }
+            if let Some(observation) = observation {
+                advance(
+                    session,
+                    EngineEventKind::LocalProgress { observation },
+                    Some(snapshot.epochs),
+                    clock,
+                );
+            }
+            session.advance(EngineEvent {
+                epochs: snapshot.epochs,
+                monotonic_ns: monotonic(clock),
+                kind: EngineEventKind::LocalFailed { code: error.code },
+            })?;
+            return Ok(Some(token));
+        }
     }
     Ok(None)
 }
@@ -655,7 +690,7 @@ mod tests {
         audio::{ChannelLayout, PcmFormat, PcmRepresentation},
         control::{ControlLimits, OutputBackend, OutputConfiguration, OutputRoute, ReceiptStatus},
         graph::{GraphDocument, GraphProcessingRequest, QuantizationPolicy},
-        ids::{DeviceId, OwnerId, ProfileId, SessionId, ZoneId},
+        ids::{DeviceId, OwnerId, ProfileId, QueueEntryId, SessionId, ZoneId},
         safety::{FidelityPolicy, VolumeMode},
         session::{PlaybackObservation, PlaybackProcessingObservation, TransportState},
     };
@@ -1429,5 +1464,221 @@ mod tests {
             session.submit_graph(seek, monotonic(&clock)).status,
             ReceiptStatus::Accepted
         );
+    }
+    #[test]
+    fn a_native_stop_fault_settles_stop_after_its_graph_acknowledgement_is_cancelled() {
+        for revision in [0, u64::MAX - 7] {
+            let (mut session, ack) = activation_at_revision(revision);
+            let stop = command(
+                &session,
+                "stop-installed-unacknowledged-graph",
+                Command::Stop,
+            );
+            assert_eq!(
+                session.submit_graph(stop.clone(), 8).status,
+                ReceiptStatus::Accepted
+            );
+            assert!(session.graph_activation().is_none());
+            let before = session.snapshot();
+            reconcile_graph_activation(&mut session, ack.clone(), 9, |_| {
+                panic!("cancelled acknowledgement cannot persist")
+            })
+            .unwrap();
+            assert_eq!(session.snapshot(), before);
+            let snapshot = session.snapshot();
+            let mut token = terminal_token(&session, ack.epochs, &ack.observation);
+            token.graph_epoch = snapshot.graph_epoch + 1;
+            let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+            let request = StopRequest {
+                request_id: stop.request_id.clone(),
+                settings: Settings {
+                    snapshot,
+                    playing: false,
+                },
+            };
+            observation(
+                &mut session,
+                Event::StopFailed {
+                    request: Box::new(request),
+                    token,
+                    error: EngineError::new(ErrorCode::OutputFault, "native Stop failed"),
+                    observation: Some(ack.observation),
+                },
+                &clock,
+            )
+            .unwrap();
+            assert_eq!(
+                session.submit_graph(stop, monotonic(&clock) + 1).status,
+                ReceiptStatus::Failed
+            );
+            assert!(!session.snapshot().output_consented);
+            if revision != 0 {
+                assert_eq!(session.snapshot().revision, u64::MAX);
+                assert_eq!(session.snapshot().error, Some(ErrorCode::OutputFault));
+                assert!(session.shutdown_requested());
+            }
+        }
+    }
+    #[test]
+    fn stale_stop_fault_bindings_cannot_settle_an_unrelated_source_or_request() {
+        for invalid in [
+            "request",
+            "owner",
+            "captured_graph",
+            "captured_epoch",
+            "token_owner",
+            "token_session",
+            "token_device",
+            "future_origin",
+            "future_graph",
+            "entry",
+            "replacement",
+        ] {
+            let (mut session, ack) = activation();
+            let stop = command(&session, "bound-stop", Command::Stop);
+            assert_eq!(
+                session.submit_graph(stop.clone(), 8).status,
+                ReceiptStatus::Accepted
+            );
+            let snapshot = session.snapshot();
+            let mut request = StopRequest {
+                request_id: stop.request_id,
+                settings: Settings {
+                    snapshot: snapshot.clone(),
+                    playing: false,
+                },
+            };
+            let mut token = terminal_token(&session, ack.epochs, &ack.observation);
+            let value = ack.observation;
+            match invalid {
+                "request" => request.request_id = RequestId::new("different-stop").unwrap(),
+                "owner" => {
+                    request.settings.snapshot.owner_id =
+                        Some(OwnerId::new("another-owner").unwrap())
+                }
+                "captured_graph" => request.settings.snapshot.graph_epoch += 1,
+                "captured_epoch" => request.settings.snapshot.epochs.stream -= 1,
+                "token_owner" => token.owner_id = Some(OwnerId::new("another-owner").unwrap()),
+                "token_session" => token.session_id = SessionId::new("another-session").unwrap(),
+                "token_device" => token.device_epoch += 1,
+                "future_origin" => token.origin_epochs.stream = snapshot.epochs.stream + 1,
+                "future_graph" => token.graph_epoch = snapshot.graph_epoch + 2,
+                "entry" => token.final_entry_id = QueueEntryId::new("different-entry").unwrap(),
+                "replacement" => {
+                    let mut start = command(
+                        &session,
+                        "replacement-before-old-stop-fault",
+                        Command::Start {
+                            source: SourceKind::LocalFile,
+                            device_id: DeviceId::new("null").unwrap(),
+                            seekable: true,
+                            takeover: true,
+                        },
+                    );
+                    start.session_id = Some(SessionId::new("replacement-stop-source").unwrap());
+                    assert_eq!(
+                        session.submit_graph(start, 9).status,
+                        ReceiptStatus::Accepted
+                    );
+                }
+                _ => unreachable!(),
+            }
+            let before = session.snapshot();
+            let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+            assert_eq!(
+                observation(
+                    &mut session,
+                    Event::StopFailed {
+                        request: Box::new(request),
+                        token,
+                        error: EngineError::new(ErrorCode::OutputFault, "stale native Stop fault"),
+                        observation: Some(value)
+                    },
+                    &clock
+                )
+                .unwrap_err()
+                .code,
+                ErrorCode::StaleSession,
+                "{invalid}"
+            );
+            assert_eq!(session.snapshot(), before, "{invalid}");
+        }
+    }
+    #[test]
+    fn a_stop_failure_cannot_settle_a_pending_pause_with_the_same_request_id() {
+        let (mut session, ack) = activation();
+        reconcile_graph_activation(&mut session, ack.clone(), 7, |_| Ok(())).unwrap();
+        let pause = command(&session, "pending-pause-not-stop", Command::Pause);
+        assert_eq!(
+            session.submit_graph(pause.clone(), 8).status,
+            ReceiptStatus::Accepted
+        );
+        assert!(session.pending_local_stop_request().is_none());
+        let snapshot = session.snapshot();
+        let token = terminal_token(&session, snapshot.epochs, &ack.observation);
+        let request = StopRequest {
+            request_id: pause.request_id,
+            settings: Settings {
+                snapshot: snapshot.clone(),
+                playing: false,
+            },
+        };
+        let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        assert!(
+            observation(
+                &mut session,
+                Event::StopFailed {
+                    request: Box::new(request),
+                    token,
+                    error: EngineError::new(ErrorCode::OutputFault, "not this operation"),
+                    observation: None
+                },
+                &clock
+            )
+            .is_err()
+        );
+        assert_eq!(session.snapshot(), snapshot);
+    }
+    #[test]
+    fn successful_stop_after_normal_eof_keeps_consent_and_its_applied_receipt() {
+        let (mut session, ack) = activation();
+        let stop = command(&session, "stop-after-native-finish", Command::Stop);
+        assert_eq!(
+            session.submit_graph(stop.clone(), 8).status,
+            ReceiptStatus::Accepted
+        );
+        let snapshot = session.snapshot();
+        let stale_token = terminal_token(&session, ack.epochs, &ack.observation);
+        let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        observation(
+            &mut session,
+            Event::Stopped {
+                epochs: snapshot.epochs,
+                observation: Some(ack.observation.clone()),
+            },
+            &clock,
+        )
+        .unwrap();
+        assert!(session.snapshot().output_consented);
+        assert_eq!(session.snapshot().transport, TransportState::Idle);
+        assert_eq!(
+            session.submit_graph(stop, monotonic(&clock) + 1).status,
+            ReceiptStatus::Applied
+        );
+        assert!(session.pending_local_stop_request().is_none());
+        let before = session.snapshot();
+        assert!(
+            observation(
+                &mut session,
+                Event::Drained {
+                    epochs: ack.epochs,
+                    token: stale_token,
+                    observation: ack.observation
+                },
+                &clock
+            )
+            .is_err()
+        );
+        assert_eq!(session.snapshot(), before);
     }
 }

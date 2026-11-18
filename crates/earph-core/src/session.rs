@@ -337,6 +337,14 @@ impl Session {
     pub fn wants_playback(&self) -> bool {
         matches!(self.playback_intent, PlaybackIntent::Playing)
     }
+    pub fn pending_local_stop_request(&self) -> Option<&RequestId> {
+        let record = self.transport_record.as_ref()?;
+        (self.local_boundary == Some(LocalBoundary::Stop)
+            && self.state.operation.as_ref() == Some(&record.0.request_id)
+            && record.1.status == ReceiptStatus::Accepted
+            && matches!(record.0.payload, Command::Stop))
+        .then_some(&record.0.request_id)
+    }
     pub fn restore_owner(
         zone_id: ZoneId,
         owner_id: OwnerId,
