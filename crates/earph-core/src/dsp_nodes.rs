@@ -1,7 +1,14 @@
-// ABOUTME: Defines product-owned equalizer parameters for prepared DSP kernels.
+// ABOUTME: Defines product-owned equalizer parameters and resampler presets.
 // ABOUTME: Rejects unsupported controls and parameters outside declared processing limits.
 use crate::{EngineError, ErrorCode, graph::FiniteGraphScalar};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SrcPreset {
+    Quality,
+    Responsive,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]

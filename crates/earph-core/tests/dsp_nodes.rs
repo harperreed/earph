@@ -2,6 +2,21 @@
 // ABOUTME: Keeps unsupported shelf controls and invalid rates out of prepared filters.
 use earph_core::{dsp_nodes::PeqFilter, graph::FiniteGraphScalar};
 
+#[test]
+fn src_presets_keep_explicit_product_names_and_reject_unknown_choices() {
+    use earph_core::dsp_nodes::SrcPreset;
+    for (preset, wire) in [
+        (SrcPreset::Quality, "\"quality\""),
+        (SrcPreset::Responsive, "\"responsive\""),
+    ] {
+        assert_eq!(serde_json::to_string(&preset).unwrap(), wire);
+        assert_eq!(serde_json::from_str::<SrcPreset>(wire).unwrap(), preset);
+    }
+    for wire in ["\"automatic\"", "\"proprietary_filter\"", "null", "{}"] {
+        assert!(serde_json::from_str::<SrcPreset>(wire).is_err());
+    }
+}
+
 fn scalar(value: f64) -> FiniteGraphScalar {
     FiniteGraphScalar::new(value).unwrap()
 }
