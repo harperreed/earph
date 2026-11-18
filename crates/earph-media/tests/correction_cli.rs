@@ -100,12 +100,12 @@ fn real_cli_exports_and_reimports_graph_and_metadata_without_touching_the_source
 }
 
 #[test]
-fn real_cli_rejects_unsupported_shelves_and_never_reports_an_applied_graph() {
+fn real_cli_rejects_unsupported_shelf_slopes_and_never_reports_an_applied_graph() {
     let dir = directory();
     let source = dir.join("unsupported.txt");
     fs::write(
         &source,
-        b"Preamp: -6 dB\nFilter 1: ON LSC Fc 105 Hz Gain 3 dB Q 0.70\n",
+        b"Preamp: -6 dB\nFilter 1: ON LSC 12 dB Fc 105 Hz Gain 3 dB\n",
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
@@ -178,7 +178,21 @@ fn real_cli_graphs_drive_the_actual_dsp_consumer_for_all_three_formats() {
     let amplitude = 10.0_f64.powf(-6.0 / 40.0);
     let peaking_first = (1.0 + alpha * amplitude) / (1.0 + alpha / amplitude);
     let preamp = 10.0_f64.powf(-6.0 / 20.0);
-    for (format, source, expected) in [
+    let shelf_first = |high: bool, center: f64, q: f64, gain: f64| {
+        let a = 10.0_f64.powf(gain / 40.0);
+        let s = 1.0 / (std::f64::consts::PI * center / 48000.0).tan();
+        let damping = a.sqrt() * s / q;
+        if high {
+            a * (a * s * s + damping + 1.0) / (s * s + damping + a)
+        } else {
+            a * (s * s + damping + a) / (a * s * s + damping + 1.0)
+        }
+    };
+    let preset_first = 10.0_f64.powf(-18.0 / 20.0)
+        * shelf_first(false, 105.0, 0.7, 6.0)
+        * peaking_first
+        * shelf_first(true, 8000.0, 1.2, -3.0);
+    for (index, (format, source, expected)) in [
         (
             "autoeq",
             include_bytes!("fixtures/correction/owned-autoeq.txt").as_slice(),
@@ -194,8 +208,21 @@ fn real_cli_graphs_drive_the_actual_dsp_consumer_for_all_three_formats() {
             include_bytes!("fixtures/correction/owned-camilladsp.yaml").as_slice(),
             [preamp * peaking_first, preamp],
         ),
-    ] {
-        let file = dir.join(format!("{format}.txt"));
+        (
+            "autoeq",
+            include_bytes!("fixtures/correction/owned-autoeq-shelves.txt").as_slice(),
+            [preset_first; 2],
+        ),
+        (
+            "camilladsp",
+            include_bytes!("fixtures/correction/owned-camilladsp-shelves.yaml").as_slice(),
+            [preset_first; 2],
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let file = dir.join(format!("{format}-{index}.txt"));
         fs::write(&file, source).unwrap();
         let output = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
             .args([
@@ -241,5 +268,26 @@ fn real_cli_graphs_drive_the_actual_dsp_consumer_for_all_three_formats() {
             );
         }
         assert_eq!(fs::read(&file).unwrap(), source);
+        let report_file = dir.join(format!("{format}-{index}-report.json"));
+        fs::write(&report_file, &output.stdout).unwrap();
+        let exported = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
+            .arg("--export")
+            .arg(&report_file)
+            .output()
+            .unwrap();
+        assert!(
+            exported.status.success(),
+            "{}",
+            String::from_utf8_lossy(&exported.stderr)
+        );
+        let again = earph_media::correction_text::import_correction_text(
+            &exported.stdout,
+            report.source.format,
+            report.context,
+            report.metadata.clone(),
+        )
+        .unwrap();
+        assert_eq!(again.graph, report.graph);
+        assert_eq!(again.semantic_sha256, report.semantic_sha256);
     }
 }

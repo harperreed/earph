@@ -143,7 +143,7 @@ struct Definition {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Peaking {
+struct QEqualizer {
     #[serde(rename = "type")]
     kind: String,
     freq: f64,
@@ -232,16 +232,16 @@ pub(super) fn parse(
                     .ok_or_else(|| {
                         error("MALFORMED_FORMAT", "a biquad requires an explicit type")
                     })?;
-                if matches!(kind, "Lowshelf" | "Highshelf") {
+                if definition.parameters.get("slope").is_some() {
                     return Err(error(
                         "UNSUPPORTED_FILTER",
-                        "source shelf Q or dB-per-octave slope cannot be represented by Core's fixed S=1 shelves",
+                        "shelf slope controls require a separately qualified design; use explicit Q",
                     ));
                 }
-                if kind != "Peaking" {
+                if !matches!(kind, "Peaking" | "Lowshelf" | "Highshelf") {
                     return Err(error(
                         "UNSUPPORTED_FILTER",
-                        "only Peaking biquads with explicit Q are supported",
+                        "only Peaking, Lowshelf, and Highshelf biquads with explicit Q are supported",
                     ));
                 }
                 if definition.parameters.get("bandwidth").is_some() {
@@ -250,14 +250,23 @@ pub(super) fn parse(
                         "bandwidth controls require a separately qualified conversion",
                     ));
                 }
-                let parameters: Peaking = typed(definition.parameters)?;
-                if parameters.kind != "Peaking" {
-                    return Err(error("UNSUPPORTED_FILTER", "unsupported biquad type"));
-                }
-                ImportedFilter::Peaking {
-                    frequency_hz: parameters.freq,
-                    gain_db: parameters.gain,
-                    q: parameters.q,
+                let parameters: QEqualizer = typed(definition.parameters)?;
+                match parameters.kind.as_str() {
+                    "Lowshelf" => ImportedFilter::LowShelfQ {
+                        frequency_hz: parameters.freq,
+                        gain_db: parameters.gain,
+                        q: parameters.q,
+                    },
+                    "Highshelf" => ImportedFilter::HighShelfQ {
+                        frequency_hz: parameters.freq,
+                        gain_db: parameters.gain,
+                        q: parameters.q,
+                    },
+                    _ => ImportedFilter::Peaking {
+                        frequency_hz: parameters.freq,
+                        gain_db: parameters.gain,
+                        q: parameters.q,
+                    },
                 }
             }
             "Gain" => {
@@ -272,7 +281,7 @@ pub(super) fn parse(
             _ => {
                 return Err(error(
                     "UNSUPPORTED_FILTER",
-                    "only Peaking biquads and static Gain filters are supported",
+                    "only Q-controlled equalizer biquads and static Gain filters are supported",
                 ));
             }
         };
@@ -321,6 +330,20 @@ pub(super) fn export(imported: &CorrectionImport) -> Result<String, ImportError>
                 q,
             } => {
                 json!({"type":"Biquad","parameters":{"type":"Peaking","freq":frequency_hz,"gain":gain_db,"q":q}})
+            }
+            ImportedFilter::LowShelfQ {
+                frequency_hz,
+                gain_db,
+                q,
+            } => {
+                json!({"type":"Biquad","parameters":{"type":"Lowshelf","freq":frequency_hz,"gain":gain_db,"q":q}})
+            }
+            ImportedFilter::HighShelfQ {
+                frequency_hz,
+                gain_db,
+                q,
+            } => {
+                json!({"type":"Biquad","parameters":{"type":"Highshelf","freq":frequency_hz,"gain":gain_db,"q":q}})
             }
             ImportedFilter::Gain {
                 gain,

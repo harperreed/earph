@@ -85,6 +85,16 @@ pub enum ImportedFilter {
         gain_db: f64,
         q: f64,
     },
+    LowShelfQ {
+        frequency_hz: f64,
+        gain_db: f64,
+        q: f64,
+    },
+    HighShelfQ {
+        frequency_hz: f64,
+        gain_db: f64,
+        q: f64,
+    },
     Gain {
         gain: f64,
         scale: GainScale,
@@ -99,20 +109,38 @@ impl ImportedFilter {
                 frequency_hz,
                 gain_db,
                 q,
-            } => {
-                let filter = PeqFilter::Peaking {
+            } => equalizer_node(
+                PeqFilter::Peaking {
                     frequency_hz: scalar(frequency_hz)?,
                     gain_db: scalar(gain_db)?,
                     q: scalar(q)?,
-                };
-                filter.validate(rate).map_err(|_| {
-                    error(
-                        "PARAMETER_RANGE",
-                        "peaking frequency, gain, or Q exceeds Core limits",
-                    )
-                })?;
-                Ok(NodeKind::Peq { filter })
-            }
+                },
+                rate,
+            ),
+            Self::LowShelfQ {
+                frequency_hz,
+                gain_db,
+                q,
+            } => equalizer_node(
+                PeqFilter::LowShelfQ {
+                    frequency_hz: scalar(frequency_hz)?,
+                    gain_db: scalar(gain_db)?,
+                    q: scalar(q)?,
+                },
+                rate,
+            ),
+            Self::HighShelfQ {
+                frequency_hz,
+                gain_db,
+                q,
+            } => equalizer_node(
+                PeqFilter::HighShelfQ {
+                    frequency_hz: scalar(frequency_hz)?,
+                    gain_db: scalar(gain_db)?,
+                    q: scalar(q)?,
+                },
+                rate,
+            ),
             Self::Gain {
                 gain,
                 scale,
@@ -145,6 +173,16 @@ impl ImportedFilter {
             }
         }
     }
+}
+
+fn equalizer_node(filter: PeqFilter, rate: u32) -> Result<NodeKind, ImportError> {
+    filter.validate(rate).map_err(|_| {
+        error(
+            "PARAMETER_RANGE",
+            "equalizer frequency, gain, or Q exceeds Core limits",
+        )
+    })?;
+    Ok(NodeKind::Peq { filter })
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

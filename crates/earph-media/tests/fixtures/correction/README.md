@@ -7,6 +7,8 @@ The vendor applications did not generate these files.
 `owned-autoeq.txt` follows AutoEq's `write_eqapo_parametric_eq` output grammar.
 `owned-rew.txt` follows REW's text export header and Generic PK controls.
 `owned-camilladsp.yaml` follows CamillaDSP 4.1 filter and ordered pipeline definitions.
+The `owned-autoeq-shelves.txt` and `owned-camilladsp-shelves.yaml` presets combine peaking and explicit Q shelves.
+They include preamp attenuation and an inactive low shelf.
 The guide records pinned primary source references and unsupported controls.
 
 The real DSP consumer checks the 1000 Hz response and asymmetric channel behavior.

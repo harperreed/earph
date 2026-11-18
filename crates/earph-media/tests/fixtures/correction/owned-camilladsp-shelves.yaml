@@ -1,0 +1,9 @@
+filters:
+  preamp: {type: Gain, parameters: {gain: -18.0}}
+  low: {type: Biquad, parameters: {type: Lowshelf, freq: 105.0, gain: 6.0, q: 0.7}}
+  peak: {type: Biquad, parameters: {type: Peaking, freq: 1000.0, gain: -6.0, q: 1.0}}
+  high: {type: Biquad, parameters: {type: Highshelf, freq: 8000.0, gain: -3.0, q: 1.2}}
+  disabled: {type: Biquad, parameters: {type: Lowshelf, freq: 200.0, gain: 3.0, q: 2.0}}
+pipeline:
+  - {type: Filter, names: [preamp, low, peak, high]}
+  - {type: Filter, names: [disabled], bypassed: true}

@@ -1,4 +1,4 @@
-// ABOUTME: Parses the documented REW Generic and AutoEq peaking text subsets.
+// ABOUTME: Parses the documented REW Generic and AutoEq parametric text subsets.
 // ABOUTME: Retains disabled filters and rejects alternate controls rather than approximating them.
 use super::*;
 
@@ -85,38 +85,57 @@ pub(super) fn parse(
                 };
                 let filter = match tokens[3] {
                     "None" if tokens.len() == 4 && format == CorrectionFormat::Rew => None,
-                    "PK" => {
+                    "PK" | "LSC" | "HSC"
+                        if tokens[3] == "PK" || format == CorrectionFormat::AutoEq =>
+                    {
+                        if tokens[3] != "PK" && tokens.get(4) != Some(&"Fc") {
+                            return Err(error(
+                                "UNSUPPORTED_FILTER",
+                                "shelf slope forms are unsupported; use explicit center frequency and Q",
+                            ));
+                        }
                         let mut position = 4;
                         word(&tokens, &mut position, "Fc")?;
                         let frequency_hz = quantity(&tokens, &mut position, "Hz")?;
                         word(&tokens, &mut position, "Gain")?;
                         let gain_db = quantity(&tokens, &mut position, "dB")?;
                         word(&tokens, &mut position, "Q")?;
-                        let q = number_value(
-                            tokens
-                                .get(position)
-                                .ok_or_else(|| error("MALFORMED_FORMAT", "missing peaking Q"))?,
-                        )?;
+                        let q =
+                            number_value(tokens.get(position).ok_or_else(|| {
+                                error("MALFORMED_FORMAT", "missing equalizer Q")
+                            })?)?;
                         position += 1;
                         if position != tokens.len() {
-                            return Err(error("MALFORMED_FORMAT", "unexpected peaking controls"));
+                            return Err(error("MALFORMED_FORMAT", "unexpected equalizer controls"));
                         }
-                        Some(ImportedFilter::Peaking {
-                            frequency_hz,
-                            gain_db,
-                            q,
+                        Some(match tokens[3] {
+                            "LSC" => ImportedFilter::LowShelfQ {
+                                frequency_hz,
+                                gain_db,
+                                q,
+                            },
+                            "HSC" => ImportedFilter::HighShelfQ {
+                                frequency_hz,
+                                gain_db,
+                                q,
+                            },
+                            _ => ImportedFilter::Peaking {
+                                frequency_hz,
+                                gain_db,
+                                q,
+                            },
                         })
                     }
                     "LSC" | "HSC" | "LS" | "HS" | "LSQ" | "HSQ" => {
                         return Err(error(
                             "UNSUPPORTED_FILTER",
-                            "source shelf Q or slope cannot be represented by Core's fixed S=1 shelves",
+                            "only explicit AutoEq LSC/HSC Q shelf forms are supported",
                         ));
                     }
                     _ => {
                         return Err(error(
                             "UNSUPPORTED_FILTER",
-                            "only PK peaking filters and explicit REW None slots are supported",
+                            "filter type is unsupported by the selected text dialect",
                         ));
                     }
                 };
@@ -257,6 +276,14 @@ pub(super) fn validate_report(imported: &CorrectionImport) -> Result<(), ImportE
         ));
     }
     for (definition, step) in imported.definitions.iter().zip(&imported.pipeline) {
+        let representable = match &definition.filter {
+            Some(ImportedFilter::Peaking { .. }) => true,
+            Some(ImportedFilter::LowShelfQ { .. } | ImportedFilter::HighShelfQ { .. }) => {
+                imported.source.format == CorrectionFormat::AutoEq
+            }
+            None => imported.source.format == CorrectionFormat::Rew,
+            Some(ImportedFilter::Gain { .. }) => false,
+        };
         if step.names != [definition.name.clone()]
             || step.channels != (0..imported.context.channels.count()).collect::<Vec<_>>()
             || step.description.is_some()
@@ -267,8 +294,7 @@ pub(super) fn validate_report(imported: &CorrectionImport) -> Result<(), ImportE
                 .ok()
                 .filter(|n| *n > 0 && *n <= 999 && n.to_string() == definition.name)
                 .is_none()
-            || !matches!(definition.filter, Some(ImportedFilter::Peaking { .. }))
-                && !(definition.filter.is_none() && imported.source.format == CorrectionFormat::Rew)
+            || !representable
         {
             return Err(error(
                 "INVALID_REPORT",
@@ -293,6 +319,22 @@ pub(super) fn export(imported: &CorrectionImport) -> Result<String, ImportError>
                 q,
             }) => output.push_str(&format!(
                 "Filter {}: {state} PK Fc {frequency_hz} Hz Gain {gain_db} dB Q {q}\n",
+                definition.name
+            )),
+            Some(ImportedFilter::LowShelfQ {
+                frequency_hz,
+                gain_db,
+                q,
+            }) => output.push_str(&format!(
+                "Filter {}: {state} LSC Fc {frequency_hz} Hz Gain {gain_db} dB Q {q}\n",
+                definition.name
+            )),
+            Some(ImportedFilter::HighShelfQ {
+                frequency_hz,
+                gain_db,
+                q,
+            }) => output.push_str(&format!(
+                "Filter {}: {state} HSC Fc {frequency_hz} Hz Gain {gain_db} dB Q {q}\n",
                 definition.name
             )),
             None if imported.source.format == CorrectionFormat::Rew => {
