@@ -62,6 +62,15 @@ impl AlsaOutput {
     pub fn submitted_frames(&self) -> u64 {
         self.submitted_frames
     }
+    /// Actual Rust-owned audio capacity, excluding metadata, allocator overhead, and ALSA storage.
+    pub fn audio_storage_bytes(&self) -> Result<u64, AlsaError> {
+        u64::try_from(self.scratch.capacity()).map_err(|_| {
+            AlsaError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "audio storage count exceeds u64",
+            )
+        })
+    }
 
     pub fn write(
         &mut self,

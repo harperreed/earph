@@ -42,6 +42,17 @@ fn without_heap(operation: impl FnOnce()) {
     );
 }
 
+#[test]
+fn actual_ring_audio_storage_is_observable_without_sdk_calls_or_heap_work() {
+    for (route, bytes) in [
+        (PlaybackRoute::StrictInteger, 24),
+        (PlaybackRoute::Float32Compatibility, 32),
+    ] {
+        let producer = super::super::tests::producer(route);
+        without_heap(|| assert_eq!(producer.ring.audio_storage_bytes().unwrap(), bytes));
+    }
+}
+
 fn call(context: &mut Context, output: &mut AudioBufferList) {
     let mut stamp: AudioTimeStamp = unsafe { std::mem::zeroed() };
     call_at(context, output, &mut stamp);
