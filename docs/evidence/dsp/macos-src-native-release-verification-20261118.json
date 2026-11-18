@@ -1,0 +1,21 @@
+{
+  "status": "pass",
+  "candidate_sha256": "b57d98178e415d7bdb854c91605a9d6fa47da0f84e41c4997f43e225d775cb1b",
+  "archive_sha256": "1b72d00364fd6dd58b05884aae0bc8dc62c1e152889ecce598cdd1d28973b651",
+  "manifest_sha256": "1146040bf26b06a3ab913d5b500fe736bb69b0d2c5be90333854680304fc6f90",
+  "raw_artifacts": 480,
+  "held_artifacts_unchanged": 413,
+  "source_files": 1546,
+  "source_phases": 26,
+  "signal_attempts": 1,
+  "source_accepted_frames": 24000,
+  "generated_output_frames": 26313,
+  "producer_ring_writes": 26313,
+  "actual_owner_exit_code": 0,
+  "fresh_owned_process_lookup_absent": true,
+  "final_graph_resident_bytes": 0,
+  "final_graph_pending_retirements": 0,
+  "final_graph_preparing_or_candidate": false,
+  "backend_fault_records": 0,
+  "cleanup_errors": 0
+}
