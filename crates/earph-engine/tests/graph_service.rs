@@ -558,7 +558,7 @@ fn activation_hash_distinguishes_gain_ramps_without_changing_the_kernel() {
         for node in &mut Arc::make_mut(&mut intent.graph).nodes {
             node.format.precision = PcmRepresentation::Signed16;
         }
-        let mut service = GraphService::spawn().unwrap();
+        let mut service = GraphService::spawn(None).unwrap();
         service.submit(job, state).unwrap();
         let success = completion(&mut service).result.unwrap();
         previews.push(success.preview.clone());
