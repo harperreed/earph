@@ -1,9 +1,7 @@
 // ABOUTME: Exercises bounded streaming SRC through the pinned real library.
 // ABOUTME: Checks joins, priming, padding, faults, drift, and requested allocations offline.
-#[path = "../src/resample.rs"]
-pub mod resample;
 use earph_core::{audio::ChannelLayout, dsp_nodes::SrcPreset};
-use resample::{PreparedSrc, SrcError};
+use earph_dsp::resample::{self, PreparedSrc, SrcError};
 
 fn prepare(chunk: usize, preset: SrcPreset) -> PreparedSrc {
     PreparedSrc::prepare(48000, 44100, ChannelLayout::Stereo, chunk, preset, 16 << 20).unwrap()

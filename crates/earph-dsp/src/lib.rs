@@ -5,6 +5,7 @@ mod compile;
 pub mod convolution;
 mod model;
 pub mod peq;
+pub mod resample;
 mod runtime;
 pub use compile::compile;
 pub use model::*;
