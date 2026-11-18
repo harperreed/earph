@@ -316,3 +316,31 @@ fn retired_fault_signals_are_never_reused_and_have_a_fixed_budget() {
         ErrorCode::ResourceBudgetExceeded
     );
 }
+
+#[test]
+fn prior_sdk_timestamps_are_unknown_after_fault_pause_or_shutdown() {
+    let observed = CallbackTiming {
+        generation: 7,
+        output_host_time_ticks: Some(123),
+        output_sample_time_frames: Some(456.0),
+        measurement_boundary: "sdk_output_timestamp_not_dac_presentation",
+    };
+    for state in [
+        OutputState::Prepared,
+        OutputState::Paused,
+        OutputState::Stopped,
+        OutputState::Failed,
+        OutputState::Closed,
+    ] {
+        let hidden = observed.for_state(state);
+        assert_eq!(hidden.generation, 7);
+        assert_eq!(hidden.output_host_time_ticks, None);
+        assert_eq!(hidden.output_sample_time_frames, None);
+    }
+    assert_eq!(
+        observed
+            .for_state(OutputState::Running)
+            .output_host_time_ticks,
+        Some(123)
+    );
+}

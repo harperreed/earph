@@ -44,6 +44,10 @@ fn without_heap(operation: impl FnOnce()) {
 
 fn call(context: &mut Context, output: &mut AudioBufferList) {
     let mut stamp: AudioTimeStamp = unsafe { std::mem::zeroed() };
+    call_at(context, output, &mut stamp);
+}
+fn call_at(context: &mut Context, output: &mut AudioBufferList, output_stamp: &mut AudioTimeStamp) {
+    let mut stamp: AudioTimeStamp = unsafe { std::mem::zeroed() };
     let mut input = AudioBufferList {
         mNumberBuffers: 0,
         mBuffers: [AudioBuffer {
@@ -62,11 +66,63 @@ fn call(context: &mut Context, output: &mut AudioBufferList) {
                 NonNull::from(&mut input),
                 NonNull::from(&mut stamp),
                 NonNull::from(output),
-                NonNull::from(&mut stamp),
+                NonNull::from(output_stamp),
                 std::ptr::from_mut(context).cast(),
             );
         }
     });
+}
+
+#[test]
+fn sdk_output_timestamps_require_valid_flags_and_are_invalidated_between_starts() {
+    use objc2_core_audio_types::AudioTimeStampFlags;
+    let producer = super::super::tests::producer(PlaybackRoute::StrictInteger);
+    producer.ring.enabled.store(true, Ordering::Release);
+    producer.ring.finished.store(true, Ordering::Release);
+    let mut context = Context {
+        ring: producer.ring.clone(),
+        channels: 2,
+        timing: Timing::new(),
+    };
+    let mut bytes = [0_u8; 6];
+    let mut output = AudioBufferList {
+        mNumberBuffers: 1,
+        mBuffers: [AudioBuffer {
+            mNumberChannels: 2,
+            mDataByteSize: 6,
+            mData: bytes.as_mut_ptr().cast(),
+        }],
+    };
+    // SAFETY: The SDK timestamp contains only numeric fields and accepts zero initialization.
+    let mut stamp: AudioTimeStamp = unsafe { std::mem::zeroed() };
+    stamp.mHostTime = 123456789;
+    stamp.mSampleTime = 512.0;
+    stamp.mFlags = AudioTimeStampFlags::SampleHostTimeValid;
+    call_at(&mut context, &mut output, &mut stamp);
+    assert_eq!(
+        context.timing.snapshot().output_host_time_ticks,
+        Some(123456789)
+    );
+    assert_eq!(
+        context.timing.snapshot().output_sample_time_frames,
+        Some(512.0)
+    );
+    context.timing.invalidate().unwrap();
+    let invalidated = context.timing.snapshot();
+    assert_eq!(invalidated.generation, 1);
+    assert_eq!(invalidated.output_host_time_ticks, None);
+    assert_eq!(invalidated.output_sample_time_frames, None);
+    stamp.mFlags = AudioTimeStampFlags::NothingValid;
+    call_at(&mut context, &mut output, &mut stamp);
+    assert_eq!(context.timing.snapshot().output_host_time_ticks, None);
+    stamp.mFlags = AudioTimeStampFlags::SampleHostTimeValid;
+    stamp.mSampleTime = f64::NAN;
+    call_at(&mut context, &mut output, &mut stamp);
+    assert_eq!(
+        context.timing.snapshot().output_host_time_ticks,
+        Some(123456789)
+    );
+    assert_eq!(context.timing.snapshot().output_sample_time_frames, None);
 }
 #[test]
 fn sdk_callback_delivers_owned_frames_and_silences_after_underflow() {
@@ -77,6 +133,7 @@ fn sdk_callback_delivers_owned_frames_and_silences_after_underflow() {
     let mut context = Context {
         ring: producer.ring.clone(),
         channels: 2,
+        timing: Timing::new(),
     };
     context.ring.enabled.store(true, Ordering::Release);
     let mut bytes = [255_u8; 12];
@@ -101,6 +158,7 @@ fn sdk_callback_rejects_planar_or_changed_channels_with_silence() {
     let mut context = Context {
         ring: producer.ring.clone(),
         channels: 2,
+        timing: Timing::new(),
     };
     context.ring.enabled.store(true, Ordering::Release);
     let mut bytes = [255_u8; 12];
@@ -123,6 +181,7 @@ fn observed_device_changes_disable_callbacks_and_reject_future_submission() {
     let context = Context {
         ring: producer.ring.clone(),
         channels: 2,
+        timing: Timing::new(),
     };
     context.ring.enabled.store(true, Ordering::Release);
     let mut address = ca::AudioObjectPropertyAddress {

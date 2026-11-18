@@ -4,10 +4,13 @@ use super::*;
 use objc2_core_audio as ca;
 use objc2_core_audio_types::{AudioBufferList, AudioTimeStamp};
 use std::{ffi::c_void, marker::PhantomData, ptr::NonNull, rc::Rc};
+mod timing;
+use timing::Timing;
 
 struct Context {
     ring: Arc<Ring>,
     channels: u32,
+    timing: Timing,
 }
 unsafe extern "C-unwind" fn changed(
     _: u32,
@@ -27,7 +30,7 @@ unsafe extern "C-unwind" fn callback(
     _: NonNull<AudioBufferList>,
     _: NonNull<AudioTimeStamp>,
     mut output: NonNull<AudioBufferList>,
-    _: NonNull<AudioTimeStamp>,
+    output_time: NonNull<AudioTimeStamp>,
     context: *mut c_void,
 ) -> i32 {
     let Some(context) = NonNull::new(context.cast::<Context>()) else {
@@ -72,6 +75,12 @@ unsafe extern "C-unwind" fn callback(
     let bytes = unsafe {
         std::slice::from_raw_parts_mut(buffer.mData.cast::<u8>(), buffer.mDataByteSize as usize)
     };
+    if context.ring.enabled.load(Ordering::Acquire)
+        && context.ring.fault.load(Ordering::Acquire) == 0
+    {
+        // SAFETY: The SDK owns this output timestamp for the callback's duration.
+        context.timing.record(unsafe { output_time.as_ref() });
+    }
     context.ring.render(bytes);
     0
 }
@@ -93,7 +102,11 @@ impl Registration {
         ring: Arc<Ring>,
         channels: u32,
     ) -> Result<Self, CoreAudioError> {
-        let context = Box::new(Context { ring, channels });
+        let context = Box::new(Context {
+            ring,
+            channels,
+            timing: Timing::new(),
+        });
         let mut id = None;
         // SAFETY: The static callback uses this unique owned context until checked destruction.
         let status = unsafe {
@@ -214,6 +227,11 @@ impl Registration {
     }
     pub(super) fn start(&mut self) -> Result<(), CoreAudioError> {
         self.check()?;
+        self.context
+            .as_ref()
+            .expect("live registration owns context")
+            .timing
+            .invalidate()?;
         // SAFETY: This guard owns the live registration and context. The caller checks explicit permission first.
         let status = unsafe { ca::AudioDeviceStart(self.device, self.id) };
         if status != 0 {
@@ -240,8 +258,20 @@ impl Registration {
                 ));
             }
             self.started = false;
+            self.context
+                .as_ref()
+                .expect("live registration owns context")
+                .timing
+                .invalidate()?;
         }
         Ok(())
+    }
+    pub(super) fn callback_timing(&self) -> CallbackTiming {
+        self.context
+            .as_ref()
+            .expect("registration retains context until drop")
+            .timing
+            .snapshot()
     }
     pub(super) fn close(&mut self) -> Result<(), CoreAudioError> {
         if self.closed {

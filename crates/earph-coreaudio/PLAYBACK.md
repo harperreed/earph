@@ -30,6 +30,11 @@ No resampling, channel remapping, device reconfiguration, or DSD route exists he
 Callback delivery does not establish hardware consumption or acoustic presentation.
 Backend delay and audible position remain unknown.
 No SDK timestamp establishes a qualified physical timing estimate in this adapter.
+`callback_timing()` separately reports valid SDK output host ticks and sample time when available.
+Native start and stop invalidate prior timestamp generations.
+These observations describe SDK scheduling and do not prove DAC presentation.
+The tested device briefly reported different device-clock and IOProc sample epochs after start and resume.
+Do not infer presentation from their numerical order before establishing their clock relationship.
 
 `finish()` closes producer admission and lets callbacks drain a final partial buffer with silence padding.
 This drains the application ring, not a measured hardware queue.
@@ -63,3 +68,4 @@ A test allocator checks callback allocations and frees.
 Native integration tests register callbacks and queue owned test samples without starting devices.
 They verify permission denial, ownership, cleanup, and unchanged device settings.
 These silent tests do not qualify signal emission, real-time deadlines, pause timing, or DAC preservation.
+The separately gated [hardware acceptance](HARDWARE-ACCEPTANCE.md) requires explicit playback approval.

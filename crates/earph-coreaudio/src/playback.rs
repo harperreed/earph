@@ -91,6 +91,30 @@ pub struct OutputProgress {
     pub backend_delay_frames: Option<u64>,
     pub fault: bool,
 }
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct CallbackTiming {
+    pub generation: u64,
+    pub output_host_time_ticks: Option<u64>,
+    pub output_sample_time_frames: Option<f64>,
+    pub measurement_boundary: &'static str,
+}
+impl CallbackTiming {
+    fn unknown(generation: u64) -> Self {
+        Self {
+            generation,
+            output_host_time_ticks: None,
+            output_sample_time_frames: None,
+            measurement_boundary: "sdk_output_timestamp_not_dac_presentation",
+        }
+    }
+    fn for_state(self, state: OutputState) -> Self {
+        if state == OutputState::Running {
+            self
+        } else {
+            Self::unknown(self.generation)
+        }
+    }
+}
 fn error(code: ErrorCode, message: &'static str) -> CoreAudioError {
     CoreAudioError::new(code, message)
 }
@@ -576,6 +600,13 @@ impl CoreAudioOutput {
             backend_delay_frames: None,
             fault: ring.fault.load(Ordering::Acquire) != 0,
         }
+    }
+    pub fn callback_timing(&self) -> CallbackTiming {
+        #[cfg(target_os = "macos")]
+        let timing = self.native.callback_timing();
+        #[cfg(not(target_os = "macos"))]
+        let timing = CallbackTiming::unknown(0);
+        timing.for_state(self.state())
     }
     pub fn stop(&mut self) -> Result<(), CoreAudioError> {
         self.producer.ring.enabled.store(false, Ordering::Release);
