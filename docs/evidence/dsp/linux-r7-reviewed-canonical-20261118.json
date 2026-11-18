@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "r7_graph_review_linux_canonical",
+  "command": "scripts/check",
+  "command_exit": 0,
+  "tests_passed": 405,
+  "tests_ignored": 2,
+  "signal_tests_executed": false,
+  "log_sha256": "1cd17b9f06a71590e2860c983bdcd77036dc9f45c2343ea5a919665f588aef74",
+  "build": {
+    "commit": "ba6eb8f656c8a73919df2310dc572567735a24d2",
+    "dependency_lock_sha256": "411273dfa7d7db901ddace51fedcb2e6d8875459cea21ce57f07610c6a2e41fc",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": false,
+    "source_inputs_sha256": "3780f9f4d34e01607e2f4b61677cecfcadbe1908ebf682bdc3d0c85076b280fd",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "qualified_runtime_commit": "ba6eb8f656c8a73919df2310dc572567735a24d2",
+  "runtime_source_match_independently_verified": true,
+  "signal_test_boundary": "Physical hardware cases are separate; file-to-NULL engine cases run in the canonical suite."
+}

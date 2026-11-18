@@ -214,7 +214,19 @@ Independent main-model reviews approve both scoped units without material findin
 The combined canonical check passes 405 tests, with two ignored and no warnings.
 Formatting, strict workspace Clippy, requirements, and dependency checks pass.
 Earlier platform receipts, including the silent `034edde2` Mac run, retain their original bindings.
-Hardware stays held until this new source qualifies.
+Fresh review `5960734524` approves exact source `ba6eb8f` with no unresolved threads.
+That source passes 405 Linux tests and 361 Mac tests, with two ignored on each.
+The separate eleven-test Mac SDK check overlaps its canonical suite.
+One approved quiet signal passes per platform after muted preparation and inspection.
+Linux submits 48007 client frames from 48000 source frames and the seven-frame tail.
+Mac writes 24003 producer-ring frames from 24000 source frames and the three-frame tail.
+Both runs report zero saturation, release graph resources, and exit their owner cleanly.
+Selected settings, generated sources, and executable observations remain unchanged.
+Root verifies 81 Mac artifacts, fifty preserved held artifacts, and all 1460 packaged source files.
+Six source verification phases match the reviewed snapshot.
+Public receipts live under `docs/evidence/dsp/*r7-reviewed*`.
+Physical consumption, DAC delivery, acoustic behavior, and whole-worker realtime remain unqualified.
+Later DSP-node and live SRC work needs its own qualification.
 
 ## Continuity
 
