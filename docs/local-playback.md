@@ -2,7 +2,8 @@
 
 The local source reads WAV, FLAC, and AIFF without changing originals.
 The qualified PCM subset uses signed 16, 24, or 32-bit samples and one or two channels.
-Integer samples never pass through floating-point storage.
+Decoding and exact integer bypass retain integer storage.
+Explicit [DSP processing](dsp-graphs.md) declares its f64 conversion and native quantization.
 RF64, Wave64, float PCM, multichannel, lossy codecs, and DSD remain outside this qualification.
 Unsupported inputs return typed errors.
 

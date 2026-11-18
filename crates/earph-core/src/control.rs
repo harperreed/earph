@@ -2,10 +2,13 @@
 // ABOUTME: Rejects unsupported features before the session can accept work.
 use crate::{
     EngineError, ErrorCode,
+    graph::{GraphDocument, GraphProcessingRequest},
+    graph_control::*,
     ids::*,
     safety::{FidelityPolicy, VolumeMode},
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ControlLimits {
@@ -103,6 +106,23 @@ pub enum Command {
     State,
     #[serde(rename = "queue.get")]
     QueueGet { offset: usize, limit: usize },
+    #[serde(rename = "graph.inspect")]
+    GraphInspect {},
+    #[serde(rename = "graph.validate")]
+    GraphValidate {
+        graph: Arc<GraphDocument>,
+        processing: GraphProcessingRequest,
+    },
+    #[serde(rename = "graph.prepare")]
+    GraphPrepare {
+        graph: Arc<GraphDocument>,
+        processing: GraphProcessingRequest,
+    },
+    #[serde(rename = "graph.commit")]
+    GraphCommit {
+        token: PreparedGraphId,
+        graph_hash: String,
+    },
     #[serde(rename = "queue.append")]
     QueueAppend { path: String },
     #[serde(rename = "queue.append_directory")]
@@ -161,7 +181,7 @@ impl Command {
     pub fn is_query(&self) -> bool {
         matches!(
             self,
-            Self::Capabilities | Self::State | Self::QueueGet { .. }
+            Self::Capabilities | Self::State | Self::QueueGet { .. } | Self::GraphInspect { .. }
         )
     }
 }
@@ -194,6 +214,19 @@ impl CommandEnvelope {
         if let Command::OutputSelect { output } = &self.payload {
             output.validate()?;
         }
+        if let Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } =
+            &self.payload
+        {
+            graph.validate_structure()?;
+        }
+        if let Command::GraphCommit { graph_hash, .. } = &self.payload
+            && !valid_graph_hash(graph_hash)
+        {
+            return Err(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "invalid graph resolution hash",
+            ));
+        }
         Ok(())
     }
 }
@@ -210,6 +243,16 @@ pub fn decode_command(
     let command: CommandEnvelope = serde_json::from_slice(bytes)
         .map_err(|_| EngineError::new(ErrorCode::AssetInvalid, "invalid command document"))?;
     command.validate()?;
+    if matches!(
+        command.payload,
+        Command::GraphValidate { .. } | Command::GraphPrepare { .. }
+    ) && bytes.len() > GRAPH_COMMAND_BYTES
+    {
+        return Err(EngineError::new(
+            ErrorCode::ResourceBudgetExceeded,
+            "graph command exceeds byte limit",
+        ));
+    }
     Ok(command)
 }
 
@@ -228,6 +271,10 @@ pub enum QueryResult {
     State(Box<crate::session::SessionSnapshot>),
     Capabilities(Capabilities),
     Queue(crate::queue::QueuePage),
+    GraphPreview(Arc<GraphPreview>),
+    GraphPrepared(GraphPrepared),
+    GraphInspection(GraphInspection),
+    GraphDiagnostic(GraphDiagnostic),
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Capabilities {

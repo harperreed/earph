@@ -1,6 +1,7 @@
 // ABOUTME: Decodes local PCM and owns one native output on its worker thread.
 // ABOUTME: Bounds commands, prefetches compatible joins, and drops stale work on cancellation.
 use crate::{
+    graph::PreparedPipeline,
     output::{self, Counters, Output},
     plan::PlanView,
 };
@@ -8,9 +9,13 @@ use earph_core::{
     EngineError, ErrorCode,
     audio::{MemoryBudget, PcmBlock, PcmFormat},
     gain::GainRamp,
-    ids::{Epochs, QueueEntryId},
+    graph_control::GraphActivationRequest,
+    ids::{Epochs, QueueEntryId, RequestId},
     queue::{PreparationStatus, QueueEntry},
-    session::{BackendObservation, PlaybackObservation, PreservationState, SessionSnapshot},
+    session::{
+        BackendObservation, PlaybackObservation, PlaybackProcessingObservation, PreservationState,
+        SessionSnapshot,
+    },
 };
 use earph_media::LocalFile;
 use std::{
@@ -35,6 +40,11 @@ pub(crate) struct Settings {
     pub playing: bool,
 }
 pub(crate) enum Action {
+    ActivateGraph {
+        settings: Settings,
+        activation: GraphActivationRequest,
+        pipeline: PreparedPipeline,
+    },
     Start {
         settings: Settings,
         entries: Vec<QueueEntry>,
@@ -58,6 +68,17 @@ impl Action {
     }
 }
 pub(crate) enum Event {
+    GraphActivated {
+        epochs: Epochs,
+        request_id: RequestId,
+        graph_hash: String,
+        activation_frame: u64,
+    },
+    GraphFailed {
+        epochs: Epochs,
+        request_id: RequestId,
+        error: EngineError,
+    },
     Item {
         epochs: Epochs,
         id: QueueEntryId,
@@ -253,7 +274,26 @@ struct Span {
     source_start: u64,
     end: u64,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderPhase {
+    Feeding,
+    GraphTail,
+    BackendDrain,
+    Finished,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingPeriodKind {
+    Source,
+    Tail,
+}
 struct Playback {
+    pipeline: Option<PreparedPipeline>,
+    phase: RenderPhase,
+    pending_kind: PendingPeriodKind,
+    source_stream_position: u64,
+    saturation_count: u64,
+    graph_peak: Option<f64>,
+    prequantization_peak: Option<f64>,
     backend: BackendObservation,
     last_counters: Counters,
     settings: Settings,
@@ -269,7 +309,6 @@ struct Playback {
     spans: Vec<Span>,
     sequence: u64,
     started: bool,
-    end: bool,
     cancel: Arc<AtomicBool>,
     view: Arc<Mutex<PlanView>>,
     input_peak: Option<f64>,
@@ -337,6 +376,13 @@ impl Playback {
         )?;
         let gain = GainRamp::new(format)?;
         let mut playback = Self {
+            pipeline: None,
+            phase: RenderPhase::Feeding,
+            pending_kind: PendingPeriodKind::Source,
+            source_stream_position: 0,
+            saturation_count: 0,
+            graph_peak: None,
+            prequantization_peak: None,
             backend,
             last_counters,
             settings,
@@ -352,7 +398,6 @@ impl Playback {
             spans: Vec::with_capacity(256),
             sequence: 0,
             started: false,
-            end: false,
             cancel,
             view,
             input_peak: None,
@@ -384,6 +429,68 @@ impl Playback {
     fn format(&self) -> PcmFormat {
         self.current.file.format()
     }
+    fn graph_latency(&self) -> u64 {
+        self.pipeline
+            .as_ref()
+            .map_or(0, |p| p.preview().latency_frames)
+    }
+    fn native_period(&self) -> &PcmBlock {
+        self.pipeline
+            .as_ref()
+            .and_then(|p| p.render())
+            .map_or(&self.period, |r| r.period())
+    }
+    fn record_render(&mut self, report: crate::render::RenderReport) {
+        self.input_peak = Some(report.input_peak);
+        self.graph_peak = Some(report.graph_peak);
+        self.prequantization_peak = Some(report.prequantization_peak);
+        self.output_peak = Some(report.output_peak);
+        self.saturation_count = self
+            .saturation_count
+            .saturating_add(report.saturation_count);
+        self.modified = true;
+    }
+    fn activate_graph(
+        &mut self,
+        settings: Settings,
+        activation: GraphActivationRequest,
+        mut pipeline: PreparedPipeline,
+        events: &SyncSender<Event>,
+    ) -> Result<(), EngineError> {
+        let binding = pipeline.binding();
+        if binding != &activation.previous_binding
+            || self.epochs() != binding.epochs
+            || self.settings.snapshot.owner_id.as_ref() != Some(&binding.owner_id)
+            || self.settings.snapshot.session_id.as_ref() != Some(&binding.session_id)
+            || self.settings.snapshot.device_epoch != binding.device_epoch
+            || !settings.snapshot.muted
+            || settings.snapshot.epochs != activation.epochs
+            || pipeline.preview().source_format != self.format()
+            || pipeline.preview().native_output_format != self.period.header().format
+            || pipeline.preview().graph_hash != activation.prepared.preview.graph_hash
+        {
+            return Err(EngineError::new(
+                ErrorCode::StaleSession,
+                "prepared graph no longer matches playback",
+            ));
+        }
+        pipeline.reset(activation.epochs).map_err(render_error)?;
+        self.reposition(settings, None, events, false)?;
+        self.pipeline = Some(pipeline.activate());
+        self.saturation_count = 0;
+        self.graph_peak = None;
+        self.prequantization_peak = None;
+        self.set_gain()?;
+        emit(
+            events,
+            Event::GraphActivated {
+                epochs: self.epochs(),
+                request_id: activation.request_id,
+                graph_hash: activation.prepared.preview.graph_hash.clone(),
+                activation_frame: self.stream_position,
+            },
+        )
+    }
     fn set_gain(&mut self) -> Result<(), EngineError> {
         let gain = if self.settings.snapshot.muted {
             None
@@ -391,10 +498,17 @@ impl Playback {
             Some(self.settings.snapshot.software_gain_db)
         };
         let ramp = self.settings.snapshot.gain_ramp_frames;
-        self.gain.set_target(gain, ramp)
+        self.gain.set_target(gain, ramp).and_then(|()| {
+            self.pipeline
+                .as_mut()
+                .and_then(|p| p.render_mut())
+                .map_or(Ok(()), |r| {
+                    r.set_gain_target(gain, ramp).map_err(render_error)
+                })
+        })
     }
     fn prefetch(&mut self, events: &SyncSender<Event>) -> Result<(), EngineError> {
-        if self.next.is_some() || self.end {
+        if self.next.is_some() || self.phase != RenderPhase::Feeding {
             return Ok(());
         }
         let next = {
@@ -449,19 +563,46 @@ impl Playback {
         self.observation(counters)
     }
     fn observation(&self, counters: Counters) -> PlaybackObservation {
-        let audible = counters.consumed.and_then(|position| {
-            self.spans
-                .iter()
-                .rev()
-                .find(|span| position >= span.start)
-                .map(|span| {
-                    (
-                        span.entry.id.clone(),
-                        span.source_start + position.min(span.end).saturating_sub(span.start),
-                    )
-                })
-        });
+        let audible = counters
+            .consumed
+            .and_then(|position| position.checked_sub(self.graph_latency()))
+            .and_then(|position| {
+                self.spans
+                    .iter()
+                    .rev()
+                    .find(|span| position >= span.start)
+                    .map(|span| {
+                        (
+                            span.entry.id.clone(),
+                            span.source_start + position.min(span.end).saturating_sub(span.start),
+                        )
+                    })
+            });
         PlaybackObservation {
+            processing: self
+                .pipeline
+                .as_ref()
+                .map(|p| PlaybackProcessingObservation {
+                    resident_bytes: p.resources().pipeline_bytes,
+                    audio_payload_bytes: p
+                        .render()
+                        .map_or(0, |r| r.resources().audio_payload_bytes),
+                    failure_node: p.render().and_then(|r| {
+                        r.graph().failure_node_index().and_then(|index| {
+                            r.graph()
+                                .plan()
+                                .schedule()
+                                .get(index)
+                                .map(|node| node.id().clone())
+                        })
+                    }),
+                    graph_hash: p.preview().graph_hash.clone(),
+                    latency_frames: p.preview().latency_frames,
+                    tail_frames: p.preview().tail_frames,
+                    saturation_count: self.saturation_count,
+                    graph_peak: self.graph_peak,
+                    prequantization_peak: self.prequantization_peak,
+                }),
             format: self.format(),
             submitted_frames: counters.submitted,
             consumed_frames: counters.consumed,
@@ -488,15 +629,19 @@ impl Playback {
         settings: Settings,
         position: Option<u64>,
         events: &SyncSender<Event>,
+        notify: bool,
     ) -> Result<(), EngineError> {
         let counters = self.output.suspend(settings.snapshot.epochs)?;
         let requested = if let Some(position) = position {
             (self.current.entry.clone(), position)
         } else {
-            let consumed = counters.restart_cursor.ok_or(EngineError::new(
-                ErrorCode::CapabilityUnsupported,
-                "pause requires a known backend restart boundary",
-            ))?;
+            let consumed = counters
+                .restart_cursor
+                .ok_or(EngineError::new(
+                    ErrorCode::CapabilityUnsupported,
+                    "pause requires a known backend restart boundary",
+                ))?
+                .saturating_sub(self.graph_latency());
             let span = self
                 .spans
                 .iter()
@@ -508,6 +653,7 @@ impl Playback {
                 span.source_start + consumed.min(span.end).saturating_sub(span.start),
             )
         };
+        let reset_graph = settings.snapshot.epochs != self.epochs();
         self.settings = settings;
         if self.current.entry.id != requested.0.id {
             self.current = Track::open(requested.0, self.epochs(), events)?;
@@ -517,10 +663,12 @@ impl Playback {
         self.pending = false;
         self.period_offset = 0;
         self.stream_position = 0;
+        self.source_stream_position = 0;
         self.source_position = requested.1;
         self.sequence = 0;
         self.started = false;
-        self.end = false;
+        self.phase = RenderPhase::Feeding;
+        self.pending_kind = PendingPeriodKind::Source;
         self.spans.clear();
         self.spans.push(Span {
             entry: self.current.entry.clone(),
@@ -529,8 +677,17 @@ impl Playback {
             end: 0,
         });
         self.gain = GainRamp::new(self.format())?;
+        if reset_graph {
+            let epochs = self.epochs();
+            if let Some(pipeline) = &mut self.pipeline {
+                pipeline.reset(epochs).map_err(render_error)?;
+            }
+        }
         self.set_gain()?;
         self.prefetch(events)?;
+        if !notify {
+            return Ok(());
+        }
         let observation = self.observe()?;
         emit(
             events,
@@ -549,8 +706,9 @@ impl Playback {
         if !self.settings.playing || self.settings.snapshot.muted {
             return Ok(false);
         }
-        if self.end {
+        if self.phase == RenderPhase::BackendDrain {
             if let Some(counters) = self.output.finish()? {
+                self.phase = RenderPhase::Finished;
                 emit(
                     events,
                     Event::Drained {
@@ -562,6 +720,27 @@ impl Playback {
             }
             self.output.wait()?;
             return Ok(false);
+        }
+        if !self.pending && self.phase == RenderPhase::GraphTail {
+            let report = self
+                .pipeline
+                .as_mut()
+                .and_then(|p| p.render_mut())
+                .map(|r| r.finish())
+                .transpose()
+                .map_err(render_error)?;
+            match report {
+                Some(report) if report.valid_frames != 0 => {
+                    self.record_render(report);
+                    self.pending_kind = PendingPeriodKind::Tail;
+                    self.pending = true;
+                    self.period_offset = 0;
+                }
+                _ => {
+                    self.phase = RenderPhase::BackendDrain;
+                    return Ok(false);
+                }
+            }
         }
         if !self.pending {
             loop {
@@ -578,9 +757,9 @@ impl Playback {
                                 self.source_position = 0;
                                 self.spans.push(Span {
                                     entry: self.current.entry.clone(),
-                                    start: self.stream_position,
+                                    start: self.source_stream_position,
                                     source_start: 0,
-                                    end: self.stream_position,
+                                    end: self.source_stream_position,
                                 });
                                 let next_id = {
                                     let mut view = self.view.lock().map_err(|_| FAILED)?;
@@ -609,7 +788,7 @@ impl Playback {
                                     return Ok(false);
                                 }
                             }
-                            self.end = true;
+                            self.phase = RenderPhase::GraphTail;
                             emit(
                                 events,
                                 Event::End {
@@ -634,30 +813,44 @@ impl Playback {
             let packet = self.current.packet.as_ref().ok_or(FAILED)?;
             let count = (packet.header().frame_count as usize - self.current.offset)
                 .min(self.period.capacity_frames());
-            let channels = self.format().channels().count();
-            for scalar in 0..count * channels {
-                self.period.set_integer_sample(
-                    scalar,
-                    packet
-                        .integer_sample(self.current.offset * channels + scalar)
-                        .ok_or(FAILED)?,
+            if let Some(render) = self.pipeline.as_mut().and_then(|p| p.render_mut()) {
+                let report = render
+                    .process(packet, self.current.offset, count)
+                    .map_err(render_error)?;
+                self.record_render(report);
+            } else {
+                let channels = self.format().channels().count();
+                for scalar in 0..count * channels {
+                    self.period.set_integer_sample(
+                        scalar,
+                        packet
+                            .integer_sample(self.current.offset * channels + scalar)
+                            .ok_or(FAILED)?,
+                    )?;
+                }
+                self.period.set_span(
+                    self.epochs(),
+                    self.sequence,
+                    self.stream_position,
+                    count as u64,
                 )?;
+                let report = self.gain.process(&mut self.period)?;
+                self.input_peak = Some(report.input_peak);
+                self.output_peak = Some(report.output_peak);
+                self.modified |= report.modified;
             }
-            self.period.set_span(
-                self.epochs(),
-                self.sequence,
-                self.stream_position,
-                count as u64,
-            )?;
-            let report = self.gain.process(&mut self.period)?;
-            self.input_peak = Some(report.input_peak);
-            self.output_peak = Some(report.output_peak);
-            self.modified |= report.modified;
+            self.pending_kind = PendingPeriodKind::Source;
             self.period_offset = 0;
             self.pending = true;
         }
-        let count = self.period.header().frame_count as usize - self.period_offset;
-        match self.output.write(&self.period, self.period_offset, count)? {
+        let period_frames = self.native_period().header().frame_count as usize;
+        let count = period_frames - self.period_offset;
+        let period = self
+            .pipeline
+            .as_ref()
+            .and_then(|p| p.render())
+            .map_or(&self.period, |r| r.period());
+        match self.output.write(period, self.period_offset, count)? {
             Some(frames) => {
                 if !self.started && self.output.is_running() {
                     emit(
@@ -670,20 +863,25 @@ impl Playback {
                 }
                 self.period_offset += frames;
                 self.stream_position += frames as u64;
-                self.source_position += frames as u64;
-                self.spans.last_mut().ok_or(FAILED)?.end = self.stream_position;
-                if self.period_offset == self.period.header().frame_count as usize {
-                    self.current.offset += self.period_offset;
-                    if self.current.offset
-                        == self
-                            .current
-                            .packet
-                            .as_ref()
-                            .ok_or(FAILED)?
-                            .header()
-                            .frame_count as usize
-                    {
-                        self.current.packet = None;
+                if self.pending_kind == PendingPeriodKind::Source {
+                    self.source_position += frames as u64;
+                    self.source_stream_position += frames as u64;
+                    self.spans.last_mut().ok_or(FAILED)?.end = self.source_stream_position;
+                }
+                if self.period_offset == period_frames {
+                    if self.pending_kind == PendingPeriodKind::Source {
+                        self.current.offset += self.period_offset;
+                        if self.current.offset
+                            == self
+                                .current
+                                .packet
+                                .as_ref()
+                                .ok_or(FAILED)?
+                                .header()
+                                .frame_count as usize
+                        {
+                            self.current.packet = None;
+                        }
                     }
                     self.pending = false;
                     self.sequence += 1;
@@ -724,12 +922,38 @@ fn run(
         if let Some(action) = action {
             queued.fetch_sub(1, Ordering::AcqRel);
             let failure_epochs = match &action {
-                Action::Pause(settings)
+                Action::ActivateGraph { settings, .. }
+                | Action::Pause(settings)
                 | Action::Seek { settings, .. }
                 | Action::Settings(settings) => Some(settings.snapshot.epochs),
                 _ => None,
             };
             let result = match action {
+                Action::ActivateGraph {
+                    settings,
+                    activation,
+                    pipeline,
+                } => {
+                    let epochs = activation.epochs;
+                    let request_id = activation.request_id.clone();
+                    let result = if let Some(current) = &mut playback {
+                        current.activate_graph(settings, activation, pipeline, &events)
+                    } else {
+                        drop(pipeline);
+                        Err(FAILED)
+                    };
+                    if let Err(error) = result {
+                        let _ = emit(
+                            &events,
+                            Event::GraphFailed {
+                                epochs,
+                                request_id,
+                                error,
+                            },
+                        );
+                    }
+                    result
+                }
                 Action::Shutdown => break,
                 Action::Stop { epochs } => {
                     if let Some(mut current) = playback.take() {
@@ -795,11 +1019,16 @@ fn run(
                         if current.epochs() == settings.snapshot.epochs {
                             let was_muted = current.settings.snapshot.muted;
                             if !was_muted && settings.snapshot.muted {
-                                current.reposition(settings, None, &events)
+                                current.reposition(settings, None, &events, true)
                             } else {
                                 current.settings = settings;
                                 current.set_gain()
                             }
+                        } else if settings.snapshot.muted
+                            && settings.snapshot.epochs.session == current.epochs().session
+                            && settings.snapshot.epochs.stream > current.epochs().stream
+                        {
+                            current.reposition(settings, None, &events, true)
                         } else {
                             Ok(())
                         }
@@ -809,14 +1038,14 @@ fn run(
                 }
                 Action::Pause(settings) => {
                     if let Some(current) = &mut playback {
-                        current.reposition(settings, None, &events)
+                        current.reposition(settings, None, &events, true)
                     } else {
                         Ok(())
                     }
                 }
                 Action::Seek { settings, position } => {
                     if let Some(current) = &mut playback {
-                        current.reposition(settings, Some(position), &events)
+                        current.reposition(settings, Some(position), &events, true)
                     } else {
                         Ok(())
                     }
@@ -882,6 +1111,9 @@ fn clear_reservation(view: &Mutex<PlanView>, epochs: Epochs) {
         view.active = None;
         view.reserved = None;
     }
+}
+fn render_error(error: crate::render::RenderError) -> EngineError {
+    EngineError::new(error.code, error.message)
 }
 
 #[cfg(test)]

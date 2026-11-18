@@ -4,12 +4,17 @@ use crate::{
     EngineError, ErrorCode,
     audio::{PcmFormat, PcmRepresentation},
     control::*,
+    graph_control::*,
     ids::{increment, *},
     queue::{LocalQueue, QueueSnapshot},
     safety::{FidelityPolicy, OutputContext, SampleDomain, VolumePolicy},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
+
+#[path = "session_graph.rs"]
+mod graph;
+use graph::GraphControl;
 
 const STALE: EngineError =
     EngineError::new(ErrorCode::StaleSession, "session or zone target changed");
@@ -75,6 +80,7 @@ pub struct SessionSnapshot {
     pub epochs: Epochs,
     pub revision: u64,
     pub graph_epoch: u64,
+    pub device_epoch: u64,
     pub event_sequence: u64,
     pub monotonic_ns: u64,
     pub audible_position_frames: Option<u64>,
@@ -94,6 +100,7 @@ pub struct SessionSnapshot {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PlaybackObservation {
+    pub processing: Option<PlaybackProcessingObservation>,
     pub format: PcmFormat,
     pub submitted_frames: u64,
     pub consumed_frames: Option<u64>,
@@ -107,6 +114,19 @@ pub struct PlaybackObservation {
     pub output_peak: Option<f64>,
     pub modified: bool,
     pub backend: Option<BackendObservation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlaybackProcessingObservation {
+    pub resident_bytes: u64,
+    pub audio_payload_bytes: usize,
+    pub failure_node: Option<NodeId>,
+    pub graph_hash: String,
+    pub latency_frames: u64,
+    pub tail_frames: u64,
+    pub saturation_count: u64,
+    pub graph_peak: Option<f64>,
+    pub prequantization_peak: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -233,17 +253,20 @@ pub struct SessionCheckpoint {
     pub volume_policy: VolumePolicy,
     #[serde(default)]
     pub output: Option<OutputConfiguration>,
+    #[serde(default)]
+    pub graph_intent: Option<Arc<GraphIntent>>,
 }
 
 #[derive(Clone)]
 pub struct Session {
     state: SessionSnapshot,
     limits: ControlLimits,
-    receipts: VecDeque<(CommandEnvelope, Receipt)>,
+    receipts: VecDeque<Arc<(CommandEnvelope, Receipt)>>,
     events: VecDeque<StateEvent>,
     playback_intent: PlaybackIntent,
     queue: LocalQueue,
     local_playback_enabled: bool,
+    graph: GraphControl,
 }
 impl Session {
     pub fn new(zone_id: ZoneId, limits: ControlLimits) -> Self {
@@ -260,6 +283,7 @@ impl Session {
                 epochs: Epochs::default(),
                 revision: 0,
                 graph_epoch: 0,
+                device_epoch: 0,
                 event_sequence: 0,
                 monotonic_ns: 0,
                 audible_position_frames: Some(0),
@@ -282,6 +306,7 @@ impl Session {
             playback_intent: PlaybackIntent::Playing,
             queue: LocalQueue::default(),
             local_playback_enabled: false,
+            graph: GraphControl::default(),
         }
     }
     pub fn new_owner(zone_id: ZoneId, owner_id: OwnerId, limits: ControlLimits) -> Self {
@@ -315,6 +340,10 @@ impl Session {
             output.validate()?;
         }
         session.state.output = checkpoint.output;
+        if let Some(intent) = checkpoint.graph_intent {
+            intent.graph.validate_structure()?;
+            session.graph.configured = Some(intent);
+        }
         session.state.volume_policy = checkpoint.volume_policy;
         session.state.volume_policy.disarm();
         session.state.software_gain_db =
@@ -333,6 +362,7 @@ impl Session {
             queue: self.queue.snapshot(),
             volume_policy: self.state.volume_policy.clone(),
             output: self.state.output.clone(),
+            graph_intent: self.graph.configured.clone(),
         }
     }
     pub fn shutdown_requested(&self) -> bool {
@@ -389,6 +419,9 @@ impl Session {
                         },
                         physical_output: self.local_playback_enabled,
                     })),
+                    Command::GraphInspect {} => {
+                        Some(QueryResult::GraphInspection(self.graph_inspection()))
+                    }
                     _ => None,
                 }
             } else {
@@ -418,8 +451,12 @@ impl Session {
         activation_frame: Option<u64>,
     ) {
         if let Some(id) = self.state.operation.take()
-            && let Some((_, receipt)) = self.receipts.iter_mut().find(|(c, _)| c.request_id == id)
+            && let Some(record) = self
+                .receipts
+                .iter_mut()
+                .find(|record| record.0.request_id == id)
         {
+            let receipt = &mut Arc::make_mut(record).1;
             receipt.status = status;
             receipt.error = error;
             receipt.activation_frame = activation_frame;
@@ -445,13 +482,27 @@ impl Session {
         expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
         commit: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Receipt {
-        if let Some((prior, receipt)) = self
+        self.submit_with_graph_effects(command, self.state.monotonic_ns, expand, commit)
+    }
+    /// Admits graph jobs through the same staged session and durable mutation hook.
+    pub fn submit_with_graph_effects(
+        &mut self,
+        command: CommandEnvelope,
+        now_ns: u64,
+        expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
+        commit: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Receipt {
+        self.expire_graph_work(now_ns);
+        if let Some(record) = self.live_graph_receipt(&command.request_id) {
+            return self.replay_graph_record(&command, record);
+        }
+        if let Some(record) = self
             .receipts
             .iter()
-            .find(|(c, _)| c.request_id == command.request_id)
+            .find(|record| record.0.request_id == command.request_id)
         {
-            return if prior == &command {
-                receipt.clone()
+            return if record.0 == command {
+                record.1.clone()
             } else {
                 self.receipt(
                     &command,
@@ -464,10 +515,21 @@ impl Session {
             };
         }
         let mut staged = self.clone();
-        let result = staged.apply_command(&command, expand);
+        // Do not retain structurally oversized intent, including rejected commands.
+        if let Command::GraphPrepare { graph, .. } | Command::GraphValidate { graph, .. } =
+            &command.payload
+            && let Err(error) = graph.validate_structure()
+        {
+            return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+        }
+        let result = staged.apply_command(&command, now_ns, expand);
         let receipt = match result {
             Ok(status) => {
-                let persisted = if staged.state.revision != self.state.revision {
+                let persisted = if staged.state.revision != self.state.revision
+                    || matches!(
+                        command.payload,
+                        Command::GraphPrepare { .. } | Command::GraphValidate { .. }
+                    ) {
                     commit(&staged)
                 } else {
                     Ok(())
@@ -485,12 +547,15 @@ impl Session {
         if self.receipts.len() == self.limits.receipts {
             self.receipts.pop_front();
         }
-        self.receipts.push_back((command, receipt.clone()));
+        let record = Arc::new((command, receipt.clone()));
+        self.retain_graph_record(record.clone());
+        self.receipts.push_back(record);
         receipt
     }
     fn apply_command(
         &mut self,
         command: &CommandEnvelope,
+        now_ns: u64,
         expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
     ) -> Result<ReceiptStatus, EngineError> {
         command.validate()?;
@@ -516,6 +581,7 @@ impl Session {
                 | Command::State
                 | Command::Capabilities
                 | Command::QueueGet { .. }
+                | Command::GraphInspect { .. }
                 | Command::QueueAppend { .. }
                 | Command::QueueAppendDirectory { .. }
                 | Command::QueueRemove { .. }
@@ -545,6 +611,15 @@ impl Session {
                 "refresh expected revision",
             ));
         }
+        self.validate_graph_control(&command.payload)?;
+        if matches!(
+            command.payload,
+            Command::GraphPrepare { .. }
+                | Command::GraphValidate { .. }
+                | Command::GraphCommit { .. }
+        ) {
+            return self.apply_graph_command(command, now_ns);
+        }
         self.validate_live_queue_edit(&command.payload)?;
         let mut next = self.state.clone();
         next.revision = increment(next.revision)?;
@@ -569,6 +644,7 @@ impl Session {
                 }
                 output.validate()?;
                 next.output_id = Some(output.device_id.clone());
+                next.device_epoch = increment(next.device_epoch)?;
                 next.output = Some(output.clone());
                 next.playback = None;
                 next.audible_position_frames = None;
@@ -638,6 +714,9 @@ impl Session {
                     ));
                 }
                 next.software_gain_db = gain;
+                if let Some(active) = &self.graph.active {
+                    active.validate_headroom(gain, next.volume_policy.software_cap_db())?;
+                }
                 next.gain_ramp_frames = *ramp_frames;
                 if !next.muted {
                     Self::validate_local_unmute(&next)?;
@@ -845,6 +924,7 @@ impl Session {
             }
             Command::Mute { muted } => {
                 if !muted && self.local_playback_enabled {
+                    self.validate_graph_unmute(&next)?;
                     Self::validate_local_unmute(&next)?;
                 }
                 next.muted = *muted;
@@ -868,7 +948,32 @@ impl Session {
                 .and_then(|index| self.queue.entries().get(index + 1))
                 .map(|entry| entry.id.clone());
         }
+        let clear_active = matches!(
+            command.payload,
+            Command::Start { .. }
+                | Command::Stop
+                | Command::OwnerShutdown
+                | Command::OutputSelect { .. }
+        );
+        if self.graph.active.is_some()
+            && next.muted
+            && !self.state.muted
+            && next.epochs == self.state.epochs
+        {
+            next.epochs = next.epochs.next_stream()?;
+        }
+        let invalidated =
+            next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
         self.state = next;
+        if invalidated || clear_active {
+            self.invalidate_graph_work(EngineError::new(
+                ErrorCode::OperationCancelled,
+                "graph work superseded",
+            ));
+        }
+        if clear_active {
+            self.graph.active = None;
+        }
         if cancel_previous {
             self.finish_pending(
                 ReceiptStatus::Cancelled,
@@ -1065,6 +1170,7 @@ impl Session {
                 completion = Some((ReceiptStatus::Applied, None, None));
             }
             EngineEventKind::LocalFailed { code } => {
+                next.device_epoch = increment(next.device_epoch)?;
                 next.audible_position_frames = None;
                 if let Some(playback) = &mut next.playback {
                     playback.consumed_frames = None;
@@ -1159,6 +1265,7 @@ impl Session {
                 ));
             }
             EngineEventKind::OutputReplaced { device_id } => {
+                next.device_epoch = increment(next.device_epoch)?;
                 next.transport = TransportState::Suspended;
                 next.muted = true;
                 next.output_id = Some(device_id);
@@ -1166,6 +1273,7 @@ impl Session {
                 completion = Some((ReceiptStatus::Cancelled, Some(OUTPUT), None));
             }
             EngineEventKind::OutputFailed => {
+                next.device_epoch = increment(next.device_epoch)?;
                 next.transport = TransportState::Failed;
                 next.muted = true;
                 next.error = Some(ErrorCode::OutputFault);
@@ -1193,7 +1301,27 @@ impl Session {
             _ => return Err(STATE),
         }
         let request_id = self.state.operation.clone();
+        let invalidated =
+            next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
+        let clear_active = matches!(
+            next.transport,
+            TransportState::Idle | TransportState::Failed | TransportState::Suspended
+        );
         self.state = next;
+        if invalidated {
+            let error = if clear_active && self.state.error.is_some() {
+                OUTPUT
+            } else {
+                EngineError::new(
+                    ErrorCode::OperationCancelled,
+                    "graph stream generation changed",
+                )
+            };
+            self.invalidate_graph_work(error);
+        }
+        if clear_active {
+            self.graph.active = None;
+        }
         if let Some((status, error, activation)) = completion {
             self.finish_pending(status, error, activation);
         }
@@ -1205,6 +1333,46 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn invalid_non_graph_requests_keep_the_existing_replay_contract() {
+        let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());
+        let mut command = CommandEnvelope {
+            schema_version: 1,
+            owner_id: None,
+            request_id: RequestId::new("invalid").unwrap(),
+            zone_id: ZoneId::new("main").unwrap(),
+            session_id: None,
+            expected_revision: Some(0),
+            payload: Command::QueueAppend {
+                path: String::new(),
+            },
+        };
+        assert_eq!(
+            session.submit(command.clone()).status,
+            ReceiptStatus::Rejected
+        );
+        command.payload = Command::Mute { muted: true };
+        assert_eq!(session.submit(command).status, ReceiptStatus::Rejected);
+        assert_eq!(session.state.revision, 0);
+    }
+    #[test]
+    fn staging_shares_immutable_receipt_history() {
+        let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());
+        session.submit(CommandEnvelope {
+            schema_version: 1,
+            owner_id: None,
+            request_id: RequestId::new("history").unwrap(),
+            zone_id: ZoneId::new("main").unwrap(),
+            session_id: None,
+            expected_revision: None,
+            payload: Command::State,
+        });
+        let staged = session.clone();
+        assert!(std::ptr::eq(
+            &session.receipts.front().unwrap().0,
+            &staged.receipts.front().unwrap().0,
+        ));
+    }
     #[test]
     fn exhausted_revisions_do_not_partially_change_mute() {
         let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());

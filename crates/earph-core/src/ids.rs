@@ -31,10 +31,19 @@ identity!(
     DeviceId,
     ProfileId,
     GraphId,
+    NodeId,
+    PreparedGraphId,
     RequestId,
     OwnerId,
     QueueEntryId
 );
+
+impl NodeId {
+    /// Reports retained UTF-8 storage capacity for graph memory admission.
+    pub fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

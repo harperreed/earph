@@ -7,6 +7,13 @@ use earph_core::{
 };
 use earph_dsp::*;
 
+fn scalar(value: f64) -> FiniteGraphScalar {
+    FiniteGraphScalar::new(value).unwrap()
+}
+fn coefficients<const N: usize>(values: [f64; N]) -> Vec<FiniteGraphScalar> {
+    values.into_iter().map(scalar).collect()
+}
+
 fn id(value: &str) -> NodeId {
     NodeId::new(value).unwrap()
 }
@@ -74,7 +81,9 @@ fn prepare(graph: &GraphDocument) -> PreparedGraph {
 
 #[test]
 fn gain_preserves_channel_order_and_headroom_with_read_only_metering() {
-    let mut graph = prepare(&chain(NodeKind::Gain { gain_linear: -2.0 }));
+    let mut graph = prepare(&chain(NodeKind::Gain {
+        gain_linear: scalar(-2.0),
+    }));
     assert_eq!(graph.lifecycle(), GraphLifecycle::Prepared);
     let mut output = [99.0; 6];
     assert_eq!(
@@ -161,7 +170,7 @@ fn matrices_use_output_rows_and_input_columns_for_each_typed_layout() {
                     "matrix",
                     NodeKind::Matrix {
                         input_channels,
-                        coefficients,
+                        coefficients: coefficients.into_iter().map(scalar).collect(),
                     },
                     output_channels,
                 ),
@@ -243,17 +252,23 @@ fn sum_accumulates_in_destination_port_order() {
             node("in", NodeKind::Input, ChannelLayout::Mono),
             node(
                 "a",
-                NodeKind::Gain { gain_linear: 1.0 },
+                NodeKind::Gain {
+                    gain_linear: scalar(1.0),
+                },
                 ChannelLayout::Mono,
             ),
             node(
                 "b",
-                NodeKind::Gain { gain_linear: -1e16 },
+                NodeKind::Gain {
+                    gain_linear: scalar(-1e16),
+                },
                 ChannelLayout::Mono,
             ),
             node(
                 "c",
-                NodeKind::Gain { gain_linear: 1e16 },
+                NodeKind::Gain {
+                    gain_linear: scalar(1e16),
+                },
                 ChannelLayout::Mono,
             ),
             node("sum", NodeKind::Sum, ChannelLayout::Mono),
@@ -367,10 +382,12 @@ fn nonfinite_inputs_and_overflow_fail_terminally_without_publishing_output() {
         assert!(graph.finish(&mut output).is_err());
     }
     for kind in [
-        NodeKind::Gain { gain_linear: 2.0 },
+        NodeKind::Gain {
+            gain_linear: scalar(2.0),
+        },
         NodeKind::Matrix {
             input_channels: ChannelLayout::Stereo,
-            coefficients: vec![1.0; 4],
+            coefficients: coefficients([1.0; 4]),
         },
     ] {
         let mut graph = prepare(&chain(kind));
@@ -496,7 +513,9 @@ fn integer_preservation_plans_cannot_enter_f64_execution() {
 
 #[test]
 fn failure_node_index_identifies_the_actual_kernel_and_survives_rejected_reset() {
-    let mut graph = prepare(&chain(NodeKind::Gain { gain_linear: 2.0 }));
+    let mut graph = prepare(&chain(NodeKind::Gain {
+        gain_linear: scalar(2.0),
+    }));
     let mut output = [99.0; 2];
     graph.process(&[f64::MAX, 0.0], &mut output).unwrap_err();
     let failed = graph.failure_node_index().unwrap();
@@ -628,7 +647,9 @@ fn prepared_processing_drain_reset_cancel_and_failures_allocate_and_free_nothing
         .iter_mut()
         .find(|node| node.id == id("dry"))
         .unwrap()
-        .kind = NodeKind::Gain { gain_linear: 2.0 };
+        .kind = NodeKind::Gain {
+        gain_linear: scalar(2.0),
+    };
     document
         .nodes
         .iter_mut()
@@ -636,7 +657,7 @@ fn prepared_processing_drain_reset_cancel_and_failures_allocate_and_free_nothing
         .unwrap()
         .kind = NodeKind::Matrix {
         input_channels: ChannelLayout::Stereo,
-        coefficients: vec![0.0, 1.0, 1.0, 0.0],
+        coefficients: coefficients([0.0, 1.0, 1.0, 0.0]),
     };
     document
         .nodes
@@ -647,7 +668,7 @@ fn prepared_processing_drain_reset_cancel_and_failures_allocate_and_free_nothing
         .extend([edge("post", "meter", 0), edge("meter", "out", 0)]);
     let mut graph = prepare(&document);
     let mut overflow = prepare(&chain(NodeKind::Gain {
-        gain_linear: f64::MAX,
+        gain_linear: scalar(f64::MAX),
     }));
     let meter = id("meter");
     let mut output = [0.0; 16];

@@ -122,6 +122,18 @@ impl PreparedGraph {
     pub fn plan(&self) -> &CompiledPlan {
         &self.plan
     }
+    /// Returns allocated audio payload capacity, excluding metadata and allocator overhead.
+    pub fn resident_audio_bytes(&self) -> Option<usize> {
+        self.nodes.iter().try_fold(0_usize, |total, node| {
+            let samples = node.inputs.iter().try_fold(
+                node.output
+                    .capacity()
+                    .checked_add(node.delay.samples.capacity())?,
+                |samples, delay| samples.checked_add(delay.samples.capacity()),
+            )?;
+            total.checked_add(samples.checked_mul(size_of::<f64>())?)
+        })
+    }
     pub fn epochs(&self) -> Epochs {
         self.epochs
     }
@@ -306,9 +318,9 @@ fn execute_node(
                 };
                 for channel in 0..channels {
                     let row = channel * input_channels;
-                    let mut value = coefficients[row] * left;
+                    let mut value = coefficients[row].get() * left;
                     if input_channels == 2 {
-                        value += coefficients[row + 1] * right;
+                        value += coefficients[row + 1].get() * right;
                     }
                     if !value.is_finite() {
                         return Err(nonfinite_error());
@@ -338,7 +350,7 @@ fn execute_node(
             for (sample, source) in source.iter().take(samples).enumerate() {
                 let value = state.inputs[0].tick(*source);
                 let value = match kind {
-                    NodeKind::Gain { gain_linear } => value * gain_linear,
+                    NodeKind::Gain { gain_linear } => value * gain_linear.get(),
                     NodeKind::Delay { .. } => state.delay.tick(value),
                     _ => value,
                 };
@@ -446,6 +458,7 @@ mod tests {
         assert_eq!(output_bytes, 512);
         assert_eq!(delay_bytes, 96);
         assert_eq!(graph.plan().resources().buffer_bytes, 608);
+        assert_eq!(graph.resident_audio_bytes(), Some(608));
         let mut output = [99.0; 8];
         graph
             .process(&[1.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &mut output)

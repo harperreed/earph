@@ -1,0 +1,1196 @@
+// ABOUTME: Applies graph jobs and one-use activation tokens through Session.
+// ABOUTME: Keeps graph receipts separate from pending transport operations.
+use super::*;
+use crate::graph::GraphProcessingRequest;
+
+type Record = Arc<(CommandEnvelope, Receipt)>;
+const BUSY: EngineError = EngineError::new(
+    ErrorCode::SourceBusy,
+    "another graph operation owns the preparation slot",
+);
+const BLOCKED: EngineError = EngineError::new(
+    ErrorCode::SafetyPolicyBlocked,
+    "prepare and activate the configured graph before unmuting",
+);
+
+#[derive(Clone)]
+struct Job {
+    request: GraphJobRequest,
+    record: Option<Record>,
+}
+#[derive(Clone)]
+struct Ready {
+    prepared: GraphPrepared,
+    intent: Arc<GraphIntent>,
+    record: Option<Record>,
+}
+#[derive(Clone)]
+struct Activation {
+    request: GraphActivationRequest,
+    intent: Arc<GraphIntent>,
+    record: Option<Record>,
+}
+#[derive(Clone, Default)]
+pub(super) struct GraphControl {
+    pub(super) configured: Option<Arc<GraphIntent>>,
+    pub(super) active: Option<Arc<GraphPreview>>,
+    job: Option<Job>,
+    ready: Option<Ready>,
+    activation: Option<Activation>,
+    serial: u64,
+    terminal: Option<Record>,
+    recovery_required: bool,
+    service: GraphServiceObservation,
+}
+impl Session {
+    pub fn graph_inspection(&self) -> GraphInspection {
+        GraphInspection {
+            service: self.graph.service,
+            recovery_required: self.graph.recovery_required,
+            graph_epoch: self.state.graph_epoch,
+            active: self.graph.active.clone(),
+            configured: self.graph.configured.clone(),
+            pending_request_id: self
+                .graph
+                .job
+                .as_ref()
+                .map(|j| j.request.request_id.clone())
+                .or_else(|| {
+                    self.graph
+                        .activation
+                        .as_ref()
+                        .map(|a| a.request.request_id.clone())
+                }),
+            pending_stage: self
+                .graph
+                .job
+                .as_ref()
+                .map(|j| {
+                    if j.request.validate_only {
+                        GraphOperationStage::Validating
+                    } else {
+                        GraphOperationStage::Preparing
+                    }
+                })
+                .or_else(|| {
+                    self.graph
+                        .activation
+                        .as_ref()
+                        .map(|_| GraphOperationStage::Activating)
+                }),
+            prepared: self.graph.ready.as_ref().map(|r| r.prepared.clone()),
+        }
+    }
+    pub fn graph_job(&self) -> Option<GraphJobRequest> {
+        self.graph.job.as_ref().map(|j| j.request.clone())
+    }
+    pub fn graph_activation(&self) -> Option<GraphActivationRequest> {
+        self.graph.activation.as_ref().map(|a| a.request.clone())
+    }
+    pub fn observe_graph_resources(
+        &mut self,
+        observation: GraphServiceObservation,
+        now_ns: u64,
+    ) -> Result<(), EngineError> {
+        if observation == self.graph.service {
+            return Ok(());
+        }
+        if now_ns < self.state.monotonic_ns {
+            return Err(STALE);
+        }
+        let sequence = increment(self.state.event_sequence)?;
+        self.graph.service = observation;
+        self.state.event_sequence = sequence;
+        self.state.monotonic_ns = now_ns;
+        self.log(None);
+        Ok(())
+    }
+    pub fn submit_graph(&mut self, command: CommandEnvelope, now_ns: u64) -> Receipt {
+        self.submit_with_graph_effects(command, now_ns, |_| Err(STATE), |_| Ok(()))
+    }
+    fn graph_binding(&self) -> Result<GraphBinding, EngineError> {
+        Ok(GraphBinding {
+            owner_id: self.state.owner_id.clone().ok_or(STATE)?,
+            session_id: self.state.session_id.clone().ok_or(STATE)?,
+            epochs: self.state.epochs,
+            device_epoch: self.state.device_epoch,
+            expected_revision: self.state.revision,
+        })
+    }
+    pub(super) fn live_graph_receipt(&self, id: &RequestId) -> Option<&Record> {
+        self.graph
+            .job
+            .as_ref()
+            .and_then(|j| j.record.as_ref())
+            .filter(|r| &r.0.request_id == id)
+            .or_else(|| {
+                self.graph
+                    .ready
+                    .as_ref()
+                    .and_then(|r| r.record.as_ref())
+                    .filter(|r| &r.0.request_id == id)
+            })
+            .or_else(|| {
+                self.graph
+                    .terminal
+                    .as_ref()
+                    .filter(|r| &r.0.request_id == id)
+            })
+            .or_else(|| {
+                self.graph
+                    .activation
+                    .as_ref()
+                    .and_then(|a| a.record.as_ref())
+                    .filter(|r| &r.0.request_id == id)
+            })
+    }
+    pub(super) fn replay_graph_record(
+        &self,
+        command: &CommandEnvelope,
+        record: &Record,
+    ) -> Receipt {
+        if command == &record.0 {
+            record.1.clone()
+        } else {
+            self.receipt(
+                command,
+                ReceiptStatus::Rejected,
+                Some(EngineError::new(
+                    ErrorCode::AssetInvalid,
+                    "request ID reused for different content",
+                )),
+            )
+        }
+    }
+    pub(super) fn retain_graph_record(&mut self, record: Record) {
+        if let Some(job) = &mut self.graph.job
+            && job.request.request_id == record.0.request_id
+        {
+            job.record = Some(record.clone());
+        }
+        if let Some(activation) = &mut self.graph.activation
+            && activation.request.request_id == record.0.request_id
+        {
+            activation.record = Some(record);
+        }
+    }
+    fn settle_graph_record(
+        &mut self,
+        record: &mut Option<Record>,
+        status: ReceiptStatus,
+        error: Option<EngineError>,
+        result: Option<QueryResult>,
+    ) {
+        if let Some(prior) = record.take() {
+            let mut updated = (*prior).clone();
+            updated.1.status = status;
+            updated.1.error = error;
+            updated.1.result = result;
+            updated.1.revision = self.state.revision;
+            updated.1.epochs = self.state.epochs;
+            let updated = Arc::new(updated);
+            // One terminal graph record covers completion after ordinary history rotation.
+            // Keep the full ordinary receipt window; never evict it for this extra record.
+            self.graph.terminal = Some(updated.clone());
+            if let Some(slot) = self
+                .receipts
+                .iter_mut()
+                .find(|r| r.0.request_id == updated.0.request_id)
+            {
+                *slot = updated.clone();
+            }
+            *record = Some(updated);
+        }
+    }
+    pub(super) fn invalidate_graph_work(&mut self, error: EngineError) {
+        let status = if matches!(
+            error.code,
+            ErrorCode::OperationCancelled | ErrorCode::StaleRevision | ErrorCode::StaleSession
+        ) {
+            ReceiptStatus::Cancelled
+        } else {
+            ReceiptStatus::Failed
+        };
+        if let Some(mut job) = self.graph.job.take() {
+            self.settle_graph_record(&mut job.record, status, Some(error), None);
+        }
+        self.graph.ready = None;
+        if let Some(mut activation) = self.graph.activation.take() {
+            self.settle_graph_record(&mut activation.record, status, Some(error), None);
+        }
+    }
+    pub fn expire_graph_work(&mut self, now_ns: u64) {
+        if self
+            .graph
+            .job
+            .as_ref()
+            .is_some_and(|j| now_ns >= j.request.deadline_monotonic_ns)
+            && let Some(mut job) = self.graph.job.take()
+        {
+            self.settle_graph_record(
+                &mut job.record,
+                ReceiptStatus::Failed,
+                Some(EngineError::new(
+                    ErrorCode::OperationCancelled,
+                    "graph preparation deadline expired",
+                )),
+                None,
+            );
+        }
+        if self
+            .graph
+            .ready
+            .as_ref()
+            .is_some_and(|r| now_ns >= r.prepared.expires_monotonic_ns)
+        {
+            self.graph.ready = None;
+        }
+    }
+    pub(super) fn validate_graph_control(&self, command: &Command) -> Result<(), EngineError> {
+        if self.graph.activation.is_some()
+            && !matches!(
+                command,
+                Command::Mute { muted: true }
+                    | Command::Stop
+                    | Command::OwnerShutdown
+                    | Command::VolumeCaps { .. }
+            )
+        {
+            return Err(if matches!(command, Command::Mute { muted: false }) {
+                BLOCKED
+            } else {
+                BUSY
+            });
+        }
+        Ok(())
+    }
+    pub(super) fn validate_graph_unmute(&self, state: &SessionSnapshot) -> Result<(), EngineError> {
+        if self.graph.recovery_required
+            || self.graph.activation.is_some()
+            || self.graph.configured.is_some() && self.graph.active.is_none()
+        {
+            return Err(BLOCKED);
+        }
+        if let Some(active) = &self.graph.active {
+            active.validate_headroom(
+                state.software_gain_db,
+                state.volume_policy.software_cap_db(),
+            )?;
+        }
+        Ok(())
+    }
+    pub(super) fn apply_graph_command(
+        &mut self,
+        command: &CommandEnvelope,
+        now_ns: u64,
+    ) -> Result<ReceiptStatus, EngineError> {
+        if now_ns < self.state.monotonic_ns {
+            return Err(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "non-monotonic graph time",
+            ));
+        }
+        match &command.payload {
+            Command::GraphPrepare { graph, processing }
+            | Command::GraphValidate { graph, processing } => {
+                if self.graph.ready.as_ref().is_some_and(|r| {
+                    r.prepared.preview.binding.expected_revision != self.state.revision
+                }) {
+                    self.graph.ready = None;
+                }
+                if self.graph.job.is_some()
+                    || self.graph.ready.is_some()
+                    || self.graph.activation.is_some()
+                {
+                    return Err(BUSY);
+                }
+                if self.state.source != Some(SourceKind::LocalFile)
+                    || self.state.playback.is_none()
+                    || !matches!(
+                        self.state.transport,
+                        TransportState::Buffering
+                            | TransportState::Playing
+                            | TransportState::Paused
+                    )
+                    || !self.state.output_consented
+                {
+                    return Err(STATE);
+                }
+                let output = self.state.output.as_ref().ok_or(STATE)?;
+                if matches!(processing, GraphProcessingRequest::Float64 { .. })
+                    && output.fidelity == FidelityPolicy::StrictPreservation
+                {
+                    return Err(EngineError::new(
+                        ErrorCode::FidelityPolicyConflict,
+                        "strict output cannot activate floating processing",
+                    ));
+                }
+                let deadline = now_ns
+                    .checked_add(GRAPH_PREPARATION_DEADLINE_NS)
+                    .ok_or(STATE)?;
+                self.graph.job = Some(Job {
+                    request: GraphJobRequest {
+                        request_id: command.request_id.clone(),
+                        binding: self.graph_binding()?,
+                        intent: Arc::new(GraphIntent {
+                            graph: graph.clone(),
+                            processing: *processing,
+                        }),
+                        validate_only: matches!(command.payload, Command::GraphValidate { .. }),
+                        deadline_monotonic_ns: deadline,
+                    },
+                    record: None,
+                });
+            }
+            Command::GraphCommit { token, graph_hash } => {
+                let ready = self.graph.ready.as_ref().ok_or(STALE)?;
+                if &ready.prepared.token != token
+                    || &ready.prepared.preview.graph_hash != graph_hash
+                {
+                    return Err(STALE);
+                }
+                let binding = self.graph_binding()?;
+                if ready.prepared.preview.binding.expected_revision != binding.expected_revision {
+                    return Err(EngineError::new(
+                        ErrorCode::StaleRevision,
+                        "prepared graph revision changed",
+                    ));
+                }
+                if ready.prepared.preview.binding != binding {
+                    return Err(STALE);
+                }
+                if !self.state.output_consented {
+                    return Err(BLOCKED);
+                }
+                ready.prepared.preview.validate_headroom(
+                    self.state.software_gain_db,
+                    self.state.volume_policy.software_cap_db(),
+                )?;
+                let epochs = self.state.epochs.next_stream()?;
+                let revision = increment(self.state.revision)?;
+                let ready = self.graph.ready.take().ok_or(STALE)?;
+                self.graph.activation = Some(Activation {
+                    request: GraphActivationRequest {
+                        request_id: command.request_id.clone(),
+                        previous_binding: binding,
+                        epochs,
+                        prepared: ready.prepared,
+                    },
+                    intent: ready.intent,
+                    record: None,
+                });
+                self.state.revision = revision;
+                self.state.epochs = epochs;
+                self.state.muted = true;
+                self.state.transport = TransportState::Reconfiguring;
+                self.state.audible_position_frames = None;
+            }
+            _ => return Err(STATE),
+        }
+        self.state.event_sequence = increment(self.state.event_sequence)?;
+        self.state.monotonic_ns = now_ns;
+        self.log(Some(command.request_id.clone()));
+        Ok(ReceiptStatus::Accepted)
+    }
+    pub fn complete_graph_preparation(
+        &mut self,
+        id: &RequestId,
+        binding: &GraphBinding,
+        now_ns: u64,
+        result: Result<Arc<GraphPreview>, GraphDiagnostic>,
+    ) -> Result<(), EngineError> {
+        self.expire_graph_work(now_ns);
+        if self
+            .graph
+            .job
+            .as_ref()
+            .is_none_or(|j| &j.request.request_id != id || &j.request.binding != binding)
+        {
+            return Err(STALE);
+        }
+        let mut job = self.graph.job.take().ok_or(STALE)?;
+        let result = (|| -> Result<_, GraphDiagnostic> {
+            if now_ns < self.state.monotonic_ns {
+                return Err(EngineError::new(
+                    ErrorCode::AssetInvalid,
+                    "non-monotonic graph completion",
+                )
+                .into());
+            }
+            let current = self.graph_binding().map_err(GraphDiagnostic::from)?;
+            if current.expected_revision != binding.expected_revision {
+                return Err(EngineError::new(
+                    ErrorCode::StaleRevision,
+                    "graph preparation revision changed",
+                )
+                .into());
+            }
+            if &current != binding {
+                return Err(STALE.into());
+            }
+            let preview = result?;
+            preview.validate().map_err(GraphDiagnostic::from)?;
+            if !job.request.validate_only {
+                preview
+                    .validate_headroom(
+                        self.state.software_gain_db,
+                        self.state.volume_policy.software_cap_db(),
+                    )
+                    .map_err(GraphDiagnostic::from)?;
+            }
+            if &preview.binding != binding
+                || self.state.playback.as_ref().map(|p| p.format) != Some(preview.source_format)
+                || self.state.output.as_ref().map(|o| o.period_frames as usize)
+                    != Some(preview.quantum_frames)
+            {
+                return Err(STALE.into());
+            }
+            let sequence = increment(self.state.event_sequence).map_err(GraphDiagnostic::from)?;
+            let prepared = if job.request.validate_only {
+                None
+            } else {
+                let serial = increment(self.graph.serial).map_err(GraphDiagnostic::from)?;
+                let token = PreparedGraphId::new(format!("graph-{serial}"))
+                    .map_err(GraphDiagnostic::from)?;
+                let expires = now_ns
+                    .checked_add(GRAPH_TOKEN_TTL_NS)
+                    .ok_or_else(|| GraphDiagnostic::from(STATE))?;
+                Some((
+                    serial,
+                    GraphPrepared {
+                        token,
+                        expires_monotonic_ns: expires,
+                        preview: preview.clone(),
+                    },
+                ))
+            };
+            Ok((preview, prepared, sequence))
+        })();
+        match result {
+            Ok((preview, prepared, sequence)) => {
+                if let Some((serial, prepared)) = prepared {
+                    self.settle_graph_record(
+                        &mut job.record,
+                        ReceiptStatus::Applied,
+                        None,
+                        Some(QueryResult::GraphPrepared(prepared.clone())),
+                    );
+                    self.graph.ready = Some(Ready {
+                        prepared,
+                        intent: job.request.intent,
+                        record: job.record,
+                    });
+                    self.graph.serial = serial;
+                } else {
+                    self.settle_graph_record(
+                        &mut job.record,
+                        ReceiptStatus::Applied,
+                        None,
+                        Some(QueryResult::GraphPreview(preview)),
+                    );
+                }
+                self.state.monotonic_ns = now_ns;
+                self.state.event_sequence = sequence;
+                self.log(Some(id.clone()));
+                Ok(())
+            }
+            Err(diagnostic) => {
+                let error = diagnostic.error();
+                self.settle_graph_record(
+                    &mut job.record,
+                    ReceiptStatus::Failed,
+                    Some(error),
+                    Some(QueryResult::GraphDiagnostic(diagnostic)),
+                );
+                Err(error)
+            }
+        }
+    }
+    pub fn complete_graph_activation(
+        &mut self,
+        id: &RequestId,
+        epochs: Epochs,
+        hash: &str,
+        now_ns: u64,
+        activation_frame: u64,
+        persist: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Result<(), EngineError> {
+        let activation = self.graph.activation.as_ref().ok_or(STALE)?;
+        if &activation.request.request_id != id
+            || activation.request.epochs != epochs
+            || self.state.epochs != epochs
+            || activation.request.previous_binding.device_epoch != self.state.device_epoch
+            || activation.request.prepared.preview.graph_hash != hash
+        {
+            return Err(STALE);
+        }
+        if now_ns < self.state.monotonic_ns {
+            return Err(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "non-monotonic graph activation",
+            ));
+        }
+        let mut staged = self.clone();
+        let mut activated = staged.graph.activation.take().ok_or(STALE)?;
+        staged.graph.active = Some(activated.request.prepared.preview.clone());
+        staged.graph.configured = Some(activated.intent);
+        staged.graph.recovery_required = false;
+        staged.state.graph_epoch = increment(staged.state.graph_epoch)?;
+        staged.state.revision = increment(staged.state.revision)?;
+        staged.state.event_sequence = increment(staged.state.event_sequence)?;
+        staged.state.monotonic_ns = now_ns;
+        staged.state.transport = if staged.wants_playback() {
+            TransportState::Buffering
+        } else {
+            TransportState::Paused
+        };
+        staged.state.muted = true;
+        if let Err(error) = persist(&staged) {
+            self.fail_graph_activation(id, error);
+            return Err(error);
+        }
+        staged.settle_graph_record(&mut activated.record, ReceiptStatus::Applied, None, None);
+        if let Some(mut record) = activated.record.take() {
+            Arc::make_mut(&mut record).1.activation_frame = Some(activation_frame);
+            if let Some(slot) = staged
+                .receipts
+                .iter_mut()
+                .find(|r| r.0.request_id == record.0.request_id)
+            {
+                *slot = record.clone();
+            }
+            staged.graph.terminal = Some(record);
+        }
+        staged.log(Some(id.clone()));
+        *self = staged;
+        Ok(())
+    }
+    pub fn fail_graph_activation(&mut self, id: &RequestId, error: EngineError) {
+        if self
+            .graph
+            .activation
+            .as_ref()
+            .is_some_and(|a| &a.request.request_id == id)
+            && let Some(mut activation) = self.graph.activation.take()
+        {
+            self.state.muted = true;
+            self.state.transport = TransportState::Failed;
+            self.state.output_consented = false;
+            self.state.error = Some(error.code);
+            self.graph.active = None;
+            self.graph.recovery_required = true;
+            if let Ok(epochs) = self.state.epochs.next_stream() {
+                self.state.epochs = epochs;
+            }
+            self.settle_graph_record(
+                &mut activation.record,
+                ReceiptStatus::Failed,
+                Some(error),
+                None,
+            );
+            self.finish_pending(ReceiptStatus::Failed, Some(error), None);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{audio::ChannelLayout, graph::*, safety::VolumeMode};
+
+    fn fixture() -> Session {
+        let mut s = Session::new_owner(
+            ZoneId::new("main").unwrap(),
+            OwnerId::new("owner").unwrap(),
+            ControlLimits::default(),
+        );
+        s.enable_local_playback();
+        s.state.session_id = Some(SessionId::new("source").unwrap());
+        s.state.source = Some(SourceKind::LocalFile);
+        s.state.transport = TransportState::Paused;
+        s.state.epochs = Epochs {
+            session: 1,
+            stream: 0,
+        };
+        s.state.output_id = Some(DeviceId::new("dac").unwrap());
+        s.state.output = Some(OutputConfiguration {
+            backend: OutputBackend::Alsa,
+            route: OutputRoute::System,
+            endpoint: "null".into(),
+            device_id: DeviceId::new("dac").unwrap(),
+            profile_id: ProfileId::new("profile").unwrap(),
+            period_frames: 64,
+            buffer_frames: 256,
+            volume_mode: VolumeMode::Software,
+            fidelity: FidelityPolicy::CompatibleConversion,
+        });
+        s.state.output_consented = true;
+        let entry = s.queue.append("unit.wav").unwrap();
+        s.state.active_entry_id = Some(entry.clone());
+        s.playback_intent = PlaybackIntent::Paused;
+        let format =
+            PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
+        s.state.playback = Some(PlaybackObservation {
+            processing: None,
+            format,
+            submitted_frames: 0,
+            consumed_frames: None,
+            backend_delay_frames: None,
+            consumption_basis: "unit reducer",
+            source_entry_id: entry,
+            source_position_frames: 0,
+            audible_entry_id: None,
+            audible_source_position_frames: None,
+            input_peak: None,
+            output_peak: None,
+            modified: false,
+            backend: None,
+        });
+        s
+    }
+    fn command(s: &Session, id: &str, payload: Command) -> CommandEnvelope {
+        CommandEnvelope {
+            schema_version: 1,
+            request_id: RequestId::new(id).unwrap(),
+            zone_id: s.state.zone_id.clone(),
+            owner_id: s.state.owner_id.clone(),
+            session_id: s.state.session_id.clone(),
+            expected_revision: Some(s.state.revision),
+            payload,
+        }
+    }
+    fn prepare(s: &Session, id: &str) -> CommandEnvelope {
+        let port = PortFormat {
+            domain: SampleDomain::Pcm,
+            sample_rate_hz: 48000,
+            channels: ChannelLayout::Stereo,
+            precision: PcmRepresentation::Float64,
+            max_quantum_frames: 64,
+        };
+        let input = NodeId::new("in").unwrap();
+        let output = NodeId::new("out").unwrap();
+        command(
+            s,
+            id,
+            Command::GraphPrepare {
+                graph: Arc::new(GraphDocument {
+                    schema_version: 1,
+                    nodes: vec![
+                        Node {
+                            id: input.clone(),
+                            kind: NodeKind::Input,
+                            format: port,
+                        },
+                        Node {
+                            id: output.clone(),
+                            kind: NodeKind::Output,
+                            format: port,
+                        },
+                    ],
+                    edges: vec![Edge {
+                        from: input,
+                        to: output.clone(),
+                        from_port: 0,
+                        to_port: 0,
+                    }],
+                    output,
+                }),
+                processing: GraphProcessingRequest::Float64 {
+                    quantization: QuantizationPolicy::RoundTiesAwaySaturateNoDither,
+                },
+            },
+        )
+    }
+    fn preview(s: &Session, bound: f64) -> Arc<GraphPreview> {
+        let job = s.graph_job().unwrap();
+        let native = s.state.playback.as_ref().unwrap().format;
+        let float =
+            PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Float64).unwrap();
+        Arc::new(GraphPreview {
+            backend: None,
+            graph_hash: "a".repeat(64),
+            kernel_hash: "b".repeat(64),
+            implementation_version: "test-contract".into(),
+            binding: job.binding,
+            source_format: native,
+            native_output_format: native,
+            processing_input_format: float,
+            processing_output_format: float,
+            quantum_frames: 64,
+            latency_frames: 0,
+            tail_frames: 0,
+            preservation: PreservationDecision::ProcessFloat64,
+            transformations: vec![],
+            resources: GraphResidentUsage::default(),
+            channel_peak_bounds: vec![bound; 2],
+            required_headroom_db: (20.0 * bound.log10()).max(0.0),
+            transition: GraphTransition::MutedRebuffer,
+        })
+    }
+    fn ready(s: &mut Session, id: &str, bound: f64) -> GraphPrepared {
+        let c = prepare(s, id);
+        assert_eq!(s.submit_graph(c, 10).status, ReceiptStatus::Accepted);
+        let p = preview(s, bound);
+        s.complete_graph_preparation(&RequestId::new(id).unwrap(), &p.binding.clone(), 20, Ok(p))
+            .unwrap();
+        s.graph_inspection().prepared.unwrap()
+    }
+    fn commit(s: &Session, id: &str, p: &GraphPrepared) -> CommandEnvelope {
+        command(
+            s,
+            id,
+            Command::GraphCommit {
+                token: p.token.clone(),
+                graph_hash: p.preview.graph_hash.clone(),
+            },
+        )
+    }
+    #[test]
+    fn preparation_is_revision_neutral_bounded_and_exactly_replayed() {
+        let mut s = fixture();
+        let c = prepare(&s, "prepare");
+        let accepted = s.submit_graph(c.clone(), 10);
+        assert_eq!(accepted.status, ReceiptStatus::Accepted);
+        assert_eq!(s.state.revision, 0);
+        assert!(s.state.operation.is_none());
+        assert_eq!(s.submit_graph(c.clone(), 11), accepted);
+        let competitor = prepare(&s, "competitor");
+        assert_eq!(
+            s.submit_graph(competitor, 12).error.unwrap().code,
+            ErrorCode::SourceBusy
+        );
+        let p = preview(&s, 1.0);
+        s.complete_graph_preparation(&c.request_id, &p.binding.clone(), 20, Ok(p))
+            .unwrap();
+        assert_eq!(s.submit_graph(c, 21).status, ReceiptStatus::Applied);
+        assert_eq!(s.state.revision, 0);
+    }
+    #[test]
+    fn readiness_revision_and_token_expiry_cannot_be_bypassed() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = command(&s, "mute", Command::Mute { muted: true });
+        s.submit_graph(c, 21);
+        let c = commit(&s, "stale", &p);
+        assert_eq!(
+            s.submit_graph(c, 22).error.unwrap().code,
+            ErrorCode::StaleRevision
+        );
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "expired", &p);
+        assert_eq!(
+            s.submit_graph(c, p.expires_monotonic_ns)
+                .error
+                .unwrap()
+                .code,
+            ErrorCode::StaleSession
+        );
+        assert!(s.graph_inspection().prepared.is_none());
+    }
+    #[test]
+    fn late_preparation_cannot_resurrect_after_stop_or_revision_change() {
+        for stop in [false, true] {
+            let mut s = fixture();
+            let c = prepare(&s, "prepare");
+            s.submit_graph(c.clone(), 10);
+            let p = preview(&s, 1.0);
+            let mutation = command(
+                &s,
+                "change",
+                if stop {
+                    Command::Stop
+                } else {
+                    Command::Mute { muted: true }
+                },
+            );
+            s.submit_graph(mutation, 15);
+            assert!(
+                s.complete_graph_preparation(&c.request_id, &p.binding.clone(), 20, Ok(p))
+                    .is_err()
+            );
+            assert!(s.graph_inspection().prepared.is_none());
+            assert_ne!(s.submit_graph(c, 21).status, ReceiptStatus::Applied);
+        }
+    }
+    #[test]
+    fn activation_stays_muted_and_only_exact_acknowledgement_applies_once() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "commit", &p);
+        assert_eq!(
+            s.submit_graph(c.clone(), 21).status,
+            ReceiptStatus::Accepted
+        );
+        assert_eq!(s.state.transport, TransportState::Reconfiguring);
+        assert!(s.state.muted);
+        assert_eq!(s.state.graph_epoch, 0);
+        assert!(s.state.operation.is_none());
+        let unmute = command(&s, "unsafe-unmute", Command::Mute { muted: false });
+        assert_eq!(
+            s.submit_graph(unmute, 22).error.unwrap().code,
+            ErrorCode::SafetyPolicyBlocked
+        );
+        let mute = command(&s, "emergency-mute", Command::Mute { muted: true });
+        s.submit_graph(mute, 23);
+        let epochs = s.state.epochs;
+        assert!(
+            s.complete_graph_activation(
+                &RequestId::new("wrong").unwrap(),
+                epochs,
+                &p.preview.graph_hash,
+                24,
+                0,
+                |_| Ok(())
+            )
+            .is_err()
+        );
+        s.complete_graph_activation(&c.request_id, epochs, &p.preview.graph_hash, 25, 37, |_| {
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(s.state.graph_epoch, 1);
+        assert_eq!(s.graph.active.as_ref().unwrap().binding, p.preview.binding);
+        assert!(s.state.muted);
+        assert!(s.graph_inspection().configured.is_some());
+        assert_eq!(s.submit_graph(c.clone(), 26).status, ReceiptStatus::Applied);
+        assert_eq!(s.submit_graph(c.clone(), 26).activation_frame, Some(37));
+        assert!(
+            s.complete_graph_activation(
+                &c.request_id,
+                epochs,
+                &p.preview.graph_hash,
+                27,
+                0,
+                |_| Ok(())
+            )
+            .is_err()
+        );
+        assert_eq!(s.state.graph_epoch, 1);
+        let consumed = commit(&s, "consumed", &p);
+        assert_eq!(s.submit_graph(consumed, 28).status, ReceiptStatus::Rejected);
+    }
+    #[test]
+    fn graph_headroom_cannot_defeat_caps_or_grant_volume_authority() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 100.0);
+        let c = commit(&s, "commit", &p);
+        s.submit_graph(c.clone(), 21);
+        s.complete_graph_activation(
+            &c.request_id,
+            s.state.epochs,
+            &p.preview.graph_hash,
+            22,
+            0,
+            |_| Ok(()),
+        )
+        .unwrap();
+        let loud = command(
+            &s,
+            "loud",
+            Command::VolumeSet {
+                millidecibels: -39000,
+                ramp_frames: 0,
+            },
+        );
+        assert_eq!(
+            s.submit_graph(loud, 23).error.unwrap().code,
+            ErrorCode::SafetyPolicyBlocked
+        );
+        let mut attenuated = (*p.preview).clone();
+        attenuated.channel_peak_bounds = vec![0.001; 2];
+        assert!(attenuated.validate_headroom(-10.0, -20.0).is_err());
+        let mut malformed = attenuated;
+        malformed.channel_peak_bounds[0] = f64::NAN;
+        assert!(malformed.validate_headroom(-40.0, 0.0).is_err());
+    }
+    #[test]
+    fn persistence_failure_never_publishes_applied_graph_or_unmutes() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "commit", &p);
+        s.submit_graph(c.clone(), 21);
+        assert!(
+            s.complete_graph_activation(
+                &c.request_id,
+                s.state.epochs,
+                &p.preview.graph_hash,
+                22,
+                0,
+                |_| Err(EngineError::new(
+                    ErrorCode::InternalFault,
+                    "test persistence failure"
+                ))
+            )
+            .is_err()
+        );
+        assert!(s.state.muted);
+        assert_eq!(s.state.graph_epoch, 0);
+        assert!(s.graph_inspection().configured.is_none());
+        assert_eq!(s.submit_graph(c, 23).status, ReceiptStatus::Failed);
+    }
+    #[test]
+    fn exhausted_completion_counters_settle_the_accepted_request() {
+        let mut s = fixture();
+        let c = prepare(&s, "prepare");
+        s.submit_graph(c.clone(), 10);
+        let p = preview(&s, 1.0);
+        s.graph.serial = u64::MAX;
+        assert!(
+            s.complete_graph_preparation(&c.request_id, &p.binding.clone(), 20, Ok(p))
+                .is_err()
+        );
+        assert_eq!(s.submit_graph(c, 21).status, ReceiptStatus::Failed);
+        assert!(s.graph_inspection().prepared.is_none());
+    }
+    #[test]
+    fn stale_ready_slot_does_not_block_fresh_preparation_after_a_volume_change() {
+        let mut s = fixture();
+        ready(&mut s, "prepare", 1.0);
+        let change = command(
+            &s,
+            "lower",
+            Command::VolumeSet {
+                millidecibels: -50000,
+                ramp_frames: 0,
+            },
+        );
+        assert_eq!(s.submit_graph(change, 21).status, ReceiptStatus::Applied);
+        let replacement = prepare(&s, "replacement");
+        assert_eq!(
+            s.submit_graph(replacement, 22).status,
+            ReceiptStatus::Accepted
+        );
+        assert!(s.graph_inspection().prepared.is_none());
+    }
+    #[test]
+    fn failed_replacement_preserves_the_last_working_graph() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "commit", &p);
+        s.submit_graph(c.clone(), 21);
+        s.complete_graph_activation(
+            &c.request_id,
+            s.state.epochs,
+            &p.preview.graph_hash,
+            22,
+            0,
+            |_| Ok(()),
+        )
+        .unwrap();
+        let active = s.graph.active.clone().unwrap();
+        let configured = s.graph.configured.clone().unwrap();
+        let c = prepare(&s, "replacement");
+        assert_eq!(
+            s.submit_graph(c.clone(), 23).status,
+            ReceiptStatus::Accepted
+        );
+        let binding = s.graph_job().unwrap().binding;
+        assert!(
+            s.complete_graph_preparation(
+                &c.request_id,
+                &binding,
+                24,
+                Err(
+                    EngineError::new(ErrorCode::ResourceBudgetExceeded, "test allocation failure")
+                        .into()
+                )
+            )
+            .is_err()
+        );
+        assert!(Arc::ptr_eq(&active, s.graph.active.as_ref().unwrap()));
+        assert!(Arc::ptr_eq(
+            &configured,
+            s.graph.configured.as_ref().unwrap()
+        ));
+        assert_eq!(s.submit_graph(c, 25).status, ReceiptStatus::Failed);
+    }
+    #[test]
+    fn output_failure_cancels_preparation_and_clears_active_runtime_evidence() {
+        let mut s = fixture();
+        let c = prepare(&s, "prepare");
+        s.submit_graph(c.clone(), 10);
+        let p = preview(&s, 1.0);
+        s.advance(EngineEvent {
+            epochs: s.state.epochs,
+            monotonic_ns: 15,
+            kind: EngineEventKind::LocalFailed {
+                code: ErrorCode::OutputFault,
+            },
+        })
+        .unwrap();
+        assert!(s.graph_job().is_none());
+        assert!(
+            s.complete_graph_preparation(&c.request_id, &p.binding.clone(), 20, Ok(p))
+                .is_err()
+        );
+        assert_eq!(s.submit_graph(c, 21).status, ReceiptStatus::Failed);
+        assert!(s.state.muted);
+    }
+    #[test]
+    fn unsafe_preparation_fails_before_retaining_a_ready_pipeline() {
+        let mut s = fixture();
+        let c = prepare(&s, "prepare");
+        s.submit_graph(c.clone(), 10);
+        let p = preview(&s, 101.0);
+        assert_eq!(
+            s.complete_graph_preparation(&c.request_id, &p.binding.clone(), 20, Ok(p))
+                .unwrap_err()
+                .code,
+            ErrorCode::SafetyPolicyBlocked
+        );
+        assert!(s.graph_inspection().prepared.is_none());
+        assert_eq!(s.submit_graph(c, 21).status, ReceiptStatus::Failed);
+    }
+    #[test]
+    fn restored_processing_intent_cannot_silently_play_bypass() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "commit", &p);
+        s.submit_graph(c.clone(), 21);
+        s.complete_graph_activation(
+            &c.request_id,
+            s.state.epochs,
+            &p.preview.graph_hash,
+            22,
+            0,
+            |_| Ok(()),
+        )
+        .unwrap();
+        let bytes = serde_json::to_vec(&s.checkpoint()).unwrap();
+        let checkpoint = serde_json::from_slice(&bytes).unwrap();
+        let mut restored = Session::restore_owner(
+            ZoneId::new("main").unwrap(),
+            OwnerId::new("restored").unwrap(),
+            ControlLimits::default(),
+            checkpoint,
+        )
+        .unwrap();
+        restored.enable_local_playback();
+        restored.state.output_consented = true;
+        let c = command(&restored, "unmute", Command::Mute { muted: false });
+        assert_eq!(
+            restored.submit_graph(c, 23).error.unwrap().code,
+            ErrorCode::SafetyPolicyBlocked
+        );
+        assert!(restored.graph_inspection().configured.is_some());
+        assert!(restored.graph_inspection().active.is_none());
+    }
+    #[test]
+    fn completed_validation_and_activation_replay_after_history_rotation() {
+        let mut s = fixture();
+        let mut validation = prepare(&s, "validate");
+        if let Command::GraphPrepare { graph, processing } = validation.payload {
+            validation.payload = Command::GraphValidate { graph, processing };
+        }
+        s.submit_graph(validation.clone(), 10);
+        let p = preview(&s, 1.0);
+        for i in 0..1025 {
+            let c = command(
+                &s,
+                &format!("validation-query-{i}"),
+                Command::GraphInspect {},
+            );
+            s.submit_graph(c, 11);
+        }
+        s.complete_graph_preparation(&validation.request_id, &p.binding.clone(), 20, Ok(p))
+            .unwrap();
+        assert_eq!(
+            s.submit_graph(validation, 21).status,
+            ReceiptStatus::Applied
+        );
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "commit", &p);
+        s.submit_graph(c.clone(), 21);
+        for i in 0..1025 {
+            let q = command(
+                &s,
+                &format!("activation-query-{i}"),
+                Command::GraphInspect {},
+            );
+            s.submit_graph(q, 22);
+        }
+        s.complete_graph_activation(
+            &c.request_id,
+            s.state.epochs,
+            &p.preview.graph_hash,
+            23,
+            0,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(s.submit_graph(c, 24).status, ReceiptStatus::Applied);
+        assert_eq!(s.receipts.len(), 1024);
+    }
+    #[test]
+    fn failed_graph_activation_also_settles_pending_transport() {
+        let mut s = fixture();
+        let resume = command(&s, "resume", Command::Resume);
+        assert_eq!(
+            s.submit_graph(resume.clone(), 1).status,
+            ReceiptStatus::Accepted
+        );
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "commit", &p);
+        s.submit_graph(c.clone(), 21);
+        s.fail_graph_activation(
+            &c.request_id,
+            EngineError::new(ErrorCode::OutputFault, "test activation failure"),
+        );
+        assert_eq!(s.submit_graph(resume, 22).status, ReceiptStatus::Failed);
+        assert!(s.state.operation.is_none());
+    }
+    #[test]
+    fn failed_activation_requires_explicit_graph_recovery_before_unmute() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 100.0);
+        let c = commit(&s, "commit", &p);
+        s.submit_graph(c.clone(), 21);
+        let previous_epochs = s.state.epochs;
+        s.fail_graph_activation(
+            &c.request_id,
+            EngineError::new(ErrorCode::InternalFault, "test persistence failure"),
+        );
+        let consent = command(
+            &s,
+            "consent",
+            Command::OutputConsent {
+                device_id: DeviceId::new("dac").unwrap(),
+                profile_id: ProfileId::new("profile").unwrap(),
+            },
+        );
+        assert_eq!(s.submit_graph(consent, 22).status, ReceiptStatus::Applied);
+        let loud = command(
+            &s,
+            "loud",
+            Command::VolumeSet {
+                millidecibels: 0,
+                ramp_frames: 0,
+            },
+        );
+        s.submit_graph(loud, 23);
+        let unmute = command(&s, "unmute", Command::Mute { muted: false });
+        assert_eq!(
+            s.submit_graph(unmute, 24).error.unwrap().code,
+            ErrorCode::SafetyPolicyBlocked
+        );
+        assert_ne!(s.state.epochs, previous_epochs);
+        assert_eq!(
+            serde_json::to_value(s.graph_inspection()).unwrap()["recovery_required"],
+            true
+        );
+    }
+    #[test]
+    fn live_job_identity_survives_the_ordinary_receipt_window() {
+        let mut s = fixture();
+        let c = prepare(&s, "prepare");
+        let receipt = s.submit_graph(c.clone(), 10);
+        for i in 0..1025 {
+            let query = command(&s, &format!("query-{i}"), Command::GraphInspect {});
+            s.submit_graph(query, 11);
+        }
+        assert_eq!(s.receipts.len(), 1024);
+        assert_eq!(s.submit_graph(c, 12), receipt);
+    }
+}

@@ -6,6 +6,13 @@ use earph_core::{
 };
 use earph_dsp::*;
 
+fn scalar(value: f64) -> FiniteGraphScalar {
+    FiniteGraphScalar::new(value).unwrap()
+}
+fn coefficients<const N: usize>(values: [f64; N]) -> Vec<FiniteGraphScalar> {
+    values.into_iter().map(scalar).collect()
+}
+
 fn id(value: &str) -> NodeId {
     NodeId::new(value).unwrap()
 }
@@ -154,7 +161,7 @@ fn reorder_preserves_plan_hash_and_semantic_changes_invalidate_it() {
 fn matrix_declares_input_and_output_channel_layouts() {
     let mut graph = chain(NodeKind::Matrix {
         input_channels: ChannelLayout::Stereo,
-        coefficients: vec![0.5, 0.5],
+        coefficients: coefficients([0.5, 0.5]),
     });
     graph.nodes[1].format.channels = ChannelLayout::Mono;
     graph.nodes[2].format.channels = ChannelLayout::Mono;
@@ -170,7 +177,7 @@ fn matrix_declares_input_and_output_channel_layouts() {
     );
     graph.nodes[1].kind = NodeKind::Matrix {
         input_channels: ChannelLayout::Mono,
-        coefficients: vec![1.0],
+        coefficients: coefficients([1.0]),
     };
     let error = compile(&graph, &ctx).unwrap_err();
     assert_eq!(error.code, ErrorCode::FormatUnsupported);
@@ -192,7 +199,9 @@ fn strict_policy_retains_integer_identity_without_f64_conversion() {
     assert_eq!(plan.preservation(), PreservationDecision::RetainInteger);
     assert!(plan.transformations().is_empty());
     assert_eq!(plan.resources().buffer_bytes, 0);
-    graph.nodes[1].kind = NodeKind::Gain { gain_linear: 0.5 };
+    graph.nodes[1].kind = NodeKind::Gain {
+        gain_linear: scalar(0.5),
+    };
     assert_eq!(
         compile(&graph, &ctx).unwrap_err().code,
         ErrorCode::FidelityPolicyConflict
@@ -218,17 +227,21 @@ fn identity_nodes_and_meter_compile_as_unchanged_float64_in_strict_mode() {
         assert!(plan.transformations().is_empty());
     }
     for kind in [
-        NodeKind::Gain { gain_linear: 1.0 },
+        NodeKind::Gain {
+            gain_linear: scalar(1.0),
+        },
         NodeKind::Sum,
-        NodeKind::Gain { gain_linear: 2.0 },
+        NodeKind::Gain {
+            gain_linear: scalar(2.0),
+        },
         NodeKind::Delay { delay_frames: 1 },
         NodeKind::Matrix {
             input_channels: ChannelLayout::Stereo,
-            coefficients: vec![1.0, 0.0, 0.0, 1.0],
+            coefficients: coefficients([1.0, 0.0, 0.0, 1.0]),
         },
         NodeKind::Matrix {
             input_channels: ChannelLayout::Stereo,
-            coefficients: vec![0.0, 1.0, 1.0, 0.0],
+            coefficients: coefficients([0.0, 1.0, 1.0, 0.0]),
         },
     ] {
         assert_eq!(
@@ -340,21 +353,15 @@ fn rejects_a_true_cycle_with_otherwise_valid_port_counts() {
 }
 
 #[test]
-fn rejects_non_finite_parameters_and_matrix_shape() {
+fn rejects_invalid_matrix_shape_with_node_diagnostics() {
     for kind in [
-        NodeKind::Gain {
-            gain_linear: f64::NAN,
-        },
-        NodeKind::Gain {
-            gain_linear: f64::INFINITY,
+        NodeKind::Matrix {
+            input_channels: ChannelLayout::Stereo,
+            coefficients: coefficients([1.0]),
         },
         NodeKind::Matrix {
             input_channels: ChannelLayout::Stereo,
-            coefficients: vec![1.0],
-        },
-        NodeKind::Matrix {
-            input_channels: ChannelLayout::Stereo,
-            coefficients: vec![f64::NEG_INFINITY; 4],
+            coefficients: coefficients([1.0; 5]),
         },
     ] {
         let error = compile(&chain(kind), &context()).unwrap_err();
@@ -535,4 +542,19 @@ fn documents_roundtrip_and_unsupported_features_reject() {
     assert!(NodeId::new("").is_err());
     assert!(NodeId::new("line\nbreak").is_err());
     assert!(NodeId::new("a".repeat(129)).is_err());
+}
+
+#[test]
+fn serialized_graph_rejects_oversized_intent_before_compilation() {
+    let mut graph = chain(NodeKind::Bypass);
+    graph.nodes = vec![graph.nodes[0].clone(); 129];
+    assert!(serde_json::from_slice::<GraphDocument>(&serde_json::to_vec(&graph).unwrap()).is_err());
+    graph = chain(NodeKind::Bypass);
+    graph.edges = vec![graph.edges[0].clone(); 257];
+    assert!(serde_json::from_slice::<GraphDocument>(&serde_json::to_vec(&graph).unwrap()).is_err());
+    graph = chain(NodeKind::Matrix {
+        input_channels: ChannelLayout::Stereo,
+        coefficients: coefficients([1.0; 5]),
+    });
+    assert!(serde_json::from_slice::<GraphDocument>(&serde_json::to_vec(&graph).unwrap()).is_err());
 }

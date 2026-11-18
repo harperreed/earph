@@ -141,11 +141,13 @@ dependencies = [
  "earph-alsa",
  "earph-core",
  "earph-coreaudio",
+ "earph-dsp",
  "earph-harness",
  "earph-media",
  "rustix",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

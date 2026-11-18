@@ -2,10 +2,12 @@
 // ABOUTME: Persists validated queue state before publishing command success.
 #![forbid(unsafe_code)]
 mod directory;
+mod graph;
 mod host;
 mod ipc;
 mod output;
 mod plan;
+mod render;
 mod runtime;
 mod transport;
 mod worker;

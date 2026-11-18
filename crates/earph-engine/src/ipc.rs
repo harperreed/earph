@@ -3,7 +3,7 @@
 use crate::transport;
 use earph_core::{
     EngineError, ErrorCode,
-    control::{CommandEnvelope, ControlLimits, decode_command},
+    control::{CommandEnvelope, ControlLimits, Receipt, decode_command},
 };
 use std::{
     os::unix::net::UnixListener,
@@ -18,7 +18,7 @@ use std::{
 
 pub(crate) struct Pending {
     pub command: CommandEnvelope,
-    pub reply: SyncSender<Vec<u8>>,
+    pub reply: SyncSender<Receipt>,
 }
 pub(crate) struct Server {
     pub requests: Receiver<Pending>,
@@ -58,7 +58,21 @@ impl Server {
                                 "local control queue is full",
                             ))
                         } else {
-                            receive.recv_timeout(Duration::from_secs(1)).unwrap_or_else(|_| error(EngineError::new(ErrorCode::DeviceUnavailable, "control result is uncertain; reconcile through fresh state")))
+                            match receive.recv_timeout(Duration::from_secs(1)) {
+                                Ok(receipt) => {
+                                    serde_json::to_vec(&serde_json::json!({"receipt":receipt}))
+                                        .unwrap_or_else(|_| {
+                                            error(EngineError::new(
+                                                ErrorCode::InternalFault,
+                                                "cannot serialize control receipt",
+                                            ))
+                                        })
+                                }
+                                Err(_) => error(EngineError::new(
+                                    ErrorCode::DeviceUnavailable,
+                                    "control result is uncertain; reconcile through fresh state",
+                                )),
+                            }
                         }
                     }
                     Err(value) => error(value),

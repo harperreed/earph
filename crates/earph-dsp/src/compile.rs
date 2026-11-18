@@ -8,7 +8,7 @@ use earph_core::{
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
-const IMPLEMENTATION_VERSION: &str = "earph-dsp/0.1.0/compiler-1";
+const IMPLEMENTATION_VERSION: &str = "earph-dsp/0.1.0/compiler-2";
 
 fn invalid(message: &'static str) -> GraphError {
     GraphError::new(ErrorCode::GraphInvalid, message)
@@ -37,8 +37,8 @@ pub fn compile(
             "unsupported graph schema",
         ));
     }
-    if document.nodes.len() > context.budget.max_nodes.min(128)
-        || document.edges.len() > context.budget.max_edges.min(256)
+    if document.nodes.len() > context.budget.max_nodes.min(MAX_GRAPH_NODES)
+        || document.edges.len() > context.budget.max_edges.min(MAX_GRAPH_EDGES)
         || context.quantum_frames > context.budget.max_quantum_frames.min(8192)
     {
         return Err(budget());
@@ -279,8 +279,15 @@ pub fn compile(
     canonical.edges.sort_by(|a, b| {
         (&a.from, &a.to, a.from_port, a.to_port).cmp(&(&b.from, &b.to, b.from_port, b.to_port))
     });
-    let bytes = serde_json::to_vec(&(IMPLEMENTATION_VERSION, canonical, context))
-        .map_err(|_| invalid("graph cannot be hashed"))?;
+    let bytes = serde_json::to_vec(&(
+        IMPLEMENTATION_VERSION,
+        canonical,
+        context.input_format,
+        context.output_format,
+        context.quantum_frames,
+        context.policy,
+    ))
+    .map_err(|_| invalid("graph cannot be hashed"))?;
     let content_hash = Sha256::digest(bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -323,18 +330,11 @@ fn validate_node(node: &Node, context: &CompileContext) -> Result<(), GraphError
         return Err(budget().at_node(&node.id));
     }
     match &node.kind {
-        NodeKind::Gain { gain_linear } if !gain_linear.is_finite() => {
-            return Err(invalid("gain must be finite").at_node(&node.id));
-        }
         NodeKind::Matrix {
             input_channels,
             coefficients,
-        } if coefficients.len() != input_channels.count() * node.format.channels.count()
-            || coefficients.iter().any(|n| !n.is_finite()) =>
-        {
-            return Err(
-                invalid("matrix requires finite output by input coefficients").at_node(&node.id),
-            );
+        } if coefficients.len() != input_channels.count() * node.format.channels.count() => {
+            return Err(invalid("matrix requires output by input coefficients").at_node(&node.id));
         }
         _ => {}
     }

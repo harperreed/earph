@@ -1,8 +1,9 @@
 # Earph graph compiler
 
 Compile versioned graph intent into a bounded, deterministic execution schedule.
-This crate compiles graphs and executes prepared f64 plans offline.
-Session activation and hardware integration require separate implementations and qualification.
+This crate compiles graphs and executes prepared f64 plans.
+The engine owns [session activation, native rendering, and retirement](../../docs/dsp-graphs.md).
+Native qualification and whole-worker real-time guarantees remain separate gates.
 
 Call `compile(&GraphDocument, &CompileContext)` before preparing processing state.
 The context declares source and output PCM formats, processing quantum, preservation policy, and admitted resource limits.

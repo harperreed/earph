@@ -1,103 +1,8 @@
-// ABOUTME: Defines graph documents and immutable resolved schedules.
+// ABOUTME: Defines immutable compiled schedules from shared graph intent.
 // ABOUTME: Carries format, latency, resource, and preservation decisions explicitly.
-use earph_core::{
-    ErrorCode,
-    audio::{ChannelLayout, PcmFormat, PcmRepresentation},
-};
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct NodeId(String);
-impl NodeId {
-    pub fn new(value: impl Into<String>) -> Result<Self, GraphError> {
-        let value = value.into();
-        if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
-            return Err(GraphError::new(
-                ErrorCode::GraphInvalid,
-                "invalid node identifier",
-            ));
-        }
-        Ok(Self(value))
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-impl TryFrom<String> for NodeId {
-    type Error = GraphError;
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-impl From<NodeId> for String {
-    fn from(value: NodeId) -> Self {
-        value.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SampleDomain {
-    Pcm,
-    Dsd,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PortFormat {
-    pub domain: SampleDomain,
-    pub sample_rate_hz: u32,
-    pub channels: ChannelLayout,
-    pub precision: PcmRepresentation,
-    pub max_quantum_frames: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum NodeKind {
-    Input,
-    Output,
-    Bypass,
-    Gain {
-        gain_linear: f64,
-    },
-    Delay {
-        delay_frames: u64,
-    },
-    Matrix {
-        input_channels: ChannelLayout,
-        coefficients: Vec<f64>,
-    },
-    Sum,
-    Meter,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Node {
-    pub id: NodeId,
-    pub kind: NodeKind,
-    pub format: PortFormat,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Edge {
-    pub from: NodeId,
-    pub to: NodeId,
-    pub from_port: usize,
-    pub to_port: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct GraphDocument {
-    pub schema_version: u32,
-    pub nodes: Vec<Node>,
-    pub edges: Vec<Edge>,
-    pub output: NodeId,
-}
+use earph_core::{ErrorCode, audio::PcmFormat};
+pub use earph_core::{graph::*, ids::NodeId, safety::SampleDomain};
+use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -117,8 +22,8 @@ pub struct GraphBudget {
 impl Default for GraphBudget {
     fn default() -> Self {
         Self {
-            max_nodes: 128,
-            max_edges: 256,
+            max_nodes: MAX_GRAPH_NODES,
+            max_edges: MAX_GRAPH_EDGES,
             max_quantum_frames: 8192,
             max_buffer_bytes: 256 * 1024 * 1024,
             max_latency_frames: u64::MAX,
@@ -166,31 +71,6 @@ impl std::fmt::Display for GraphError {
     }
 }
 impl std::error::Error for GraphError {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PreservationDecision {
-    RetainInteger,
-    UnchangedFloat64,
-    ProcessFloat64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum Transformation {
-    Gain { node: NodeId },
-    Delay { node: NodeId },
-    Matrix { node: NodeId },
-    Sum { node: NodeId },
-    Compensation { edge: Edge, delay_frames: u64 },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct ResourceUsage {
-    pub buffer_bytes: u64,
-    pub node_buffer_bytes: u64,
-    pub delay_state_bytes: u64,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CompiledInput {

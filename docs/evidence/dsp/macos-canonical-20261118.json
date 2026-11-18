@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "integrated_graph_canonical_and_silent_coreaudio_sdk_checks",
+  "command": "scripts/check",
+  "command_exit": 0,
+  "tests_passed": 289,
+  "tests_ignored": 2,
+  "signal_tests_executed": false,
+  "device_settings_changes_requested": false,
+  "snapshot_inputs_verified_before_and_after": 1441,
+  "snapshot_inputs_verified_after_exercises": 1441,
+  "snapshot_archive_sha256": "4f7982c0699dc87d37877e4e882366bb53936b83f953f976f357304c999c2f78",
+  "snapshot_file_manifest_sha256": "a9ce6f2136b7cf1c6db95768885ce0b2fb407410a372bb4f510bbb1c225f2816",
+  "private_log_retained": true,
+  "log_sha256": "65ae7be530fb46a715d2692be8c1b382a86999d6d67c3ebd7f49d21a8c02b539",
+  "silent_sdk": {
+    "command": "cargo test --locked -p earph-coreaudio --test native --test playback_native --test cli",
+    "command_exit": 0,
+    "tests_passed": 11,
+    "tests_ignored": 0,
+    "log_sha256": "9f8c0a1883d0a0fa086fc7396c2a3ccfd6dd1a1c585f2c32f82e0390abc9ad70"
+  },
+  "build": {
+    "commit": "b0692ec9fc8a4fe820dffc4c366f44be542ff8eb",
+    "dependency_lock_sha256": "411273dfa7d7db901ddace51fedcb2e6d8875459cea21ce57f07610c6a2e41fc",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "d32854235b156bf3de9bf0a5e0e6c79fd8c612991d2f107b80a5d67d69a0d354",
+    "target": "aarch64-apple-darwin"
+  },
+  "sdk_host": {
+    "architecture": "arm64",
+    "macos": "27.2.1",
+    "xcode": "27.2",
+    "xcode_build": "27B52"
+  },
+  "evidence_archive_sha256": "01b66252c852389bc73cfa00074fa5d6f2c910bf2ef0fbbedf19a4a82224eec6",
+  "evidence_file_manifest_sha256": "3691e5b78e78ab1e0bbc46eab2cd4ca1a999f32d31bc5209bcddd7625123c02e",
+  "evidence_artifacts_verified": 69,
+  "qualification": "Build and silent SDK checks; scoped graph owner playback is recorded separately."
+}

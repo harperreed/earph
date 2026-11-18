@@ -262,6 +262,7 @@ fn a_local_stream_can_finish_without_claiming_a_sample_activation() {
     s.submit(start.clone());
     let state = s.snapshot();
     let observation = PlaybackObservation {
+        processing: None,
         format: earph_core::audio::PcmFormat::new(
             48000,
             earph_core::audio::ChannelLayout::Stereo,
@@ -313,6 +314,7 @@ fn unknown_audible_timing_is_not_replaced_with_a_software_restart_cursor() {
     s.submit(request);
     let state = s.snapshot();
     let observation = PlaybackObservation {
+        processing: None,
         format: earph_core::audio::PcmFormat::new(
             48000,
             earph_core::audio::ChannelLayout::Stereo,

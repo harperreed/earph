@@ -23,8 +23,14 @@ The later T05 spike adds a native adapter with its own explicit lifecycle.
 | Transport | [`Session`](../crates/earph-core/src/session.rs) owns nine `TransportState` variants and guarded commands/events. | Keep the explicit enum. Reject source events in `Idle`, `Suspended`, and `Failed`. |
 | Listening intent | `Session` owns `PlaybackIntent::Playing` or `Paused`, independently of buffering and reconfiguration. | Replace the unrestricted pending destination. Pause persists until resume or explicit start. |
 | Source ownership and generations | `Session` owns source/session IDs and [`Epochs`](../crates/earph-core/src/ids.rs). Start/takeover advances session; seek/reconfiguration advances stream. | Keep checked counters and exact target checks. Output may install only newer epochs. |
-| Asynchronous operations | `SessionSnapshot.operation` identifies pending work. [`ReceiptStatus`](../crates/earph-core/src/control.rs) separates acceptance from terminal outcomes. | Cancel superseded work after committing the replacement revision and epochs. |
-| Request retention | `Session::submit` retains 1024 command/receipt pairs. Same ID/content returns its receipt; changed content rejects; eviction ends deduplication. | Keep bounded history. Reconcile uncertain outcomes before retrying. |
+| Asynchronous operations | `SessionSnapshot.operation` identifies pending transport work. Graph jobs and activation retain separate request correlation. | Keep graph acknowledgements from settling transport receipts. Acceptance and application remain distinct. |
+| Request retention | `Session::submit` shares 1024 immutable command/receipt records. Same ID/content returns its receipt; changed content rejects. | Keep live graph references and one terminal graph record across history rotation. Preserve the full ordinary window. |
+| Graph candidates | [`Session` graph control](../crates/earph-core/src/session_graph.rs) permits one validating, preparing, ready, or activating candidate. | Bind tokens to captured facts and monotonic expiry. Consume once. Keep active execution separate from preparation. |
+| Graph activation | Session accepts muted rebuffering in a newer stream epoch. Worker acknowledgement precedes durable intent and Applied. | Gate exact request, epochs, hash, and device generation. Advance `graph_epoch` once. Never unmute on acknowledgement. |
+| Graph recovery | Failed activation sets an explicit recovery gate and invalidates its generation. Restart restores intent without runtime claims. | Stop and retire the candidate. Require successful explicit graph activation before unmute. |
+| Graph resources | [`GraphService`](../crates/earph-engine/src/graph.rs) owns one preparation slot, two pipeline owners, and two retirement slots. | Admit aggregate storage before allocation. Retire through the executor on every ownership path. |
+| Graph kernels | [`PreparedGraph`](../crates/earph-dsp/src/runtime.rs) owns prepared, running, draining, finished, failed, or cancelled execution. | Reset only into newer epochs. Preserve state across compatible joins. Drain each declared tail once. |
+| Source and tail periods | The worker owns `Feeding -> GraphTail -> BackendDrain -> Finished` and a source-or-tail pending period. | Retain partially written samples. Never reprocess retries or advance source offsets for tail frames. |
 | Mute and gain intent | `Session` owns mute, gain caps, output consent, and fixed-output arming. | The worker applies admitted software gain. Hardware gain control remains unsupported. Restore caps without consent or arming. |
 | Event subscription | `Session::events_since` projects bounded events against a cursor. Old or future cursors receive a gap and snapshot. | Keep sequence-based recovery. Position progress changes event sequence, not mutation revision. |
 | PCM storage | [`PcmBlock`](../crates/earph-core/src/audio.rs) owns typed storage and a checked valid frame span. Reuse changes the span. | Keep checked constructors and valid-prefix serialization. Never serialize unused capacity. |
@@ -166,6 +172,14 @@ Core Audio adapter lifecycle, SDK handoff, and scoped owner-and-CLI playback pas
 The final Linux owner-and-CLI hardware run also passed after the explicit drain correction.
 Those observations do not establish DAC preservation, acoustic safety, or full release qualification.
 Crash-restored queues now recover paused and muted without opening an output.
-Graphs, profiles, network roles, FFI clients, and GUIs remain unimplemented or unqualified.
+Prepared PCM graph integration now passes 307 Linux tests, with two hardware-gated tests ignored.
+The canonical formatting, strict lint, catalog, and dependency checks pass.
+Nine real owner/CLI scenarios include graph joins, tails, rebuffering, rejected replacements, and restart.
+See [prepared graph contracts and limits](dsp-graphs.md).
+The same runtime-source digest passes 289 Mac tests, with two hardware-gated tests ignored.
+One attenuated graph signal passes on each previously approved Linux and Mac route.
+Settings and generated sources remain unchanged.
+The [scoped graph receipts](evidence/dsp/verification-20261118.json) preserve these qualification limits.
+Profiles, network roles, FFI clients, and GUIs remain unimplemented or unqualified.
 This task does not qualify power-loss durability beyond completed writes and atomic JSON publication.
 Their proposed lifecycles remain in [the product specification](SPEC.md).
