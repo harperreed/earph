@@ -15,10 +15,19 @@ use std::{
 };
 
 const MAX_BYTES: u64 = 1_048_576;
-const USAGE: &str = "usage: earph-engine <owner|request> --runtime ABSOLUTE_PRIVATE_DIRECTORY";
+const USAGE: &str = "usage: earph-engine <owner|request> --runtime ABSOLUTE_PRIVATE_DIRECTORY | import-fir --runtime ABSOLUTE_PRIVATE_DIRECTORY FILE";
 
 fn execute() -> Result<u8, EngineError> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.len() == 4 && args[0] == "import-fir" && args[1] == "--runtime" {
+        let asset =
+            earph_engine::assets::import(&PathBuf::from(&args[2]), &PathBuf::from(&args[3]))?;
+        println!(
+            "{}",
+            serde_json::json!({"schema_version":1,"status":"pass","asset":asset})
+        );
+        return Ok(0);
+    }
     if args.len() != 3 || args[1] != "--runtime" || (args[0] != "owner" && args[0] != "request") {
         eprintln!("{USAGE}");
         return Ok(2);

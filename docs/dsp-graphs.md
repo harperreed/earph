@@ -60,9 +60,10 @@ Pause and seek preserve the chosen graph while resetting its history in a newer 
 Core owns the graph document and checked finite scalars.
 DSP owns immutable compiled plans and prepared kernels.
 Ports declare domain, rate, mono/stereo layout, precision, and maximum quantum.
-The implemented nodes are input, output, bypass, gain, integer delay, matrix, sum, and meter.
+The implemented nodes include input, output, bypass, gain, integer delay, matrix, sum, meter, PEQ, and convolution.
 Unsupported cycles, rate domains, fields, and conversions reject explicitly.
-PEQ, convolution, SRC, DSD processing, and profiles remain future work.
+SRC graph scheduling, DSD processing, and profiles remain future work.
+See [correction filters](correction-filters.md) for PEQ parameters and the private correction import workflow.
 
 Floating processing requires this explicit request:
 
@@ -83,7 +84,8 @@ Native client and physical format observations retain their separate meanings.
 Strict preservation refuses processing nodes even when their parameters resemble an identity.
 Neither bypass nor compiler preservation proves DAC preservation.
 
-Conservative channel bounds include gain, absolute matrix coefficients, and every summed branch.
+The DSP compiler owns conservative channel bounds for routing, PEQ, and convolution.
+The engine uses those same bounds for previews and volume admission.
 For bound B, admission requires `max(1, B) * volume_linear <= software_cap_linear`.
 Graph attenuation cannot grant more volume authority.
 Preparation, commit, volume changes, and unmute enforce this rule.
@@ -100,6 +102,9 @@ The aggregate graph admission ceiling is 256 MiB.
 It counts kernels, conversion spans, native periods, retained owners, metadata allowance, and preparation scratch.
 The metadata allowance is 2 MiB plus measured intent capacity.
 Preparation scratch reserves another 4 MiB.
+Correction resolution reserves another 8 MiB while reading and decoding one bounded asset.
+The compiler adds each kernel's separate construction scratch bound.
+Resolved coefficient storage counts once per unique asset within each pipeline.
 These are conservative payload allowances, not allocator or process-RSS measurements.
 Existing decoder and backend storage retain their separate bounds.
 
@@ -113,7 +118,9 @@ Control history and previews remain separate from the graph audio budget.
 Compatible queue joins preserve graph history.
 Final EOF drains the declared graph tail once, then drains the native backend.
 Tail frames increase output counts and never advance source positions.
-Audible mapping subtracts graph latency and remains unknown during priming or unknown backend consumption.
+Structural graphs subtract scheduling latency when backend consumption is known.
+PEQ and convolution keep audible source positions unknown because scheduling latency does not establish filter phase.
+Filter previews expose their tail policy, per-node horizons, and terminal channel bounds.
 
 Activation, pause, seek, and mute rebuffering reset graph history.
 They discard the old tail at an explicit discontinuity.

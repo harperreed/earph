@@ -31,6 +31,15 @@ fn chain_plan(
     output: ChannelLayout,
     quantum: usize,
 ) -> earph_dsp::CompiledPlan {
+    chain_plan_with_bounds(effects, input, output, quantum, None)
+}
+fn chain_plan_with_bounds(
+    effects: &[serde_json::Value],
+    input: ChannelLayout,
+    output: ChannelLayout,
+    quantum: usize,
+    bounds: Option<&[f64]>,
+) -> earph_dsp::CompiledPlan {
     let port = |channels| serde_json::json!({"domain":"pcm","sample_rate_hz":48000,"channels":channels,"precision":"float64","max_quantum_frames":quantum});
     let mut nodes =
         vec![serde_json::json!({"id":"in","kind":{"kind":"input"},"format":port(input)})];
@@ -48,16 +57,17 @@ fn chain_plan(
         serde_json::json!({"schema_version":1,"nodes":nodes,"edges":edges,"output":"out"}),
     )
     .unwrap();
-    compile(
-        &document,
-        &CompileContext {
-            input_format: format(input, PcmRepresentation::Float64),
-            output_format: format(output, PcmRepresentation::Float64),
-            quantum_frames: quantum,
-            policy: ProcessingPolicy::AllowProcessing,
-            budget: GraphBudget::default(),
-        },
-    )
+    let context = CompileContext {
+        input_format: format(input, PcmRepresentation::Float64),
+        output_format: format(output, PcmRepresentation::Float64),
+        quantum_frames: quantum,
+        policy: ProcessingPolicy::AllowProcessing,
+        budget: GraphBudget::default(),
+    };
+    match bounds {
+        Some(bounds) => earph_dsp::compile_with_input_bounds(&document, &context, &[], bounds),
+        None => compile(&document, &context),
+    }
     .unwrap()
 }
 fn prepare(
@@ -278,9 +288,9 @@ fn invalid_geometry_and_gain_changes_preserve_the_pending_period_and_envelope() 
 }
 
 #[test]
-fn nonfinite_kernel_failure_retains_numeric_diagnostics_and_pending_output() {
+fn input_bound_failure_retains_diagnostics_and_pending_output() {
     let native = format(ChannelLayout::Stereo, PcmRepresentation::Signed16);
-    let graph = chain_plan(
+    let graph = chain_plan_with_bounds(
         &[
             serde_json::json!({"kind":"gain","gain_linear":f64::MAX}),
             serde_json::json!({"kind":"gain","gain_linear":f64::MAX}),
@@ -288,6 +298,7 @@ fn nonfinite_kernel_failure_retains_numeric_diagnostics_and_pending_output() {
         ChannelLayout::Stereo,
         ChannelLayout::Stereo,
         2,
+        Some(&[0.0, 0.0]),
     );
     let mut render = PreparedRender::prepare(
         graph,
@@ -304,10 +315,7 @@ fn nonfinite_kernel_failure_retains_numeric_diagnostics_and_pending_output() {
     let error = render.process(&packet, 1, 1).unwrap_err();
     assert_eq!(error.code, ErrorCode::OutputFault);
     let index = error.failure_node_index.unwrap();
-    assert_eq!(
-        render.graph().plan().schedule()[index].id().as_str(),
-        "effect1"
-    );
+    assert_eq!(render.graph().plan().schedule()[index].id().as_str(), "in");
     assert_eq!(render.finish().unwrap_err(), error);
     assert_eq!(render.process(&packet, 0, 1).unwrap_err(), error);
     assert_eq!(capture(&render), before);
@@ -549,9 +557,9 @@ fn prepared_numeric_spans_and_native_packing_allocate_and_free_nothing() {
 }
 
 #[test]
-fn terminal_numeric_failure_and_repeated_diagnostics_allocate_and_free_nothing() {
+fn terminal_bound_failure_and_repeated_diagnostics_allocate_and_free_nothing() {
     let native = format(ChannelLayout::Stereo, PcmRepresentation::Signed16);
-    let graph = chain_plan(
+    let graph = chain_plan_with_bounds(
         &[
             serde_json::json!({"kind":"gain","gain_linear":f64::MAX}),
             serde_json::json!({"kind":"gain","gain_linear":2.0}),
@@ -559,6 +567,7 @@ fn terminal_numeric_failure_and_repeated_diagnostics_allocate_and_free_nothing()
         ChannelLayout::Stereo,
         ChannelLayout::Stereo,
         2,
+        Some(&[0.0, 0.0]),
     );
     let mut render = PreparedRender::prepare(
         graph,

@@ -1,8 +1,109 @@
 // ABOUTME: Defines immutable compiled schedules from shared graph intent.
 // ABOUTME: Carries format, latency, resource, and preservation decisions explicitly.
+use crate::{
+    convolution::ConvolutionDesign,
+    peq::{PeqDesign, PeqTail},
+};
+use earph_core::dsp_nodes::FirAssetReference;
 use earph_core::{ErrorCode, audio::PcmFormat};
 pub use earph_core::{graph::*, ids::NodeId, safety::SampleDomain};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::sync::Arc;
+
+/// Verified immutable coefficients supplied by a bounded asset resolver.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FirCoefficients {
+    reference: FirAssetReference,
+    taps: Arc<[Vec<f64>]>,
+    fingerprint: String,
+    resident_bytes: u64,
+}
+impl FirCoefficients {
+    pub fn new(reference: FirAssetReference, taps: Vec<Vec<f64>>) -> Result<Self, GraphError> {
+        reference.validate().map_err(|_| {
+            GraphError::new(ErrorCode::AssetInvalid, "invalid correction reference")
+        })?;
+        if taps.len() != reference.channels.count()
+            || taps
+                .iter()
+                .any(|v| v.len() != reference.taps_per_channel || v.iter().any(|x| !x.is_finite()))
+        {
+            return Err(GraphError::new(
+                ErrorCode::AssetInvalid,
+                "correction coefficients differ from declared geometry",
+            ));
+        }
+        let mut hash = Sha256::new();
+        let mut resident_bytes =
+            (taps.len() * size_of::<Vec<f64>>() + 2 * size_of::<usize>()) as u64;
+        for channel in &taps {
+            resident_bytes = resident_bytes
+                .checked_add((channel.capacity() * 8) as u64)
+                .ok_or_else(|| {
+                    GraphError::new(
+                        ErrorCode::ResourceBudgetExceeded,
+                        "correction storage overflow",
+                    )
+                })?;
+            for value in channel {
+                hash.update(value.to_bits().to_le_bytes());
+            }
+        }
+        Ok(Self {
+            reference,
+            taps: taps.into(),
+            fingerprint: hash.finalize().iter().map(|v| format!("{v:02x}")).collect(),
+            resident_bytes,
+        })
+    }
+    pub fn reference(&self) -> &FirAssetReference {
+        &self.reference
+    }
+    pub fn coefficients(&self) -> &[Vec<f64>] {
+        &self.taps
+    }
+    pub fn coefficient_sha256(&self) -> &str {
+        &self.fingerprint
+    }
+    pub fn resident_bytes(&self) -> u64 {
+        self.resident_bytes
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ResolvedKernel {
+    Structural,
+    Peq {
+        design: PeqDesign,
+        tail: PeqTail,
+    },
+    Convolution {
+        design: ConvolutionDesign,
+        asset: FirCoefficients,
+    },
+}
+impl PartialEq for ResolvedKernel {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Structural, Self::Structural) => true,
+            (
+                Self::Peq {
+                    design: a,
+                    tail: at,
+                },
+                Self::Peq {
+                    design: b,
+                    tail: bt,
+                },
+            ) => {
+                a.coefficients().map(f64::to_bits) == b.coefficients().map(f64::to_bits) && at == bt
+            }
+            (Self::Convolution { asset: a, .. }, Self::Convolution { asset: b, .. }) => a == b,
+            _ => false,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -86,6 +187,11 @@ pub struct CompiledNode {
     pub(crate) inputs: Vec<CompiledInput>,
     pub(crate) latency_frames: u64,
     pub(crate) tail_frames: u64,
+    pub(crate) input_peak_bounds: Vec<f64>,
+    pub(crate) output_peak_bounds: Vec<f64>,
+    pub(crate) terminal_output_bounds: Vec<f64>,
+    #[serde(skip)]
+    pub(crate) kernel: ResolvedKernel,
 }
 impl CompiledNode {
     pub fn id(&self) -> &NodeId {
@@ -106,6 +212,15 @@ impl CompiledNode {
     pub fn tail_frames(&self) -> u64 {
         self.tail_frames
     }
+    pub fn input_peak_bounds(&self) -> &[f64] {
+        &self.input_peak_bounds
+    }
+    pub fn output_peak_bounds(&self) -> &[f64] {
+        &self.output_peak_bounds
+    }
+    pub fn terminal_output_bounds(&self) -> &[f64] {
+        &self.terminal_output_bounds
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -121,6 +236,11 @@ pub struct CompiledPlan {
     pub(crate) resources: ResourceUsage,
     pub(crate) transformations: Vec<Transformation>,
     pub(crate) preservation: PreservationDecision,
+    pub(crate) kernel_state_bytes: u64,
+    pub(crate) asset_bytes: u64,
+    pub(crate) preparation_scratch_bytes: u64,
+    pub(crate) bounded_iir: bool,
+    pub(crate) enforce_input_bounds: bool,
 }
 impl CompiledPlan {
     pub fn content_hash(&self) -> &str {
@@ -155,5 +275,29 @@ impl CompiledPlan {
     }
     pub fn preservation(&self) -> PreservationDecision {
         self.preservation
+    }
+    pub fn output_peak_bounds(&self) -> &[f64] {
+        self.schedule[self.output_index].output_peak_bounds()
+    }
+    pub fn terminal_output_bounds(&self) -> &[f64] {
+        self.schedule[self.output_index].terminal_output_bounds()
+    }
+    pub fn kernel_state_bytes(&self) -> u64 {
+        self.kernel_state_bytes
+    }
+    pub fn asset_bytes(&self) -> u64 {
+        self.asset_bytes
+    }
+    pub fn preparation_scratch_bytes(&self) -> u64 {
+        self.preparation_scratch_bytes
+    }
+    pub fn bounded_iir_truncation(&self) -> bool {
+        self.bounded_iir
+    }
+    pub fn input_peak_bounds(&self) -> &[f64] {
+        self.schedule[self.input_index].output_peak_bounds()
+    }
+    pub fn enforces_input_peak_bounds(&self) -> bool {
+        self.enforce_input_bounds
     }
 }

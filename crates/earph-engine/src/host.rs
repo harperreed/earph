@@ -35,7 +35,7 @@ pub(crate) fn serve(
     token: String,
 ) -> Result<(), EngineError> {
     let server = ipc::Server::spawn(listener)?;
-    let mut graphs = GraphJobs::spawn()?;
+    let mut graphs = GraphJobs::spawn(directory.clone())?;
     // Worker pipelines must retire before the preparation service shuts down.
     let mut worker = Worker::spawn();
     let clock = Instant::now();
@@ -486,9 +486,9 @@ struct GraphJobs {
     ready: Option<PreparedPipeline>,
 }
 impl GraphJobs {
-    fn spawn() -> Result<Self, EngineError> {
+    fn spawn(asset_store: PathBuf) -> Result<Self, EngineError> {
         Ok(Self {
-            service: GraphService::spawn()?,
+            service: GraphService::spawn(Some(asset_store))?,
             job: None,
             ready: None,
         })
@@ -747,7 +747,7 @@ mod tests {
             session.submit_graph(prepare.clone(), 4).status,
             ReceiptStatus::Accepted
         );
-        let mut service = GraphService::spawn().unwrap();
+        let mut service = GraphService::spawn(None).unwrap();
         let job = session.graph_job().unwrap();
         service.submit(job.clone(), session.snapshot()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);

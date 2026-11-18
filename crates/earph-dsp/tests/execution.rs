@@ -635,6 +635,85 @@ fn tracked<T>(operation: impl FnOnce() -> T) -> (T, AllocationCounts) {
 }
 
 #[test]
+fn prepared_filters_process_finish_reset_cancel_and_fail_without_allocating_or_freeing() {
+    use earph_core::dsp_nodes::{FirAssetReference, FirPurpose, FirSha256, PeqFilter};
+    let asset = FirCoefficients::new(
+        FirAssetReference {
+            sha256: FirSha256::new("c".repeat(64)).unwrap(),
+            sample_rate_hz: 48000,
+            channels: ChannelLayout::Stereo,
+            taps_per_channel: 3,
+            purpose: FirPurpose::Correction,
+        },
+        vec![vec![0.5, -0.25, 0.0], vec![0.25, 0.0, 0.0]],
+    )
+    .unwrap();
+    let kinds = [
+        NodeKind::Peq {
+            filter: PeqFilter::Peaking {
+                frequency_hz: scalar(1000.0),
+                q: scalar(0.707),
+                gain_db: scalar(-6.0),
+            },
+        },
+        NodeKind::Convolution {
+            asset: asset.reference().clone(),
+        },
+    ];
+    for kind in kinds {
+        let plan = compile_with_assets(
+            &chain(kind),
+            &context(ChannelLayout::Stereo, ChannelLayout::Stereo),
+            std::slice::from_ref(&asset),
+        )
+        .unwrap();
+        let mut graph = PreparedGraph::prepare(plan, Epochs::default()).unwrap();
+        let mut output = [0.0; 16];
+        let ((ran, finished, reset, failed, reset_after_failure, cancelled), counts) =
+            tracked(|| {
+                let ran = graph.process(&[0.2; 16], &mut output).is_ok();
+                let mut finished = false;
+                for _ in 0..131074 {
+                    match graph.finish(&mut output) {
+                        Ok(0) => {
+                            finished = true;
+                            break;
+                        }
+                        Ok(_) => {}
+                        Err(_) => break,
+                    }
+                }
+                let reset = graph
+                    .reset(Epochs {
+                        session: 0,
+                        stream: 1,
+                    })
+                    .is_ok();
+                output.fill(99.0);
+                let failed =
+                    graph.process(&[f64::NAN; 16], &mut output).is_err() && output == [99.0; 16];
+                let reset_after_failure = graph
+                    .reset(Epochs {
+                        session: 0,
+                        stream: 2,
+                    })
+                    .is_ok();
+                graph.cancel();
+                let cancelled = graph.process(&[0.0; 16], &mut output).is_err()
+                    && graph
+                        .reset(Epochs {
+                            session: 0,
+                            stream: 3,
+                        })
+                        .is_err();
+                (ran, finished, reset, failed, reset_after_failure, cancelled)
+            });
+        assert_eq!(counts, AllocationCounts::default());
+        assert!(ran && finished && reset && failed && reset_after_failure && cancelled);
+    }
+}
+
+#[test]
 fn prepared_processing_drain_reset_cancel_and_failures_allocate_and_free_nothing() {
     let (calibration, counts) = tracked(|| std::hint::black_box(vec![7_u8; 128]));
     assert!(counts.allocations > 0);

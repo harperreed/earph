@@ -3,6 +3,91 @@
 use crate::{EngineError, ErrorCode, graph::FiniteGraphScalar};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct FirSha256([u8; 64]);
+impl FirSha256 {
+    pub fn new(value: String) -> Result<Self, EngineError> {
+        if value.len() != 64
+            || !value
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "correction identity requires a lowercase SHA-256",
+            ));
+        }
+        Ok(Self(value.as_bytes().try_into().map_err(|_| {
+            EngineError::new(ErrorCode::AssetInvalid, "invalid correction identity")
+        })?))
+    }
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.0).expect("validated ASCII identity")
+    }
+}
+impl TryFrom<String> for FirSha256 {
+    type Error = EngineError;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+impl From<FirSha256> for String {
+    fn from(value: FirSha256) -> Self {
+        value.as_str().into()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FirPurpose {
+    Correction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "FirReferenceFields")]
+pub struct FirAssetReference {
+    pub sha256: FirSha256,
+    pub sample_rate_hz: u32,
+    pub channels: crate::audio::ChannelLayout,
+    pub taps_per_channel: usize,
+    pub purpose: FirPurpose,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FirReferenceFields {
+    sha256: FirSha256,
+    sample_rate_hz: u32,
+    channels: crate::audio::ChannelLayout,
+    taps_per_channel: usize,
+    purpose: FirPurpose,
+}
+impl TryFrom<FirReferenceFields> for FirAssetReference {
+    type Error = EngineError;
+    fn try_from(value: FirReferenceFields) -> Result<Self, Self::Error> {
+        let result = Self {
+            sha256: value.sha256,
+            sample_rate_hz: value.sample_rate_hz,
+            channels: value.channels,
+            taps_per_channel: value.taps_per_channel,
+            purpose: value.purpose,
+        };
+        result.validate()?;
+        Ok(result)
+    }
+}
+impl FirAssetReference {
+    pub fn validate(&self) -> Result<(), EngineError> {
+        if self.sample_rate_hz == 0 || !(1..=262144).contains(&self.taps_per_channel) {
+            return Err(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "correction dimensions exceed processing limits",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SrcPreset {

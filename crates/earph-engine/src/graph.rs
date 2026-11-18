@@ -1,5 +1,6 @@
 // ABOUTME: Prepares one graph candidate from captured session facts outside playback.
 // ABOUTME: Retires every owned graph on its bounded preparation thread.
+use crate::assets;
 use crate::render::{PreparedRender, RenderError, RenderResources};
 use earph_core::{
     EngineError, ErrorCode,
@@ -16,7 +17,9 @@ use earph_core::{
 use earph_dsp::{CompileContext, CompiledPlan, GraphBudget, GraphError, ProcessingPolicy};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     io::Write,
+    path::{Path, PathBuf},
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -246,7 +249,7 @@ pub struct GraphService {
     cancellation: Option<GraphCancellation>,
 }
 impl GraphService {
-    pub fn spawn() -> Result<Self, EngineError> {
+    pub fn spawn(asset_store: Option<PathBuf>) -> Result<Self, EngineError> {
         let (completions_tx, completions) = mpsc::sync_channel(1);
         let accounting = Arc::new(Accounting::default());
         let mailbox = Arc::new(Mailbox::default());
@@ -254,7 +257,14 @@ impl GraphService {
         let worker_mailbox = mailbox.clone();
         let join = thread::Builder::new()
             .name("earph-graph-preparation".into())
-            .spawn(move || run(worker_mailbox, completions_tx, worker_accounting))
+            .spawn(move || {
+                run(
+                    worker_mailbox,
+                    completions_tx,
+                    worker_accounting,
+                    asset_store,
+                )
+            })
             .map_err(|_| {
                 EngineError::new(
                     ErrorCode::DeviceUnavailable,
@@ -376,6 +386,7 @@ fn run(
     mailbox: Arc<Mailbox>,
     completions: SyncSender<GraphCompletion>,
     accounting: Arc<Accounting>,
+    asset_store: Option<PathBuf>,
 ) {
     loop {
         let mut state = mailbox
@@ -401,7 +412,14 @@ fn run(
             let binding = request.binding.clone();
             // Contain compiler panics so the one retirement executor remains alive.
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                prepare(&request, &snapshot, &cancellation, &retirement, started)
+                prepare(
+                    &request,
+                    &snapshot,
+                    &cancellation,
+                    &retirement,
+                    started,
+                    asset_store.as_deref(),
+                )
             }))
             .unwrap_or_else(|_| {
                 Err(EngineError::new(ErrorCode::OutputFault, "graph preparation panicked").into())
@@ -449,6 +467,7 @@ fn prepare(
     cancellation: &GraphCancellation,
     retirement: &Arc<Retirement>,
     started: Instant,
+    asset_store: Option<&Path>,
 ) -> Result<GraphSuccess, GraphDiagnostic> {
     let check = || -> Result<(), GraphDiagnostic> {
         let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
@@ -535,6 +554,20 @@ fn prepare(
         request.intent.processing,
         GraphProcessingRequest::Float64 { .. }
     );
+    if !float
+        && request
+            .intent
+            .graph
+            .nodes
+            .iter()
+            .any(|n| matches!(n.kind, NodeKind::Peq { .. } | NodeKind::Convolution { .. }))
+    {
+        return Err(EngineError::new(
+            ErrorCode::FidelityPolicyConflict,
+            "integer routes cannot admit filter processing",
+        )
+        .into());
+    }
     if float && output.fidelity == FidelityPolicy::StrictPreservation {
         return Err(EngineError::new(
             ErrorCode::FidelityPolicyConflict,
@@ -591,6 +624,38 @@ fn prepare(
     let existing_route_bytes = source
         .storage_bytes(quantum as u64)
         .map_err(GraphDiagnostic::from)? as u64;
+    let mut references = BTreeMap::new();
+    for node in &request.intent.graph.nodes {
+        if let NodeKind::Convolution { asset } = &node.kind {
+            asset.validate().map_err(GraphDiagnostic::from)?;
+            if let Some(previous) = references.insert(asset.sha256.clone(), asset)
+                && previous != asset
+            {
+                return Err(EngineError::new(
+                    ErrorCode::AssetInvalid,
+                    "correction identity has conflicting geometry",
+                )
+                .into());
+            }
+        }
+    }
+    let declared_asset_bytes = references
+        .values()
+        .try_fold(0_u64, |n, a| {
+            n.checked_add(
+                (a.taps_per_channel as u64)
+                    .checked_mul(a.channels.count() as u64)?
+                    .checked_mul(8)?
+                    .checked_add(1024)?,
+            )
+        })
+        .ok_or(RESOURCE)?;
+    // One bounded source, packet, decoder buffer, and metadata exist during sequential resolution.
+    let asset_scratch = if references.is_empty() {
+        0
+    } else {
+        8 * 1024 * 1024
+    };
     let fixed = sum(&[
         existing,
         existing_route_bytes,
@@ -599,10 +664,32 @@ fn prepare(
         host_output,
         native_period,
         PREPARATION_SCRATCH,
+        asset_scratch,
     ])?;
     let kernel_allowance = LIMIT.checked_sub(fixed).ok_or(RESOURCE)?;
+    if declared_asset_bytes > kernel_allowance {
+        return Err(RESOURCE.into());
+    }
+    let mut resolved = Vec::with_capacity(references.len());
+    for reference in references.values() {
+        check()?;
+        let correction = assets::resolve(
+            asset_store.ok_or_else(|| {
+                GraphDiagnostic::from(EngineError::new(
+                    ErrorCode::AssetInvalid,
+                    "correction store is unavailable",
+                ))
+            })?,
+            reference,
+        )
+        .map_err(GraphDiagnostic::from)?;
+        resolved.push(
+            earph_dsp::FirCoefficients::new(correction.reference, correction.taps)
+                .map_err(diagnostic)?,
+        );
+    }
     check()?;
-    let plan = earph_dsp::compile(
+    let plan = earph_dsp::compile_with_assets(
         &request.intent.graph,
         &CompileContext {
             input_format: processing_input,
@@ -618,6 +705,7 @@ fn prepare(
                 ..GraphBudget::default()
             },
         },
+        &resolved,
     )
     .map_err(diagnostic)?;
     check()?;
@@ -643,7 +731,7 @@ fn prepare(
         )
         .into());
     }
-    let bounds = peak_bounds(&plan)?;
+    let bounds = plan.output_peak_bounds().to_vec();
     let maximum = bounds.iter().copied().fold(1.0_f64, f64::max);
     let mut transformations: Vec<_> = plan
         .transformations()
@@ -684,6 +772,8 @@ fn prepare(
         existing_route_bytes,
         pipeline_bytes,
         PREPARATION_SCRATCH,
+        asset_scratch,
+        plan.preparation_scratch_bytes(),
     ])?;
     if aggregate_peak_bytes > LIMIT {
         return Err(RESOURCE.into());
@@ -701,6 +791,28 @@ fn prepare(
         quantum_frames: quantum,
         latency_frames: plan.latency_frames(),
         tail_frames: plan.tail_frames(),
+        tail_policy: if plan.bounded_iir_truncation() {
+            earph_core::graph_control::GraphTailPolicy::BoundedIirTruncation
+        } else {
+            earph_core::graph_control::GraphTailPolicy::AuthoredFiniteSupport
+        },
+        terminal_output_bounds: plan.terminal_output_bounds().to_vec(),
+        node_tails: plan
+            .schedule()
+            .iter()
+            .filter(|n| {
+                matches!(
+                    n.kind(),
+                    NodeKind::Peq { .. } | NodeKind::Convolution { .. }
+                )
+            })
+            .map(|n| earph_core::graph_control::FilterTailObservation {
+                node: n.id().clone(),
+                channels: n.format().channels,
+                horizon_frames: n.tail_frames(),
+                terminal_output_bounds: n.terminal_output_bounds().to_vec(),
+            })
+            .collect(),
         preservation: plan.preservation(),
         transformations,
         resources: GraphResidentUsage {
@@ -820,84 +932,6 @@ fn intent_capacity(intent: &GraphIntent) -> Result<u64, GraphDiagnostic> {
         .map_err(|_| GraphDiagnostic::from(RESOURCE))?,
     ])
 }
-fn peak_bounds(plan: &CompiledPlan) -> Result<Vec<f64>, GraphDiagnostic> {
-    let mut bounds: Vec<Vec<f64>> = Vec::with_capacity(plan.schedule().len());
-    for node in plan.schedule() {
-        let channels = node.format().channels.count();
-        let mut values = vec![0.0; channels];
-        match node.kind() {
-            NodeKind::Input => values.fill(1.0),
-            NodeKind::Gain { gain_linear } => {
-                let input = &bounds[node.inputs()[0].source_index];
-                for (target, source) in values.iter_mut().zip(input) {
-                    *target = upper_product(*source, gain_linear.get().abs())?;
-                }
-            }
-            NodeKind::Matrix {
-                input_channels,
-                coefficients,
-            } => {
-                let input = &bounds[node.inputs()[0].source_index];
-                for (row, target) in values.iter_mut().enumerate() {
-                    for channel in 0..input_channels.count() {
-                        *target = upper_sum(
-                            *target,
-                            upper_product(
-                                coefficients[row * input_channels.count() + channel]
-                                    .get()
-                                    .abs(),
-                                input[channel],
-                            )?,
-                        )?;
-                    }
-                }
-            }
-            NodeKind::Sum => {
-                for input in node.inputs() {
-                    for (target, source) in values.iter_mut().zip(&bounds[input.source_index]) {
-                        *target = upper_sum(*target, *source)?;
-                    }
-                }
-            }
-            _ => values.copy_from_slice(&bounds[node.inputs()[0].source_index]),
-        }
-        bounds.push(values);
-    }
-    Ok(bounds.swap_remove(plan.output_index()))
-}
-fn upper_product(a: f64, b: f64) -> Result<f64, GraphDiagnostic> {
-    if a == 0.0 || b == 0.0 {
-        return Ok(0.0);
-    }
-    if a == 1.0 {
-        return finite_bound(b);
-    }
-    if b == 1.0 {
-        return finite_bound(a);
-    }
-    finite_bound((a * b).next_up())
-}
-fn upper_sum(a: f64, b: f64) -> Result<f64, GraphDiagnostic> {
-    if a == 0.0 {
-        finite_bound(b)
-    } else if b == 0.0 {
-        finite_bound(a)
-    } else {
-        finite_bound((a + b).next_up())
-    }
-}
-fn finite_bound(value: f64) -> Result<f64, GraphDiagnostic> {
-    if value.is_finite() {
-        Ok(value)
-    } else {
-        Err(EngineError::new(
-            ErrorCode::GraphInvalid,
-            "graph absolute peak bound overflowed",
-        )
-        .into())
-    }
-}
-
 fn activation_hash(
     plan: &CompiledPlan,
     request: &GraphJobRequest,

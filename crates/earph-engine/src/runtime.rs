@@ -313,7 +313,7 @@ pub(crate) fn open_lock(path: &Path) -> Result<File, EngineError> {
     Ok(file)
 }
 
-pub(crate) fn read(path: &Path, limit: usize) -> Result<Option<Vec<u8>>, EngineError> {
+pub(crate) fn open_private_file(path: &Path) -> Result<Option<File>, EngineError> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -322,6 +322,13 @@ pub(crate) fn read(path: &Path, limit: usize) -> Result<Option<Vec<u8>>, EngineE
     validate_file(&metadata)?;
     let file = File::open(path).map_err(|_| IO)?;
     validate_file(&file.metadata().map_err(|_| IO)?)?;
+    Ok(Some(file))
+}
+
+pub(crate) fn read(path: &Path, limit: usize) -> Result<Option<Vec<u8>>, EngineError> {
+    let Some(file) = open_private_file(path)? else {
+        return Ok(None);
+    };
     let mut bytes = Vec::new();
     file.take(limit as u64 + 1)
         .read_to_end(&mut bytes)

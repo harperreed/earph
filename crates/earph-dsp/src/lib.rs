@@ -6,6 +6,6 @@ pub mod convolution;
 mod model;
 pub mod peq;
 mod runtime;
-pub use compile::compile;
+pub use compile::{compile, compile_with_assets, compile_with_input_bounds};
 pub use model::*;
 pub use runtime::{GraphLifecycle, MeterObservation, PreparedGraph};

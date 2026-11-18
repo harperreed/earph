@@ -310,6 +310,186 @@ fn integer24(bytes: &[u8]) -> i32 {
     (i32::from_le_bytes([bytes[0], bytes[1], bytes[2], 0]) << 8) >> 8
 }
 
+#[test]
+fn executable_imported_fir_preserves_one_tail_across_a_real_queue_join() {
+    let directory = directory();
+    let first = directory.join("fir-first.wav");
+    let second = directory.join("fir-second.wav");
+    let mut samples = wave(&first, 0, 65);
+    samples.extend(wave(&second, 65, 70));
+    let (config, capture) = configuration(&directory);
+    let host = Host::start(&config);
+    let controller = &host.controller;
+    let correction = directory.join("correction.wav");
+    let mut bytes = Vec::new();
+    bytes.extend(b"RIFF");
+    bytes.extend(84_u32.to_le_bytes());
+    bytes.extend(b"WAVEfmt ");
+    bytes.extend(16_u32.to_le_bytes());
+    bytes.extend(3_u16.to_le_bytes());
+    bytes.extend(2_u16.to_le_bytes());
+    bytes.extend(48000_u32.to_le_bytes());
+    bytes.extend(768000_u32.to_le_bytes());
+    bytes.extend(16_u16.to_le_bytes());
+    bytes.extend(64_u16.to_le_bytes());
+    bytes.extend(b"data");
+    bytes.extend(48_u32.to_le_bytes());
+    for v in [0.5_f64, 0.25, -0.25, 0.125, 0.0, 0.0] {
+        bytes.extend(v.to_le_bytes());
+    }
+    fs::write(&correction, &bytes).unwrap();
+    let imported = Command::new(env!("CARGO_BIN_EXE_earph-engine"))
+        .args(["import-fir", "--runtime"])
+        .arg(&controller.runtime)
+        .arg(&correction)
+        .output()
+        .unwrap();
+    assert!(
+        imported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+    let asset = serde_json::from_slice::<Value>(&imported.stdout).unwrap()["asset"].clone();
+    select_output(controller, "software", "compatible_conversion");
+    consent(controller);
+    append_selected(controller, &first);
+    controller.apply(json!({"method":"queue.append","path":second}));
+    start(controller);
+    controller.wait(|s| s["transport"] == "buffering");
+    let mut graph = delay_gain_graph(0, 1.0);
+    graph["nodes"][1]["kind"] = json!({"kind":"convolution","asset":asset});
+    let (_, ready) = prepare_graph(controller, graph);
+    assert_eq!(ready["preview"]["tail_frames"], 258);
+    assert_eq!(ready["preview"]["latency_frames"], 256);
+    assert_eq!(ready["preview"]["tail_policy"], "authored_finite_support");
+    assert_eq!(ready["preview"]["node_tails"][0]["horizon_frames"], 258);
+    fs::write(
+        controller
+            .runtime
+            .join("assets")
+            .join(format!("{}.wav", asset["sha256"].as_str().unwrap())),
+        b"changed after preparation",
+    )
+    .unwrap();
+    let commit=controller.document(json!({"method":"graph.commit","token":ready["token"],"graph_hash":ready["preview"]["graph_hash"]}),None);
+    controller.send(&commit);
+    controller.settled(&commit);
+    assert_eq!(controller.state()["muted"], true);
+    assert_no_capture(&capture);
+    controller.apply(json!({"method":"mute.set","muted":false}));
+    let completed = controller.wait(|s| s["transport"] == "idle" || s["transport"] == "failed");
+    assert!(completed["error"].is_null(), "{completed}");
+    assert_eq!(completed["playback"]["submitted_frames"], 393);
+    assert_eq!(completed["playback"]["source_position_frames"], 70);
+    assert_eq!(completed["playback"]["processing"]["saturation_count"], 0);
+    assert!(completed["audible_position_frames"].is_null());
+    let mut expected = vec![[0.0_f64; 2]; 393];
+    for (i, frame) in samples.as_chunks::<6>().0.iter().enumerate() {
+        for (ch, taps) in [[0.5, -0.25], [0.25, 0.125]].iter().enumerate() {
+            let x = f64::from(integer24(&frame[ch * 3..ch * 3 + 3]));
+            expected[256 + i][ch] += x * taps[0];
+            expected[257 + i][ch] += x * taps[1];
+        }
+    }
+    let expected: Vec<_> = expected
+        .into_iter()
+        .flatten()
+        .flat_map(|x| ((x * 0.01).round() as i32).to_le_bytes()[..3].to_vec())
+        .collect();
+    let actual = fs::read(&capture).unwrap();
+    assert_eq!(actual.len(), expected.len());
+    for (a, b) in actual
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<3>().0.iter())
+    {
+        assert!((integer24(a) - integer24(b)).abs() <= 1);
+    }
+    assert_eq!(fs::read(&correction).unwrap(), bytes);
+    controller.apply(json!({"method":"owner.shutdown"}));
+}
+
+#[test]
+fn executable_peq_publishes_and_renders_a_bounded_truncation() {
+    use earph_core::{audio::ChannelLayout, dsp_nodes::PeqFilter, graph::FiniteGraphScalar};
+    let directory = directory();
+    let source = directory.join("peq.wav");
+    let raw = wave(&source, 0, 73);
+    let (config, capture) = configuration(&directory);
+    let host = Host::start(&config);
+    let controller = &host.controller;
+    select_output(controller, "software", "compatible_conversion");
+    consent(controller);
+    append_selected(controller, &source);
+    start(controller);
+    controller.wait(|s| s["transport"] == "buffering");
+    let mut graph = delay_gain_graph(0, 1.0);
+    graph["nodes"][1]["kind"] = json!({"kind":"peq","filter":{"kind":"peaking","frequency_hz":1000.0,"q":0.707,"gain_db":-6.0}});
+    let (_, ready) = prepare_graph(controller, graph);
+    let tail = ready["preview"]["tail_frames"].as_u64().unwrap() as usize;
+    assert!(tail > 0 && tail <= 1048576);
+    assert_eq!(ready["preview"]["tail_policy"], "bounded_iir_truncation");
+    assert!(
+        ready["preview"]["terminal_output_bounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v.as_f64().unwrap() <= 1e-12)
+    );
+    let commit=controller.document(json!({"method":"graph.commit","token":ready["token"],"graph_hash":ready["preview"]["graph_hash"]}),None);
+    controller.send(&commit);
+    controller.settled(&commit);
+    assert_eq!(controller.state()["muted"], true);
+    assert_no_capture(&capture);
+    controller.apply(json!({"method":"mute.set","muted":false}));
+    let completed = controller.wait(|s| s["transport"] == "idle" || s["transport"] == "failed");
+    assert!(completed["error"].is_null(), "{completed}");
+    assert_eq!(
+        completed["playback"]["submitted_frames"],
+        (73 + tail) as u64
+    );
+    assert!(completed["audible_position_frames"].is_null());
+    let f = |x| FiniteGraphScalar::new(x).unwrap();
+    let filter = PeqFilter::Peaking {
+        frequency_hz: f(1000.0),
+        q: f(0.707),
+        gain_db: f(-6.0),
+    };
+    let [b0, b1, b2, a1, a2] =
+        earph_dsp::peq::PeqDesign::prepare(&filter, 48000, ChannelLayout::Stereo)
+            .unwrap()
+            .coefficients();
+    let mut history = [[0.0_f64; 4]; 2];
+    let mut expected = Vec::new();
+    for frame in 0..73 + tail {
+        for (ch, h) in history.iter_mut().enumerate() {
+            let x = if frame < 73 {
+                f64::from(integer24(&raw[frame * 6 + ch * 3..frame * 6 + ch * 3 + 3]))
+            } else {
+                0.0
+            };
+            let y = b0 * x + b1 * h[0] + b2 * h[1] - a1 * h[2] - a2 * h[3];
+            h[1] = h[0];
+            h[0] = x;
+            h[3] = h[2];
+            h[2] = y;
+            expected.extend_from_slice(&((y * 0.01).round() as i32).to_le_bytes()[..3]);
+        }
+    }
+    let actual = fs::read(capture).unwrap();
+    assert_eq!(actual.len(), expected.len());
+    for (a, b) in actual
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<3>().0.iter())
+    {
+        assert!((integer24(a) - integer24(b)).abs() <= 1);
+    }
+    controller.apply(json!({"method":"owner.shutdown"}));
+}
+
 fn delay_gain_graph(delay_frames: u64, gain: f64) -> Value {
     let port = json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo",
         "precision":"float64","max_quantum_frames":64});

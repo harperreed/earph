@@ -19,9 +19,17 @@ Each node declares its output format and maximum quantum.
 An ordinary node requires one input with the same format.
 Matrix nodes declare a separate input channel layout.
 Only PCM, mono/stereo layouts, and a single connected rate domain are supported.
-The initial node kinds are input, output, bypass, gain, delay, matrix, sum, and meter.
-DSD, fractional delays, implicit conversions, resampling, PEQ, and convolution are unsupported.
+The node kinds are input, output, bypass, gain, delay, matrix, sum, meter, PEQ, and convolution.
+DSD, fractional delays, implicit conversions, and graph resampling remain unsupported.
 Unknown schema versions, node kinds, and fields reject.
+See [correction filters](../../docs/correction-filters.md) for parameters, imports, and finite tail contracts.
+
+Use `compile_with_assets` to supply verified immutable correction coefficients.
+Use `compile_with_input_bounds` for stream islands with explicit per-channel input bounds.
+Explicit bounds are enforced before processing exposes output.
+Default structural plans retain their unrestricted processing contract and describe normalized-input peak bounds.
+Filter plans enforce normalized input bounds by default because their tail proofs require them.
+Compiled plans expose the input, output, and terminal channel bounds.
 
 Edges use source port zero.
 Ordinary nodes consume destination port zero.
@@ -46,8 +54,11 @@ Runtime implementations must allocate one output buffer per scheduled node.
 Each output holds `quantum_frames * output_channels` f64 samples.
 Each delay owns `delay_frames * output_channels` f64 state samples.
 Each compensated input owns `compensation_frames * input_channels` f64 state samples.
-Resources report node output bytes, combined delay state bytes, and their total.
+Filters also own an input staging buffer and a boxed prepared kernel.
+Resources report node buffers, delay state, and the complete resident processing payload.
 Delay state bytes include merge compensation.
+The total includes filter objects, FFT storage, and unique retained coefficient owners.
+Plans expose separate kernel state, asset, and preparation scratch totals.
 This budget covers audio buffers; bounded document and schedule metadata use separate ordinary allocations.
 Runtime implementations must not allocate additional audio buffers without updating compiler accounting.
 
@@ -59,7 +70,7 @@ The default does not impose an additional latency ceiling.
 Checked arithmetic and the platform vector-size limit apply before preparation.
 The compiler never removes processing to fit a budget.
 
-Strict preservation rejects gain, matrix, sum, nonzero delay, and compensation transformations.
+Strict preservation rejects gain, matrix, sum, PEQ, convolution, nonzero delay, and compensation transformations.
 Gain and matrix nodes remain transformations even when their parameters resemble an identity.
 Input, output, bypass, meter, and zero-frame delay preserve sample values.
 An unchanged integer graph returns `RetainInteger` with zero f64 buffer bytes.
@@ -72,6 +83,7 @@ Integer retention alone does not implement integer metering; the owner must prov
 Compiled plans expose read-only metadata and cannot deserialize from untrusted JSON.
 The SHA-256 hash includes canonical intent, the compilation context, and the implementation version.
 The hashed context includes source/output formats, policy, and quantum.
+Filter hashes also include algorithm identities, coefficient bits or fingerprints, and the selected tail policy.
 Admission budgets can change acceptance without changing the hash when both budgets admit the graph.
 Activation tokens must bind the resulting hash to source/device epochs and the expected session revision.
 The compiler does not introduce another revision authority.

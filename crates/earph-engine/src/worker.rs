@@ -563,8 +563,21 @@ impl Playback {
         self.observation(counters)
     }
     fn observation(&self, counters: Counters) -> PlaybackObservation {
-        let audible = counters
-            .consumed
+        let filter_phase = self.pipeline.as_ref().is_some_and(|p| {
+            p.preview().transformations.iter().any(|t| {
+                matches!(
+                    t,
+                    earph_core::graph_control::SignalTransformation::Kernel {
+                        transformation: earph_core::graph::Transformation::Peq { .. }
+                            | earph_core::graph::Transformation::Convolution { .. }
+                    }
+                )
+            })
+        });
+        // Filter scheduling latency does not establish a frequency-independent source position.
+        let audible = (!filter_phase)
+            .then_some(counters.consumed)
+            .flatten()
             .and_then(|position| position.checked_sub(self.graph_latency()))
             .and_then(|position| {
                 self.spans

@@ -1,6 +1,7 @@
 // ABOUTME: Executes prepared f64 graph plans with bounded reusable audio state.
 // ABOUTME: Preserves stream state and exposes explicit lifecycle and meter observations.
 use crate::{CompiledNode, CompiledPlan, GraphError, NodeId, NodeKind, PreservationDecision};
+use crate::{convolution::PreparedConvolution, model::ResolvedKernel, peq::PreparedPeq};
 use earph_core::{ErrorCode, ids::Epochs};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +35,13 @@ struct NodeState {
     delay: DelayState,
     inputs: Vec<DelayState>,
     meter: MeterObservation,
+    filter_input: Vec<f64>,
+    kernel: KernelState,
+}
+enum KernelState {
+    Structural,
+    Peq(Box<PreparedPeq>),
+    Convolution(Box<PreparedConvolution>),
 }
 
 struct DelayState {
@@ -102,11 +110,33 @@ impl PreparedGraph {
                     input_channels,
                 )?);
             }
+            let kernel = match &node.kernel {
+                ResolvedKernel::Structural => KernelState::Structural,
+                ResolvedKernel::Peq { design, tail } => KernelState::Peq(Box::new(
+                    design.instantiate(*tail).map_err(|_| resource_error())?,
+                )),
+                ResolvedKernel::Convolution { design, asset } => {
+                    KernelState::Convolution(Box::new(
+                        PreparedConvolution::prepare(
+                            asset.coefficients(),
+                            plan.context().quantum_frames,
+                            design.resources().preparation_peak_bytes,
+                        )
+                        .map_err(|_| resource_error())?,
+                    ))
+                }
+            };
             nodes.push(NodeState {
                 output: audio_buffer(plan.context().quantum_frames * channels)?,
                 delay: DelayState::prepare(delay_frames, channels)?,
                 inputs,
                 meter: MeterObservation::default(),
+                filter_input: audio_buffer(if matches!(kernel, KernelState::Structural) {
+                    0
+                } else {
+                    plan.context().quantum_frames * channels
+                })?,
+                kernel,
             });
         }
         Ok(Self {
@@ -124,15 +154,26 @@ impl PreparedGraph {
     }
     /// Returns allocated audio payload capacity, excluding metadata and allocator overhead.
     pub fn resident_audio_bytes(&self) -> Option<usize> {
-        self.nodes.iter().try_fold(0_usize, |total, node| {
+        let buffers = self.nodes.iter().try_fold(0_usize, |total, node| {
             let samples = node.inputs.iter().try_fold(
                 node.output
                     .capacity()
-                    .checked_add(node.delay.samples.capacity())?,
+                    .checked_add(node.delay.samples.capacity())?
+                    .checked_add(node.filter_input.capacity())?,
                 |samples, delay| samples.checked_add(delay.samples.capacity()),
             )?;
-            total.checked_add(samples.checked_mul(size_of::<f64>())?)
-        })
+            let kernel = match &node.kernel {
+                KernelState::Structural => 0,
+                KernelState::Peq(_) => size_of::<PreparedPeq>(),
+                KernelState::Convolution(k) => {
+                    usize::try_from(k.resources().resident_bytes).ok()?
+                }
+            };
+            total
+                .checked_add(samples.checked_mul(size_of::<f64>())?)?
+                .checked_add(kernel)
+        })?;
+        buffers.checked_add(usize::try_from(self.plan.asset_bytes()).ok()?)
     }
     pub fn epochs(&self) -> Epochs {
         self.epochs
@@ -171,6 +212,22 @@ impl PreparedGraph {
         }
         if input.iter().any(|sample| !sample.is_finite()) {
             return Err(self.fail(self.plan.input_index(), nonfinite_error()));
+        }
+        if self.plan.enforces_input_peak_bounds()
+            && input.chunks_exact(input_channels).any(|frame| {
+                frame
+                    .iter()
+                    .zip(self.plan.input_peak_bounds())
+                    .any(|(value, bound)| value.abs() > *bound)
+            })
+        {
+            return Err(self.fail(
+                self.plan.input_index(),
+                GraphError::new(
+                    ErrorCode::OutputFault,
+                    "graph input exceeds its admitted channel peak",
+                ),
+            ));
         }
         if frames == 0 {
             return Ok(0);
@@ -231,6 +288,12 @@ impl PreparedGraph {
                 input.reset();
             }
             node.meter = MeterObservation::default();
+            node.filter_input.fill(0.0);
+            match &mut node.kernel {
+                KernelState::Structural => {}
+                KernelState::Peq(k) => k.reset(),
+                KernelState::Convolution(k) => k.reset(),
+            }
         }
         self.epochs = epochs;
         self.remaining_tail = 0;
@@ -275,9 +338,20 @@ impl PreparedGraph {
         output: &mut [f64],
         frames: usize,
     ) -> Result<(), GraphError> {
+        let tail_offset = if input.is_none() && !self.plan.bounded_iir_truncation() {
+            Some(if self.lifecycle == GraphLifecycle::Draining {
+                self.plan.tail_frames() - self.remaining_tail
+            } else {
+                0
+            })
+        } else {
+            None
+        };
         for (index, node) in self.plan.schedule().iter().enumerate() {
             let (previous, current) = self.nodes.split_at_mut(index);
-            if let Err(error) = execute_node(node, previous, &mut current[0], input, frames) {
+            if let Err(error) =
+                execute_node(node, previous, &mut current[0], input, frames, tail_offset)
+            {
                 return Err(self.fail(index, error));
             }
         }
@@ -292,6 +366,7 @@ fn execute_node(
     state: &mut NodeState,
     input: Option<&[f64]>,
     frames: usize,
+    tail_offset: Option<u64>,
 ) -> Result<(), GraphError> {
     let channels = node.format().channels.count();
     let samples = frames * channels;
@@ -339,6 +414,33 @@ fn execute_node(
                     return Err(nonfinite_error());
                 }
                 state.output[sample] = value;
+            }
+        }
+        NodeKind::Peq { .. } | NodeKind::Convolution { .. } => {
+            let source = &previous[node.inputs()[0].source_index].output;
+            for (sample, value) in source.iter().take(samples).enumerate() {
+                state.filter_input[sample] = state.inputs[0].tick(*value);
+            }
+            match &mut state.kernel {
+                KernelState::Peq(kernel) => kernel
+                    .process(&state.filter_input[..samples], &mut state.output[..samples])
+                    .map_err(|_| nonfinite_error())?,
+                KernelState::Convolution(kernel) => {
+                    kernel
+                        .process(&state.filter_input[..samples], &mut state.output[..samples])
+                        .map_err(|_| nonfinite_error())?;
+                }
+                KernelState::Structural => {
+                    return Err(geometry_error("compiled filter has no prepared kernel"));
+                }
+            }
+            if matches!(node.kind(), NodeKind::Convolution { .. })
+                && let Some(offset) = tail_offset
+            {
+                // FIR-only graphs explicitly stop each authored support at its global EOF horizon.
+                // Continuing FFT arithmetic can otherwise expose rounding ghosts beyond that support.
+                let valid = node.tail_frames().saturating_sub(offset).min(frames as u64) as usize;
+                state.output[valid * channels..samples].fill(0.0);
             }
         }
         kind @ (NodeKind::Output

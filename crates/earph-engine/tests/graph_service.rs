@@ -1,5 +1,7 @@
 // ABOUTME: Checks graph preparation against real captured playback facts and DSP execution.
 // ABOUTME: Exercises bounded ownership, semantic hashes, cancellation, and retirement lifetimes.
+use earph_engine::assets;
+mod support;
 mod graph {
     include!("../src/graph.rs");
 
@@ -19,7 +21,7 @@ mod graph {
     fn shutdown_does_not_wait_for_an_external_owner_during_retirement_accounting() {
         let state = crate::snapshot();
         let request = crate::request(&state, serde_json::json!({"kind":"bypass"}));
-        let mut service = GraphService::spawn().unwrap();
+        let mut service = GraphService::spawn(None).unwrap();
         service.submit(request, state).unwrap();
         let pipeline = crate::completion(&mut service)
             .result
@@ -57,7 +59,7 @@ mod graph {
     fn cancellation_before_compile_is_deterministic() {
         let state = crate::snapshot();
         let request = crate::request(&state, serde_json::json!({"kind":"bypass"}));
-        let service = GraphService::spawn().unwrap();
+        let service = GraphService::spawn(None).unwrap();
         let cancellation = GraphCancellation(Arc::new(AtomicBool::new(false)));
         cancellation.cancel();
         let result = prepare(
@@ -66,6 +68,7 @@ mod graph {
             &cancellation,
             &service.retirement,
             Instant::now(),
+            None,
         );
         assert_eq!(result.err().unwrap().code, ErrorCode::OperationCancelled);
         assert_eq!(service.resources().resident_bytes, 0);
@@ -75,7 +78,7 @@ mod graph {
     fn dropping_pipeline_marks_render_cancelled_before_queueing_retirement() {
         let state = crate::snapshot();
         let request = crate::request(&state, serde_json::json!({"kind":"bypass"}));
-        let mut service = GraphService::spawn().unwrap();
+        let mut service = GraphService::spawn(None).unwrap();
         service.submit(request, state).unwrap();
         let mut pipeline = crate::completion(&mut service)
             .result
@@ -111,7 +114,7 @@ mod graph {
     fn admission_waits_for_retirement_acknowledgement() {
         let state = crate::snapshot();
         let request = crate::request(&state, serde_json::json!({"kind":"bypass"}));
-        let mut service = GraphService::spawn().unwrap();
+        let mut service = GraphService::spawn(None).unwrap();
         service.submit(request.clone(), state.clone()).unwrap();
         let pipeline = crate::completion(&mut service)
             .result
@@ -260,9 +263,86 @@ fn retired(service: &GraphService) {
     }
 }
 #[test]
+fn resolves_corrections_and_retires_frozen_filter_storage() {
+    use std::{fs, os::unix::fs::PermissionsExt};
+    let runtime = support::runtime();
+    fs::create_dir(&runtime).unwrap();
+    fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
+    let source = runtime.join("correction.wav");
+    let mut bytes = Vec::new();
+    bytes.extend(b"RIFF");
+    bytes.extend(84_u32.to_le_bytes());
+    bytes.extend(b"WAVEfmt ");
+    bytes.extend(16_u32.to_le_bytes());
+    bytes.extend(3_u16.to_le_bytes());
+    bytes.extend(2_u16.to_le_bytes());
+    bytes.extend(48000_u32.to_le_bytes());
+    bytes.extend(768000_u32.to_le_bytes());
+    bytes.extend(16_u16.to_le_bytes());
+    bytes.extend(64_u16.to_le_bytes());
+    bytes.extend(b"data");
+    bytes.extend(48_u32.to_le_bytes());
+    for v in [0.5_f64, 0.25, -0.25, 0.0, 0.0, 0.0] {
+        bytes.extend(v.to_le_bytes());
+    }
+    fs::write(&source, bytes).unwrap();
+    let reference = assets::import(&runtime, &source).unwrap();
+    let mut service = GraphService::spawn(Some(runtime.clone())).unwrap();
+    let state = snapshot();
+    let job = request(
+        &state,
+        serde_json::json!({"kind":"convolution","asset":reference}),
+    );
+    service.submit(job.clone(), state.clone()).unwrap();
+    let success = completion(&mut service).result.unwrap();
+    let hash = success.preview.kernel_hash.clone();
+    assert_eq!(success.preview.latency_frames, 256);
+    assert_eq!(success.preview.tail_frames, 258);
+    assert!(
+        success.preview.channel_peak_bounds[0] >= 0.75
+            && success.preview.channel_peak_bounds[1] >= 0.25
+    );
+    let pipeline = success.pipeline.unwrap();
+    assert!(pipeline.resources().kernel_audio_bytes > 33000);
+    fs::write(
+        runtime
+            .join("assets")
+            .join(format!("{}.wav", reference.sha256.as_str())),
+        b"changed stored object",
+    )
+    .unwrap();
+    assert_eq!(pipeline.preview().kernel_hash, hash);
+    drop(pipeline);
+    retired(&service);
+    service.submit(job, state).unwrap();
+    assert!(completion(&mut service).result.is_err());
+    retired(&service);
+}
+
+#[test]
+fn integer_routes_reject_filter_intent_before_resolving_correction_files() {
+    let state = snapshot();
+    let mut job = request(
+        &state,
+        serde_json::json!({"kind":"convolution","asset":{"sha256":"0".repeat(64),"sample_rate_hz":48000,"channels":"stereo","taps_per_channel":1,"purpose":"correction"}}),
+    );
+    let intent = Arc::make_mut(&mut job.intent);
+    intent.processing = GraphProcessingRequest::IntegerBypass;
+    for node in &mut Arc::make_mut(&mut intent.graph).nodes {
+        node.format.precision = PcmRepresentation::Signed16;
+    }
+    let mut service = GraphService::spawn(None).unwrap();
+    service.submit(job, state).unwrap();
+    assert_eq!(
+        completion(&mut service).result.err().unwrap().code,
+        ErrorCode::FidelityPolicyConflict
+    );
+    retired(&service);
+}
+#[test]
 fn prepares_and_renders_native_integer_audio_after_graph_and_shared_volume() {
     let state = snapshot();
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service
         .submit(
             request(&state, serde_json::json!({"kind":"gain","gain_linear":2.0})),
@@ -322,7 +402,7 @@ fn validation_returns_preview_without_pipeline_or_resident_owner() {
     let state = snapshot();
     let mut job = request(&state, serde_json::json!({"kind":"gain","gain_linear":4.0}));
     job.validate_only = true;
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(job, state).unwrap();
     let success = completion(&mut service).result.unwrap();
     assert!(success.pipeline.is_none());
@@ -342,7 +422,7 @@ fn rejects_insufficient_headroom_and_unbounded_delay_before_preparation() {
         ),
     ] {
         let state = snapshot();
-        let mut service = GraphService::spawn().unwrap();
+        let mut service = GraphService::spawn(None).unwrap();
         service.submit(request(&state, effect), state).unwrap();
         assert_eq!(completion(&mut service).result.err().unwrap().code, code);
         retired(&service);
@@ -359,7 +439,7 @@ fn integer_bypass_uses_strict_compiler_and_no_float_render() {
     for node in &mut Arc::make_mut(&mut intent.graph).nodes {
         node.format.precision = PcmRepresentation::Signed16;
     }
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(job.clone(), state.clone()).unwrap();
     let mut pipeline = completion(&mut service).result.unwrap().pipeline.unwrap();
     assert_eq!(
@@ -393,7 +473,7 @@ fn integer_meter_is_rejected_before_creating_a_silent_unobserved_pipeline() {
     for node in &mut Arc::make_mut(&mut intent.graph).nodes {
         node.format.precision = PcmRepresentation::Signed16;
     }
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(job, state).unwrap();
     assert_eq!(
         completion(&mut service).result.err().unwrap().code,
@@ -417,7 +497,7 @@ fn integer_bypass_preview_reports_captured_attenuation_and_unity_ramps() {
         for node in &mut Arc::make_mut(&mut intent.graph).nodes {
             node.format.precision = PcmRepresentation::Signed16;
         }
-        let mut service = GraphService::spawn().unwrap();
+        let mut service = GraphService::spawn(None).unwrap();
         service.submit(job, state).unwrap();
         let pipeline = completion(&mut service).result.unwrap().pipeline.unwrap();
         assert_eq!(
@@ -436,7 +516,7 @@ fn integer_bypass_preview_reports_captured_attenuation_and_unity_ramps() {
 #[test]
 fn semantic_hash_excludes_binding_and_changes_for_safety_native_evidence() {
     fn hash(state: SessionSnapshot) -> String {
-        let mut service = GraphService::spawn().unwrap();
+        let mut service = GraphService::spawn(None).unwrap();
         service
             .submit(request(&state, serde_json::json!({"kind":"bypass"})), state)
             .unwrap();
@@ -473,7 +553,7 @@ fn semantic_hash_excludes_binding_and_changes_for_safety_native_evidence() {
 fn candidate_gate_and_retirement_allow_only_one_next_candidate() {
     let state = snapshot();
     let job = request(&state, serde_json::json!({"kind":"bypass"}));
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(job.clone(), state.clone()).unwrap();
     assert_eq!(
         service
@@ -506,7 +586,7 @@ fn candidate_gate_and_retirement_allow_only_one_next_candidate() {
 #[test]
 fn dropping_service_before_pipeline_preserves_off_thread_retirement() {
     let state = snapshot();
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service
         .submit(request(&state, serde_json::json!({"kind":"bypass"})), state)
         .unwrap();
@@ -520,7 +600,7 @@ fn stale_capture_and_expired_job_do_not_allocate_pipeline() {
     let state = snapshot();
     let mut job = request(&state, serde_json::json!({"kind":"bypass"}));
     job.binding.expected_revision += 1;
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(job, state.clone()).unwrap();
     assert_eq!(
         completion(&mut service).result.err().unwrap().code,
@@ -595,7 +675,7 @@ fn prepared_bounds_cover_matrix_sum_gain_and_compensation_without_assuming_cance
             to_port: 1,
         },
     ]);
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(job, state).unwrap();
     let success = completion(&mut service).result.unwrap();
     assert_eq!(success.preview.latency_frames, 3);
@@ -622,7 +702,7 @@ fn rejects_nonfinite_conservative_bounds_and_rate_mismatch() {
         serde_json::json!({"kind":"matrix","input_channels":"stereo","coefficients":[f64::MAX,f64::MAX,0.0,1.0]}),
     );
     job.validate_only = true;
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(job, state.clone()).unwrap();
     assert_eq!(
         completion(&mut service).result.err().unwrap().code,
@@ -650,7 +730,7 @@ fn sdk_float32_evidence_does_not_change_integer_adapter_input() {
     backend.client_format.representation =
         earph_core::session::ObservedSampleRepresentation::Float32;
     backend.client_format.bytes_per_frame = 8;
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service
         .submit(
             request(&state, serde_json::json!({"kind":"bypass"})),
@@ -681,7 +761,7 @@ fn unconsumed_validation_completion_keeps_candidate_slot_reserved() {
     let state = snapshot();
     let mut job = request(&state, serde_json::json!({"kind":"bypass"}));
     job.validate_only = true;
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(job.clone(), state.clone()).unwrap();
     graph::wait_for_validation_publication(&service);
     assert_eq!(
@@ -696,7 +776,7 @@ fn unconsumed_validation_completion_keeps_candidate_slot_reserved() {
 fn two_owned_pipelines_prevent_third_candidate_even_after_activation() {
     let state = snapshot();
     let job = request(&state, serde_json::json!({"kind":"bypass"}));
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(job.clone(), state.clone()).unwrap();
     let first = completion(&mut service)
         .result
@@ -723,7 +803,7 @@ fn two_owned_pipelines_prevent_third_candidate_even_after_activation() {
 #[test]
 fn racing_cancellation_retires_every_late_success() {
     let state = snapshot();
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     let cancel = service
         .submit(request(&state, serde_json::json!({"kind":"bypass"})), state)
         .unwrap();
@@ -739,7 +819,7 @@ fn racing_cancellation_retires_every_late_success() {
 #[test]
 fn repeated_cross_thread_retirement_acknowledges_every_owner() {
     let state = snapshot();
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     for _ in 0..32 {
         service
             .submit(
@@ -773,7 +853,7 @@ fn nonfinite_backend_evidence_cannot_collapse_into_a_json_null_hash() {
         .unwrap()
         .client_format
         .sample_rate_hz = f64::NAN;
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service
         .submit(request(&state, serde_json::json!({"kind":"bypass"})), state)
         .unwrap();
@@ -788,7 +868,7 @@ fn nonfinite_backend_evidence_cannot_collapse_into_a_json_null_hash() {
 fn same_graph_hash_survives_existing_active_storage_and_accounts_route_period() {
     let state = snapshot();
     let job = request(&state, serde_json::json!({"kind":"bypass"}));
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(job.clone(), state.clone()).unwrap();
     let first = completion(&mut service)
         .result
@@ -829,7 +909,7 @@ fn caller_vector_spare_capacity_is_admitted_before_compilation() {
     Arc::make_mut(&mut Arc::make_mut(&mut job.intent).graph)
         .nodes
         .reserve_exact(129);
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(job, state).unwrap();
     assert_eq!(
         completion(&mut service).result.err().unwrap().code,
@@ -850,7 +930,7 @@ fn retained_id_spare_capacity_is_charged_using_actual_backing_storage() {
     let extra = identifier.capacity() - original_capacity;
     Arc::make_mut(&mut Arc::make_mut(&mut reserved.intent).graph).nodes[0].id =
         NodeId::new(identifier).unwrap();
-    let mut service = GraphService::spawn().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
     service.submit(base, state.clone()).unwrap();
     let base_preview = completion(&mut service).result.unwrap().preview;
     service.submit(reserved, state).unwrap();

@@ -66,6 +66,21 @@ pub struct GraphResidentUsage {
     pub aggregate_peak_bytes: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphTailPolicy {
+    AuthoredFiniteSupport,
+    BoundedIirTruncation,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FilterTailObservation {
+    pub node: crate::ids::NodeId,
+    pub channels: crate::audio::ChannelLayout,
+    pub horizon_frames: u64,
+    pub terminal_output_bounds: Vec<f64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GraphPreview {
     pub backend: Option<BackendObservation>,
@@ -81,6 +96,9 @@ pub struct GraphPreview {
     pub quantum_frames: usize,
     pub latency_frames: u64,
     pub tail_frames: u64,
+    pub tail_policy: GraphTailPolicy,
+    pub terminal_output_bounds: Vec<f64>,
+    pub node_tails: Vec<FilterTailObservation>,
     pub preservation: PreservationDecision,
     pub transformations: Vec<SignalTransformation>,
     pub resources: GraphResidentUsage,
@@ -94,6 +112,19 @@ impl GraphPreview {
             || !valid_graph_hash(&self.kernel_hash)
             || !(1..=8192).contains(&self.quantum_frames)
             || self.channel_peak_bounds.len() != self.native_output_format.channels().count()
+            || self.terminal_output_bounds.len() != self.native_output_format.channels().count()
+            || self
+                .terminal_output_bounds
+                .iter()
+                .any(|v| !v.is_finite() || !(0.0..=1e-12).contains(v))
+            || self.node_tails.len() > 128
+            || self.node_tails.iter().any(|n| {
+                n.horizon_frames > self.tail_frames
+                    || n.terminal_output_bounds.len() != n.channels.count()
+                    || n.terminal_output_bounds
+                        .iter()
+                        .any(|b| !b.is_finite() || *b < 0.0)
+            })
             || self
                 .channel_peak_bounds
                 .iter()

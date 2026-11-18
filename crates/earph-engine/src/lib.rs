@@ -1,6 +1,7 @@
 // ABOUTME: Hosts one authoritative engine behind private local IPC.
 // ABOUTME: Persists validated queue state before publishing command success.
 #![forbid(unsafe_code)]
+pub mod assets;
 mod directory;
 mod graph;
 mod host;

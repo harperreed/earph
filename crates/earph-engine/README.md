@@ -27,6 +27,11 @@ A second invocation queries the existing owner and exits.
 It does not start a competing owner for that runtime.
 All controllers for one engine must use the same runtime directory.
 
+Use `earph-engine import-fir --runtime PRIVATE_DIRECTORY correction.wav` to store a qualified correction WAV.
+The command returns the immutable asset reference used by a convolution graph node.
+It preserves source files and rejects conflicting existing objects.
+See [correction filters](../../docs/correction-filters.md) for supported formats, resource bounds, and tail policies.
+
 Send one JSON command line through the client:
 
 ```sh
