@@ -89,7 +89,7 @@ Clear reservations under both captured and current exact epochs when retiring a 
 The regression also reproduces a reservation left behind under the pre-control epoch.
 
 Independent review also identifies source acceptance before a failed pump returns cancellation.
-Doctor Biz approves a checked source-counter delta when no successful step exists.
+The implementation uses a checked source-counter delta when no successful step exists.
 The real concurrent cancellation regression reproduces 2,048 accepted frames against a stale 1,984-frame worker frontier.
 The corrected worker reconciles that actual prefix before handling the error.
 The test uses a real Quality SRC call and bounded cancellation attempts without a synthetic fault mode.
