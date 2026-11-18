@@ -4,6 +4,8 @@ Use the existing owner and JSON request CLI for all profile commands.
 Saving works while idle and never opens output.
 Saving preserves mute, current volume, independent caps, consent, and fixed-output arming.
 It does not apply the saved graph or select another output.
+Replacing the selected saved revision requires a completed Stop while its source is live.
+That replacement clears its application claim, mutes, disarms, and revokes consent in the saved checkpoint.
 
 Read `state.get` before a mutation.
 Send its owner ID, current Session ID, and revision in the command envelope.
@@ -19,6 +21,9 @@ Use the current Session ID during playback.
 | `profiles.list` | `offset`, `limit` | Up to 16 summaries and the save operation state |
 | `profiles.get` | `id` | The validated profile, graph intent, and profile object hash |
 | `profiles.resolve` | `manual_profile_id`, `output` | A manual choice or an explicit selection requirement |
+| `profiles.prepare` | `id`, `expected_profile_revision`, `profile_sha256` | A short-lived shared graph candidate |
+| `profiles.apply` | `id`, `expected_profile_revision`, `profile_sha256`, `token`, `graph_hash` | A muted activation acknowledgment |
+| `profiles.bind` | `id`, `expected_profile_revision`, `profile_sha256`, `expected_device_epoch` | `CAPABILITY_UNSUPPORTED` until native identity is available |
 
 The draft contains `name`, `source_policy`, `fidelity`, `output`, `volume`, `latency`, and `corrections`.
 Its output selector contains backend, route, device ID, and an optional manual setup label.
@@ -66,7 +71,48 @@ A manual choice cannot select a profile targeting another backend, route, or dev
 An unchanged DAC identity never establishes the attached passive listening setup.
 Direct create/update commands require empty correction references.
 The correction import command creates those references from verified source facts.
-Profile application and package operations remain separate work.
+Profile packages and broader application modes remain separate work.
+
+Profile preparation requires a live local source with actual opened backend observations and current output consent.
+The selected backend, route, device ID, software volume mode, and fidelity must match the saved profile.
+Preparation never supplies an endpoint, opens another device, grants consent, arms fixed output, or assumes hardware readback.
+Fixed/hardware application and fidelity transitions return `CAPABILITY_UNSUPPORTED` in this slice.
+A different live output returns `SOURCE_BUSY`; Stop and select the output explicitly.
+
+Use the exact immutable profile reference returned by `profiles.get` or the save receipt.
+Preparation first returns `accepted`; replay the identical envelope for its `GraphPrepared` result.
+That result's `preview.profile_application` binds the profile revision/hash, graph object hash, effective caps, gain, and limits.
+It shares the existing graph candidate slot, five-second preparation deadline, and 30-second token lifetime.
+A profile token cannot be consumed by `graph.commit`, or an ordinary token by `profiles.apply`.
+Changes to Session revision, device/source epochs, profile reference, effective caps, or gain invalidate preparation.
+
+Application first returns `accepted` and stays muted while the worker installs the graph.
+It revokes consent and fixed arming without raising the current level.
+The configured profile appears only after the matching worker acknowledgment and successful checkpoint.
+Its terminal `applied` receipt reports the activation frame, rather than claiming an acoustic output boundary.
+Consent the exact acknowledged output/profile explicitly before requesting unmute.
+Stop and emergency mute remain available throughout preparation and activation.
+An installation followed by storage failure requires recovery; the owner never claims physical rollback.
+
+`local_volume_policy` stores the independent caps changed by `volume.caps.set`.
+`volume_policy` reports the effective intersection with the selected profile's requested caps.
+Applying a different profile never treats the preceding effective caps as the local source.
+The current gain stays at the lower of its prior value and the prospective software cap.
+Insufficient headroom or unknown required hardware readback remains blocked.
+Restart restores verified configured intent paused/muted, without consent, arming, active graph evidence, or prepared tokens.
+A checkpoint with selected profile intent must retain its separate local caps; missing or inconsistent caps refuse recovery.
+
+Live resident limits cover the candidate pipeline, bridge, backend audio, metadata, and source/native period storage.
+Preparation limits cover the known aggregate peak, including old resources, reopen overlap, assets, scratch, and catalog retention.
+Both intersect existing engine admission and are passed to the existing compilers.
+These bounds exclude opaque native allocations and whole-process RSS.
+Offline save success does not qualify actual live resource admission.
+Finite aggregate SRC latency remains `CAPABILITY_UNSUPPORTED`; named latency modes do not establish qualification.
+
+Capabilities expose `profiles.application` with the supported software mode and current-output, consent, and matching-fidelity requirements.
+They report `live_selected_profile_update: false` and `finite_aggregate_src_latency: false`.
+Exact associations remain false until the native owner supplies verified device identity.
+The bind request accepts no identity hash, native endpoint, or imported trust assertion.
 
 For text imports, run `earph-correction-import` with explicit format, rate, channels, and quantum.
 Send `input` with `kind: "text_report"`, its `report_json`, and the original UTF-8 `source_text`.

@@ -28,6 +28,116 @@ pub(super) struct ProfileControl {
     worker_request: Option<(RequestId, ProfileSaveBinding)>,
 }
 impl Session {
+    pub(super) fn profile_record(
+        &self,
+        reference: &ProfileCatalogReference,
+    ) -> Result<Arc<ProfileRecord>, EngineError> {
+        validate_catalog(std::slice::from_ref(reference), 1)?;
+        self.require_profile_catalog()?;
+        self.profiles
+            .records
+            .iter()
+            .find(|r| r.reference() == *reference)
+            .cloned()
+            .ok_or(STALE_PROFILE)
+    }
+    pub(super) fn profile_application_binding(
+        &self,
+        reference: &ProfileCatalogReference,
+        require_consent: bool,
+    ) -> Result<Arc<ProfileApplicationBinding>, EngineError> {
+        let record = self.profile_record(reference)?;
+        let profile = &record.profile;
+        let output = self.state.output.as_ref().ok_or(EngineError::new(
+            ErrorCode::SafetyPolicyBlocked,
+            "select and consent an output before profile preparation",
+        ))?;
+        if output.backend != profile.output.backend
+            || output.route != profile.output.route
+            || output.device_id != profile.output.device_id
+        {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "stop and select the profile output explicitly",
+            ));
+        }
+        if output.volume_mode != crate::safety::VolumeMode::Software
+            || profile.volume.mode != crate::safety::VolumeMode::Software
+            || output.fidelity != profile.fidelity
+        {
+            return Err(EngineError::new(
+                ErrorCode::CapabilityUnsupported,
+                "profile application requires software volume and matching current fidelity",
+            ));
+        }
+        if require_consent && !self.state.output_consented {
+            return Err(EngineError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "consent the current output before profile preparation",
+            ));
+        }
+        let effective_policy = profile
+            .volume
+            .effective_policy(&self.state.local_volume_policy)?;
+        Ok(Arc::new(ProfileApplicationBinding {
+            profile: reference.clone(),
+            graph_sha256: profile.graph_sha256,
+            source: SourceKind::LocalFile,
+            software_gain_db: self
+                .state
+                .software_gain_db
+                .min(effective_policy.software_cap_db()),
+            effective_policy,
+            latency: profile.latency.clone(),
+        }))
+    }
+    pub(super) fn apply_profile_prepare(
+        &mut self,
+        command: &CommandEnvelope,
+        now_ns: u64,
+    ) -> Result<ReceiptStatus, EngineError> {
+        let Command::ProfilesPrepare {
+            id,
+            expected_profile_revision,
+            profile_sha256,
+        } = &command.payload
+        else {
+            return Err(STATE);
+        };
+        if command.session_id != self.state.session_id || command.session_id.is_none() {
+            return Err(STALE);
+        }
+        if self.profile_worker_busy() {
+            return Err(BUSY);
+        }
+        let reference = ProfileCatalogReference {
+            id: id.clone(),
+            revision: *expected_profile_revision,
+            profile_sha256: *profile_sha256,
+        };
+        let binding = self.profile_application_binding(&reference, true)?;
+        if self
+            .state
+            .playback
+            .as_ref()
+            .and_then(|p| p.backend.as_ref())
+            .is_none()
+        {
+            return Err(EngineError::new(
+                ErrorCode::DeviceUnavailable,
+                "profile preparation requires an observed open backend",
+            ));
+        }
+        let record = self.profile_record(&reference)?;
+        let mut graph_command = command.clone();
+        graph_command.payload = Command::GraphPrepare {
+            graph: record.graph.graph.clone(),
+            processing: record.graph.processing,
+        };
+        let result = self.apply_graph_command(&graph_command, now_ns)?;
+        self.bind_profile_graph_job(binding)?;
+        Ok(result)
+    }
     pub fn profile_references(&self) -> &[ProfileCatalogReference] {
         &self.profiles.references
     }
@@ -48,6 +158,21 @@ impl Session {
         }
         let mut staged = self.clone();
         staged.profiles.records = Arc::new(records);
+        if let Some(reference) = &staged.state.configured_profile {
+            let record = staged.profile_record(reference)?;
+            let output = staged.state.output.as_ref().ok_or(INVALID)?;
+            if staged.graph.configured.as_ref() != Some(&record.graph)
+                || output.profile_id != reference.id
+                || staged
+                    .profile_application_binding(reference, false)?
+                    .effective_policy
+                    != staged.state.volume_policy
+            {
+                return Err(INVALID);
+            }
+        } else if staged.state.volume_policy != staged.state.local_volume_policy {
+            return Err(INVALID);
+        }
         staged.validate_profile_storage(None)?;
         self.profiles = staged.profiles;
         Ok(())
@@ -231,6 +356,18 @@ impl Session {
                 _ => return Err(STATE),
             };
             let existing = self.profiles.records.iter().find(|r| &r.profile.id == id);
+            if self
+                .state
+                .configured_profile
+                .as_ref()
+                .is_some_and(|r| &r.id == id)
+                && (self.state.session_id.is_some() || self.local_boundary.is_some())
+            {
+                return Err(EngineError::new(
+                    ErrorCode::SourceBusy,
+                    "stop the selected profile source before replacing its saved revision",
+                ));
+            }
             let revision = match (expected, existing) {
                 (None, None) if self.profiles.records.len() < profiles::MAX_PROFILES => 1,
                 (None, None) => return Err(BUDGET),
@@ -432,6 +569,23 @@ impl Session {
         result
     }
     fn stage_profile_record(&mut self, record: Arc<ProfileRecord>) -> Result<(), EngineError> {
+        if self
+            .state
+            .configured_profile
+            .as_ref()
+            .is_some_and(|r| r.id == record.profile.id)
+        {
+            self.state.configured_profile = None;
+            self.state.volume_policy = self.state.local_volume_policy.clone();
+            self.state.volume_policy.disarm();
+            self.state.software_gain_db = self
+                .state
+                .software_gain_db
+                .min(self.state.volume_policy.software_cap_db());
+            self.state.output_consented = false;
+            self.state.muted = true;
+            self.graph.recovery_required = true;
+        }
         let records = Arc::make_mut(&mut self.profiles.records);
         if let Some(slot) = records
             .iter_mut()
@@ -628,6 +782,14 @@ impl Session {
         let mut bytes = size_of::<ProfileControl>()
             + self.profiles.references.capacity() * size_of::<ProfileCatalogReference>()
             + self.profiles.records.capacity() * size_of::<Arc<ProfileRecord>>();
+        bytes = bytes
+            .checked_add(self.graph_profile_metadata_bytes()?)
+            .ok_or(BUDGET)?;
+        if let Some(reference) = &self.state.configured_profile {
+            bytes = bytes
+                .checked_add(reference.id.capacity_bytes() + size_of::<ProfileCatalogReference>())
+                .ok_or(BUDGET)?;
+        }
         if let Some((id, _)) = &self.profiles.worker_request {
             bytes = bytes.checked_add(id.capacity_bytes() + 512).ok_or(BUDGET)?;
         }
@@ -646,12 +808,22 @@ impl Session {
             .iter()
             .chain(self.profiles.pending_receipt.iter())
             .chain(self.profiles.terminal.iter())
+            .chain(self.graph_profile_records())
         {
             if record.0.payload.is_profile() {
                 bytes = bytes
                     .checked_add(record.0.profile_capacity_bytes()?)
                     .ok_or(BUDGET)?;
                 let result = match &record.1.result {
+                    Some(QueryResult::GraphPrepared(prepared)) => size_of::<GraphPrepared>()
+                        .checked_add(prepared.token.capacity_bytes())
+                        .and_then(|n| {
+                            n.checked_add(prepared.preview.retained_capacity_bytes().ok()?)
+                        })
+                        .ok_or(BUDGET)?,
+                    Some(QueryResult::GraphPreview(preview)) => {
+                        preview.retained_capacity_bytes()?
+                    }
                     Some(QueryResult::Profile(r) | QueryResult::ProfileSaved(r)) => {
                         r.retained_capacity_bytes()?
                     }

@@ -32,7 +32,7 @@ const LIMIT: u64 = 256 * 1024 * 1024;
 // Covers bounded compiler maps, canonical serialization, hashes, and preview construction.
 const PREPARATION_SCRATCH: u64 = 4 * 1024 * 1024;
 // Covers 128 compiled/runtime nodes, 256 inputs, IDs, and preview transformations.
-const METADATA_ALLOWANCE: u64 = 2 * 1024 * 1024;
+const METADATA_ALLOWANCE: u64 = earph_core::graph_control::GRAPH_PREVIEW_RETENTION_BYTES as u64;
 const BUSY: EngineError = EngineError::new(
     ErrorCode::SourceBusy,
     "graph preparation or retirement owns the candidate slot",
@@ -528,6 +528,45 @@ fn prepare(
     {
         return Err(STALE.into());
     }
+    let prospective;
+    let snapshot = if let Some(application) = &request.profile_application {
+        application.validate().map_err(GraphDiagnostic::from)?;
+        if snapshot.source != Some(application.source) {
+            return Err(STALE.into());
+        }
+        if snapshot
+            .playback
+            .as_ref()
+            .and_then(|p| p.backend.as_ref())
+            .is_none()
+        {
+            return Err(EngineError::new(
+                ErrorCode::DeviceUnavailable,
+                "profile preparation requires an observed open backend",
+            )
+            .into());
+        }
+        if snapshot
+            .output
+            .as_ref()
+            .is_none_or(|o| o.volume_mode != earph_core::safety::VolumeMode::Software)
+            || application.software_gain_db
+                != snapshot
+                    .software_gain_db
+                    .min(application.effective_policy.software_cap_db())
+        {
+            return Err(STALE.into());
+        }
+        prospective = {
+            let mut state = snapshot.clone();
+            state.volume_policy = application.effective_policy.clone();
+            state.software_gain_db = application.software_gain_db;
+            state
+        };
+        &prospective
+    } else {
+        snapshot
+    };
     request
         .intent
         .graph
@@ -730,7 +769,23 @@ fn prepare(
         if streaming { 0 } else { PREPARATION_SCRATCH },
         asset_scratch,
     ])?;
-    let kernel_allowance = LIMIT.checked_sub(fixed).ok_or(RESOURCE)?;
+    let preparation_limit = request
+        .profile_application
+        .as_ref()
+        .map_or(LIMIT, |a| LIMIT.min(a.latency.max_preparation_bytes));
+    let resident_limit = request
+        .profile_application
+        .as_ref()
+        .map_or(LIMIT, |a| LIMIT.min(a.latency.max_resident_bytes));
+    let steady_fixed = sum(&[
+        backend_audio_bytes,
+        existing_route_bytes,
+        metadata,
+        bridge_bytes,
+    ])?;
+    let preparation_allowance = preparation_limit.checked_sub(fixed).ok_or(RESOURCE)?;
+    let resident_allowance = resident_limit.checked_sub(steady_fixed).ok_or(RESOURCE)?;
+    let kernel_allowance = preparation_allowance.min(resident_allowance);
     let resolved = asset_admission
         .resolve(asset_store, kernel_allowance, || {
             check().map_err(|e| e.error())
@@ -748,6 +803,11 @@ fn prepare(
         },
         budget: GraphBudget {
             max_buffer_bytes: kernel_allowance,
+            max_latency_frames: request
+                .profile_application
+                .as_ref()
+                .and_then(|a| a.latency.max_latency_frames)
+                .unwrap_or(u64::MAX),
             ..GraphBudget::default()
         },
     };
@@ -758,7 +818,7 @@ fn prepare(
             &resolved,
             earph_dsp::stream::StreamBudget {
                 max_resident_bytes: kernel_allowance,
-                max_preparation_bytes: kernel_allowance,
+                max_preparation_bytes: preparation_allowance,
                 ..earph_dsp::stream::StreamBudget::default()
             },
         )
@@ -767,6 +827,11 @@ fn prepare(
         let resources = plan.resources();
         let aggregate_peak_bytes = sum(&[fixed, resources.preparation_peak_bytes])?;
         let pipeline_bytes = sum(&[metadata, bridge.bridge_bytes, resources.resident_bytes])?;
+        if aggregate_peak_bytes > preparation_limit
+            || sum(&[steady_fixed, resources.resident_bytes])? > resident_limit
+        {
+            return Err(RESOURCE.into());
+        }
         let bridge_remainder = bridge
             .bridge_bytes
             .checked_sub(sum(&[host_input, host_output, native_period])?)
@@ -902,7 +967,9 @@ fn prepare(
         profile_retention,
         plan.preparation_scratch_bytes(),
     ])?;
-    if aggregate_peak_bytes > LIMIT {
+    if aggregate_peak_bytes > preparation_limit
+        || sum(&[backend_audio_bytes, existing_route_bytes, pipeline_bytes])? > resident_limit
+    {
         return Err(RESOURCE.into());
     }
     let preview = prepared_preview(
@@ -1048,6 +1115,7 @@ fn prepared_preview(
         });
     }
     let preview = Arc::new(GraphPreview {
+        profile_application: request.profile_application.clone(),
         backend: playback.backend.clone(),
         graph_hash: activation_hash(
             &compiled.kernel_hash,
@@ -1194,6 +1262,10 @@ fn activation_hash(
             "graph activation hash serialization failed",
         ))
     })?;
+    if let Some(application) = &request.profile_application {
+        serde_json::to_writer(&mut writer, &("earph-profile-activation/1", application))
+            .map_err(|_| GraphDiagnostic::from(RESOURCE))?;
+    }
     Ok(writer
         .0
         .finalize()

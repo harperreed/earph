@@ -19,6 +19,7 @@ fn actual_compiler_facts_validate_as_streaming_core_timing_and_share_progress_st
     let bounds = plan.output_peak_bounds().to_vec();
     let source = PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
     let preview = GraphPreview {
+        profile_application: None,
         backend: None,
         graph_hash: plan.content_hash().into(),
         kernel_hash: plan.content_hash().into(),

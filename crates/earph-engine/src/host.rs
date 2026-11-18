@@ -146,10 +146,7 @@ pub(crate) fn serve(
                         if command.payload.is_profile_save() {
                             return profiles.submit(staged);
                         }
-                        if matches!(
-                            command.payload,
-                            Command::GraphPrepare { .. } | Command::GraphValidate { .. }
-                        ) {
+                        if command.payload.prepares_graph() {
                             return graphs.submit(staged, &worker);
                         }
                         if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
@@ -165,7 +162,7 @@ pub(crate) fn serve(
                                 "playback control queue is full",
                             ));
                         }
-                        if matches!(command.payload, Command::GraphCommit { .. }) {
+                        if command.payload.activates_graph() {
                             graphs.validate_activation(staged)?;
                         }
                         if before.source == Some(SourceKind::LocalFile) {
@@ -244,13 +241,13 @@ pub(crate) fn serve(
                     ReceiptStatus::Applied | ReceiptStatus::Accepted
                 ) && after.revision != before.revision
                     && !dispatched_early
-                    && let Err(error) = if matches!(command.payload, Command::GraphCommit { .. }) {
+                    && let Err(error) = if command.payload.activates_graph() {
                         graphs.activate(&mut worker, &session)
                     } else {
                         dispatch(&command, &mut worker, &session)
                     }
                 {
-                    if matches!(command.payload, Command::GraphCommit { .. }) {
+                    if command.payload.activates_graph() {
                         session.fail_graph_activation(&command.request_id, error);
                         worker.cancel_active();
                         receipt = session.submit_graph(command.clone(), monotonic(&clock));
@@ -341,6 +338,7 @@ fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
             command,
             Command::Pause
                 | Command::GraphCommit { .. }
+                | Command::ProfilesApply { .. }
                 | Command::Resume
                 | Command::Stop
                 | Command::Seek { .. }

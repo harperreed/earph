@@ -263,6 +263,23 @@ fn schema_one_checkpoint_without_catalog_remains_recoverable() {
 }
 
 #[test]
+fn checkpoint_effective_caps_cannot_weaken_independent_local_caps() {
+    let mut checkpoint = session().checkpoint();
+    checkpoint.local_volume_policy =
+        Some(earph_core::safety::VolumePolicy::new(-30.0, None).unwrap());
+    checkpoint.volume_policy = earph_core::safety::VolumePolicy::new(0.0, None).unwrap();
+    let error = Session::restore_owner(
+        ZoneId::new("main").unwrap(),
+        OwnerId::new("fresh").unwrap(),
+        ControlLimits::default(),
+        checkpoint,
+    )
+    .err()
+    .expect("restoration cannot weaken a local cap");
+    assert_eq!(error.code, ErrorCode::AssetInvalid);
+}
+
+#[test]
 fn unused_profiles_add_no_allowance_to_existing_graph_admission() {
     let mut s = session();
     s.submit(command_for_query(&s, "state"));

@@ -161,6 +161,28 @@ Root approved Engine's direct Rustix `fs` feature without a version or lock chan
 
 ## Task 3: Bound profile preparation and atomic application
 
+### Approved Task 3a slice
+
+Root approved option A against `296b4c5` on November 18, 2026.
+Use the existing `8837` worktree and graph activation authority.
+Prepare requires the current consented software output and matching backend, route, device, and fidelity.
+Bind the immutable profile reference, effective caps, lower gain, and resource/latency limits to that candidate.
+Application stays muted and publishes selection only after acknowledgment and checkpoint persistence.
+Require acknowledged Stop before replacing the selected saved revision.
+Keep fixed/hardware application, fidelity transitions, and native binding explicitly unavailable.
+Keep local caps canonical and independent from effective profile caps.
+This bounded slice does not complete Task 3 or qualify physical output.
+The ignored `target/profile-application` directory retains its contract, ledger, and verification artifacts.
+
+The Task 3a candidate now uses one profile-bound graph candidate and the existing persisted acknowledgment.
+Core scenarios cover stale references, exact Session targeting, independent caps, cancellation, and delayed/failed publication.
+GraphService scenarios cover revision/cap hashes, exact memory boundaries, actual source facts, and unsupported finite SRC latency.
+The real owner/request scenario captures through ALSA file-to-null, then verifies fresh consent and safe restart.
+It preserves capture bytes and request receipts under `target/service-playback`.
+Native device binding remains unavailable, and live selected-profile replacement still requires completed Stop.
+The only Worker edit initializes the new optional request field in an existing test fixture.
+Canonical verification and the single independent review remain the root's integration gates.
+
 Files: Core profile/control/session modules, `session_graph.rs`, and Engine `graph.rs`, `host.rs`, and worker callers.
 
 Bind one existing graph candidate to profile ID, revision, object hash, and current graph/session/device bindings.
@@ -255,9 +277,24 @@ No native device opens or signal exercises occur in this gate.
 
 ## Resume point
 
-Integrate the reviewed correction import commit with PR 3's separate engine fixes.
-Reconcile its old report helper with the shared bounded report writer from the offline fix unit.
-Preserve the import forwarding branch and real CLI failure coverage during that merge.
-Run the combined canonical check before publishing review resolutions or merging PR 3.
-Then implement Task 3's revision-bound preparation, policy application, and verified device associations.
-Task 4 packages and full desktop workflows remain incomplete.
+Task3a implements manual application to the current consented software output.
+The backend, route, device, and fidelity must match the selected output.
+Saved intent supplies no endpoint, consent, arming, or trusted native identity.
+The existing graph candidate and acknowledgment transaction apply the exact saved revision.
+Application preserves independent caps and lower gain, then mutes, disarms, and revokes consent.
+Replacing a selected revision requires acknowledged Stop and clears its selection.
+
+The [Linux precommit receipt](../../evidence/profiles/task3a-linux-precommit-verification-20261118.json) records 696 passed tests and four ignored.
+The canonical child exits zero, without warnings or errors.
+The [same source review](../../evidence/profiles/task3a-source-review-20261118.json) approves the bounded implementation.
+Its one coverage finding is corrected in the same review.
+Core and actual owner tests grant consent before update and require revocation afterward.
+The executable reads the persisted checkpoint and verifies muted, unconsented, unselected recovery.
+Coverage-setup REDs remain classified separately from production regression proof.
+
+This is a source checkpoint before integrated Mac qualification.
+Keep the Task3a commit local until PR3 integration and supported-platform checks finish.
+Merge the separately qualified OwnerLock and PR3 fixes before the Mac gate.
+Then freeze the combined source and run the actual platform scenarios.
+Full Task3 native associations and fixed/hardware transitions remain incomplete.
+Task4 packages and full desktop workflows also remain incomplete.

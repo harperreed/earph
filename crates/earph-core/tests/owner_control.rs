@@ -283,6 +283,8 @@ fn queue_query_bounds_worst_case_escaped_paths() {
         queue.append("\u{1}".repeat(1024)).unwrap();
     }
     let checkpoint = earph_core::session::SessionCheckpoint {
+        local_volume_policy: None,
+        configured_profile: None,
         profile_catalog: vec![],
         graph_intent: None,
         volume_policy: Default::default(),

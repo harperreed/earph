@@ -2337,6 +2337,7 @@ pub(crate) mod tests {
         service
             .submit(
                 GraphJobRequest {
+                    profile_application: None,
                     request_id: request_id.clone(),
                     binding: binding.clone(),
                     intent: Arc::new(GraphIntent {

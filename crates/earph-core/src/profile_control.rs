@@ -109,6 +109,39 @@ pub struct ProfileCatalogReference {
     pub revision: u64,
     pub profile_sha256: ProfileObjectHash,
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ProfileApplicationBinding {
+    pub profile: ProfileCatalogReference,
+    pub graph_sha256: ProfileObjectHash,
+    pub source: crate::control::SourceKind,
+    pub effective_policy: crate::safety::VolumePolicy,
+    pub software_gain_db: f64,
+    pub latency: ProfileLatencyIntent,
+}
+impl ProfileApplicationBinding {
+    pub fn validate(&self) -> Result<(), EngineError> {
+        validate_catalog(std::slice::from_ref(&self.profile), 1)?;
+        if self.source != crate::control::SourceKind::LocalFile {
+            return Err(INVALID);
+        }
+        crate::safety::VolumePolicy::new(
+            self.effective_policy.software_cap_db(),
+            self.effective_policy.hardware_cap_db(),
+        )?;
+        if !self.software_gain_db.is_finite()
+            || !(-120.0..=self.effective_policy.software_cap_db()).contains(&self.software_gain_db)
+        {
+            return Err(INVALID);
+        }
+        if self.latency.max_resident_bytes == 0
+            || self.latency.max_preparation_bytes < self.latency.max_resident_bytes
+        {
+            return Err(BUDGET);
+        }
+        Ok(())
+    }
+}
 pub fn validate_catalog(
     references: &[ProfileCatalogReference],
     capacity: usize,
@@ -405,10 +438,21 @@ pub struct ProfileCapabilities {
     pub manual_resolution: bool,
     pub exact_associations: bool,
     pub apply: bool,
+    pub application: ProfileApplicationCapabilities,
     pub correction_import: bool,
     pub packages: bool,
     pub max_profiles: usize,
     pub max_page: usize,
     pub max_profile_bytes: usize,
     pub max_graph_bytes: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProfileApplicationCapabilities {
+    pub volume_modes: Vec<VolumeMode>,
+    pub requires_current_output: bool,
+    pub requires_output_consent: bool,
+    pub requires_matching_fidelity: bool,
+    pub live_selected_profile_update: bool,
+    pub finite_aggregate_src_latency: bool,
 }
