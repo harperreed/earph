@@ -80,6 +80,17 @@ The final integrated Linux check passes 361 tests, with two ignored.
 All thirty-six inline review threads are resolved on the remote PR.
 Platform checks for `f634853` remain historical and do not qualify this final delta.
 
+The final runtime source is frozen at `ad6ef0ff62c49b199225b4314b7e926164f6fafd`.
+Clean committed builds pass 361 Linux tests and 331 Mac tests, with two ignored on each platform.
+The overlapping eleven-test Mac SDK recheck passes.
+One approved final signal per platform completes with zero saturation and unchanged recorded settings.
+Linux submits 48007 frames; Mac submits 24003 frames.
+Both owners release graph resources and exit cleanly.
+Root independently verifies raw counts, digests, all 67 Mac artifacts, and four source-manifest checks.
+Final redacted receipts live under `docs/evidence/dsp/final-review-verification-20261118.json`.
+The remote summary reply records all four outside-diff findings and the reset-contract rebuttal.
+No cleanup or file deletion occurred.
+
 ## Second review fixes
 
 Track pending pause, seek, and stop acknowledgements independently from visible transport state.

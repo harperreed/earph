@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "final_graph_review_canonical_and_silent_coreaudio_sdk_checks",
+  "command": "scripts/check",
+  "command_exit": 0,
+  "tests_passed": 331,
+  "tests_ignored": 2,
+  "signal_tests_executed": false,
+  "device_settings_changes_requested": false,
+  "snapshot_inputs_verified_before_and_after": 1453,
+  "snapshot_inputs_verified_after_exercises": 1453,
+  "snapshot_archive_sha256": "9a61c5744f228365b500ed0618b807bf19e9e822066b59b2cc7e746500264148",
+  "snapshot_file_manifest_sha256": "e5fda6e6382622904dd11228c734b97d73fe01cb741e672e9c5e69208e337aaf",
+  "private_log_retained": true,
+  "log_sha256": "e8e5f6d435f08f76d452740f44f097d4378f25c712910b9745b2d37519396b0d",
+  "silent_sdk": {
+    "command": "cargo test --locked -p earph-coreaudio --test native --test playback_native --test cli",
+    "command_exit": 0,
+    "tests_passed": 11,
+    "tests_ignored": 0,
+    "log_sha256": "7af7990bb5d46f273cd752941194115c41515459c4ba0b7d3a3d72362e6936d8",
+    "overlaps_canonical_coverage": true
+  },
+  "build": {
+    "commit": "ad6ef0ff62c49b199225b4314b7e926164f6fafd",
+    "dependency_lock_sha256": "411273dfa7d7db901ddace51fedcb2e6d8875459cea21ce57f07610c6a2e41fc",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": false,
+    "source_inputs_sha256": "7c9c981a89a6d7b0629d069623b35235b967f9c7ce8b9c69671123a9ba21c000",
+    "target": "aarch64-apple-darwin"
+  },
+  "sdk_host": {
+    "architecture": "arm64",
+    "macos": "27.2.1",
+    "xcode": "27.2",
+    "xcode_build": "27B52"
+  },
+  "evidence_archive_sha256": "0c248337c63a79c5102669f8254f6cffeb3ca7a707f20fd3704129088e68da3f",
+  "evidence_file_manifest_sha256": "7e48047a9e748d020497f98a0fc5b6f0da8068dae9dafef0db0d52f6a0b1f53b",
+  "evidence_artifacts_verified": 67,
+  "qualification": "Clean committed source build and silent SDK checks. Selected graph playback and muted replacement are recorded separately."
+}
