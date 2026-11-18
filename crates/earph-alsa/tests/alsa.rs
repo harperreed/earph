@@ -269,3 +269,80 @@ fn missing_hardware_fails_without_opening_a_system_route() {
     assert_eq!(error.code, ErrorCode::DeviceUnavailable);
     assert!(error.native_errno.is_some());
 }
+
+#[test]
+fn suspend_reprepares_the_same_owned_capture_and_drain_finishes_once() {
+    let test = "suspend_reprepares_the_same_owned_capture_and_drain_finishes_once";
+    if std::env::var("EARPH_ALSA_TRANSPORT_TEST_CHILD").as_deref() != Ok(test) {
+        let directory = support::directory();
+        let file = directory.join("transport.pcm");
+        let config = directory.join("alsa.conf");
+        std::fs::write(&config, format!("pcm.null {{ type null }}\npcm.capture {{ type file slave.pcm null file \"{}\" format raw }}\n", file.display())).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test, "--nocapture"])
+            .env("EARPH_ALSA_TRANSPORT_TEST_CHILD", test)
+            .env("EARPH_ALSA_TRANSPORT_CAPTURE", &file)
+            .env("ALSA_CONFIG_PATH", config)
+            .output()
+            .unwrap();
+        std::fs::write(directory.join("test.stdout"), &output.stdout).unwrap();
+        std::fs::write(directory.join("test.stderr"), &output.stderr).unwrap();
+        assert!(
+            output.status.success(),
+            "{} / {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let file = std::path::PathBuf::from(std::env::var_os("EARPH_ALSA_TRANSPORT_CAPTURE").unwrap());
+    let mut request = request(PcmRepresentation::Signed24);
+    request.device = "capture".into();
+    let first_epoch = Epochs {
+        session: 2,
+        stream: 1,
+    };
+    let next_epoch = Epochs {
+        session: 2,
+        stream: 2,
+    };
+    let mut output = AlsaOutput::open(request.clone(), first_epoch).unwrap();
+    let first = block(&request, 5, 0, first_epoch);
+    output
+        .write(&first, 0, 5, SignalPermission::Granted)
+        .unwrap();
+    let paused = output.suspend(next_epoch).unwrap();
+    assert_eq!(paused.submitted_frames, 5);
+    assert_eq!(output.submitted_frames(), 0);
+    assert_eq!(output.state(), OutputState::Prepared);
+    assert_eq!(
+        output
+            .write(&first, 0, 5, SignalPermission::Granted)
+            .unwrap_err()
+            .code,
+        ErrorCode::StaleSession
+    );
+    let next = block(&request, 3, 0, next_epoch);
+    output
+        .write(&next, 0, 3, SignalPermission::Granted)
+        .unwrap();
+    assert_eq!(
+        output.finish(SignalPermission::Denied).unwrap_err().code,
+        ErrorCode::SafetyPolicyBlocked
+    );
+    for _ in 0..100 {
+        if output.finish(SignalPermission::Granted).unwrap() == DrainProgress::Complete {
+            break;
+        }
+        output.wait_ready(2).unwrap();
+    }
+    assert_eq!(output.state(), OutputState::Stopped);
+    assert_eq!(
+        output.finish(SignalPermission::Granted).unwrap(),
+        DrainProgress::Complete
+    );
+    let mut expected = vec![0; request.format.payload_bytes(8).unwrap()];
+    let split = first.pack_le(&mut expected).unwrap();
+    next.pack_le(&mut expected[split..]).unwrap();
+    assert_eq!(std::fs::read(file).unwrap(), expected);
+}

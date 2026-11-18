@@ -31,7 +31,7 @@ pub struct OutputContext {
     pub profile_id: ProfileId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "CapsDocument")]
 pub struct VolumePolicy {
     software_cap_db: f64,

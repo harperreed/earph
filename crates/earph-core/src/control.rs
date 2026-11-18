@@ -1,6 +1,10 @@
 // ABOUTME: Defines one versioned command and receipt contract for all controllers.
 // ABOUTME: Rejects unsupported features before the session can accept work.
-use crate::{EngineError, ErrorCode, ids::*};
+use crate::{
+    EngineError, ErrorCode,
+    ids::*,
+    safety::{FidelityPolicy, VolumeMode},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy)]
@@ -22,6 +26,72 @@ impl Default for ControlLimits {
 #[serde(rename_all = "snake_case")]
 pub enum SourceKind {
     Virtual,
+    LocalFile,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputBackend {
+    Alsa,
+    CoreAudio,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputRoute {
+    System,
+    DirectHardware,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutputConfiguration {
+    pub backend: OutputBackend,
+    pub route: OutputRoute,
+    pub endpoint: String,
+    pub device_id: DeviceId,
+    pub profile_id: ProfileId,
+    pub period_frames: u32,
+    pub buffer_frames: u32,
+    pub volume_mode: VolumeMode,
+    pub fidelity: FidelityPolicy,
+}
+impl OutputConfiguration {
+    pub fn validate(&self) -> Result<(), EngineError> {
+        if self.endpoint.is_empty()
+            || self.endpoint.len() > 256
+            || self.endpoint.trim() != self.endpoint
+            || self.endpoint.chars().any(char::is_control)
+        {
+            return Err(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "select one explicit output endpoint",
+            ));
+        }
+        if !(1..=8192).contains(&self.period_frames)
+            || self.buffer_frames < self.period_frames.saturating_mul(2)
+            || self.buffer_frames > 65536
+        {
+            return Err(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "invalid output period or buffer bound",
+            ));
+        }
+        if self.backend == OutputBackend::Alsa
+            && self.route == OutputRoute::DirectHardware
+            && (!self.endpoint.starts_with("hw:") || self.endpoint.len() == 3)
+        {
+            return Err(EngineError::new(
+                ErrorCode::FidelityPolicyConflict,
+                "direct ALSA output requires an explicit hw: endpoint",
+            ));
+        }
+        if self.volume_mode == VolumeMode::Hardware {
+            return Err(EngineError::new(
+                ErrorCode::CapabilityUnsupported,
+                "hardware volume set and readback are not implemented",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,6 +115,28 @@ pub enum Command {
     QueueSelect { id: Option<QueueEntryId> },
     #[serde(rename = "owner.shutdown")]
     OwnerShutdown,
+    #[serde(rename = "output.select")]
+    OutputSelect { output: OutputConfiguration },
+    #[serde(rename = "output.consent")]
+    OutputConsent {
+        device_id: DeviceId,
+        profile_id: ProfileId,
+    },
+    #[serde(rename = "volume.set")]
+    VolumeSet {
+        millidecibels: i32,
+        ramp_frames: u32,
+    },
+    #[serde(rename = "volume.caps.set")]
+    VolumeCaps {
+        software_millidecibels: i32,
+        hardware_millidecibels: Option<i32>,
+    },
+    #[serde(rename = "volume.arm_fixed")]
+    FixedArm {
+        device_id: DeviceId,
+        profile_id: ProfileId,
+    },
     #[serde(rename = "sessions.start")]
     Start {
         source: SourceKind,
@@ -99,6 +191,9 @@ impl CommandEnvelope {
         {
             crate::queue::validate_path(path)?;
         }
+        if let Command::OutputSelect { output } = &self.payload {
+            output.validate()?;
+        }
         Ok(())
     }
 }
@@ -130,7 +225,7 @@ pub enum ReceiptStatus {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum QueryResult {
-    State(crate::session::SessionSnapshot),
+    State(Box<crate::session::SessionSnapshot>),
     Capabilities(Capabilities),
     Queue(crate::queue::QueuePage),
 }

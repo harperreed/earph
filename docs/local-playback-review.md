@@ -41,3 +41,56 @@ Physical playback, hardware mutation, DSP graph continuity, and acoustic safety 
 
 Generated notices retain upstream license text, including seven trailing spaces in the MPL copies.
 Code and handwritten documentation pass whitespace checks.
+
+## Shared output integration review
+
+The maintainer independently reviewed the integration agent's shared reducer, worker, IPC, and ALSA changes.
+The review inspected command admission, consent, gain caps, queue reservations, persistence, cancellation, and native cleanup.
+No blocking defect remained in those files.
+The integrated Linux canonical check passed 192 test results with one explicit hardware gate ignored.
+The four independent executable scenarios passed through real owner and client processes.
+
+The Core Audio adapter received a separate independent ownership and callback review.
+The maintainer also reviewed the later SDK timing and scheduled-handoff changes independently.
+The approved hardware follow-up showed why callback count cannot establish final-buffer completion.
+The SDK clock check remained false at application drain and after two later callbacks.
+It became true when the tracked final buffer crossed the sample and host clock boundary.
+The committed redacted evidence records that boundary without claiming DAC presentation.
+
+The native engine acceptance test first failed before unmute with `CAPABILITY_UNSUPPORTED`.
+The new engine bridge passed independent review and the native owner-and-CLI acceptance.
+The native canonical check passed 180 test results with two hardware tests ignored.
+The explicit engine hardware test then passed separately.
+It submitted 60,000 frames after the seek and preserved unknown physical timing fields.
+It reported float32 client data separately from signed24 physical data in eight-byte stereo frames.
+The generated source and selected settings remained unchanged.
+See [the scoped report](evidence/local-playback/coreaudio-engine-20261118.json).
+
+Fresh review then identified a command-admission gap under worker queue saturation.
+The correction reserves bounded FIFO safety capacity and cancels after failed safety delivery.
+It reports failure instead of leaving a playing snapshot or claiming an unacknowledged stop.
+Three real-channel regressions and the shared-state failure test passed.
+The focused independent review found no remaining admission defect.
+
+The first Linux hardware run exposed the nonblocking drain lifecycle.
+Native I/O readiness polling reported an error during the final drain.
+A zero-valued regression reproduced errno 5 before the correction.
+The first pacing correction still timed out because each drain call reinstalled end silence.
+The final correction starts hardware drain once and observes native completion state.
+Plugins can finish committing buffered input before their slave enters draining.
+The guarded regression also rejects a valid next PCM span after draining begins.
+The successful trace contains one hardware drain call and no later parameter rewrites.
+See the [native drain result](evidence/local-playback/alsa-drain-state-20261118.json) and [trace summary](evidence/local-playback/alsa-drain-trace-20261118.json).
+
+Independent review also caught a diagnostic panic when stderr could not accept writes.
+A real `/dev/full` subprocess reproduced it.
+Best-effort native diagnostics now preserve the original error when writing fails.
+The focused correction review passed.
+The final Linux canonical check passed 198 test results with two hardware gates ignored.
+The separate [owner-and-CLI signal acceptance](evidence/local-playback/alsa-engine-20261118.json) passed after that check.
+It submitted 48,000 frames, reached idle without an error, and preserved source and mixer settings.
+Client consumption estimates do not establish DAC preservation or acoustic safety.
+Final native macOS checks passed 184 test results with two signal tests ignored.
+The final source transfer matched all 1,419 archived input hashes before and after checking.
+Its source digest is `76fec754015fec38d50d17cd6fe18d37feba61023cb1fa85cb401a80a4ed5a53`.
+No further signal or device-setting changes occurred during that check.

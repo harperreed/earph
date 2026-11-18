@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "final_canonical_and_silent_coreaudio_sdk_checks",
+  "command": "scripts/check",
+  "tests_passed": 184,
+  "tests_ignored": 2,
+  "signal_tests_executed": false,
+  "device_settings_changes_requested": false,
+  "snapshot_inputs_verified_before_and_after": 1419,
+  "snapshot_archive_sha256": "aff03410518104430fd17475b19a9f2069112042e1d2bea65fe25d4a0ac15707",
+  "snapshot_file_manifest_sha256": "ed907b9e85120c3fb22a0feac147058f103cbe877f6aa7e94539b8a835b11e0c",
+  "private_log_retained": true,
+  "log_sha256": "d5c4734a4101b0e8f83727f1503ef89e6dfe89aa699d4a73a0685a810f87b7c7",
+  "build": {
+    "commit": "465f566a50f489e7284dc571193011bdbe52a14a",
+    "source_dirty": true,
+    "source_inputs_sha256": "76fec754015fec38d50d17cd6fe18d37feba61023cb1fa85cb401a80a4ed5a53",
+    "dependency_lock_sha256": "4f80ec75b04b0f2a83dc345a245559ed378a1b3c6a77cad4a64c26ae40d5ac1f",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "target": "aarch64-apple-darwin",
+    "profile": "debug"
+  },
+  "sdk_host": {
+    "architecture": "arm64",
+    "macos": "27.2.1",
+    "xcode": "27.2",
+    "xcode_build": "27B52"
+  },
+  "qualification": "Build and silent SDK checks only; this run adds no playback or DAC-preservation claim."
+}

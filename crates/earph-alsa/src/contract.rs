@@ -108,6 +108,7 @@ impl std::error::Error for AlsaError {}
 pub enum OutputState {
     Prepared,
     Running,
+    Draining,
     Stopped,
     Failed,
 }
@@ -123,6 +124,13 @@ pub enum SignalPermission {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WriteProgress {
     Accepted { frames: usize },
+    WouldBlock,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DrainProgress {
+    Complete,
     WouldBlock,
 }
 

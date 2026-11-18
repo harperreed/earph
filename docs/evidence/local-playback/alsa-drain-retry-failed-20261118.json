@@ -1,0 +1,19 @@
+{
+  "build": {
+    "commit": "465f566a50f489e7284dc571193011bdbe52a14a",
+    "dependency_lock_sha256": "4f80ec75b04b0f2a83dc345a245559ed378a1b3c6a77cad4a64c26ae40d5ac1f",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "9eb2ddb3a30bf04a115b42fcbef20a032c003e466176773aea3154a37a20c131",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "error": "zero-valued hardware drain exceeded its deadline",
+  "fallback_attempted": false,
+  "mixer_changes_requested": false,
+  "outcome": null,
+  "schema_version": 1,
+  "scope": "zero_valued_pcm_nonblocking_hardware_drain",
+  "status": "fail"
+}

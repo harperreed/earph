@@ -1,6 +1,6 @@
 # Implemented state machines
 
-Scope: the Rust core, offline harness, ALSA adapter, CLIs, build metadata, and qualification artifacts.
+Scope: the Rust core, local owner, media decoder, native outputs, CLIs, harness, and evidence artifacts.
 This inventory includes explicit enums and lifecycles previously encoded by flags, optional fields, counters, or file existence.
 Third-party internals and unimplemented product features are outside this inventory.
 
@@ -25,16 +25,21 @@ The later T05 spike adds a native adapter with its own explicit lifecycle.
 | Source ownership and generations | `Session` owns source/session IDs and [`Epochs`](../crates/earph-core/src/ids.rs). Start/takeover advances session; seek/reconfiguration advances stream. | Keep checked counters and exact target checks. Output may install only newer epochs. |
 | Asynchronous operations | `SessionSnapshot.operation` identifies pending work. [`ReceiptStatus`](../crates/earph-core/src/control.rs) separates acceptance from terminal outcomes. | Cancel superseded work after committing the replacement revision and epochs. |
 | Request retention | `Session::submit` retains 1024 command/receipt pairs. Same ID/content returns its receipt; changed content rejects; eviction ends deduplication. | Keep bounded history. Reconcile uncertain outcomes before retrying. |
-| Mute and gain intent | `Session` owns mute independently of transport. Startup, handoff, output faults, and reconfiguration mute. | Keep the boolean. Software gain is intent here; physical gain control is unimplemented. |
+| Mute and gain intent | `Session` owns mute, gain caps, output consent, and fixed-output arming. | The worker applies admitted software gain. Hardware gain control remains unsupported. Restore caps without consent or arming. |
 | Event subscription | `Session::events_since` projects bounded events against a cursor. Old or future cursors receive a gap and snapshot. | Keep sequence-based recovery. Position progress changes event sequence, not mutation revision. |
 | PCM storage | [`PcmBlock`](../crates/earph-core/src/audio.rs) owns typed storage and a checked valid frame span. Reuse changes the span. | Keep checked constructors and valid-prefix serialization. Never serialize unused capacity. |
 | Fixture production | [`FixtureSource`](../crates/earph-harness/src/fixture.rs) owns frame position, sequence, and PRNG state. Remaining frames eventually become EOF. | Keep bounded cursors. A zero read ends consumption; the previous block is not fresh audio. |
 | Presentation clock | [`VirtualClock`](../crates/earph-harness/src/virtual_output.rs) moves from an unset rate to one fixed running rate. | Keep `Option` and checked arithmetic. Derive time from total consumed frames. |
 | Virtual output | `VirtualOutput` owns format, epochs, capacity, cursor, and terminal failure. Writes advance only accepted frames. | Keep the failure boolean. Newer epochs invalidate old packets without reviving failed output. |
-| ALSA output | [`AlsaOutput`](../crates/earph-alsa/src/output.rs) owns `Prepared -> Running -> Stopped/Failed`, one native handle, epochs, and accepted positions. | Require explicit signal permission. Return short counts and `would_block` without advancing unaccepted frames. Stop and close on fatal native errors; reopen explicitly. |
+| ALSA output | [`AlsaOutput`](../crates/earph-alsa/src/output.rs) owns `Prepared -> Running -> Draining -> Stopped/Failed`, one handle, epochs, and accepted positions. | Start hardware drain once. Observe native completion without resetting end padding. Reject further writes while draining. Stop and close on fatal errors. |
 | ALSA capability evidence | Discovery yields advertised hints; opening yields installed client parameters; approved exercises yield client estimates. | Keep plugin byte measurements separate from hardware proof. Never infer downstream transformations on system routes. |
 | Core Audio registration | [`SilentRegistration`](../crates/earph-coreaudio/src/native.rs) owns `Registered -> Closed/Failed`, one IOProc ID, and one callback context. | Never start the registration. Destroy its own ID before releasing context. Keep failed destruction terminal and retain context until process exit. |
 | Core Audio precision assessment | [`assess`](../crates/earph-coreaudio/src/contract.rs) compares an explicit UID and request against raw physical and virtual descriptors. | Keep observed settings separate from opening, ownership acquisition, and measurement. A format conflict changes no device state. |
+| Core Audio playback | [`CoreAudioOutput`](../crates/earph-coreaudio/src/playback.rs) owns prepared, running, paused, stopped, failed, and closed states. | Prebuffer before explicit start. Keep callback delivery separate from audible position. Retain uncertain native contexts until process exit. |
+| Native EOF handoff | The Core Audio adapter tracks the current generation's last payload-bearing buffer. | Require consistent SDK sample and host clocks before natural completion. Empty rings and callback counts do not prove completion. |
+| Local playback worker | [`Playback`](../crates/earph-engine/src/worker.rs) owns decoders, prepared gain, pending spans, and one native output. | Apply commands through the session actor. Pause, seek, and stop settle after worker acknowledgement. Faults mute and revoke consent. |
+| Live queue reservation | [`PlanView`](../crates/earph-engine/src/plan.rs) observes the active entry and one reserved next entry. | Protect those entries. Recheck reservations after durable staging. Roll back rejected edits before reporting failure. |
+| Native observation | The worker projects typed backend observations into the session snapshot. | Separate source, client, and physical formats. Preserve unknown consumed position and delay as null. |
 | Prepared execution | [`PreparedRender`](../crates/earph-harness/src/render.rs) owns `Prepared -> Running -> Completed(Result)`. | Replace the consumed flag. Finalization reads the actual terminal result; callers cannot supply success. |
 | Block submission and faults | `PreparedRender` owns the decoded block, accepted offset, write limit, and ordered fault cursor. | Keep bounded cursors. Finish each partial write before reading another block; apply each scheduled fault once. |
 | Artifact publication | [`persist_render` and `dependency-lock`](../crates/earph-harness/src/main.rs), fixture generation, and [`atomic_json`](../crates/earph-harness/src/lib.rs) own partial and completed file writes. | Commit final render reports after capture and hash. Preserve partial files. Dependency inventory and notices remain sequential updates requiring inspection on failure. |
@@ -155,8 +160,12 @@ The allocator test still checks prepared execution without allocations or frees.
 
 The public snapshot does not expose listening intent separately during buffering.
 These fixes preserve its existing schema; a future GUI/control contract can add explicit intent through its versioning rules.
-The [T05 spike](alsa-spike.md) implements Linux output with plugin measurements and silent host opening.
-Physical playback remains unqualified.
-Crash-restored operational state, graphs, profiles, network roles, FFI clients, and GUIs remain unimplemented or unqualified.
+The [T05 spike](alsa-spike.md) established Linux plugin measurements and silent host opening.
+The [local playback review](local-playback-review.md) records later owner, decoding, and output integration checks.
+Core Audio adapter lifecycle, SDK handoff, and scoped owner-and-CLI playback passed hardware acceptance.
+The final Linux owner-and-CLI hardware run also passed after the explicit drain correction.
+Those observations do not establish DAC preservation, acoustic safety, or full release qualification.
+Crash-restored queues now recover paused and muted without opening an output.
+Graphs, profiles, network roles, FFI clients, and GUIs remain unimplemented or unqualified.
 This task does not qualify power-loss durability beyond completed writes and atomic JSON publication.
 Their proposed lifecycles remain in [the product specification](SPEC.md).

@@ -2,12 +2,17 @@
 // ABOUTME: Persists validated queue state before publishing command success.
 #![forbid(unsafe_code)]
 mod directory;
+mod host;
+mod ipc;
+mod output;
+mod plan;
 mod runtime;
 mod transport;
+mod worker;
 
 use earph_core::{
     EngineError, ErrorCode,
-    control::{ControlLimits, decode_command},
+    control::ControlLimits,
     ids::{OwnerId, ZoneId},
     session::{Session, SessionCheckpoint},
 };
@@ -81,14 +86,17 @@ impl EngineOwner {
             .map_err(|_| runtime::IO)?;
         let zone = ZoneId::new("main")?;
         let owner = OwnerId::new(token.clone())?;
-        let session = match runtime::read(&runtime.join("queue.json"), 2 * transport::MAX_BYTES)? {
-            Some(bytes) => {
-                let checkpoint: SessionCheckpoint =
-                    serde_json::from_slice(&bytes).map_err(|_| INVALID)?;
-                Session::restore_owner(zone, owner, ControlLimits::default(), checkpoint)?
-            }
-            None => Session::new_owner(zone, owner, ControlLimits::default()),
-        };
+        let mut session =
+            match runtime::read(&runtime.join("queue.json"), 2 * transport::MAX_BYTES)? {
+                Some(bytes) => {
+                    let checkpoint: SessionCheckpoint =
+                        serde_json::from_slice(&bytes).map_err(|_| INVALID)?;
+                    Session::restore_owner(zone, owner, ControlLimits::default(), checkpoint)?
+                }
+                None => Session::new_owner(zone, owner, ControlLimits::default()),
+            };
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        session.enable_local_playback();
         let endpoint = serde_json::to_vec(&Endpoint {
             schema_version: 1,
             socket,
@@ -104,52 +112,16 @@ impl EngineOwner {
         })
     }
 
-    pub fn serve(mut self) -> Result<(), EngineError> {
-        loop {
-            let (mut stream, _) = match self.listener.accept() {
-                Ok(connection) => connection,
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(_) => return Err(UNAVAILABLE),
-            };
-            let mut persistence_error = None;
-            let reply = match transport::read_frame(&mut stream)
-                .and_then(|bytes| decode_command(&bytes, &ControlLimits::default()))
-            {
-                Ok(command) => {
-                    let runtime = &self.runtime;
-                    let token = &self.token;
-                    let receipt = self.session.submit_with_queue_expansion(
-                        command,
-                        directory::paths,
-                        |staged| {
-                            let bytes =
-                                serde_json::to_vec(&staged.checkpoint()).map_err(|_| INVALID)?;
-                            let result = runtime::write_atomic(
-                                runtime,
-                                "queue.json",
-                                &format!("{token}-{}", staged.snapshot().revision),
-                                &bytes,
-                            );
-                            if let Err(error) = result {
-                                persistence_error = Some(error);
-                            }
-                            result
-                        },
-                    );
-                    serde_json::to_vec(&serde_json::json!({ "receipt": receipt }))
-                }
-                Err(error) => serde_json::to_vec(&serde_json::json!({ "error": error })),
-            }
-            .map_err(|_| INVALID)?;
-            // A disconnected controller cannot undo a committed operation.
-            let _ = transport::write_frame(&mut stream, &reply);
-            if let Some(error) = persistence_error {
-                return Err(error);
-            }
-            if self.session.shutdown_requested() {
-                return Ok(());
-            }
-        }
+    pub fn serve(self) -> Result<(), EngineError> {
+        let Self {
+            _lock,
+            listener,
+            runtime,
+            token,
+            session,
+        } = self;
+        let _owner_lock = _lock;
+        host::serve(session, listener, runtime, token)
     }
 }
 

@@ -128,7 +128,11 @@ dependencies = [
 name = "earph-engine"
 version = "0.1.0"
 dependencies = [
+ "earph-alsa",
  "earph-core",
+ "earph-coreaudio",
+ "earph-harness",
+ "earph-media",
  "rustix",
  "serde",
  "serde_json",

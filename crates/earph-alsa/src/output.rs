@@ -201,4 +201,85 @@ impl AlsaOutput {
         self.pcm.take();
         result
     }
+    /// Drops pending frames and reprepares the same endpoint for an explicit new epoch.
+    pub fn suspend(&mut self, epochs: Epochs) -> Result<OutputProgress, AlsaError> {
+        let progress = self.progress()?;
+        let result = self
+            .pcm
+            .as_ref()
+            .ok_or(AlsaError::new(ErrorCode::OutputFault, "output is not open"))
+            .and_then(|pcm| {
+                pcm.stop()?;
+                pcm.prepare()
+            });
+        if let Err(error) = result {
+            self.fail();
+            return Err(error);
+        }
+        self.epochs = epochs;
+        self.state = OutputState::Prepared;
+        self.submitted_frames = 0;
+        self.next_position = None;
+        Ok(progress)
+    }
+    pub fn finish(&mut self, permission: SignalPermission) -> Result<DrainProgress, AlsaError> {
+        if permission != SignalPermission::Granted {
+            return Err(AlsaError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "draining requires current signal approval",
+            ));
+        }
+        if self.state == OutputState::Stopped {
+            return Ok(DrainProgress::Complete);
+        }
+        let result = self
+            .pcm
+            .as_ref()
+            .ok_or(AlsaError::new(ErrorCode::OutputFault, "output is not open"))
+            .and_then(|pcm| {
+                if self.state == OutputState::Draining {
+                    pcm.drain_progress()
+                } else {
+                    pcm.drain()
+                }
+            });
+        match result {
+            Ok(DrainProgress::Complete) => {
+                self.state = OutputState::Stopped;
+                self.pcm.take();
+                Ok(DrainProgress::Complete)
+            }
+            Ok(progress) => {
+                self.state = OutputState::Draining;
+                Ok(progress)
+            }
+            Err(error) => {
+                self.fail();
+                Err(error)
+            }
+        }
+    }
+    pub fn wait_ready(&mut self, timeout_ms: u32) -> Result<bool, AlsaError> {
+        if timeout_ms == 0 || timeout_ms > 20 {
+            return Err(AlsaError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "ALSA wait must be bounded to 1..20 milliseconds",
+            ));
+        }
+        if self.state == OutputState::Draining {
+            // Completed hardware drain can wake poll with POLLERR in the valid SETUP state.
+            // Observe completion without restarting the hardware drain and its silence padding.
+            std::thread::sleep(std::time::Duration::from_millis(u64::from(timeout_ms)));
+            return Ok(false);
+        }
+        let result = self
+            .pcm
+            .as_ref()
+            .ok_or(AlsaError::new(ErrorCode::OutputFault, "output is not open"))
+            .and_then(|pcm| pcm.wait_ready(timeout_ms));
+        if result.is_err() {
+            self.fail();
+        }
+        result
+    }
 }

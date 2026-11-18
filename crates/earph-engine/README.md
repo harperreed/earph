@@ -2,8 +2,10 @@
 
 The owner controls one private runtime directory.
 It owns the shared `Session`, queue, revisions, receipts, and operational checkpoint.
-It currently exposes control and queue operations without opening audio outputs.
-Its capabilities report no playable sources and no physical output.
+It exposes local playback through the host's available native adapter.
+Output selection grants no signal permission and does not open a device.
+See [playback integration](PLAYBACK.md) for consent, gain, transport, and live queue rules.
+Adapter availability does not establish physical-route qualification or DAC preservation.
 
 Run the owner in the foreground:
 
@@ -45,6 +47,9 @@ Queue commands do not require an active playback session.
 The current queue methods are `queue.get`, `queue.append`, `queue.append_directory`, `queue.remove`, `queue.reorder`, and `queue.select`.
 Use `owner.shutdown` for an orderly stop.
 These commands use the same core definitions as embedded controllers.
+Output methods are `output.select` and `output.consent`.
+Volume methods are `volume.set`, `volume.caps.set`, and `volume.arm_fixed`.
+Local playback uses the existing `sessions.start`, pause, resume, seek, stop, and mute methods.
 
 `queue.get` requires `offset` and `limit`.
 The limit must be between 1 and 64.
@@ -69,7 +74,8 @@ A frame starts with a four-byte unsigned big-endian byte count.
 The payload contains UTF-8 JSON and cannot exceed 1 MiB.
 Connect, frame read, and frame write each have a one-second deadline.
 Trickling bytes cannot extend a frame deadline.
-The owner processes connections serially on its control thread.
+The owner parses connections serially on a separate bounded IPC thread.
+Playback and control observations continue while a client frame is incomplete.
 It never listens on a TCP interface.
 
 The directory restricts access to its user.
@@ -84,10 +90,11 @@ It preserves previous socket nodes and abandoned temporary files.
 It does not remove files during startup or shutdown.
 Repeated crashes can leave artifacts that need a separately authorized cleanup.
 
-A versioned `queue.json` checkpoint contains queue identities, paths, selection, counter, and revision.
+A versioned `queue.json` checkpoint contains queue identities, paths, selection, counter, revision, output selection, and independent volume caps.
 The file cannot exceed 2 MiB.
 Restoration validates the schema, paths, capacity, identities, counter, and selection.
-It resets preparation results and restores paused, muted state without a source or output.
+It resets preparation results and restores paused, muted state without opening a source or output.
+Restoration drops signal consent and fixed-output arming.
 A malformed checkpoint stops startup and remains available for inspection.
 
 Mutations stage a copy of the authoritative session.
@@ -102,10 +109,11 @@ Use a fresh request ID for each fresh read.
 Reusing an ID replays its retained reply, including query results.
 This window does not survive owner restart.
 Each restart exposes a fresh owner ID and rejects prior-owner mutations.
-The persisted revision also remains monotonic.
+Compare revisions only within the owner ID that produced them.
+After a crash, transient event revisions may be newer than the last durable checkpoint.
 Clients reconcile an uncertain result through fresh state and queue queries.
 The service does not promise durable exactly-once execution across crashes.
 
 The automated tests exercise Linux and native macOS IPC and executable crash recovery.
 Framed reads drain buffered replies even after the sending owner closes its connection.
-Physical playback and device safety are separate integration work.
+Physical-route qualification remains separate from generated file-to-null acceptance.

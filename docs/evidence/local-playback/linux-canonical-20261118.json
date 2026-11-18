@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "final_canonical_local_playback",
+  "command": "scripts/check",
+  "tests_passed": 198,
+  "tests_ignored": 2,
+  "physical_signal_tests_executed": false,
+  "private_log_retained": true,
+  "log_sha256": "7553f0df0b7f22b6973b26e7cb9ea274f2b9d8cc3023f1319ec0bd94553c2fd2",
+  "build": {
+    "commit": "465f566a50f489e7284dc571193011bdbe52a14a",
+    "dependency_lock_sha256": "4f80ec75b04b0f2a83dc345a245559ed378a1b3c6a77cad4a64c26ae40d5ac1f",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "76fec754015fec38d50d17cd6fe18d37feba61023cb1fa85cb401a80a4ed5a53",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "qualification": "Canonical checks and generated executable fixtures; physical acceptance remains separately scoped."
+}

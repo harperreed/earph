@@ -1,7 +1,8 @@
 // ABOUTME: Owns ALSA pointers and checks every native result at the boundary.
 // ABOUTME: Rejects plugin substitution and closes streams without draining on shutdown.
 use crate::{
-    AlsaError, DeviceHint, DeviceIdentity, ObservedFormat, OpenRequest, Route, WriteProgress,
+    AlsaError, DeviceHint, DeviceIdentity, DrainProgress, ObservedFormat, OpenRequest, Route,
+    WriteProgress,
 };
 use alsa_sys as sys;
 use earph_core::{
@@ -378,6 +379,50 @@ impl Pcm {
             ErrorCode::OutputFault,
             "ALSA could not stop the selected stream",
         )
+    }
+    pub(crate) fn prepare(&self) -> Result<(), AlsaError> {
+        // SAFETY: This owner holds the live stream after dropping queued frames.
+        check(
+            unsafe { sys::snd_pcm_prepare(self.pointer) },
+            ErrorCode::OutputFault,
+            "ALSA could not reprepare the selected stream",
+        )
+    }
+    pub(crate) fn drain(&self) -> Result<DrainProgress, AlsaError> {
+        // SAFETY: The stream was opened nonblocking and remains owned on this thread.
+        let result = unsafe { sys::snd_pcm_drain(self.pointer) };
+        if result == -libc::EAGAIN {
+            return Ok(DrainProgress::WouldBlock);
+        }
+        check(
+            result,
+            ErrorCode::OutputFault,
+            "ALSA drain failed without recovery or fallback",
+        )?;
+        Ok(DrainProgress::Complete)
+    }
+    pub(crate) fn drain_progress(&self) -> Result<DrainProgress, AlsaError> {
+        // SAFETY: This thread owns the configured stream throughout the drain transaction.
+        match unsafe { sys::snd_pcm_state(self.pointer) } {
+            sys::SND_PCM_STATE_SETUP => Ok(DrainProgress::Complete),
+            sys::SND_PCM_STATE_DRAINING => Ok(DrainProgress::WouldBlock),
+            // Some plugins still need to commit buffered frames before starting their slave's drain.
+            sys::SND_PCM_STATE_RUNNING | sys::SND_PCM_STATE_PREPARED => self.drain(),
+            _ => Err(AlsaError::new(
+                ErrorCode::OutputFault,
+                "ALSA stream left its valid drain states; output stopped",
+            )),
+        }
+    }
+    pub(crate) fn wait_ready(&self, timeout_ms: u32) -> Result<bool, AlsaError> {
+        // SAFETY: The caller validates this bounded timeout; the stream remains live.
+        let result = unsafe { sys::snd_pcm_wait(self.pointer, timeout_ms as i32) };
+        check(
+            result,
+            ErrorCode::OutputFault,
+            "ALSA wait failed without recovery or fallback",
+        )?;
+        Ok(result > 0)
     }
 }
 impl Drop for Pcm {

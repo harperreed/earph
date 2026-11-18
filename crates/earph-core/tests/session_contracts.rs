@@ -90,7 +90,7 @@ fn output_position_pause_seek_and_drain_follow_real_consumption() {
         },
     );
     event(&mut s, EngineEventKind::Consumed { frames: 7 });
-    assert_eq!(s.snapshot().audible_position_frames, 7);
+    assert_eq!(s.snapshot().audible_position_frames, Some(7));
     assert_eq!(
         s.submit(command(&s, "pause", Command::Pause)).status,
         ReceiptStatus::Applied
@@ -116,7 +116,7 @@ fn output_position_pause_seek_and_drain_follow_real_consumption() {
         ReceiptStatus::Accepted
     );
     assert_ne!(s.snapshot().epochs, old);
-    assert_eq!(s.snapshot().audible_position_frames, 40);
+    assert_eq!(s.snapshot().audible_position_frames, Some(40));
     assert_eq!(
         s.advance(EngineEvent {
             epochs: old,
@@ -270,7 +270,7 @@ fn stale_session_cannot_unmute_and_queries_return_actual_state() {
     );
     assert!(s.snapshot().muted);
     let state = s.submit(command(&s, "state", Command::State));
-    assert!(matches!(state.result,Some(QueryResult::State(snapshot)) if snapshot==s.snapshot()));
+    assert!(matches!(state.result,Some(QueryResult::State(snapshot)) if *snapshot==s.snapshot()));
     let capabilities = s.submit(command(&s, "caps", Command::Capabilities));
     assert!(
         matches!(capabilities.result,Some(QueryResult::Capabilities(caps)) if !caps.physical_output && caps.sources==vec![SourceKind::Virtual])
@@ -303,7 +303,7 @@ fn repeated_seeks_preserve_paused_intent_until_activation() {
         },
     );
     assert_eq!(s.snapshot().transport, TransportState::Paused);
-    assert_eq!(s.snapshot().audible_position_frames, 20);
+    assert_eq!(s.snapshot().audible_position_frames, Some(20));
 }
 
 #[test]

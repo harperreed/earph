@@ -511,6 +511,8 @@ fn maximum_escaped_queue_restores_and_returns_bounded_pages() {
         queue.append("\u{1}".repeat(1024)).unwrap();
     }
     let checkpoint = earph_core::session::SessionCheckpoint {
+        volume_policy: Default::default(),
+        output: None,
         schema_version: 1,
         revision: 0,
         queue: queue.snapshot(),
