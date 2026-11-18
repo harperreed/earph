@@ -142,6 +142,14 @@ Move graph digest validation into retained semantic admission if the reported pa
 Clarify that Mac submitted frames measure producer-ring writes, with consumption still unknown.
 Earlier native receipts remain bound to their original source snapshots.
 
+The retained digest rejection now passes Core integration and real owner/CLI checks.
+Both regressions fail on the prior wire-admission path.
+The root canonical check passes 379 tests, with two ignored.
+Independent caller review approves the digest and evidence-wording changes.
+Mac receipt wording now identifies producer-ring writes and derives the tail from graph delay.
+Core Audio acceptance and consumption remain unqualified.
+The parallel state owner is fixing pending transport identity and activation queue readiness.
+
 ## Continuity
 
 PR: https://github.com/harperreed/earph/pull/2

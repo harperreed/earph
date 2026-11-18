@@ -201,6 +201,14 @@ pub struct CommandEnvelope {
 impl CommandEnvelope {
     pub fn validate(&self) -> Result<(), EngineError> {
         self.validate_storage()?;
+        if let Command::GraphCommit { graph_hash, .. } = &self.payload
+            && !valid_graph_hash(graph_hash)
+        {
+            return Err(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "invalid graph resolution hash",
+            ));
+        }
         if let Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } =
             &self.payload
         {
@@ -228,14 +236,6 @@ impl CommandEnvelope {
             &self.payload
         {
             graph.validate_storage()?;
-        }
-        if let Command::GraphCommit { graph_hash, .. } = &self.payload
-            && !valid_graph_hash(graph_hash)
-        {
-            return Err(EngineError::new(
-                ErrorCode::AssetInvalid,
-                "invalid graph resolution hash",
-            ));
         }
         Ok(())
     }

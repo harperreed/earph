@@ -3,6 +3,42 @@
 use earph_core::{control::*, ids::*, session::Session};
 
 #[test]
+fn bounded_invalid_graph_digests_retain_their_request_identity() {
+    for hash in [
+        String::new(),
+        "a".repeat(63),
+        "g".repeat(64),
+        "a".repeat(65),
+    ] {
+        let frame = serde_json::json!({
+            "schema_version":1,"request_id":"digest","zone_id":"main",
+            "owner_id":null,"session_id":null,"expected_revision":0,
+            "payload":{"method":"graph.commit","token":"candidate","graph_hash":hash}
+        });
+        let mut command = decode_command(
+            &serde_json::to_vec(&frame).unwrap(),
+            &ControlLimits::default(),
+        )
+        .unwrap();
+        let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());
+        let receipt = session.submit(command.clone());
+        assert_eq!(receipt.status, ReceiptStatus::Rejected);
+        assert_eq!(
+            receipt.error.unwrap().code,
+            earph_core::ErrorCode::AssetInvalid
+        );
+        assert_eq!(session.submit(command.clone()).error, receipt.error);
+        command.payload = Command::State;
+        let reused = session.submit(command);
+        assert_eq!(reused.status, ReceiptStatus::Rejected);
+        assert_eq!(
+            reused.error.unwrap().message,
+            "request ID reused for different content"
+        );
+    }
+}
+
+#[test]
 fn bounded_semantic_rejection_reaches_retained_owner_history() {
     let frame = br#"{"schema_version":1,"request_id":"semantic","zone_id":"main","owner_id":null,"session_id":null,"expected_revision":0,"payload":{"method":"graph.prepare","graph":{"schema_version":1,"nodes":[{"id":"matrix","kind":{"kind":"matrix","input_channels":"stereo","coefficients":[1,0,1]},"format":{"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":64}}],"edges":[],"output":"matrix"},"processing":{"kind":"integer_bypass"}}}"#;
     let mut command = decode_command(frame, &ControlLimits::default()).unwrap();

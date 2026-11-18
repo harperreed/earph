@@ -28,6 +28,8 @@
     "linux_submitted_frames": 48007,
     "mac_final_source_frames": 24000,
     "mac_submitted_frames": 24003,
+    "mac_submitted_frames_basis": "producer-ring writes; Core Audio acceptance and consumption remain unqualified",
+    "mac_tail_frames_derived_from_graph_delay": 3,
     "final_signal_attempts_per_platform": 1,
     "saturation_count_per_platform": 0,
     "mac_raw_artifacts_verified": 67,

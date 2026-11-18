@@ -336,6 +336,33 @@ fn prepare_graph(controller: &Controller, graph: Value) -> (Value, Value) {
 }
 
 #[test]
+fn executable_retains_invalid_graph_digests_over_ipc() {
+    let directory = directory();
+    let (config, _) = configuration(&directory);
+    let host = Host::start(&config);
+    let controller = &host.controller;
+    let mut request = controller.document(
+        json!({"method":"graph.commit","token":"candidate","graph_hash":"invalid"}),
+        None,
+    );
+    let rejected = controller.send(&request);
+    assert_eq!(rejected["receipt"]["status"], "rejected", "{rejected}");
+    assert_eq!(
+        rejected["receipt"]["error"]["code"], "ASSET_INVALID",
+        "{rejected}"
+    );
+    assert_eq!(controller.send(&request), rejected);
+    request["payload"] = json!({"method":"state.get"});
+    let reused = controller.send(&request);
+    assert_eq!(reused["receipt"]["status"], "rejected", "{reused}");
+    assert_eq!(
+        reused["receipt"]["error"]["message"], "request ID reused for different content",
+        "{reused}"
+    );
+    controller.apply(json!({"method":"owner.shutdown"}));
+}
+
+#[test]
 fn executable_retains_bounded_semantic_rejections_over_ipc() {
     let directory = directory();
     let (config, _) = configuration(&directory);
