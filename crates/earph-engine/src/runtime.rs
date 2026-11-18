@@ -133,9 +133,12 @@ fn read_checkpoint_with_sync(
             if previous.len() > MAX_CHECKPOINT_BYTES {
                 return Err(INVALID);
             }
-            if read(&directory.join("queue.json"), MAX_CHECKPOINT_BYTES)?.as_deref()
-                == Some(previous.as_bytes())
-            {
+            let current = match read(&directory.join("queue.json"), MAX_CHECKPOINT_BYTES) {
+                Ok(bytes) => bytes,
+                Err(error) if error.code == ErrorCode::ResourceBudgetExceeded => None,
+                Err(error) => return Err(error),
+            };
+            if current.as_deref() == Some(previous.as_bytes()) {
                 return Ok(Some(previous.into_bytes()));
             }
             replace_atomic(
@@ -564,5 +567,55 @@ mod tests {
                 .unwrap(),
             record
         );
+    }
+    #[test]
+    fn private_oversized_candidate_cannot_block_a_valid_pending_baseline() {
+        let path = fixture();
+        let record = encode_record(&RecoveryRecord::Pending {
+            schema_version: 1,
+            previous: Some("baseline".into()),
+        })
+        .unwrap();
+        write_atomic(&path, RECOVERY_FILE, "pending", &record).unwrap();
+        write_atomic(
+            &path,
+            "queue.json",
+            "oversized",
+            &vec![b'x'; MAX_CHECKPOINT_BYTES + 1],
+        )
+        .unwrap();
+        assert_eq!(
+            read_checkpoint(&path, "restart").unwrap().unwrap(),
+            b"baseline"
+        );
+        assert_eq!(fs::read(path.join("queue.json")).unwrap(), b"baseline");
+    }
+    #[test]
+    fn oversized_candidate_with_unsafe_permissions_still_refuses_recovery() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = fixture();
+        let record = encode_record(&RecoveryRecord::Pending {
+            schema_version: 1,
+            previous: Some("baseline".into()),
+        })
+        .unwrap();
+        write_atomic(&path, RECOVERY_FILE, "pending", &record).unwrap();
+        write_atomic(
+            &path,
+            "queue.json",
+            "oversized",
+            &vec![b'x'; MAX_CHECKPOINT_BYTES + 1],
+        )
+        .unwrap();
+        fs::set_permissions(path.join("queue.json"), fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            read_checkpoint(&path, "restart").unwrap_err().code,
+            ErrorCode::AuthDenied
+        );
+        assert_eq!(
+            fs::metadata(path.join("queue.json")).unwrap().len(),
+            (MAX_CHECKPOINT_BYTES + 1) as u64
+        );
+        assert_eq!(fs::read(path.join(RECOVERY_FILE)).unwrap(), record);
     }
 }

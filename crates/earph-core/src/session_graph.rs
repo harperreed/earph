@@ -39,7 +39,7 @@ pub(super) struct GraphControl {
     activation: Option<Activation>,
     serial: u64,
     terminal: Option<Record>,
-    recovery_required: bool,
+    pub(super) recovery_required: bool,
     service: GraphServiceObservation,
 }
 impl Session {
@@ -942,6 +942,7 @@ mod tests {
         observation.source_position_frames = 1000;
         observation.submitted_frames = 1000;
         let epochs = s.state.epochs;
+        let cursor = s.state.event_sequence;
         s.advance(EngineEvent {
             epochs,
             monotonic_ns: 22,
@@ -956,6 +957,9 @@ mod tests {
         assert!(!s.graph_inspection().recovery_required);
         assert_eq!(s.state.playback.as_ref(), Some(&observation));
         assert_eq!(s.state.error, None);
+        let events = s.events_since(cursor).events;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].request_id.as_ref(), Some(&c.request_id));
         let receipt = s.submit_graph(c, 23);
         assert_eq!(receipt.status, ReceiptStatus::Failed);
         assert_eq!(
@@ -1041,6 +1045,137 @@ mod tests {
         }
     }
     #[test]
+    fn source_completion_correlates_graph_and_transport_without_wrapping_events() {
+        for last_slot in [false, true] {
+            let mut s = fixture();
+            let resume = command(&s, "resume-before-graph", Command::Resume);
+            assert_eq!(
+                s.submit_graph(resume.clone(), 1).status,
+                ReceiptStatus::Accepted
+            );
+            let p = ready(&mut s, "prepare-during-resume", 1.0);
+            if last_slot {
+                s.state.event_sequence = u64::MAX - 2;
+            }
+            let c = commit(&s, "graph-during-resume", &p);
+            assert_eq!(
+                s.submit_graph(c.clone(), 21).status,
+                ReceiptStatus::Accepted
+            );
+            let cursor = s.state.event_sequence;
+            s.advance(EngineEvent {
+                epochs: s.state.epochs,
+                monotonic_ns: 22,
+                kind: EngineEventKind::LocalCompleted {
+                    observation: s.state.playback.clone().unwrap(),
+                },
+            })
+            .unwrap();
+            let events = s.events_since(cursor).events;
+            assert_eq!(events[0].request_id.as_ref(), Some(&c.request_id));
+            assert_eq!(events.len(), if last_slot { 1 } else { 2 });
+            if !last_slot {
+                assert_eq!(events[1].request_id.as_ref(), Some(&resume.request_id));
+                assert_eq!(events[1].sequence, events[0].sequence + 1);
+            } else {
+                assert!(s.shutdown_requested());
+            }
+            assert_eq!(s.submit_graph(c, 23).status, ReceiptStatus::Failed);
+            assert_eq!(s.submit_graph(resume, 24).status, ReceiptStatus::Applied);
+            assert!(s.state.muted && s.state.output_consented);
+        }
+    }
+    #[test]
+    fn source_terminal_facts_retire_when_the_last_counter_is_consumed() {
+        for terminal in ["complete", "failure", "stopped"] {
+            let counters: &[&str] = if terminal == "stopped" {
+                &["revision", "events"]
+            } else {
+                &["revision", "events", "stream"]
+            };
+            for &counter in counters {
+                let mut s = fixture();
+                match counter {
+                    "revision" => s.state.revision = u64::MAX - 1,
+                    "events" => s.state.event_sequence = u64::MAX - 1,
+                    "stream" => s.state.epochs.stream = u64::MAX - 1,
+                    _ => unreachable!(),
+                }
+                let observation = s.state.playback.clone().unwrap();
+                let kind = match terminal {
+                    "complete" => EngineEventKind::LocalCompleted { observation },
+                    "failure" => EngineEventKind::LocalFailed {
+                        code: ErrorCode::OutputFault,
+                    },
+                    "stopped" => EngineEventKind::LocalStopped {
+                        observation: Some(observation),
+                    },
+                    _ => unreachable!(),
+                };
+                s.advance(EngineEvent {
+                    epochs: s.state.epochs,
+                    monotonic_ns: 1,
+                    kind,
+                })
+                .unwrap();
+                assert!(s.shutdown_requested(), "{terminal}/{counter}");
+                assert!(s.state.muted, "{terminal}/{counter}");
+                assert_eq!(s.state.output_consented, terminal != "failure");
+            }
+        }
+    }
+    #[test]
+    fn failed_source_settles_activation_with_recovery_and_request_correlation() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare-before-fault", 1.0);
+        let c = commit(&s, "commit-before-fault", &p);
+        assert_eq!(
+            s.submit_graph(c.clone(), 21).status,
+            ReceiptStatus::Accepted
+        );
+        let cursor = s.state.event_sequence;
+        s.advance(EngineEvent {
+            epochs: s.state.epochs,
+            monotonic_ns: 22,
+            kind: EngineEventKind::LocalFailed {
+                code: ErrorCode::OutputFault,
+            },
+        })
+        .unwrap();
+        assert!(s.graph_inspection().recovery_required);
+        assert!(s.state.muted && !s.state.output_consented);
+        assert!(s.graph_activation().is_none());
+        let events = s.events_since(cursor).events;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].request_id.as_ref(), Some(&c.request_id));
+        assert_eq!(s.submit_graph(c, 23).status, ReceiptStatus::Failed);
+    }
+    #[test]
+    fn failed_source_closes_even_when_counters_cannot_advance() {
+        for counter in ["revision", "events", "device", "stream"] {
+            let mut s = fixture();
+            match counter {
+                "revision" => s.state.revision = u64::MAX,
+                "events" => s.state.event_sequence = u64::MAX,
+                "device" => s.state.device_epoch = u64::MAX,
+                "stream" => s.state.epochs.stream = u64::MAX,
+                _ => unreachable!(),
+            }
+            s.advance(EngineEvent {
+                epochs: s.state.epochs,
+                monotonic_ns: 1,
+                kind: EngineEventKind::LocalFailed {
+                    code: ErrorCode::OutputFault,
+                },
+            })
+            .unwrap();
+            assert!(s.shutdown_requested(), "{counter}");
+            assert_eq!(s.state.transport, TransportState::Failed);
+            assert!(s.state.muted && !s.state.output_consented);
+            assert_eq!(s.state.error, Some(ErrorCode::OutputFault));
+        }
+    }
+    #[test]
     fn normal_completion_settles_activation_even_after_revision_exhaustion() {
         let mut s = fixture();
         s.state.revision = u64::MAX - 2;
@@ -1070,8 +1205,14 @@ mod tests {
         assert!(s.shutdown_requested());
     }
     #[test]
-    fn a_new_owner_reseeds_only_an_exhausted_revision_and_preserves_the_queue() {
-        for revision in [123, u64::MAX] {
+    fn a_new_owner_reserves_startup_capacity_and_preserves_ordinary_revisions() {
+        for (revision, expected) in [
+            (123, 123),
+            (u64::MAX - 64, u64::MAX - 64),
+            (u64::MAX - 63, 0),
+            (u64::MAX - 1, 0),
+            (u64::MAX, 0),
+        ] {
             let mut s = fixture();
             s.state.revision = revision;
             let queue = s.queue_snapshot();
@@ -1082,10 +1223,7 @@ mod tests {
                 s.checkpoint(),
             )
             .unwrap();
-            assert_eq!(
-                restored.state.revision,
-                if revision == u64::MAX { 0 } else { revision }
-            );
+            assert_eq!(restored.state.revision, expected);
             assert_eq!(restored.queue_snapshot(), queue);
             assert!(restored.state.muted && !restored.state.output_consented);
         }

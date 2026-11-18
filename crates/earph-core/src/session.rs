@@ -16,6 +16,9 @@ use std::{collections::VecDeque, sync::Arc};
 mod graph;
 use graph::GraphControl;
 
+// A fresh owner needs room for consent, preparation, activation, and transport acknowledgements.
+const RESTART_REVISION_HEADROOM: u64 = 64;
+
 const STALE: EngineError =
     EngineError::new(ErrorCode::StaleSession, "session or zone target changed");
 const STATE: EngineError = EngineError::new(
@@ -346,8 +349,12 @@ impl Session {
         }
         let mut session = Self::new_owner(zone_id, owner_id, limits);
         session.queue = LocalQueue::restore(checkpoint.queue)?;
-        // Revisions belong to one owner. A new owner can reseed an exhausted revision.
-        session.state.revision = if checkpoint.revision == u64::MAX {
+        // Terminal observations can exhaust an owner after its last persisted command.
+        session.state.revision = if checkpoint
+            .revision
+            .checked_add(RESTART_REVISION_HEADROOM)
+            .is_none()
+        {
             0
         } else {
             checkpoint.revision
@@ -1126,11 +1133,25 @@ impl Session {
         }
         let mut next = self.state.clone();
         next.monotonic_ns = event.monotonic_ns;
-        let proved_completion = matches!(event.kind, EngineEventKind::LocalCompleted { .. });
+        let failed_source = matches!(event.kind, EngineEventKind::LocalFailed { .. });
+        let completed_source = matches!(event.kind, EngineEventKind::LocalCompleted { .. });
+        let source_terminal = matches!(
+            event.kind,
+            EngineEventKind::LocalCompleted { .. }
+                | EngineEventKind::LocalFailed { .. }
+                | EngineEventKind::LocalStopped { .. }
+        );
+        let graph_request = source_terminal
+            .then(|| self.graph_activation().map(|a| a.request_id))
+            .flatten();
+        let transport_request = self.state.operation.clone();
+        let event_request = graph_request.clone().or(transport_request.clone());
+        let second_request =
+            transport_request.filter(|id| graph_request.as_ref().is_some_and(|g| g != id));
         let mut terminal_exhaustion = None;
         let mut next_counter = |value| match increment(value) {
             Ok(value) => Ok(value),
-            Err(error) if proved_completion => {
+            Err(error) if source_terminal => {
                 terminal_exhaustion = Some(error);
                 Ok(value)
             }
@@ -1145,7 +1166,7 @@ impl Session {
         ) {
             next.revision = next_counter(next.revision)?;
         }
-        next.event_sequence = if proved_completion {
+        next.event_sequence = if source_terminal {
             next_counter(next.event_sequence)?
         } else {
             self.next_session_event_sequence(matches!(
@@ -1160,6 +1181,7 @@ impl Session {
                     | EngineEventKind::Drained
             ))?
         };
+        let first_sequence = next.event_sequence;
         let mut completion = None;
         let mut graph_completion_error = None;
         match event.kind {
@@ -1196,10 +1218,7 @@ impl Session {
                 next.seekable = false;
                 next.active_entry_id = None;
                 next.reserved_next_entry_id = None;
-                match next.epochs.next_stream() {
-                    Ok(epochs) => next.epochs = epochs,
-                    Err(error) => terminal_exhaustion = Some(error),
-                }
+                next.epochs.stream = next_counter(next.epochs.stream)?;
             }
             EngineEventKind::LocalPrepared { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
@@ -1247,6 +1266,10 @@ impl Session {
             EngineEventKind::LocalStopped { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
             {
+                graph_completion_error = Some(EngineError::new(
+                    ErrorCode::OperationCancelled,
+                    "source stopped",
+                ));
                 if let Some(observation) = observation {
                     next.decoded_position_frames = observation.source_position_frames;
                     next.playback = Some(observation);
@@ -1262,7 +1285,10 @@ impl Session {
                 completion = Some((ReceiptStatus::Applied, None, None));
             }
             EngineEventKind::LocalFailed { code } => {
-                next.device_epoch = increment(next.device_epoch)?;
+                let error =
+                    EngineError::new(code, "local playback failed; explicit recovery is required");
+                graph_completion_error = Some(error);
+                next.device_epoch = next_counter(next.device_epoch)?;
                 next.audible_position_frames = None;
                 if let Some(playback) = &mut next.playback {
                     playback.consumed_frames = None;
@@ -1275,15 +1301,8 @@ impl Session {
                 next.output_consented = false;
                 next.volume_policy.disarm();
                 next.error = Some(code);
-                next.epochs = next.epochs.next_stream()?;
-                completion = Some((
-                    ReceiptStatus::Failed,
-                    Some(EngineError::new(
-                        code,
-                        "local playback failed; explicit recovery is required",
-                    )),
-                    None,
-                ));
+                next.epochs.stream = next_counter(next.epochs.stream)?;
+                completion = Some((ReceiptStatus::Failed, Some(error), None));
             }
             EngineEventKind::Prepared
                 if matches!(
@@ -1392,13 +1411,38 @@ impl Session {
             }
             _ => return Err(STATE),
         }
-        if let Some(error) = terminal_exhaustion {
-            next.error = Some(error.code);
-            next.shutdown_requested = true;
-            graph_completion_error = Some(error);
+        let second_sequence = if second_request.is_some() {
+            let sequence = next_counter(first_sequence)?;
+            (sequence > first_sequence).then_some(sequence)
+        } else {
+            None
+        };
+        if let Some(sequence) = second_sequence {
+            next.event_sequence = sequence;
         }
-        let publish_event = next.event_sequence != self.state.event_sequence;
-        let request_id = self.state.operation.clone();
+        if source_terminal
+            && [
+                next.revision,
+                next.event_sequence,
+                next.device_epoch,
+                next.epochs.session,
+                next.epochs.stream,
+            ]
+            .contains(&u64::MAX)
+        {
+            terminal_exhaustion.get_or_insert(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "owner terminal counter exhausted",
+            ));
+        }
+        if let Some(error) = terminal_exhaustion {
+            next.error.get_or_insert(error.code);
+            next.shutdown_requested = true;
+            if completed_source {
+                graph_completion_error = Some(error);
+            }
+        }
+        let publish_event = first_sequence != self.state.event_sequence;
         let invalidated =
             next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
         let clear_active = matches!(
@@ -1406,6 +1450,9 @@ impl Session {
             TransportState::Idle | TransportState::Failed | TransportState::Suspended
         );
         self.state = next;
+        if failed_source && graph_request.is_some() {
+            self.graph.recovery_required = true;
+        }
         if invalidated || clear_active {
             let error = if let Some(error) = graph_completion_error {
                 error
@@ -1427,7 +1474,12 @@ impl Session {
             self.finish_pending(status, error, activation);
         }
         if publish_event {
-            self.log(request_id);
+            self.state.event_sequence = first_sequence;
+            self.log(event_request);
+            if let Some(sequence) = second_sequence {
+                self.state.event_sequence = sequence;
+                self.log(second_request);
+            }
         }
         Ok(())
     }

@@ -117,6 +117,31 @@ The original Linux and Mac hardware receipts qualify the earlier source snapshot
 Do not copy their success onto the review fixes.
 Run new source checks and record their scope before declaring this change qualified.
 
+## Retained source terminal results
+
+Doctor Biz reaffirmed hardware playback and evidence approval on November 18.
+Keep the existing quiet-signal limits and selected endpoints.
+Preserve all artifacts and private media.
+
+The combined third-round check passes 377 tests, with two ignored.
+Core and engine owners independently reviewed each other's changes.
+Source failures now retain their proof until successful owner application and exact acknowledgement.
+Mute still advances its safety epoch.
+Terminal closure never wraps counters and retires at the last available counter.
+Fresh owners reserve 64 revision advances near exhaustion.
+Ordinary checkpoint revisions stay unchanged.
+Graph and transport terminal events retain their separate request identities when capacity permits.
+Actual installed graph identity survives older queued settings.
+Ramp length contributes to activation identity, and replacements clear old sample peaks.
+Private oversized candidates no longer block valid pending checkpoint recovery.
+Ownership and permission failures still reject recovery.
+
+Fresh review `5956783637` adds three inline findings and two summary findings.
+Investigate pending transport receipt identity, activation readiness, and reservation publication before qualification.
+Move graph digest validation into retained semantic admission if the reported path reproduces.
+Clarify that Mac submitted frames measure producer-ring writes, with consumption still unknown.
+Earlier native receipts remain bound to their original source snapshots.
+
 ## Continuity
 
 PR: https://github.com/harperreed/earph/pull/2

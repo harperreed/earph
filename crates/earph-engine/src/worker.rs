@@ -63,7 +63,7 @@ pub(crate) enum Action {
     Stop {
         epochs: Epochs,
     },
-    AcknowledgeDrain(DrainToken),
+    AcknowledgeSourceTerminal(SourceTerminalToken),
     Shutdown,
 }
 impl Action {
@@ -109,18 +109,19 @@ pub(crate) enum Event {
     },
     Drained {
         epochs: Epochs,
-        token: DrainToken,
+        token: SourceTerminalToken,
         observation: PlaybackObservation,
     },
     Failed {
         epochs: Epochs,
+        token: Option<SourceTerminalToken>,
         error: EngineError,
         observation: Option<PlaybackObservation>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DrainToken {
+pub(crate) struct SourceTerminalToken {
     pub(crate) owner_id: Option<OwnerId>,
     pub(crate) session_id: SessionId,
     pub(crate) origin_epochs: Epochs,
@@ -128,7 +129,7 @@ pub(crate) struct DrainToken {
     pub(crate) device_epoch: u64,
     pub(crate) final_entry_id: QueueEntryId,
 }
-impl DrainToken {
+impl SourceTerminalToken {
     pub(crate) fn matches_source(&self, snapshot: &SessionSnapshot) -> bool {
         self.owner_id == snapshot.owner_id
             && Some(&self.session_id) == snapshot.session_id.as_ref()
@@ -178,7 +179,7 @@ impl Worker {
     }
     pub fn send(&mut self, action: Action) -> Result<(), EngineError> {
         let safety = action.is_safety();
-        let reserved = safety || matches!(action, Action::AcknowledgeDrain(_));
+        let reserved = safety || matches!(action, Action::AcknowledgeSourceTerminal(_));
         if !self.has_capacity(reserved) {
             if safety {
                 self.cancel_active();
@@ -309,6 +310,7 @@ enum PendingPeriodKind {
 }
 struct Playback {
     pipeline: Option<PreparedPipeline>,
+    installed_graph_epoch: u64,
     phase: RenderPhase,
     pending_kind: PendingPeriodKind,
     source_stream_position: u64,
@@ -397,6 +399,7 @@ impl Playback {
         )?;
         let gain = GainRamp::new(format)?;
         let mut playback = Self {
+            installed_graph_epoch: settings.snapshot.graph_epoch,
             pipeline: None,
             phase: RenderPhase::Feeding,
             pending_kind: PendingPeriodKind::Source,
@@ -486,6 +489,7 @@ impl Playback {
             || self.settings.snapshot.device_epoch != binding.device_epoch
             || !settings.snapshot.muted
             || settings.snapshot.epochs != activation.epochs
+            || settings.snapshot.graph_epoch != self.installed_graph_epoch
             || pipeline.preview().source_format != self.format()
             || pipeline.preview().native_output_format != self.period.header().format
             || pipeline.preview().graph_hash != activation.prepared.preview.graph_hash
@@ -495,12 +499,23 @@ impl Playback {
                 "prepared graph no longer matches playback",
             ));
         }
+        let installed_graph_epoch =
+            settings
+                .snapshot
+                .graph_epoch
+                .checked_add(1)
+                .ok_or(EngineError::new(
+                    ErrorCode::ResourceBudgetExceeded,
+                    "installed graph generation exhausted",
+                ))?;
         pipeline.reset(activation.epochs).map_err(render_error)?;
         self.reposition(settings, None, events, false)?;
         self.pipeline = Some(pipeline.activate());
         self.saturation_count = 0;
         self.graph_peak = None;
         self.prequantization_peak = None;
+        self.input_peak = None;
+        self.output_peak = None;
         self.set_gain()?;
         emit(
             events,
@@ -511,7 +526,37 @@ impl Playback {
                 activation_frame: self.stream_position,
                 observation: self.observe()?,
             }),
-        )
+        )?;
+        // FIFO puts this acknowledgement before later facts from the installed graph.
+        self.installed_graph_epoch = installed_graph_epoch;
+        Ok(())
+    }
+    fn failure_context(&self, requested: Option<Settings>) -> Settings {
+        let mut settings = requested.unwrap_or_else(|| self.settings.clone());
+        settings.snapshot.graph_epoch = self.installed_graph_epoch;
+        settings
+    }
+    fn apply_settings(
+        &mut self,
+        settings: Settings,
+        events: &SyncSender<Event>,
+    ) -> Result<(), EngineError> {
+        if self.epochs() == settings.snapshot.epochs {
+            let was_muted = self.settings.snapshot.muted;
+            if !was_muted && settings.snapshot.muted {
+                self.reposition(settings, None, events, true)
+            } else {
+                self.settings = settings;
+                self.set_gain()
+            }
+        } else if settings.snapshot.muted
+            && settings.snapshot.epochs.session == self.epochs().session
+            && settings.snapshot.epochs.stream > self.epochs().stream
+        {
+            self.reposition(settings, None, events, true)
+        } else {
+            Ok(())
+        }
     }
     fn set_gain(&mut self) -> Result<(), EngineError> {
         let gain = if self.settings.snapshot.muted {
@@ -913,28 +958,60 @@ impl Playback {
     }
 }
 
-struct CompletedDrain {
-    token: DrainToken,
+struct SourceTerminal {
+    token: SourceTerminalToken,
     control_epochs: Epochs,
     reported_epochs: Option<Epochs>,
-    observation: PlaybackObservation,
+    outcome: SourceTerminalOutcome,
 }
-impl CompletedDrain {
-    fn from_playback(playback: &Playback) -> Result<Self, EngineError> {
+enum SourceTerminalOutcome {
+    Completed(PlaybackObservation),
+    Failed {
+        error: EngineError,
+        observation: Option<PlaybackObservation>,
+    },
+}
+impl SourceTerminal {
+    fn completed_from_playback(playback: &Playback) -> Result<Self, EngineError> {
         let snapshot = &playback.settings.snapshot;
         let observation = playback.observation(playback.last_counters);
         Ok(Self {
-            token: DrainToken {
+            token: SourceTerminalToken {
                 owner_id: snapshot.owner_id.clone(),
                 session_id: snapshot.session_id.clone().ok_or(FAILED)?,
                 origin_epochs: playback.epochs(),
-                graph_epoch: snapshot.graph_epoch,
+                graph_epoch: playback.installed_graph_epoch,
                 device_epoch: snapshot.device_epoch,
                 final_entry_id: observation.source_entry_id.clone(),
             },
             control_epochs: playback.epochs(),
             reported_epochs: None,
-            observation,
+            outcome: SourceTerminalOutcome::Completed(observation),
+        })
+    }
+    fn failed(
+        settings: &Settings,
+        error: EngineError,
+        observation: Option<PlaybackObservation>,
+    ) -> Result<Self, EngineError> {
+        let snapshot = &settings.snapshot;
+        let entry = observation
+            .as_ref()
+            .map(|value| &value.source_entry_id)
+            .or(snapshot.active_entry_id.as_ref())
+            .ok_or(FAILED)?;
+        Ok(Self {
+            token: SourceTerminalToken {
+                owner_id: snapshot.owner_id.clone(),
+                session_id: snapshot.session_id.clone().ok_or(FAILED)?,
+                origin_epochs: snapshot.epochs,
+                graph_epoch: snapshot.graph_epoch,
+                device_epoch: snapshot.device_epoch,
+                final_entry_id: entry.clone(),
+            },
+            control_epochs: snapshot.epochs,
+            reported_epochs: None,
+            outcome: SourceTerminalOutcome::Failed { error, observation },
         })
     }
     fn matches_source(&self, snapshot: &SessionSnapshot) -> bool {
@@ -953,14 +1030,20 @@ impl CompletedDrain {
         if self.reported_epochs == Some(self.control_epochs) {
             return Ok(());
         }
-        emit(
-            events,
-            Event::Drained {
+        let event = match &self.outcome {
+            SourceTerminalOutcome::Completed(observation) => Event::Drained {
                 epochs: self.control_epochs,
                 token: self.token.clone(),
-                observation: self.observation.clone(),
+                observation: observation.clone(),
             },
-        )?;
+            SourceTerminalOutcome::Failed { error, observation } => Event::Failed {
+                epochs: self.control_epochs,
+                token: Some(self.token.clone()),
+                error: *error,
+                observation: observation.clone(),
+            },
+        };
+        emit(events, event)?;
         self.reported_epochs = Some(self.control_epochs);
         Ok(())
     }
@@ -987,7 +1070,7 @@ impl CompletedDrain {
         self.report(events)?;
         Ok(true)
     }
-    fn activation_ended(
+    fn activation_terminal(
         &mut self,
         settings: &Settings,
         activation: &GraphActivationRequest,
@@ -1005,6 +1088,31 @@ impl CompletedDrain {
         self.reconcile(settings, events, true)
     }
 }
+fn retain_source_failure(
+    terminal: &mut Option<SourceTerminal>,
+    settings: &Settings,
+    error: EngineError,
+    observation: Option<PlaybackObservation>,
+    events: &SyncSender<Event>,
+) {
+    match SourceTerminal::failed(settings, error, observation.clone()) {
+        Ok(mut failed) => {
+            let _ = failed.report(events);
+            *terminal = Some(failed);
+        }
+        Err(_) => {
+            let _ = emit(
+                events,
+                Event::Failed {
+                    epochs: settings.snapshot.epochs,
+                    token: None,
+                    error,
+                    observation,
+                },
+            );
+        }
+    }
+}
 fn run(
     receiver: Receiver<Action>,
     events: SyncSender<Event>,
@@ -1013,8 +1121,8 @@ fn run(
     progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
 ) {
     let mut playback: Option<Playback> = None;
-    let mut stopped: Option<(PlaybackObservation, Option<EngineError>)> = None;
-    let mut drained: Option<CompletedDrain> = None;
+    let mut stopped: Option<(Settings, PlaybackObservation, Option<EngineError>)> = None;
+    let mut terminal: Option<SourceTerminal> = None;
     loop {
         let action = if playback.is_some() {
             match receiver.try_recv() {
@@ -1034,13 +1142,13 @@ fn run(
                 action,
                 Action::Start { .. } | Action::Stop { .. } | Action::Shutdown
             ) {
-                drained = None;
+                terminal = None;
             }
-            let failure_epochs = match &action {
+            let failure_settings = match &action {
                 Action::ActivateGraph { settings, .. }
                 | Action::Pause(settings)
                 | Action::Seek { settings, .. }
-                | Action::Settings(settings) => Some(settings.snapshot.epochs),
+                | Action::Settings(settings) => Some(settings.clone()),
                 _ => None,
             };
             let result = match action {
@@ -1056,10 +1164,10 @@ fn run(
                         current.activate_graph(settings, activation, pipeline, &events)
                     } else {
                         drop(pipeline);
-                        match drained
+                        match terminal
                             .as_mut()
                             .map(|completed| {
-                                completed.activation_ended(&settings, &activation, &events)
+                                completed.activation_terminal(&settings, &activation, &events)
                             })
                             .transpose()
                         {
@@ -1068,7 +1176,7 @@ fn run(
                             Err(error) => Err(error),
                         }
                     };
-                    if let Err(error) = result {
+                    if !live && let Err(error) = result {
                         let _ = emit(
                             &events,
                             Event::GraphFailed {
@@ -1080,12 +1188,12 @@ fn run(
                     }
                     if live { result } else { Ok(()) }
                 }
-                Action::AcknowledgeDrain(token) => {
-                    if drained
+                Action::AcknowledgeSourceTerminal(token) => {
+                    if terminal
                         .as_ref()
                         .is_some_and(|completed| completed.token == token)
                     {
-                        drained = None;
+                        terminal = None;
                     }
                     Ok(())
                 }
@@ -1095,22 +1203,25 @@ fn run(
                         let observation = current.failure_observation();
                         let failure = current.output.stop().err();
                         clear_reservation(&view, current.epochs());
-                        stopped = Some((observation, failure));
+                        stopped = Some((current.failure_context(None), observation, failure));
                     }
                     match stopped.take() {
-                        Some((observation, Some(error))) => emit(
-                            &events,
-                            Event::Failed {
-                                epochs,
+                        Some((mut settings, observation, Some(error))) => {
+                            settings.snapshot.epochs = epochs;
+                            retain_source_failure(
+                                &mut terminal,
+                                &settings,
                                 error,
-                                observation: Some(observation),
-                            },
-                        ),
+                                Some(observation),
+                                &events,
+                            );
+                            Ok(())
+                        }
                         value => emit(
                             &events,
                             Event::Stopped {
                                 epochs,
-                                observation: value.map(|(observation, _)| observation),
+                                observation: value.map(|(_, observation, _)| observation),
                             },
                         ),
                     }
@@ -1121,6 +1232,7 @@ fn run(
                     cancel,
                 } => {
                     let epochs = settings.snapshot.epochs;
+                    let attempted = settings.clone();
                     stopped = None;
                     playback = None;
                     match Playback::prepare(
@@ -1137,37 +1249,15 @@ fn run(
                         }
                         Err(error) => {
                             clear_reservation(&view, epochs);
-                            let _ = emit(
-                                &events,
-                                Event::Failed {
-                                    epochs,
-                                    error,
-                                    observation: None,
-                                },
-                            );
+                            retain_source_failure(&mut terminal, &attempted, error, None, &events);
                             Ok(())
                         }
                     }
                 }
                 Action::Settings(settings) => {
                     if let Some(current) = &mut playback {
-                        if current.epochs() == settings.snapshot.epochs {
-                            let was_muted = current.settings.snapshot.muted;
-                            if !was_muted && settings.snapshot.muted {
-                                current.reposition(settings, None, &events, true)
-                            } else {
-                                current.settings = settings;
-                                current.set_gain()
-                            }
-                        } else if settings.snapshot.muted
-                            && settings.snapshot.epochs.session == current.epochs().session
-                            && settings.snapshot.epochs.stream > current.epochs().stream
-                        {
-                            current.reposition(settings, None, &events, true)
-                        } else {
-                            Ok(())
-                        }
-                    } else if let Some(completed) = drained.as_mut() {
+                        current.apply_settings(settings, &events)
+                    } else if let Some(completed) = terminal.as_mut() {
                         completed.reconcile(&settings, &events, false).map(|_| ())
                     } else {
                         Ok(())
@@ -1176,7 +1266,7 @@ fn run(
                 Action::Pause(settings) => {
                     if let Some(current) = &mut playback {
                         current.reposition(settings, None, &events, true)
-                    } else if let Some(completed) = drained.as_mut() {
+                    } else if let Some(completed) = terminal.as_mut() {
                         completed
                             .reconcile(&settings, &events, true)
                             .and_then(|matched| if matched { Ok(()) } else { Err(ENDED) })
@@ -1187,7 +1277,7 @@ fn run(
                 Action::Seek { settings, position } => {
                     if let Some(current) = &mut playback {
                         current.reposition(settings, Some(position), &events, true)
-                    } else if let Some(completed) = drained.as_mut() {
+                    } else if let Some(completed) = terminal.as_mut() {
                         completed
                             .reconcile(&settings, &events, true)
                             .and_then(|matched| if matched { Ok(()) } else { Err(ENDED) })
@@ -1197,23 +1287,16 @@ fn run(
                 }
             };
             if let Err(error) = result {
-                let mut epochs = failure_epochs;
+                let mut settings = failure_settings;
                 let observation = playback.take().map(|mut current| {
                     let observation = current.failure_observation();
                     let _ = current.output.stop();
                     clear_reservation(&view, current.epochs());
-                    epochs = Some(failure_epochs.unwrap_or(current.epochs()));
+                    settings = Some(current.failure_context(settings.take()));
                     observation
                 });
-                if let Some(epochs) = epochs {
-                    let _ = emit(
-                        &events,
-                        Event::Failed {
-                            epochs,
-                            error,
-                            observation,
-                        },
-                    );
+                if let Some(settings) = settings {
+                    retain_source_failure(&mut terminal, &settings, error, observation, &events);
                 }
             }
         }
@@ -1221,21 +1304,24 @@ fn run(
             match current.step(&events) {
                 Ok(true) => {
                     if current.cancel.load(Ordering::Acquire) {
-                        stopped = Some((current.failure_observation(), None));
+                        stopped = Some((
+                            current.failure_context(None),
+                            current.failure_observation(),
+                            None,
+                        ));
                     } else if current.phase == RenderPhase::Finished {
-                        match CompletedDrain::from_playback(current) {
+                        match SourceTerminal::completed_from_playback(current) {
                             Ok(mut completed) => {
                                 let _ = completed.report(&events);
-                                drained = Some(completed);
+                                terminal = Some(completed);
                             }
                             Err(error) => {
-                                let _ = emit(
+                                retain_source_failure(
+                                    &mut terminal,
+                                    &current.settings,
+                                    error,
+                                    None,
                                     &events,
-                                    Event::Failed {
-                                        epochs: current.epochs(),
-                                        error,
-                                        observation: None,
-                                    },
                                 );
                             }
                         }
@@ -1251,19 +1337,19 @@ fn run(
                 Err(error) => {
                     let epochs = current.epochs();
                     let observation = current.failure_observation();
+                    let settings = current.failure_context(None);
                     if current.cancel.load(Ordering::Acquire) {
-                        stopped = Some((observation.clone(), Some(error)));
+                        stopped = Some((settings.clone(), observation.clone(), Some(error)));
                     }
                     let _ = current.output.stop();
                     clear_reservation(&view, epochs);
                     playback = None;
-                    let _ = emit(
+                    retain_source_failure(
+                        &mut terminal,
+                        &settings,
+                        error,
+                        Some(observation),
                         &events,
-                        Event::Failed {
-                            epochs,
-                            error,
-                            observation: Some(observation),
-                        },
                     );
                 }
             }
@@ -1323,7 +1409,7 @@ mod tests {
         (worker, settings, observation)
     }
     #[cfg(target_os = "linux")]
-    fn drain_proof(tracks: usize) -> (Worker, Settings, DrainToken, PlaybackObservation) {
+    fn drain_proof(tracks: usize) -> (Worker, Settings, SourceTerminalToken, PlaybackObservation) {
         use earph_core::{
             control::{OutputBackend, OutputConfiguration, OutputRoute, SourceKind},
             ids::{DeviceId, ProfileId, SessionId},
@@ -1475,15 +1561,21 @@ mod tests {
         let (mut worker, mut settings, token, _) = drain_proof(1);
         let mut wrong = token.clone();
         wrong.origin_epochs.stream += 1;
-        worker.send(Action::AcknowledgeDrain(wrong)).unwrap();
+        worker
+            .send(Action::AcknowledgeSourceTerminal(wrong))
+            .unwrap();
         let mut wrong = token.clone();
         wrong.final_entry_id = QueueEntryId::new("another-final-entry").unwrap();
-        worker.send(Action::AcknowledgeDrain(wrong)).unwrap();
+        worker
+            .send(Action::AcknowledgeSourceTerminal(wrong))
+            .unwrap();
         settings.snapshot.muted = true;
         settings.snapshot.epochs.stream += 1;
         worker.send(Action::Settings(settings.clone())).unwrap();
         next_drain(&worker);
-        worker.send(Action::AcknowledgeDrain(token)).unwrap();
+        worker
+            .send(Action::AcknowledgeSourceTerminal(token))
+            .unwrap();
         settings.snapshot.muted = false;
         worker.send(Action::Settings(settings.clone())).unwrap();
         settings.snapshot.muted = true;
@@ -1521,13 +1613,17 @@ mod tests {
             }
         };
         assert_ne!(old_token, new_token);
-        worker.send(Action::AcknowledgeDrain(old_token)).unwrap();
+        worker
+            .send(Action::AcknowledgeSourceTerminal(old_token))
+            .unwrap();
         settings.snapshot.muted = true;
         settings.snapshot.epochs.stream += 1;
         worker.send(Action::Settings(settings.clone())).unwrap();
         let (epochs, _) = next_drain(&worker);
         assert_eq!(epochs, settings.snapshot.epochs);
-        worker.send(Action::AcknowledgeDrain(new_token)).unwrap();
+        worker
+            .send(Action::AcknowledgeSourceTerminal(new_token))
+            .unwrap();
         settings.snapshot.epochs.stream += 1;
         worker.send(Action::Settings(settings)).unwrap();
         assert!(matches!(
@@ -1599,6 +1695,285 @@ mod tests {
         settings.snapshot.muted = true;
         settings.snapshot.transport = TransportState::Reconfiguring;
         (settings, activation, result.pipeline.unwrap())
+    }
+    #[cfg(target_os = "linux")]
+    fn prepared_nonzero_source() -> (Playback, SyncSender<Event>, Receiver<Event>) {
+        let (worker, mut settings, _, _) = drain_proof(1);
+        let mut entries = worker.view.lock().unwrap().entries.clone();
+        drop(worker);
+        let mut bytes = std::fs::read(&entries[0].path).unwrap();
+        for sample in bytes[44..].as_chunks_mut::<2>().0 {
+            sample.copy_from_slice(&8192_i16.to_le_bytes());
+        }
+        let source = std::path::Path::new(&entries[0].path).with_file_name("nonzero.wav");
+        std::fs::write(&source, bytes).unwrap();
+        entries[0].path = source.to_str().unwrap().into();
+        settings.snapshot.muted = true;
+        let view = Arc::new(Mutex::new(PlanView::default()));
+        view.lock().unwrap().entries = entries.clone();
+        let (events, receiver) = mpsc::sync_channel(1024);
+        let playback = Playback::prepare(
+            settings,
+            entries,
+            Arc::new(AtomicBool::new(false)),
+            view,
+            Arc::new(Mutex::new(None)),
+            &events,
+        )
+        .unwrap();
+        (playback, events, receiver)
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn paused_graph_replacement_clears_peaks_from_actual_nonzero_output() {
+        let (mut playback, events, receiver) = prepared_nonzero_source();
+        let observed = playback.observe().unwrap();
+        let (settings, activation, pipeline) = prepare_activation(&playback.settings, &observed);
+        let first_hash = pipeline.preview().graph_hash.clone();
+        playback
+            .activate_graph(settings, activation, pipeline, &events)
+            .unwrap();
+        playback.settings.snapshot.graph_epoch = 1;
+        playback.settings.snapshot.muted = false;
+        playback.set_gain().unwrap();
+        assert!(!playback.step(&events).unwrap());
+        assert!(playback.input_peak.unwrap() > 0.0);
+        assert!(playback.output_peak.unwrap() > 0.0);
+        let mut pause = playback.settings.clone();
+        pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+        pause.snapshot.transport = TransportState::Paused;
+        pause.snapshot.muted = true;
+        pause.playing = false;
+        playback.reposition(pause, None, &events, true).unwrap();
+        let mut next = playback.settings.clone();
+        next.snapshot.software_gain_db = -48.0;
+        let observed = playback.observe().unwrap();
+        let (settings, activation, pipeline) = prepare_activation(&next, &observed);
+        let next_hash = pipeline.preview().graph_hash.clone();
+        assert_ne!(first_hash, next_hash);
+        receiver.try_iter().for_each(drop);
+        playback
+            .activate_graph(settings, activation, pipeline, &events)
+            .unwrap();
+        let acknowledgement = receiver
+            .try_iter()
+            .find_map(|event| match event {
+                Event::GraphActivated(value) => Some(value),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(acknowledgement.observation.submitted_frames, 0);
+        assert_eq!(
+            acknowledgement.observation.processing.unwrap().graph_hash,
+            next_hash
+        );
+        assert_eq!(acknowledgement.observation.input_peak, None);
+        assert_eq!(acknowledgement.observation.output_peak, None);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn native_suspend_failure_survives_queued_mute_generations_until_acknowledged() {
+        let (mut playback, events, receiver) = prepared_nonzero_source();
+        playback.output.stop().unwrap();
+        let mut pause = playback.settings.clone();
+        pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+        pause.snapshot.transport = TransportState::Paused;
+        let error = playback
+            .reposition(pause.clone(), None, &events, true)
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::OutputFault);
+        assert_ne!(playback.epochs(), pause.snapshot.epochs);
+        receiver.try_iter().for_each(drop);
+        let mut terminal =
+            SourceTerminal::failed(&pause, error, Some(playback.failure_observation())).unwrap();
+        terminal.report(&events).unwrap();
+        let mut mute = pause.clone();
+        mute.snapshot.muted = true;
+        for _ in 0..2 {
+            mute.snapshot.epochs = mute.snapshot.epochs.next_stream().unwrap();
+            assert!(terminal.reconcile(&mute, &events, false).unwrap());
+        }
+        for expected in 1..=3 {
+            match receiver.try_recv().unwrap() {
+                Event::Failed {
+                    epochs,
+                    error: failure,
+                    token: Some(token),
+                    observation: Some(_),
+                } => {
+                    assert_eq!(epochs.stream, expected);
+                    assert_eq!(failure.code, ErrorCode::OutputFault);
+                    assert_eq!(token.origin_epochs, pause.snapshot.epochs);
+                }
+                _ => panic!("suspend failure lost its source identity"),
+            }
+        }
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_millis(30)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn a_queued_graph_activation_keeps_the_underlying_source_failure() {
+        let (mut playback, events, receiver) = prepared_nonzero_source();
+        let settings = playback.settings.clone();
+        let observed = playback.observe().unwrap();
+        let (next, activation, pipeline) = prepare_activation(&settings, &observed);
+        playback.output.stop().unwrap();
+        let error = playback
+            .reposition(settings.clone(), None, &events, true)
+            .unwrap_err();
+        receiver.try_iter().for_each(drop);
+        let mut terminal =
+            SourceTerminal::failed(&settings, error, Some(playback.failure_observation())).unwrap();
+        terminal.report(&events).unwrap();
+        assert!(
+            terminal
+                .activation_terminal(&next, &activation, &events)
+                .unwrap()
+        );
+        let failures: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(failures.len(), 2);
+        for (index, event) in failures.into_iter().enumerate() {
+            match event {
+                Event::Failed {
+                    epochs,
+                    error: actual,
+                    token: Some(token),
+                    ..
+                } => {
+                    assert_eq!(epochs.stream, index as u64);
+                    assert_eq!(actual.code, ErrorCode::OutputFault);
+                    assert_eq!(token.origin_epochs, settings.snapshot.epochs);
+                }
+                _ => panic!("queued graph erased the actual source fault"),
+            }
+        }
+        drop(pipeline);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn retained_failure_is_reissued_and_its_old_ack_cannot_clear_a_new_source() {
+        let (mut worker, mut settings, _, _) = drain_proof(1);
+        let valid_entries = worker.view.lock().unwrap().entries.clone();
+        let mut missing_entries = valid_entries.clone();
+        missing_entries[0].path.push_str(".missing");
+        settings.snapshot.epochs.session += 1;
+        settings.snapshot.session_id = Some(SessionId::new("failed-source").unwrap());
+        worker
+            .send(Action::Start {
+                settings: settings.clone(),
+                entries: missing_entries,
+                cancel: Arc::new(AtomicBool::new(false)),
+            })
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let (failure_token, failure_code) = loop {
+            match worker
+                .events
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .unwrap()
+            {
+                Event::Failed {
+                    token: Some(token),
+                    error,
+                    ..
+                } => break (token, error.code),
+                Event::Item { .. } => {}
+                _ => panic!("missing source did not retain its failure"),
+            }
+        };
+        settings.snapshot.muted = true;
+        for expected in [1, 2] {
+            settings.snapshot.epochs.stream = expected;
+            worker.send(Action::Settings(settings.clone())).unwrap();
+            assert!(matches!(worker.events.recv_timeout(Duration::from_secs(5)),
+                Ok(Event::Failed { epochs, error, token: Some(_), .. })
+                if epochs.stream == expected && error.code == failure_code));
+        }
+        worker
+            .send(Action::AcknowledgeSourceTerminal(failure_token.clone()))
+            .unwrap();
+        settings.snapshot.epochs.stream += 1;
+        worker.send(Action::Settings(settings.clone())).unwrap();
+        assert!(matches!(
+            worker.events.recv_timeout(Duration::from_millis(30)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        settings.snapshot.epochs = Epochs {
+            session: 3,
+            stream: 0,
+        };
+        settings.snapshot.session_id = Some(SessionId::new("replacement-after-failure").unwrap());
+        settings.snapshot.muted = false;
+        worker
+            .send(Action::Start {
+                settings: settings.clone(),
+                entries: valid_entries,
+                cancel: Arc::new(AtomicBool::new(false)),
+            })
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match worker
+                .events
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .unwrap()
+            {
+                Event::Drained { .. } => break,
+                Event::Failed { error, .. } => panic!("replacement failed: {error:?}"),
+                _ => {}
+            }
+        }
+        worker
+            .send(Action::AcknowledgeSourceTerminal(failure_token))
+            .unwrap();
+        settings.snapshot.muted = true;
+        settings.snapshot.epochs.stream += 1;
+        worker.send(Action::Settings(settings.clone())).unwrap();
+        assert_eq!(next_drain(&worker).0, settings.snapshot.epochs);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn old_settings_cannot_relabel_a_fault_after_graph_activation() {
+        let (mut playback, events, receiver) = prepared_nonzero_source();
+        let observed = playback.observe().unwrap();
+        let (old_settings, activation, pipeline) =
+            prepare_activation(&playback.settings, &observed);
+        playback
+            .activate_graph(old_settings.clone(), activation, pipeline, &events)
+            .unwrap();
+        playback
+            .apply_settings(old_settings.clone(), &events)
+            .unwrap();
+        assert_eq!(playback.settings.snapshot.graph_epoch, 0);
+        playback.output.stop().unwrap();
+        let mut pause = old_settings;
+        pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+        pause.snapshot.transport = TransportState::Paused;
+        let error = playback
+            .reposition(pause.clone(), None, &events, true)
+            .unwrap_err();
+        let context = playback.failure_context(Some(pause));
+        let mut terminal =
+            SourceTerminal::failed(&context, error, Some(playback.failure_observation())).unwrap();
+        terminal.report(&events).unwrap();
+        let mut saw_activation = false;
+        for event in receiver.try_iter() {
+            match event {
+                Event::GraphActivated(_) => saw_activation = true,
+                Event::Failed {
+                    token: Some(token), ..
+                } => {
+                    assert!(saw_activation);
+                    assert_eq!(token.graph_epoch, 1);
+                    return;
+                }
+                _ => {}
+            }
+        }
+        panic!("native failure was not published");
     }
     #[test]
     #[cfg(target_os = "linux")]
@@ -1674,7 +2049,7 @@ mod tests {
         for _ in 0..64 {
             worker.send(Action::Settings(settings(true))).unwrap();
         }
-        let token = DrainToken {
+        let token = SourceTerminalToken {
             owner_id: None,
             session_id: SessionId::new("old").unwrap(),
             origin_epochs: Epochs::default(),
@@ -1684,7 +2059,7 @@ mod tests {
         };
         assert_eq!(
             worker
-                .send(Action::AcknowledgeDrain(token.clone()))
+                .send(Action::AcknowledgeSourceTerminal(token.clone()))
                 .unwrap_err()
                 .code,
             ErrorCode::SourceBusy
@@ -1693,10 +2068,12 @@ mod tests {
         let actions: Vec<_> = receiver.try_iter().collect();
         assert_eq!(actions.len(), 64);
         worker.queued.store(32, Ordering::Release);
-        worker.send(Action::AcknowledgeDrain(token)).unwrap();
+        worker
+            .send(Action::AcknowledgeSourceTerminal(token))
+            .unwrap();
         assert!(matches!(
             receiver.try_recv(),
-            Ok(Action::AcknowledgeDrain(_))
+            Ok(Action::AcknowledgeSourceTerminal(_))
         ));
         assert!(!cancel.load(Ordering::Acquire));
     }
