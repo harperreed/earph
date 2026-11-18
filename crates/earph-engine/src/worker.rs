@@ -1117,9 +1117,12 @@ impl SourceTerminal {
         if !request.matches_source(&self.token) {
             return Ok(false);
         }
-        let SourceTerminalOutcome::Failed { stop, .. } = &mut self.outcome else {
+        let SourceTerminalOutcome::Failed { error, stop, .. } = &mut self.outcome else {
             return Ok(false);
         };
+        if error.code == ErrorCode::OperationCancelled {
+            return Ok(false);
+        }
         if stop.as_ref().is_some_and(|prior| {
             prior.request_id == request.request_id
                 && prior.settings.snapshot == request.settings.snapshot
@@ -1475,7 +1478,7 @@ fn render_error(error: crate::render::RenderError) -> EngineError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use earph_core::{control::ControlLimits, ids::ZoneId, session::Session};
 
@@ -1514,7 +1517,9 @@ mod tests {
         (worker, settings, observation)
     }
     #[cfg(target_os = "linux")]
-    fn drain_proof(tracks: usize) -> (Worker, Settings, SourceTerminalToken, PlaybackObservation) {
+    pub(crate) fn drain_proof(
+        tracks: usize,
+    ) -> (Worker, Settings, SourceTerminalToken, PlaybackObservation) {
         use earph_core::{
             control::{OutputBackend, OutputConfiguration, OutputRoute, SourceKind},
             ids::{DeviceId, ProfileId, SessionId},
@@ -2086,11 +2091,6 @@ mod tests {
         let name =
             "worker::tests::stop_preserves_an_unacknowledged_native_fault_for_the_same_source";
         if std::env::var("EARPH_STOP_FAULT_TEST_CHILD").as_deref() != Ok(name) {
-            let result = std::process::Command::new(std::env::current_exe().unwrap())
-                .args(["--exact", name, "--nocapture"])
-                .env("EARPH_STOP_FAULT_TEST_CHILD", name)
-                .output()
-                .unwrap();
             let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../target/stop-native-fault")
                 .join(format!(
@@ -2102,6 +2102,14 @@ mod tests {
                         .as_nanos()
                 ));
             std::fs::create_dir_all(&directory).unwrap();
+            let config = directory.join("alsa.conf");
+            std::fs::write(&config,"pcm.null { type null }\npcm.earph_fault { type file slave.pcm \"null\" file \"/dev/full\" format \"raw\" }\n").unwrap();
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", name, "--nocapture"])
+                .env("EARPH_STOP_FAULT_TEST_CHILD", name)
+                .env("ALSA_CONFIG_PATH", config)
+                .output()
+                .unwrap();
             std::fs::write(directory.join("stdout.log"), &result.stdout).unwrap();
             std::fs::write(directory.join("stderr.log"), &result.stderr).unwrap();
             assert!(
@@ -2126,7 +2134,7 @@ mod tests {
         entries[0].path = path.to_str().unwrap().into();
         settings.snapshot.epochs.session += 1;
         settings.snapshot.session_id = Some(SessionId::new("fault-before-stop").unwrap());
-        settings.snapshot.output.as_mut().unwrap().endpoint = "file:/dev/full,raw".into();
+        settings.snapshot.output.as_mut().unwrap().endpoint = "earph_fault".into();
         worker
             .send(Action::Start {
                 settings: settings.clone(),
@@ -2206,6 +2214,47 @@ mod tests {
             worker.events.recv_timeout(Duration::from_secs(5)),
             Ok(Event::Stopped { .. })
         ));
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn genuine_preparation_error_survives_stop_with_its_cancellation_flag_set() {
+        let (mut worker, mut settings, _, _) = drain_proof(1);
+        let mut entries = worker.view.lock().unwrap().entries.clone();
+        entries[0].path.push_str(".missing");
+        settings.snapshot.epochs.session += 1;
+        settings.snapshot.session_id = Some(SessionId::new("failed-prepare-before-stop").unwrap());
+        let cancel = Arc::new(AtomicBool::new(false));
+        worker
+            .send(Action::Start {
+                settings: settings.clone(),
+                entries,
+                cancel: cancel.clone(),
+            })
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Event::Failed { error, .. } = worker
+                .events
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .unwrap()
+            {
+                assert_eq!(error.code, ErrorCode::AssetInvalid);
+                break;
+            }
+        }
+        let request_id = RequestId::new("stop-genuine-prepare-error").unwrap();
+        settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
+        settings.snapshot.operation = Some(request_id.clone());
+        worker
+            .send(Action::Stop(StopRequest {
+                request_id: request_id.clone(),
+                settings,
+            }))
+            .unwrap();
+        assert!(cancel.load(Ordering::Acquire));
+        assert!(
+            matches!(worker.events.recv_timeout(Duration::from_secs(5)).unwrap(),Event::StopFailed{request,error:EngineError{code:ErrorCode::AssetInvalid,..},..} if request.request_id==request_id)
+        );
     }
     #[test]
     #[cfg(target_os = "linux")]

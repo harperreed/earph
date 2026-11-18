@@ -2,6 +2,7 @@
 // ABOUTME: Keeps graph receipts separate from pending transport operations.
 use super::*;
 use crate::graph::GraphProcessingRequest;
+use std::collections::BTreeMap;
 
 type Record = Arc<(CommandEnvelope, Receipt)>;
 const BUSY: EngineError = EngineError::new(
@@ -29,6 +30,7 @@ struct Activation {
     request: GraphActivationRequest,
     intent: Arc<GraphIntent>,
     record: Option<Record>,
+    readiness: Arc<BTreeMap<QueueEntryId, crate::queue::PreparationStatus>>,
 }
 #[derive(Clone, Default)]
 pub(super) struct GraphControl {
@@ -43,6 +45,29 @@ pub(super) struct GraphControl {
     service: GraphServiceObservation,
 }
 impl Session {
+    pub(super) fn defer_graph_readiness(
+        &mut self,
+        id: &QueueEntryId,
+        status: crate::queue::PreparationStatus,
+    ) -> Result<bool, EngineError> {
+        if !matches!(status, crate::queue::PreparationStatus::Ready { .. })
+            || self.graph.activation.is_none()
+        {
+            return Ok(false);
+        }
+        let entries = self.queue.entries();
+        if !entries.iter().any(|entry| &entry.id == id) {
+            return Err(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "invalid queue entry",
+            ));
+        }
+        let activation = self.graph.activation.as_mut().ok_or(STALE)?;
+        let readiness = Arc::make_mut(&mut activation.readiness);
+        readiness.retain(|id, _| entries.iter().any(|entry| &entry.id == id));
+        readiness.insert(id.clone(), status);
+        Ok(true)
+    }
     pub(super) fn next_session_event_sequence(&self, terminal: bool) -> Result<u64, EngineError> {
         if !terminal
             && self.graph.activation.is_some()
@@ -414,6 +439,7 @@ impl Session {
                     },
                     intent: ready.intent,
                     record: None,
+                    readiness: Arc::new(BTreeMap::new()),
                 });
                 self.state.revision = revision;
                 self.state.epochs = epochs;
@@ -598,6 +624,14 @@ impl Session {
             }
         };
         let mut staged = self.clone();
+        for (entry, status) in &*activation.readiness {
+            if staged.queue.entries().iter().any(|item| &item.id == entry)
+                && let Err(error) = staged.queue.update_status(entry, *status)
+            {
+                self.fail_graph_activation(id, error);
+                return Err(error);
+            }
+        }
         if let Err(error) = staged.queue.update_status(
             &observation.source_entry_id,
             crate::queue::PreparationStatus::Ready {
@@ -1251,7 +1285,14 @@ mod tests {
     }
     #[test]
     fn activation_completion_keeps_its_final_event_slot() {
-        for source in ["mute", "resource", "queue", "progress", "reservation"] {
+        for source in [
+            "mute",
+            "resource",
+            "queue",
+            "progress",
+            "reservation",
+            "ready",
+        ] {
             let mut s = fixture();
             let p = ready(&mut s, "prepare", 1.0);
             s.state.event_sequence = u64::MAX - 2;
@@ -1309,6 +1350,20 @@ mod tests {
                     })
                     .unwrap();
                     assert_eq!(s.snapshot(), before);
+                }
+                "ready" => {
+                    let before = s.queue_snapshot();
+                    let entry = s.state.active_entry_id.clone().unwrap();
+                    s.set_queue_preparation(
+                        s.state.epochs,
+                        &entry,
+                        crate::queue::PreparationStatus::Ready {
+                            format: s.state.playback.as_ref().unwrap().format,
+                            total_frames: 48000,
+                        },
+                    )
+                    .unwrap();
+                    assert_eq!(s.queue_snapshot(), before);
                 }
                 _ => unreachable!(),
             }
@@ -2165,6 +2220,136 @@ mod tests {
             },
         );
         assert_eq!(s.submit_graph(seek, 23).status, ReceiptStatus::Accepted);
+    }
+    #[test]
+    fn activation_readiness_stays_private_until_persistence_succeeds() {
+        for fail in [false, true] {
+            let mut s = fixture();
+            let current = s.state.active_entry_id.clone().unwrap();
+            let next = s.queue.append("following.wav").unwrap();
+            let p = ready(&mut s, "ready-atomic", 1.0);
+            let c = commit(&s, "commit-atomic-ready", &p);
+            assert_eq!(
+                s.submit_graph(c.clone(), 21).status,
+                ReceiptStatus::Accepted
+            );
+            let before = s.queue_snapshot();
+            let snapshot = s.snapshot();
+            let format = s.state.playback.as_ref().unwrap().format;
+            for (id, total_frames) in [(&current, 48000), (&next, 12000)] {
+                s.set_queue_preparation(
+                    s.state.epochs,
+                    id,
+                    crate::queue::PreparationStatus::Ready {
+                        format,
+                        total_frames,
+                    },
+                )
+                .unwrap();
+            }
+            assert_eq!(s.queue_snapshot(), before);
+            assert_eq!(s.snapshot(), snapshot);
+            let result = s.complete_graph_activation(
+                GraphActivationAck {
+                    source_total_frames: 48000,
+                    request_id: c.request_id,
+                    epochs: s.state.epochs,
+                    graph_hash: p.preview.graph_hash.clone(),
+                    activation_frame: 0,
+                    observation: s.state.playback.clone().unwrap(),
+                },
+                22,
+                |staged| {
+                    assert!(staged.queue_snapshot().entries.iter().all(|e| matches!(
+                        e.status,
+                        crate::queue::PreparationStatus::Ready { .. }
+                    )));
+                    if fail {
+                        Err(EngineError::new(
+                            ErrorCode::InternalFault,
+                            "test persistence fault",
+                        ))
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
+            if fail {
+                assert!(result.is_err());
+                assert_eq!(s.queue_snapshot(), before);
+            } else {
+                result.unwrap();
+                assert!(matches!(
+                    s.queue_snapshot().entries[1].status,
+                    crate::queue::PreparationStatus::Ready {
+                        total_frames: 12000,
+                        ..
+                    }
+                ));
+            }
+            s.set_queue_preparation(
+                s.state.epochs,
+                &next,
+                crate::queue::PreparationStatus::Ready {
+                    format,
+                    total_frames: 8000,
+                },
+            )
+            .unwrap();
+            assert!(matches!(
+                s.queue_snapshot().entries[1].status,
+                crate::queue::PreparationStatus::Ready {
+                    total_frames: 8000,
+                    ..
+                }
+            ));
+        }
+    }
+    #[test]
+    fn deferred_readiness_discards_removed_entries_and_stays_queue_bounded() {
+        let mut s = fixture();
+        let p = ready(&mut s, "bounded-ready", 1.0);
+        let c = commit(&s, "bounded-ready-commit", &p);
+        assert_eq!(
+            s.submit_graph(c.clone(), 21).status,
+            ReceiptStatus::Accepted
+        );
+        let format = s.state.playback.as_ref().unwrap().format;
+        for index in 0..300 {
+            let id = s.queue.append(format!("queued-{index}.wav")).unwrap();
+            s.set_queue_preparation(
+                s.state.epochs,
+                &id,
+                crate::queue::PreparationStatus::Ready {
+                    format,
+                    total_frames: 65,
+                },
+            )
+            .unwrap();
+            assert_eq!(s.graph.activation.as_ref().unwrap().readiness.len(), 1);
+            s.queue.remove(&id).unwrap();
+        }
+        s.complete_graph_activation(
+            GraphActivationAck {
+                source_total_frames: 48000,
+                request_id: c.request_id,
+                epochs: s.state.epochs,
+                graph_hash: p.preview.graph_hash.clone(),
+                activation_frame: 0,
+                observation: s.state.playback.clone().unwrap(),
+            },
+            22,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(s.queue_snapshot().entries.len(), 1);
+        assert!(matches!(
+            s.queue_snapshot().entries[0].status,
+            crate::queue::PreparationStatus::Ready {
+                total_frames: 48000,
+                ..
+            }
+        ));
     }
     #[test]
     fn failed_staged_stop_cannot_cancel_the_retained_transport_record() {

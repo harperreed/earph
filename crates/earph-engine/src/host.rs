@@ -1681,4 +1681,69 @@ mod tests {
         );
         assert_eq!(session.snapshot(), before);
     }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn stop_cancelled_preparation_settles_without_revoking_consent() {
+        let (completed, _, _, _) = crate::worker::tests::drain_proof(1);
+        let path = completed.view.lock().unwrap().entries[0].path.clone();
+        drop(completed);
+        let (mut session, _, pipeline) = activation_resources(0, &path);
+        drop(pipeline);
+        let origin = session.graph_activation().unwrap().previous_binding.epochs;
+        let mut settings = Settings {
+            snapshot: session.snapshot(),
+            playing: false,
+        };
+        settings.snapshot.epochs = origin;
+        let stop = command(&session, "stop-before-output-opens", Command::Stop);
+        assert_eq!(
+            session.submit_graph(stop.clone(), 8).status,
+            ReceiptStatus::Accepted
+        );
+        let mut worker = Worker::spawn();
+        let entries = session.queue_snapshot().entries;
+        worker
+            .view
+            .lock()
+            .unwrap()
+            .publish(session.queue_snapshot());
+        worker
+            .send(Action::Start {
+                settings,
+                entries,
+                cancel: Arc::new(AtomicBool::new(true)),
+            })
+            .unwrap();
+        let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        let event = worker.events.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(matches!(
+            event,
+            Event::Failed {
+                error: EngineError {
+                    code: ErrorCode::OperationCancelled,
+                    ..
+                },
+                ..
+            }
+        ));
+        assert!(observation(&mut session, event, &clock).is_err());
+        worker
+            .send(Action::Stop(StopRequest {
+                request_id: stop.request_id.clone(),
+                settings: Settings {
+                    snapshot: session.snapshot(),
+                    playing: false,
+                },
+            }))
+            .unwrap();
+        let event = worker.events.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(matches!(event, Event::Stopped { .. }));
+        observation(&mut session, event, &clock).unwrap();
+        assert!(session.snapshot().output_consented);
+        assert!(session.snapshot().error.is_none());
+        assert_eq!(
+            session.submit_graph(stop, monotonic(&clock)).status,
+            ReceiptStatus::Applied
+        );
+    }
 }

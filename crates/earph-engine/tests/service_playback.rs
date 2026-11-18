@@ -359,6 +359,18 @@ fn executable_retains_invalid_graph_digests_over_ipc() {
         reused["receipt"]["error"]["message"], "request ID reused for different content",
         "{reused}"
     );
+    let mut oversized = controller.document(
+        json!({"method":"graph.commit","token":"candidate","graph_hash":"x".repeat(129)}),
+        None,
+    );
+    let rejected = controller.send(&oversized);
+    assert_eq!(
+        rejected["error"]["code"], "RESOURCE_BUDGET_EXCEEDED",
+        "{rejected}"
+    );
+    oversized["payload"] = json!({"method":"state.get"});
+    let reused = controller.send(&oversized);
+    assert_eq!(reused["receipt"]["status"], "applied", "{reused}");
     controller.apply(json!({"method":"owner.shutdown"}));
 }
 

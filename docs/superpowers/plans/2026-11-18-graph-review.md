@@ -150,6 +150,43 @@ Mac receipt wording now identifies producer-ring writes and derives the tail fro
 Core Audio acceptance and consumption remain unqualified.
 The parallel state owner is fixing pending transport identity and activation queue readiness.
 
+## Sixth review checkpoint
+
+Review `5958674967` identifies four reproduced gaps against `5cb9fdc`.
+Hardware qualification remains held until the fixes pass review and checks.
+Earlier hardware evidence keeps its original source binding.
+
+Bound graph digest retained capacity to 128 bytes before decoding admission or owner history.
+Keep bounded malformed digests on retained semantic rejection paths.
+Typed commands also check reserved String capacity, including short values with oversized allocations.
+Rejected oversized intent does not reserve a request ID.
+
+Stage activation readiness privately until the matching acknowledgement persists.
+Publish current-file facts and deferred next-entry facts in the same transition.
+Drop deferred readiness when activation fails.
+Prune removed entries before staging another fact to preserve the queue bound.
+Ordinary readiness updates keep their existing behavior.
+
+Treat preparation cancellation as successful Stop settlement.
+Keep genuine source errors even when Stop sets the shared cancellation flag.
+Keep requested Stop binding and installed graph identity unchanged.
+
+Give the native write-fault subprocess its own ALSA configuration.
+Use its explicit file PCM to reach `/dev/full` under custom ambient configurations.
+Preserve logs and partial artifacts without changing host configuration.
+
+Focused regressions reproduce each original gap before its fix.
+Real IPC verifies oversized rejection and request-ID reuse.
+The typed capacity regression reproduces retained oversized allocation separately.
+Core activation tests cover persistence failure, reserved counters, next entries, and queue churn.
+Real worker and host tests distinguish cancelled preparation from genuine source errors.
+The native subprocess regression passes under a minimal ambient ALSA configuration.
+The combined canonical check passes 400 tests, with two ignored and no failures.
+Formatting, strict workspace Clippy, requirement checks, and dependency checks pass.
+Independent main-model review approves the actual diff without material findings.
+The reviewer passes 134 Core tests, 62 engine tests, and the real IPC regression.
+Fresh platform qualification remains required for this source snapshot.
+
 ## Continuity
 
 PR: https://github.com/harperreed/earph/pull/2

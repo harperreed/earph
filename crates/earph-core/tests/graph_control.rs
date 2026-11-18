@@ -2,6 +2,70 @@
 // ABOUTME: Checks transaction authority, stale work, safety, and retained request identity.
 use earph_core::{control::*, ids::*, session::Session};
 
+fn digest_command(hash: String) -> CommandEnvelope {
+    CommandEnvelope {
+        schema_version: 1,
+        request_id: RequestId::new("digest-storage").unwrap(),
+        zone_id: ZoneId::new("main").unwrap(),
+        owner_id: None,
+        session_id: None,
+        expected_revision: Some(0),
+        payload: Command::GraphCommit {
+            token: PreparedGraphId::new("candidate").unwrap(),
+            graph_hash: hash,
+        },
+    }
+}
+
+#[test]
+fn oversized_digest_storage_rejects_wire_admission() {
+    let bytes = serde_json::to_vec(&digest_command("x".repeat(129))).unwrap();
+    assert_eq!(
+        decode_command(&bytes, &ControlLimits::default())
+            .unwrap_err()
+            .code,
+        earph_core::ErrorCode::ResourceBudgetExceeded
+    );
+    for length in [64, 65, 128] {
+        assert!(
+            decode_command(
+                &serde_json::to_vec(&digest_command("a".repeat(length))).unwrap(),
+                &ControlLimits::default()
+            )
+            .is_ok()
+        );
+    }
+}
+
+#[test]
+fn oversized_typed_digest_does_not_reserve_a_receipt() {
+    let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());
+    let mut command = digest_command("x".repeat(129));
+    let rejected = session.submit(command.clone());
+    assert_eq!(rejected.status, ReceiptStatus::Rejected);
+    command.payload = Command::State;
+    assert_eq!(session.submit(command).status, ReceiptStatus::Applied);
+    assert_eq!(
+        rejected.error.unwrap().code,
+        earph_core::ErrorCode::ResourceBudgetExceeded
+    );
+}
+
+#[test]
+fn typed_digest_storage_counts_reserved_string_capacity() {
+    let mut hash = String::with_capacity(129);
+    hash.push_str(&"a".repeat(64));
+    let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());
+    let rejected = session.submit(digest_command(hash));
+    let mut reused = digest_command(String::new());
+    reused.payload = Command::State;
+    assert_eq!(session.submit(reused).status, ReceiptStatus::Applied);
+    assert_eq!(
+        rejected.error.unwrap().code,
+        earph_core::ErrorCode::ResourceBudgetExceeded
+    );
+}
+
 #[test]
 fn bounded_invalid_graph_digests_retain_their_request_identity() {
     for hash in [

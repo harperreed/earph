@@ -561,14 +561,11 @@ impl Session {
                 )
             };
         }
-        let mut staged = self.clone();
         // Do not retain structurally oversized intent, including rejected commands.
-        if let Command::GraphPrepare { graph, .. } | Command::GraphValidate { graph, .. } =
-            &command.payload
-            && let Err(error) = graph.validate_storage()
-        {
+        if let Err(error) = command.validate_retained_storage() {
             return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
         }
+        let mut staged = self.clone();
         let result = staged.apply_command(&command, now_ns, expand);
         let receipt = match result {
             Ok(status) => {
@@ -1143,6 +1140,9 @@ impl Session {
     ) -> Result<(), EngineError> {
         if epochs != self.state.epochs {
             return Err(STALE);
+        }
+        if self.defer_graph_readiness(id, status)? {
+            return Ok(());
         }
         let sequence = self.next_session_event_sequence(false)?;
         self.queue.update_status(id, status)?;
