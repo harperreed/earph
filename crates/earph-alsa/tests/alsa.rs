@@ -3,6 +3,8 @@
 #![cfg(target_os = "linux")]
 use earph_alsa::*;
 use earph_core::{ErrorCode, audio::*, ids::Epochs};
+#[path = "../../earph-engine/tests/support/allocations.rs"]
+mod allocations;
 mod support;
 
 fn capture_native_error(test: &str, expected: &str) -> bool {
@@ -89,6 +91,22 @@ fn installed_formats_are_exact_and_opening_never_starts_output() {
                 assert_eq!(output.state(), OutputState::Stopped);
             }
         }
+    }
+}
+
+#[test]
+fn audio_storage_reports_the_live_packed_scratch_without_heap_work() {
+    for (representation, width) in [
+        (PcmRepresentation::Signed16, 2),
+        (PcmRepresentation::Signed24, 3),
+        (PcmRepresentation::Signed32, 4),
+    ] {
+        let mut output = AlsaOutput::open(request(representation), Epochs::default()).unwrap();
+        let (bytes, counts) = allocations::tracked(|| output.audio_storage_bytes().unwrap());
+        assert_eq!(bytes, 64 * 2 * width);
+        assert_eq!(counts, allocations::AllocationCounts::default());
+        output.stop().unwrap();
+        assert_eq!(output.audio_storage_bytes().unwrap(), bytes);
     }
 }
 

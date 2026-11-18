@@ -3,6 +3,41 @@
 use super::*;
 use crate::StreamFormat;
 use earph_core::audio::{ChannelLayout, MemoryBudget, PcmRepresentation};
+#[cfg(not(target_os = "macos"))]
+#[allow(unsafe_code)]
+#[path = "../../../earph-engine/tests/support/allocations.rs"]
+mod allocations;
+
+#[test]
+#[cfg(not(target_os = "macos"))]
+fn audio_storage_reports_the_actual_ring_once_without_heap_work() {
+    for (route, expected) in [
+        (PlaybackRoute::StrictInteger, 24),
+        (PlaybackRoute::Float32Compatibility, 32),
+    ] {
+        let mut output = CoreAudioOutput {
+            producer: producer(route),
+            report: OutputReport {
+                requested: request(route),
+                observed: device(),
+                evidence_level: "owned_ring_without_sdk",
+                payload_preservation: "unverified",
+                downstream_transformations: "unknown",
+            },
+            state: OutputState::Prepared,
+        };
+        let callback_owner = output.producer.ring.clone();
+        let (bytes, counts) = allocations::tracked(|| output.audio_storage_bytes().unwrap());
+        assert_eq!(bytes, expected);
+        assert_eq!(counts, allocations::AllocationCounts::default());
+        assert_eq!(
+            bytes as usize,
+            callback_owner.bytes.len() * size_of::<AtomicU8>()
+        );
+        output.close().unwrap();
+        assert_eq!(output.audio_storage_bytes().unwrap(), expected);
+    }
+}
 
 fn request(route: PlaybackRoute) -> OutputRequest {
     OutputRequest {

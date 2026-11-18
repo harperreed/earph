@@ -225,6 +225,16 @@ struct Ring {
     rendering: AtomicBool,
 }
 impl Ring {
+    fn audio_storage_bytes(&self) -> Result<u64, CoreAudioError> {
+        self.bytes
+            .len()
+            .checked_mul(size_of::<AtomicU8>())
+            .and_then(|bytes| u64::try_from(bytes).ok())
+            .ok_or(error(
+                ErrorCode::ResourceBudgetExceeded,
+                "audio storage count exceeds u64",
+            ))
+    }
     #[cfg(any(target_os = "macos", test))]
     fn new(frames: u32, frame_bytes: usize) -> Result<Self, CoreAudioError> {
         let fault = FAULT_SIGNALS.reserve()?;
@@ -500,6 +510,10 @@ impl CoreAudioOutput {
     }
     pub fn report(&self) -> &OutputReport {
         &self.report
+    }
+    /// Actual Rust-owned audio capacity, excluding metadata, allocator overhead, and SDK storage.
+    pub fn audio_storage_bytes(&self) -> Result<u64, CoreAudioError> {
+        self.producer.ring.audio_storage_bytes()
     }
     pub fn state(&self) -> OutputState {
         if self.producer.ring.fault.load(Ordering::Acquire) != 0 {

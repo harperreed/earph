@@ -71,6 +71,9 @@ impl NativeOutput {
     }
 }
 impl Output for NativeOutput {
+    fn audio_storage_bytes(&self) -> Result<u64, EngineError> {
+        self.native.audio_storage_bytes().map_err(error)
+    }
     fn is_running(&self) -> bool {
         self.native.state() == OutputState::Running
     }
