@@ -1,9 +1,6 @@
 // ABOUTME: Checks partitioned convolution against independent direct time-domain sums.
 // ABOUTME: Exercises exact stream lengths, channel isolation, and prepared ownership offline.
-#[path = "../src/convolution.rs"]
-mod convolution;
-
-use convolution::{ConvolutionError, PreparedConvolution};
+use earph_dsp::convolution::{self, ConvolutionError, PreparedConvolution};
 
 fn reference(input: &[f64], taps: &[Vec<f64>]) -> Vec<f64> {
     let channels = taps.len();

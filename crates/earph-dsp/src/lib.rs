@@ -2,6 +2,7 @@
 // ABOUTME: Keeps graph compilation independent from the session authority.
 #![forbid(unsafe_code)]
 mod compile;
+pub mod convolution;
 mod model;
 pub mod peq;
 mod runtime;
