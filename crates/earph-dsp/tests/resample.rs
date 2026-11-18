@@ -1,7 +1,97 @@
 // ABOUTME: Exercises bounded streaming SRC through the pinned real library.
 // ABOUTME: Checks joins, priming, padding, faults, drift, and requested allocations offline.
 use earph_core::{audio::ChannelLayout, dsp_nodes::SrcPreset};
-use earph_dsp::resample::{self, PreparedSrc, SrcError};
+use earph_dsp::resample::{self, PreparedSrc, SrcDesign, SrcError};
+
+#[test]
+fn design_preflight_admits_full_construction_before_resolving_coefficients() {
+    let (resources, counts) = measured(|| {
+        SrcDesign::resource_requirements(
+            48000,
+            44100,
+            ChannelLayout::Stereo,
+            64,
+            SrcPreset::Quality,
+        )
+        .unwrap()
+    });
+    assert_eq!(counts.allocs, 0);
+    assert_eq!(counts.frees, 0);
+    assert!(resources.preparation_peak_bytes > 4 << 20);
+    let (result, counts) = measured(|| {
+        SrcDesign::analyze(
+            48000,
+            44100,
+            ChannelLayout::Stereo,
+            64,
+            SrcPreset::Quality,
+            resources.preparation_peak_bytes - 1,
+        )
+    });
+    assert!(matches!(result, Err(SrcError::Budget)));
+    assert_eq!(counts.allocs, 0);
+    assert_eq!(counts.frees, 0);
+    let design = SrcDesign::analyze(
+        48000,
+        44100,
+        ChannelLayout::Stereo,
+        64,
+        SrcPreset::Quality,
+        resources.preparation_peak_bytes,
+    )
+    .unwrap();
+    let mut kernel = design
+        .instantiate(resources.preparation_peak_bytes)
+        .unwrap();
+    let signal = [1.0, -1.0, 0.25, 0.5];
+    let rendered = render(&mut kernel, &signal, 1, 3);
+    assert!(rendered.iter().any(|x| x.abs() > 0.1));
+    assert_eq!(kernel.stats().real_input_frames, 2);
+    assert_eq!(
+        kernel.metadata().resources.resident_bytes,
+        resources.resident_bytes
+    );
+    assert!(
+        design.peak_bound(1.0).unwrap() >= rendered.iter().map(|x| x.abs()).fold(0.0, f64::max)
+    );
+}
+
+#[test]
+fn fingerprints_bind_coefficients_and_processing_parameters() {
+    let a = SrcDesign::analyze(
+        48000,
+        44100,
+        ChannelLayout::Mono,
+        64,
+        SrcPreset::Quality,
+        16 << 20,
+    )
+    .unwrap();
+    let b = SrcDesign::analyze(
+        48000,
+        44100,
+        ChannelLayout::Mono,
+        128,
+        SrcPreset::Quality,
+        16 << 20,
+    )
+    .unwrap();
+    let c = SrcDesign::analyze(
+        48000,
+        44100,
+        ChannelLayout::Mono,
+        64,
+        SrcPreset::Responsive,
+        16 << 20,
+    )
+    .unwrap();
+    assert_eq!(a.coefficient_fingerprint(), b.coefficient_fingerprint());
+    assert_ne!(a.parameter_fingerprint(), b.parameter_fingerprint());
+    assert_ne!(a.coefficient_fingerprint(), c.coefficient_fingerprint());
+    assert_ne!(a.parameter_fingerprint(), c.parameter_fingerprint());
+    assert_eq!(a.peak_bound(f64::NAN), Err(SrcError::NonFinite));
+    assert_eq!(a.peak_bound(f64::MAX), Err(SrcError::InputPeak));
+}
 
 fn prepare(chunk: usize, preset: SrcPreset) -> PreparedSrc {
     PreparedSrc::prepare(48000, 44100, ChannelLayout::Stereo, chunk, preset, 16 << 20).unwrap()

@@ -19,6 +19,7 @@ use rubato::{
     Adjustable, Async, FixedAsync, Indexing, Resampler, SincInterpolationParameters,
     SincInterpolationType, WindowFunction,
 };
+use sha2::{Digest, Sha256};
 
 pub const ALGORITHM_VERSION: &str = "earph-rubato-5.1.0-guarded-sinc-v1";
 pub const UPSTREAM_COMMIT: &str = "f8711e2252a419a8f61d5dfe378c9f0da6b2ba7e";
@@ -63,7 +64,7 @@ pub struct SrcStats {
     /// Ordered fingerprint of accepted ppm/ramp commands and their historical call positions.
     pub ratio_history_hash: u64,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SrcResources {
     /// Conservative requested allocation bytes; excludes allocator overhead and process RSS.
     pub resident_bytes: u64,
@@ -130,6 +131,70 @@ enum State {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SrcGeometry {
+    input_rate: u32,
+    output_rate: u32,
+    channels: ChannelLayout,
+    chunk_frames: usize,
+    preset: SrcPreset,
+    length: usize,
+    output_bound: usize,
+    resources: SrcResources,
+}
+impl SrcGeometry {
+    fn new(
+        input_rate: u32,
+        output_rate: u32,
+        channels: ChannelLayout,
+        chunk_frames: usize,
+        preset: SrcPreset,
+    ) -> Result<Self, SrcError> {
+        if !rate_pair_supported(input_rate, output_rate) {
+            return Err(SrcError::RatePair);
+        }
+        if !CHUNKS.contains(&chunk_frames) {
+            return Err(SrcError::Geometry);
+        }
+        let length = match preset {
+            SrcPreset::Quality => 1024,
+            SrcPreset::Responsive => 256,
+        };
+        let output_bound = u64::try_from(chunk_frames)
+            .map_err(|_| SrcError::Arithmetic)?
+            .checked_mul(u64::from(output_rate))
+            .and_then(|n| n.checked_mul(1000))
+            .ok_or(SrcError::Arithmetic)?
+            .div_ceil(u64::from(input_rate) * 999)
+            .checked_add(10)
+            .ok_or(SrcError::Arithmetic)?;
+        let output_bound = usize::try_from(output_bound).map_err(|_| SrcError::Arithmetic)?;
+        let resources = resource_bounds(length, chunk_frames, channels.count(), output_bound)?;
+        Ok(Self {
+            input_rate,
+            output_rate,
+            channels,
+            chunk_frames,
+            preset,
+            length,
+            output_bound,
+            resources,
+        })
+    }
+}
+
+/// Immutable coefficient facts resolved outside processing. Analysis allocates a temporary table.
+#[derive(Debug, Clone, Copy)]
+pub struct SrcDesign {
+    geometry: SrcGeometry,
+    cutoff: Option<f32>,
+    peak_gain: f64,
+    underflow_allowance: f64,
+    maximum_input_magnitude: f64,
+    coefficient_fingerprint: [u8; 32],
+    parameter_fingerprint: [u8; 32],
+}
+
 pub struct PreparedSrc {
     library: Async<f64>,
     input: Vec<Vec<f64>>,
@@ -145,8 +210,18 @@ pub struct PreparedSrc {
     target_ratio: f64,
     requested_ppm: f64,
 }
-impl PreparedSrc {
-    pub fn prepare(
+impl SrcDesign {
+    /// Check complete requested construction bytes without allocating or resolving coefficients.
+    pub fn resource_requirements(
+        input_rate: u32,
+        output_rate: u32,
+        channels: ChannelLayout,
+        chunk_frames: usize,
+        preset: SrcPreset,
+    ) -> Result<SrcResources, SrcError> {
+        Ok(SrcGeometry::new(input_rate, output_rate, channels, chunk_frames, preset)?.resources)
+    }
+    pub fn analyze(
         input_rate: u32,
         output_rate: u32,
         channels: ChannelLayout,
@@ -154,27 +229,10 @@ impl PreparedSrc {
         preset: SrcPreset,
         byte_budget: u64,
     ) -> Result<Self, SrcError> {
-        if !rate_pair_supported(input_rate, output_rate) {
-            return Err(SrcError::RatePair);
-        }
-        if !CHUNKS.contains(&chunk_frames) {
-            return Err(SrcError::Geometry);
-        }
-        let length = match preset {
-            SrcPreset::Quality => 1024,
-            SrcPreset::Responsive => 256,
-        };
-        let h = channels.count();
-        let output_bound = u64::try_from(chunk_frames)
-            .map_err(|_| SrcError::Arithmetic)?
-            .checked_mul(u64::from(output_rate))
-            .and_then(|n| n.checked_mul(1000))
-            .ok_or(SrcError::Arithmetic)?
-            .div_ceil(u64::from(input_rate) * 999)
-            .checked_add(10)
-            .ok_or(SrcError::Arithmetic)?;
-        let output_bound = usize::try_from(output_bound).map_err(|_| SrcError::Arithmetic)?;
-        let resources = resource_bounds(length, chunk_frames, h, output_bound)?;
+        let geometry = SrcGeometry::new(input_rate, output_rate, channels, chunk_frames, preset)?;
+        let SrcGeometry {
+            length, resources, ..
+        } = geometry;
         if resources.preparation_peak_bytes > byte_budget {
             return Err(SrcError::Budget);
         }
@@ -192,6 +250,7 @@ impl PreparedSrc {
             None
         };
         // This temporary immutable table never overlaps Async's coefficient construction.
+        let mut coefficients = Sha256::new();
         let (peak_gain, underflow_allowance, maximum_input_magnitude) = {
             let table = make_interpolator::<f64>(
                 length,
@@ -208,6 +267,7 @@ impl PreparedSrc {
                         return Err(SrcError::Numerical);
                     }
                     sum = (sum + value.abs()).next_up();
+                    coefficients.update(value.to_bits().to_le_bytes());
                 }
                 maximum = maximum.max(sum);
             }
@@ -227,6 +287,100 @@ impl PreparedSrc {
             }
             (gain, floor, input_limit)
         };
+        let coefficient_fingerprint: [u8; 32] = coefficients.finalize().into();
+        let mut parameters = Sha256::new();
+        parameters.update(ALGORITHM_VERSION.as_bytes());
+        parameters.update(UPSTREAM_COMMIT.as_bytes());
+        for word in [
+            u64::from(input_rate),
+            u64::from(output_rate),
+            channels.count() as u64,
+            chunk_frames as u64,
+            length as u64,
+            PHASES as u64,
+            u64::from(
+                cutoff
+                    .unwrap_or_else(|| {
+                        rubato::calculate_cutoff::<f32>(length, WindowFunction::BlackmanHarris2)
+                    })
+                    .to_bits(),
+            ),
+            u64::from(cutoff.is_some()),
+        ] {
+            parameters.update(word.to_le_bytes());
+        }
+        parameters.update(coefficient_fingerprint);
+        Ok(Self {
+            geometry,
+            cutoff,
+            peak_gain,
+            underflow_allowance,
+            maximum_input_magnitude,
+            coefficient_fingerprint,
+            parameter_fingerprint: parameters.finalize().into(),
+        })
+    }
+    pub fn input_rate(&self) -> u32 {
+        self.geometry.input_rate
+    }
+    pub fn output_rate(&self) -> u32 {
+        self.geometry.output_rate
+    }
+    pub fn channels(&self) -> ChannelLayout {
+        self.geometry.channels
+    }
+    pub fn chunk_frames(&self) -> usize {
+        self.geometry.chunk_frames
+    }
+    pub fn max_output_frames(&self) -> usize {
+        self.geometry.output_bound
+    }
+    pub fn resources(&self) -> SrcResources {
+        self.geometry.resources
+    }
+    pub fn coefficient_fingerprint(&self) -> [u8; 32] {
+        self.coefficient_fingerprint
+    }
+    pub fn parameter_fingerprint(&self) -> [u8; 32] {
+        self.parameter_fingerprint
+    }
+    pub fn peak_bound(&self, input_peak: f64) -> Result<f64, SrcError> {
+        if !input_peak.is_finite() || input_peak < 0.0 {
+            return Err(SrcError::NonFinite);
+        }
+        if input_peak > self.maximum_input_magnitude {
+            return Err(SrcError::InputPeak);
+        }
+        let bound = ((self.peak_gain * input_peak).next_up() + self.underflow_allowance).next_up();
+        if bound.is_finite() {
+            Ok(bound)
+        } else {
+            Err(SrcError::Numerical)
+        }
+    }
+    pub fn instantiate(self, byte_budget: u64) -> Result<PreparedSrc, SrcError> {
+        let SrcGeometry {
+            input_rate,
+            output_rate,
+            channels,
+            chunk_frames,
+            preset,
+            length,
+            output_bound,
+            resources,
+        } = self.geometry;
+        if resources.preparation_peak_bytes > byte_budget {
+            return Err(SrcError::Budget);
+        }
+        let Self {
+            cutoff,
+            peak_gain,
+            underflow_allowance,
+            maximum_input_magnitude,
+            ..
+        } = self;
+        let ratio = f64::from(output_rate) / f64::from(input_rate);
+        let h = channels.count();
         let mut parameters =
             SincInterpolationParameters::new(length, WindowFunction::BlackmanHarris2)
                 .oversampling_factor(PHASES)
@@ -269,7 +423,7 @@ impl PreparedSrc {
             envelope: measured_envelope(input_rate, output_rate, preset),
             resources,
         };
-        Ok(Self {
+        Ok(PreparedSrc {
             library,
             input: vec![vec![0.0; chunk_frames]; h],
             output: vec![vec![0.0; output_bound]; h],
@@ -284,6 +438,26 @@ impl PreparedSrc {
             target_ratio: ratio,
             requested_ppm: 0.0,
         })
+    }
+}
+impl PreparedSrc {
+    pub fn prepare(
+        input_rate: u32,
+        output_rate: u32,
+        channels: ChannelLayout,
+        chunk_frames: usize,
+        preset: SrcPreset,
+        byte_budget: u64,
+    ) -> Result<Self, SrcError> {
+        SrcDesign::analyze(
+            input_rate,
+            output_rate,
+            channels,
+            chunk_frames,
+            preset,
+            byte_budget,
+        )?
+        .instantiate(byte_budget)
     }
     pub fn metadata(&self) -> SrcMetadata {
         self.metadata
