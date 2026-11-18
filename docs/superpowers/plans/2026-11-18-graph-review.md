@@ -43,7 +43,18 @@ Thirty engine unit scenarios, ten real playback scenarios, and twelve owner/stor
 Independent review verified the combined contracts and their focused corrections.
 It found no remaining Important or Critical issues in this scope.
 The integrated Linux canonical check passes before the final documentation updates.
-Root is freezing the source and rerunning the final check before native qualification and shipping.
+The frozen runtime commit is `cbc2785bbe8c9d4fbfcf0ccb5988185e822b60ce`.
+The final Linux canonical check passes 338 tests, with two ignored.
+The Mac canonical check passes 315 tests, with two ignored.
+Its separate eleven-test silent SDK recheck overlaps canonical coverage.
+One approved attenuated graph exercise passes on each selected route.
+Linux submits 48000 source frames plus seven tail frames.
+Mac submits 24000 source frames plus three tail frames.
+Root verifies the raw counts, log hashes, source hashes, and unchanged recorded settings.
+Mac verification covers 62 raw artifacts and 1448 archived source inputs.
+Two muted Mac graph swaps report current playback observations without submitting samples.
+Redacted review receipts now live under `docs/evidence/dsp/`.
+Push, remote feedback resolution, and merge remain pending.
 
 Closing-source readiness now survives resume attempts and ordinary receipt rotation.
 Activation reserves its final event slot across source, queue, resource, and command updates.

@@ -99,10 +99,13 @@ A malformed checkpoint stops startup and remains available for inspection.
 
 Mutations stage a copy of the authoritative session.
 The owner writes and syncs a private temporary checkpoint before atomic rename and directory sync.
+It records pending and settled recovery states around checkpoint replacement.
+Startup reconciles the recovery record before restoring graph intent.
 Only a successful durable commit publishes the staged session and an applied receipt.
 A storage failure returns a failed receipt and stops the owner.
 The persisted outcome can be uncertain if the final directory sync fails.
 Reinspect the checkpoint after restarting before issuing another mutation.
+See [checkpoint recovery](../../docs/operational-storage.md) for the bounded uncertainty contract.
 
 The session retains at most 1024 command receipts in memory.
 Use a fresh request ID for each fresh read.

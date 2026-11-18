@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "approved_single_route_attenuated_graph_signal",
+  "route": "redacted",
+  "output_route": "direct_hardware",
+  "fidelity_policy": "compatible_conversion",
+  "identity_and_format_refreshed": true,
+  "requested_format_and_period_observed": true,
+  "format": {
+    "channels": "stereo",
+    "representation": "signed16",
+    "sample_rate_hz": 48000
+  },
+  "period_frames": 256,
+  "buffer_frames": 1024,
+  "generated_signal_seconds": 1,
+  "signal_attempts": 1,
+  "configured_software_gain_db": -40.0,
+  "ramp_frames": 960,
+  "graph": {
+    "gain_linear": 0.5,
+    "integer_delay_frames": 7,
+    "precision": "float64",
+    "quantum_frames": 256,
+    "graph_epoch": 1,
+    "graph_hash": "0de1faa3293de7cef1ead2c106bc015fa3cee0891cf9734bf738eec556657351",
+    "kernel_hash": "60d14e6dc238f5a3f861defe1b5f742a25fc57bb8c77b0d2242b81660d4de71a",
+    "implementation_version": "earph-dsp/0.1.0/compiler-2",
+    "preservation": "process_float64",
+    "transformations": [
+      {
+        "kind": "integer_to_float64"
+      },
+      {
+        "kind": "kernel",
+        "transformation": {
+          "kind": "delay",
+          "node": "delay"
+        }
+      },
+      {
+        "kind": "kernel",
+        "transformation": {
+          "kind": "gain",
+          "node": "gain"
+        }
+      },
+      {
+        "kind": "software_volume"
+      },
+      {
+        "kind": "quantization",
+        "policy": "round_ties_away_saturate_no_dither"
+      }
+    ],
+    "latency_frames": 7,
+    "declared_tail_frames": 7,
+    "actual_submitted_tail_frames": 7,
+    "saturation_count": 0,
+    "activation_frame": 0,
+    "active_before_unmute": true,
+    "preparation_and_activation_muted": true,
+    "explicit_unmute_after_inspection": true,
+    "recovery_required": false,
+    "final_service": {
+      "pending_retirements": 0,
+      "preparing_or_candidate": false,
+      "resident_bytes": 0
+    }
+  },
+  "generated_source_frames": 48000,
+  "observed_source_position_frames": 48000,
+  "submitted_frames": 48007,
+  "consumed_estimate_frames": 48007,
+  "consumption_basis": "alsa_client_estimate",
+  "backend_delay_frames": 0,
+  "backend_measurement_boundary": "alsa_client_negotiation",
+  "backend_preservation": "unverified",
+  "modified": true,
+  "completion": "idle",
+  "error": null,
+  "source_unchanged": true,
+  "mixer_unchanged": true,
+  "endpoint_closed_after_shutdown": true,
+  "fallback_attempted": false,
+  "mixer_changes_requested": false,
+  "evidence_level": "exercised",
+  "physical_consumption": "unverified",
+  "digital_preservation": "unverified",
+  "dac_preservation": "unverified",
+  "acoustic_measurement": "not_run",
+  "workspace_build_provenance": {
+    "commit": "cbc2785bbe8c9d4fbfcf0ccb5988185e822b60ce",
+    "dependency_lock_sha256": "411273dfa7d7db901ddace51fedcb2e6d8875459cea21ce57f07610c6a2e41fc",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": false,
+    "source_inputs_sha256": "3008c4d29dd3ec00b3a83737a247e09a449e9c56b62f6625b5563c283f9523c5",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "provenance_boundary": "same_locked_workspace_build_with_engine_executable_digest",
+  "engine_executable_sha256": "946008614617fef1f3e9f2b40a34271f94147ecd369fd392eff2c3e0d49890fc",
+  "generated_source_sha256": "239ad12cbb066438a3ed30a3d93c84ce85aebf2ffddc3e315310658789577f33",
+  "source_inputs_before_sha256": "3008c4d29dd3ec00b3a83737a247e09a449e9c56b62f6625b5563c283f9523c5",
+  "source_inputs_after_sha256": "3008c4d29dd3ec00b3a83737a247e09a449e9c56b62f6625b5563c283f9523c5"
+}
