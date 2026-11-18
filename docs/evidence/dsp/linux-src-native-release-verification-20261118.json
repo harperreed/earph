@@ -1,0 +1,21 @@
+{
+  "status": "pass",
+  "scope": "one_selected_ALSA_client_path_SRC_FIR_PEQ_release_playback",
+  "commit": "7594910b4ae644ccfbde0ad1b306879bc311a5b9",
+  "source_inputs_sha256": "7594a1440a436d19f7b3c9e6ab8fca923b3b14b74ee50b35bef8698d1411ba3e",
+  "receipt_sha256": "9097f99bfbcfe71a9855a8e38559867b3a2dc38c827857d9b87da765ff2fb887",
+  "artifact_manifest_sha256": "ae31a7e3bb6800cd056f0ee12e81f1d50ffc37fdf9f4acfbc00d1012877f3329",
+  "verified_files": 240,
+  "signal_attempts": 1,
+  "accepted_source_frames": 24000,
+  "generated_output_frames": 26313,
+  "accepted_native_client_frames": 26313,
+  "master_gain_db": -44,
+  "independent_cap_db": -40,
+  "saturation_count": 0,
+  "owner_exit_code": 0,
+  "endpoint_closed": true,
+  "retirement_complete": true,
+  "source_and_mixer_unchanged": true,
+  "dac_or_acoustic_verified": false
+}
