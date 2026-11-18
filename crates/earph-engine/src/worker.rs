@@ -450,10 +450,10 @@ impl Playback {
     fn format(&self) -> PcmFormat {
         self.current.file.format()
     }
-    fn graph_latency(&self) -> u64 {
+    fn graph_latency(&self) -> Option<u64> {
         self.pipeline
             .as_ref()
-            .map_or(0, |p| p.preview().latency_frames)
+            .map_or(Some(0), |p| p.preview().timing.latency_frames())
     }
     fn native_period(&self) -> &PcmBlock {
         self.pipeline
@@ -600,7 +600,10 @@ impl Playback {
         let audible = (!filter_phase)
             .then_some(counters.consumed)
             .flatten()
-            .and_then(|position| position.checked_sub(self.graph_latency()))
+            .and_then(|position| {
+                self.graph_latency()
+                    .and_then(|latency| position.checked_sub(latency))
+            })
             .and_then(|position| {
                 self.spans
                     .iter()
@@ -632,8 +635,7 @@ impl Playback {
                         })
                     }),
                     graph_hash: p.preview().graph_hash.clone(),
-                    latency_frames: p.preview().latency_frames,
-                    tail_frames: p.preview().tail_frames,
+                    timing: p.preview().timing.playback_timing(),
                     saturation_count: self.saturation_count,
                     graph_peak: self.graph_peak,
                     prequantization_peak: self.prequantization_peak,
@@ -676,7 +678,10 @@ impl Playback {
                     ErrorCode::CapabilityUnsupported,
                     "pause requires a known backend restart boundary",
                 ))?
-                .saturating_sub(self.graph_latency());
+                .saturating_sub(self.graph_latency().ok_or(EngineError::new(
+                    ErrorCode::CapabilityUnsupported,
+                    "streaming timing has no source rewind projection",
+                ))?);
             let span = self
                 .spans
                 .iter()

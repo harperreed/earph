@@ -10,6 +10,60 @@ use earph_dsp::stream::{PreparedStream, StreamBudget};
 use earph_dsp::*;
 use std::sync::{Arc, atomic::AtomicBool};
 
+#[test]
+fn actual_compiler_facts_validate_as_streaming_core_timing_and_share_progress_storage() {
+    use earph_core::{graph_control::*, ids::*};
+    let context = context(48000, 48000);
+    let plan = compile_stream(&serial(), &context, &[], StreamBudget::default()).unwrap();
+    let stages = plan.stage_metadata();
+    let bounds = plan.output_peak_bounds().to_vec();
+    let source = PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
+    let preview = GraphPreview {
+        backend: None,
+        graph_hash: plan.content_hash().into(),
+        kernel_hash: plan.content_hash().into(),
+        implementation_version: plan.implementation_version().into(),
+        binding: GraphBinding {
+            owner_id: OwnerId::new("owner").unwrap(),
+            session_id: SessionId::new("session").unwrap(),
+            epochs: Epochs::default(),
+            device_epoch: 0,
+            expected_revision: 1,
+        },
+        source_format: source,
+        native_output_format: source,
+        processing_input_format: context.input_format,
+        processing_output_format: context.output_format,
+        quantum_frames: 64,
+        timing: GraphTiming::Streaming {
+            stages: stages.clone(),
+        },
+        preservation: PreservationDecision::ProcessFloat64,
+        transformations: vec![],
+        resources: GraphResidentUsage {
+            aggregate_peak_bytes: plan.resources().preparation_peak_bytes,
+            ..GraphResidentUsage::default()
+        },
+        channel_peak_bounds: bounds.clone(),
+        required_headroom_db: 20.0 * bounds.into_iter().fold(1.0, f64::max).log10(),
+        transition: GraphTransition::MutedRebuffer,
+    };
+    preview.validate().unwrap();
+    let (timing, allocations) = measured(|| preview.timing.playback_timing());
+    assert_eq!(allocations.live, 0);
+    assert_eq!(allocations.peak, 0);
+    let PlaybackTiming::Streaming { stages: observed } = timing else {
+        panic!("streaming timing lost")
+    };
+    assert!(Arc::ptr_eq(&stages, &observed));
+    let (_, runtime) = render(plan, &[0.25, -0.25]);
+    drop(runtime);
+    assert_eq!(
+        serde_json::to_value(&preview).unwrap()["timing_kind"],
+        "streaming"
+    );
+}
+
 fn context(input: u32, output: u32) -> CompileContext {
     CompileContext {
         input_format: PcmFormat::new(input, ChannelLayout::Stereo, PcmRepresentation::Float64)

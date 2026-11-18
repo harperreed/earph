@@ -2,17 +2,17 @@
 // ABOUTME: Keeps platform resources and compiled kernels outside session state.
 use crate::{
     EngineError, ErrorCode,
-    audio::PcmFormat,
+    audio::{PcmFormat, PcmRepresentation},
     dsp_nodes::SrcParameters,
     graph::{
-        Edge, GraphDocument, GraphProcessingRequest, PreservationDecision, QuantizationPolicy,
-        Transformation,
+        Edge, GraphDocument, GraphProcessingRequest, MAX_GRAPH_NODES, PreservationDecision,
+        QuantizationPolicy, Transformation,
     },
     ids::*,
     session::{BackendObservation, ObservedSampleRepresentation, PlaybackObservation},
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 pub const GRAPH_COMMAND_BYTES: usize = 128 * 1024;
 pub const GRAPH_TOKEN_TTL_NS: u64 = 30_000_000_000;
@@ -113,6 +113,200 @@ pub struct CompiledStreamStage {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "timing_kind", rename_all = "snake_case")]
+pub enum GraphTiming {
+    SameRate {
+        latency_frames: u64,
+        tail_frames: u64,
+        tail_policy: GraphTailPolicy,
+        terminal_output_bounds: Vec<f64>,
+        node_tails: Vec<FilterTailObservation>,
+    },
+    Streaming {
+        stages: Arc<[CompiledStreamStage]>,
+    },
+}
+/// Compact progress facts. Streaming observers share the preview's immutable stage array.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "timing_kind", rename_all = "snake_case")]
+pub enum PlaybackTiming {
+    SameRate {
+        latency_frames: u64,
+        tail_frames: u64,
+    },
+    Streaming {
+        stages: Arc<[CompiledStreamStage]>,
+    },
+}
+impl GraphTiming {
+    pub fn latency_frames(&self) -> Option<u64> {
+        match self {
+            Self::SameRate { latency_frames, .. } => Some(*latency_frames),
+            Self::Streaming { .. } => None,
+        }
+    }
+    pub fn tail_frames(&self) -> Option<u64> {
+        match self {
+            Self::SameRate { tail_frames, .. } => Some(*tail_frames),
+            Self::Streaming { .. } => None,
+        }
+    }
+    pub fn playback_timing(&self) -> PlaybackTiming {
+        match self {
+            Self::SameRate {
+                latency_frames,
+                tail_frames,
+                ..
+            } => PlaybackTiming::SameRate {
+                latency_frames: *latency_frames,
+                tail_frames: *tail_frames,
+            },
+            Self::Streaming { stages } => PlaybackTiming::Streaming {
+                stages: stages.clone(),
+            },
+        }
+    }
+    fn valid(
+        &self,
+        input: PcmFormat,
+        output: PcmFormat,
+        bounds: &[f64],
+        aggregate_peak_bytes: u64,
+    ) -> bool {
+        match self {
+            Self::SameRate {
+                tail_frames,
+                terminal_output_bounds,
+                node_tails,
+                ..
+            } => {
+                input.sample_rate_hz() == output.sample_rate_hz()
+                    && terminal_bounds(terminal_output_bounds, output)
+                    && node_tails.len() <= MAX_GRAPH_NODES
+                    && node_tails.iter().all(|node| {
+                        node.horizon_frames <= *tail_frames
+                            && node.terminal_output_bounds.len() == node.channels.count()
+                            && node
+                                .terminal_output_bounds
+                                .iter()
+                                .all(|bound| bound.is_finite() && *bound >= 0.0)
+                    })
+            }
+            Self::Streaming { stages } => {
+                streaming_facts_valid(stages, input, output, bounds, aggregate_peak_bytes)
+            }
+        }
+    }
+}
+fn peak_bounds(bounds: &[f64], format: PcmFormat) -> bool {
+    bounds.len() == format.channels().count()
+        && bounds
+            .iter()
+            .all(|bound| bound.is_finite() && *bound >= 0.0)
+}
+fn terminal_bounds(bounds: &[f64], format: PcmFormat) -> bool {
+    peak_bounds(bounds, format) && bounds.iter().all(|bound| *bound <= 1e-12)
+}
+fn streaming_facts_valid(
+    stages: &[CompiledStreamStage],
+    input: PcmFormat,
+    output: PcmFormat,
+    bounds: &[f64],
+    aggregate_peak_bytes: u64,
+) -> bool {
+    if stages.is_empty()
+        || stages.len() > MAX_GRAPH_NODES
+        || stages[0].input_format != input
+        || stages[stages.len() - 1].output_format != output
+        || stages[stages.len() - 1].output_peak_bounds != bounds
+    {
+        return false;
+    }
+    let mut nodes = BTreeSet::new();
+    let mut has_src = false;
+    for (index, stage) in stages.iter().enumerate() {
+        if stage.original_nodes.is_empty()
+            || stage.original_nodes.len() > MAX_GRAPH_NODES
+            || stage.original_nodes.iter().any(|node| !nodes.insert(node))
+            || nodes.len() > MAX_GRAPH_NODES
+            || stage.input_format.representation() != PcmRepresentation::Float64
+            || stage.output_format.representation() != PcmRepresentation::Float64
+            || !peak_bounds(&stage.input_peak_bounds, stage.input_format)
+            || !peak_bounds(&stage.output_peak_bounds, stage.output_format)
+        {
+            return false;
+        }
+        if index > 0 {
+            let previous = &stages[index - 1];
+            if previous.output_format != stage.input_format
+                || previous
+                    .output_peak_bounds
+                    .iter()
+                    .zip(&stage.input_peak_bounds)
+                    .any(|(actual, admitted)| actual > admitted)
+            {
+                return false;
+            }
+        }
+        match &stage.kind {
+            CompiledStreamStageKind::Island {
+                kernel_hash,
+                bounded_iir_truncation,
+                terminal_output_bounds,
+                ..
+            } => {
+                if !valid_graph_hash(kernel_hash)
+                    || stage.input_format.sample_rate_hz() != stage.output_format.sample_rate_hz()
+                    || *bounded_iir_truncation && index + 1 != stages.len()
+                    || !terminal_bounds(terminal_output_bounds, stage.output_format)
+                {
+                    return false;
+                }
+            }
+            CompiledStreamStageKind::Src {
+                parameters,
+                guard_time_denominator,
+                maximum_adapter_finish_output_frames,
+                ..
+            } => {
+                has_src = true;
+                if !src_facts_valid(parameters, stage.input_format, stage.output_format)
+                    || parameters.resources.preparation_peak_bytes > aggregate_peak_bytes
+                    || *guard_time_denominator != parameters.input_rate
+                    || *maximum_adapter_finish_output_frames < parameters.max_output_frames as u64
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    has_src
+}
+fn src_facts_valid(parameters: &SrcParameters, input: PcmFormat, output: PcmFormat) -> bool {
+    parameters.input_rate == input.sample_rate_hz()
+        && parameters.output_rate == output.sample_rate_hz()
+        && parameters.channels == input.channels()
+        && parameters.channels == output.channels()
+        && (1..=8192).contains(&parameters.chunk_frames)
+        && (1..=8192).contains(&parameters.max_output_frames)
+        && parameters.filter_length > 0
+        && parameters.phases > 0
+        && parameters.drain_zero_calls > 0
+        && parameters.guard_time_numerator > 0
+        && parameters.pre_scaling_cutoff.is_finite()
+        && parameters.pre_scaling_cutoff > 0.0
+        && parameters.pre_scaling_cutoff <= 1.0
+        && parameters
+            .explicit_pre_scaling_cutoff
+            .is_none_or(|cutoff| cutoff == parameters.pre_scaling_cutoff)
+        && parameters.library_max_relative_ratio.is_finite()
+        && parameters.library_max_relative_ratio >= 1.0
+        && parameters.resources.resident_bytes > 0
+        && parameters.resources.preparation_peak_bytes >= parameters.resources.resident_bytes
+        && parameters.resources.preparation_peak_bytes <= 256 * 1024 * 1024
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GraphPreview {
     pub backend: Option<BackendObservation>,
     pub graph_hash: String,
@@ -125,11 +319,8 @@ pub struct GraphPreview {
     pub processing_input_format: PcmFormat,
     pub processing_output_format: PcmFormat,
     pub quantum_frames: usize,
-    pub latency_frames: u64,
-    pub tail_frames: u64,
-    pub tail_policy: GraphTailPolicy,
-    pub terminal_output_bounds: Vec<f64>,
-    pub node_tails: Vec<FilterTailObservation>,
+    #[serde(flatten)]
+    pub timing: GraphTiming,
     pub preservation: PreservationDecision,
     pub transformations: Vec<SignalTransformation>,
     pub resources: GraphResidentUsage,
@@ -143,19 +334,19 @@ impl GraphPreview {
             || !valid_graph_hash(&self.kernel_hash)
             || !(1..=8192).contains(&self.quantum_frames)
             || self.channel_peak_bounds.len() != self.native_output_format.channels().count()
-            || self.terminal_output_bounds.len() != self.native_output_format.channels().count()
-            || self
-                .terminal_output_bounds
-                .iter()
-                .any(|v| !v.is_finite() || !(0.0..=1e-12).contains(v))
-            || self.node_tails.len() > 128
-            || self.node_tails.iter().any(|n| {
-                n.horizon_frames > self.tail_frames
-                    || n.terminal_output_bounds.len() != n.channels.count()
-                    || n.terminal_output_bounds
-                        .iter()
-                        .any(|b| !b.is_finite() || *b < 0.0)
-            })
+            || self.processing_input_format.sample_rate_hz() != self.source_format.sample_rate_hz()
+            || self.processing_input_format.channels() != self.source_format.channels()
+            || self.processing_output_format.sample_rate_hz()
+                != self.native_output_format.sample_rate_hz()
+            || self.processing_output_format.channels() != self.native_output_format.channels()
+            || !self.timing.valid(
+                self.processing_input_format,
+                self.processing_output_format,
+                &self.channel_peak_bounds,
+                self.resources.aggregate_peak_bytes,
+            )
+            || matches!(self.timing, GraphTiming::Streaming { .. })
+                && self.preservation != PreservationDecision::ProcessFloat64
             || self
                 .channel_peak_bounds
                 .iter()

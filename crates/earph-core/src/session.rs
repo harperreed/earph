@@ -128,8 +128,8 @@ pub struct PlaybackProcessingObservation {
     pub audio_payload_bytes: usize,
     pub failure_node: Option<NodeId>,
     pub graph_hash: String,
-    pub latency_frames: u64,
-    pub tail_frames: u64,
+    #[serde(flatten)]
+    pub timing: PlaybackTiming,
     pub saturation_count: u64,
     pub graph_peak: Option<f64>,
     pub prequantization_peak: Option<f64>,
