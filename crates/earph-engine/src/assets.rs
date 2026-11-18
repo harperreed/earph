@@ -9,9 +9,8 @@ use earph_core::{
 use earph_media::{FirCorrection, decode_fir_wav, read_fir_file, read_fir_source};
 use std::{
     collections::BTreeMap,
-    fs::{self, File, OpenOptions},
-    io::Write,
-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+    fs::{self, File},
+    os::unix::fs::{DirBuilderExt, MetadataExt},
     path::{Path, PathBuf},
 };
 const INVALID: EngineError = EngineError::new(
@@ -118,7 +117,103 @@ fn directory(runtime_path: &Path, create: bool) -> Result<PathBuf, EngineError> 
 
 /// Import without replacing any source or existing object. Interrupted files remain inspectable.
 pub fn import(runtime_path: &Path, source: &Path) -> Result<FirAssetReference, EngineError> {
+    let runtime_path = runtime::directory(runtime_path, true)?;
+    let owner_lock = runtime::open_lock(&runtime_path.join("owner.lock"))?;
+    owner_lock.try_lock().map_err(|error| match error {
+        std::fs::TryLockError::WouldBlock => EngineError::new(
+            ErrorCode::SourceBusy,
+            "the owner must import corrections while its runtime is locked",
+        ),
+        std::fs::TryLockError::Error(_) => runtime::IO,
+    })?;
+    import_with_sync(&runtime_path, source, &mut File::sync_all)
+}
+pub(crate) fn import_owned(
+    runtime_path: &Path,
+    source: &Path,
+) -> Result<FirAssetReference, EngineError> {
     import_with_sync(runtime_path, source, &mut File::sync_all)
+}
+
+/// Forward a legacy FIR CLI request to the locked owner without opening a second writer.
+pub fn import_via_owner(
+    runtime_path: &Path,
+    source: &Path,
+) -> Result<FirAssetReference, EngineError> {
+    use earph_core::{
+        control::{Command, CommandEnvelope},
+        dsp_nodes::FirPurpose,
+        ids::{OwnerId, RequestId, SessionId, ZoneId},
+    };
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+    let selected = source.canonicalize().map_err(|_| INVALID)?;
+    let path = selected.to_str().ok_or(INVALID)?.to_owned();
+    let generation = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| runtime::IO)?
+        .as_nanos();
+    let request_id = format!("fir-{}-{generation:x}", std::process::id());
+    let query = CommandEnvelope {
+        schema_version: 1,
+        request_id: RequestId::new(format!("{request_id}-state"))?,
+        zone_id: ZoneId::new("main")?,
+        owner_id: None,
+        session_id: None,
+        expected_revision: None,
+        payload: Command::State,
+    };
+    let bytes = crate::request(
+        runtime_path,
+        &serde_json::to_vec(&query).map_err(|_| runtime::IO)?,
+    )?;
+    let reply: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| INVALID)?;
+    let state = &reply["receipt"]["result"]["value"];
+    let owner_id: OwnerId =
+        serde_json::from_value(state["owner_id"].clone()).map_err(|_| INVALID)?;
+    let session_id: Option<SessionId> =
+        serde_json::from_value(state["session_id"].clone()).map_err(|_| INVALID)?;
+    let command = CommandEnvelope {
+        schema_version: 1,
+        request_id: RequestId::new(request_id)?,
+        zone_id: ZoneId::new("main")?,
+        owner_id: Some(owner_id),
+        session_id,
+        expected_revision: Some(state["revision"].as_u64().ok_or(INVALID)?),
+        payload: Command::FirImport {
+            path,
+            purpose: FirPurpose::Correction,
+        },
+    };
+    command.validate()?;
+    let bytes = serde_json::to_vec(&command).map_err(|_| runtime::IO)?;
+    let deadline = Instant::now() + Duration::from_secs(7);
+    loop {
+        let response = crate::request(runtime_path, &bytes)?;
+        let reply: serde_json::Value = serde_json::from_slice(&response).map_err(|_| INVALID)?;
+        let receipt = &reply["receipt"];
+        match receipt["status"].as_str() {
+            Some("applied") => {
+                return serde_json::from_value(receipt["result"]["value"].clone())
+                    .map_err(|_| INVALID);
+            }
+            Some("accepted") if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(2))
+            }
+            Some("accepted") => {
+                return Err(EngineError::new(
+                    ErrorCode::OperationCancelled,
+                    "owner correction result exceeded the reconciliation deadline",
+                ));
+            }
+            _ => {
+                return Err(EngineError::new(
+                    serde_json::from_value(receipt["error"]["code"].clone())
+                        .unwrap_or(ErrorCode::InternalFault),
+                    "the owner rejected the FIR correction import",
+                ));
+            }
+        }
+    }
 }
 fn import_with_sync(
     runtime_path: &Path,
@@ -129,22 +224,7 @@ fn import_with_sync(
     let bytes = read_fir_source(source)?;
     let reference = decode_fir_wav(&bytes)?.reference;
     let path = directory.join(format!("{}.wav", reference.sha256.as_str()));
-    match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&path)
-    {
-        Ok(mut file) => {
-            file.write_all(&bytes).map_err(|_| runtime::IO)?;
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(_) => return Err(runtime::IO),
-    }
-    runtime::verify_immutable_file(&path, &bytes, sync_file)?;
-    File::open(&directory)
-        .and_then(|f| f.sync_all())
-        .map_err(|_| runtime::IO)?;
+    runtime::publish_immutable_file(&path, &bytes, &mut || Ok(()), sync_file)?;
     Ok(reference)
 }
 
@@ -153,6 +233,12 @@ pub fn resolve(
     runtime_path: &Path,
     reference: &FirAssetReference,
 ) -> Result<FirCorrection, EngineError> {
+    resolve_with_size(runtime_path, reference).map(|(correction, _)| correction)
+}
+pub(crate) fn resolve_with_size(
+    runtime_path: &Path,
+    reference: &FirAssetReference,
+) -> Result<(FirCorrection, usize), EngineError> {
     reference.validate()?;
     let directory = directory(runtime_path, false)?;
     let file =
@@ -163,12 +249,13 @@ pub fn resolve(
     if &correction.reference != reference {
         return Err(INVALID);
     }
-    Ok(correction)
+    Ok((correction, bytes.len()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{fs::OpenOptions, io::Write, os::unix::fs::OpenOptionsExt};
 
     #[test]
     fn existing_complete_fir_is_file_synced_before_import_succeeds() {

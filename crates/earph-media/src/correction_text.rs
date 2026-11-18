@@ -359,7 +359,7 @@ fn validate_string(value: &str, limit: usize) -> Result<(), ImportError> {
     }
     Ok(())
 }
-fn validate_metadata(m: &ImportMetadata) -> Result<(), ImportError> {
+pub(crate) fn validate_metadata(m: &ImportMetadata) -> Result<(), ImportError> {
     for value in [
         &m.headphone_model,
         &m.measurement_provider,
@@ -389,6 +389,7 @@ fn validate_name(name: &str) -> Result<(), ImportError> {
 fn semantic_hash(imported: &CorrectionImport) -> Result<String, ImportError> {
     let bytes = serde_json::to_vec(&(
         "earph-correction/1",
+        imported.source.format,
         imported.context,
         &imported.metadata,
         imported.preamp_db,
@@ -432,6 +433,12 @@ fn build_graph(imported: &CorrectionImport) -> Result<GraphDocument, ImportError
     }
     let mut definitions = BTreeMap::new();
     for definition in &imported.definitions {
+        if imported.source.format == CorrectionFormat::CamillaDsp && definition.filter.is_none() {
+            return Err(error(
+                "INVALID_REPORT",
+                "CamillaDSP definitions require a typed filter",
+            ));
+        }
         validate_name(&definition.name)?;
         if let Some(description) = &definition.description {
             validate_string(description, 1024)?;
@@ -723,4 +730,32 @@ pub fn read_correction_file(path: &Path, limit: usize) -> Result<Vec<u8>, Import
         ));
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod report_tests {
+    use super::*;
+
+    #[test]
+    fn camilla_grammar_rejects_an_untyped_slot_with_a_matching_fingerprint() {
+        let mut imported = import_correction_text(
+            b"Filter 1: OFF None\n",
+            CorrectionFormat::Rew,
+            ImportContext {
+                sample_rate_hz: 48000,
+                channels: ChannelLayout::Stereo,
+                quantum_frames: 64,
+            },
+            ImportMetadata::default(),
+        )
+        .unwrap();
+        imported.source.format = CorrectionFormat::CamillaDsp;
+        imported.semantic_sha256 = semantic_hash(&imported).unwrap();
+        assert_eq!(
+            read_correction_report(&serde_json::to_vec(&imported).unwrap())
+                .unwrap_err()
+                .code,
+            "INVALID_REPORT"
+        );
+    }
 }

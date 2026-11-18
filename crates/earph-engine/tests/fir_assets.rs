@@ -115,3 +115,57 @@ fn correction_store_rejects_symlinks_and_readable_objects() {
     assert!(!import(&linked, &source).status.success());
     assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
 }
+
+#[test]
+fn direct_fir_import_cannot_write_beside_a_locked_owner() {
+    let runtime = support::runtime();
+    let owner = earph_engine::EngineOwner::bind(&runtime).unwrap();
+    let source = runtime.join("authored.wav");
+    fs::write(&source, wave()).unwrap();
+    let result = earph_engine::assets::import(&runtime, &source);
+    assert_eq!(result.unwrap_err().code, earph_core::ErrorCode::SourceBusy);
+    assert!(!runtime.join("assets").exists());
+    drop(owner);
+    assert!(earph_engine::assets::import(&runtime, &source).is_ok());
+}
+
+#[test]
+fn existing_fir_cli_forwards_to_the_running_owner() {
+    use serde_json::json;
+    let runtime = support::runtime();
+    let owner = earph_engine::EngineOwner::bind(&runtime).unwrap();
+    let source = runtime.join("authored.wav");
+    fs::write(&source, wave()).unwrap();
+    let host = std::thread::spawn(move || owner.serve().unwrap());
+    let result = Command::new(env!("CARGO_BIN_EXE_earph-engine"))
+        .args(["import-fir", "--runtime"])
+        .arg(&runtime)
+        .arg("authored.wav")
+        .current_dir(&runtime)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let report: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(report["status"], "pass");
+    let query = json!({"schema_version":1,"request_id":"after-import","zone_id":"main","owner_id":null,"session_id":null,"expected_revision":null,"payload":{"method":"state.get"}});
+    let reply: Value = serde_json::from_slice(
+        &earph_engine::request(&runtime, &serde_json::to_vec(&query).unwrap()).unwrap(),
+    )
+    .unwrap();
+    let state = &reply["receipt"]["result"]["value"];
+    assert_eq!(
+        state["revision"], 1,
+        "CLI bypassed owner admission: {reply}"
+    );
+    let shutdown = json!({"schema_version":1,"request_id":"shutdown","zone_id":"main","owner_id":state["owner_id"],"session_id":null,"expected_revision":state["revision"],"payload":{"method":"owner.shutdown"}});
+    let reply: Value = serde_json::from_slice(
+        &earph_engine::request(&runtime, &serde_json::to_vec(&shutdown).unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reply["receipt"]["status"], "applied");
+    host.join().unwrap();
+}

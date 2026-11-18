@@ -246,17 +246,43 @@ fn active_source() -> Arc<std::sync::atomic::AtomicBool> {
 
 #[test]
 fn retained_profile_metadata_refuses_a_graph_before_pipeline_publication() {
-    let mut state = snapshot();
-    state.profile_storage_bytes = 256 * 1024 * 1024;
-    let request = request(&state, serde_json::json!({"kind":"bypass"}));
-    let mut service = GraphService::spawn(None).unwrap();
-    service.submit(request, state, active_source()).unwrap();
-    let result = completion(&mut service);
-    assert_eq!(
-        result.result.err().unwrap().code,
-        earph_core::ErrorCode::ResourceBudgetExceeded
-    );
-    assert_eq!(service.resources().resident_bytes, 0);
+    for reported in [64 * 1024 * 1024 + 1, 256 * 1024 * 1024, u64::MAX] {
+        let mut state = snapshot();
+        state.profile_storage_bytes = reported;
+        let request = request(&state, serde_json::json!({"kind":"bypass"}));
+        let mut service = GraphService::spawn(None).unwrap();
+        service.submit(request, state, active_source()).unwrap();
+        let result = completion(&mut service);
+        assert_eq!(
+            result.result.err().unwrap().code,
+            earph_core::ErrorCode::ResourceBudgetExceeded
+        );
+        assert_eq!(service.resources().resident_bytes, 0);
+    }
+}
+
+#[test]
+fn graph_compilation_reserves_profile_history_growth_without_charging_unused_profiles() {
+    for profile_bytes in [0, 1024] {
+        let mut state = snapshot();
+        state.profile_storage_bytes = profile_bytes;
+        let mut job = request(
+            &state,
+            serde_json::json!({"kind":"delay","delay_frames":14000000}),
+        );
+        job.validate_only = true;
+        let mut service = GraphService::spawn(None).unwrap();
+        service.submit(job, state, active_source()).unwrap();
+        let completed = completion(&mut service);
+        if profile_bytes == 0 {
+            assert!(completed.result.is_ok());
+        } else {
+            assert_eq!(
+                completed.result.err().unwrap().code,
+                earph_core::ErrorCode::ResourceBudgetExceeded
+            );
+        }
+    }
 }
 fn request(state: &SessionSnapshot, effect: serde_json::Value) -> GraphJobRequest {
     let port = serde_json::json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":64});

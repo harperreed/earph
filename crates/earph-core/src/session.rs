@@ -504,7 +504,7 @@ impl Session {
                             manual_resolution: true,
                             exact_associations: false,
                             apply: false,
-                            correction_import: false,
+                            correction_import: true,
                             packages: false,
                             max_profiles: crate::profiles::MAX_PROFILES,
                             max_page: crate::profile_control::MAX_PROFILE_PAGE,
@@ -662,6 +662,9 @@ impl Session {
             .validate_profile_receipt_admission(&command, &receipt)
             .is_err()
         {
+            if receipt.status == ReceiptStatus::Rejected {
+                return receipt;
+            }
             return self.receipt(
                 &command,
                 ReceiptStatus::Rejected,

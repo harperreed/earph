@@ -64,6 +64,8 @@ fn create(s: &Session, id: &str, large: bool) -> CommandEnvelope {
 fn record(job: &ProfileSaveJob) -> Arc<ProfileRecord> {
     let hash = ProfileObjectHash::try_from("0".repeat(64)).unwrap();
     Arc::new(ProfileRecord {
+        corrections: Arc::new(Vec::new()),
+        correction_preview: None,
         profile: Arc::new(
             job.draft
                 .document(job.id.clone(), job.revision, hash)
@@ -202,6 +204,20 @@ fn retained_query_history_refuses_before_it_exceeds_the_profile_allowance() {
         Ok(())
     })
     .unwrap();
+    let first = command(
+        &s,
+        "get-initial",
+        Command::ProfilesGet {
+            id: ProfileId::new("desk").unwrap(),
+        },
+    );
+    let initial = s.submit(first);
+    assert_eq!(initial.status, ReceiptStatus::Applied);
+    let Some(QueryResult::Profile(saved)) = initial.result else {
+        panic!("missing saved profile")
+    };
+    assert_eq!(saved.profile.id.as_str(), "desk");
+    assert_eq!(saved.profile.revision, 1);
     let mut refused = false;
     for n in 0..1024 {
         let get = command(
@@ -316,4 +332,269 @@ fn cancelled_worker_keeps_its_allocation_slot_until_actual_retirement() {
     assert!(!s.profile_worker_busy());
     let next = create(&s, "after-retirement", false);
     assert_eq!(s.submit(next).status, ReceiptStatus::Accepted);
+}
+
+#[test]
+fn empty_profile_history_cannot_enter_an_unreserved_graph_construction() {
+    use earph_core::graph_control::GraphServiceObservation;
+    let mut s = session();
+    s.observe_graph_resources(
+        GraphServiceObservation {
+            resident_bytes: 0,
+            pending_retirements: 0,
+            preparing_or_candidate: true,
+        },
+        1,
+    )
+    .unwrap();
+    let query = command(
+        &s,
+        "profiles-during-graph",
+        Command::ProfilesList {
+            offset: 0,
+            limit: 16,
+        },
+    );
+    let result = s.submit(query);
+    assert_eq!(
+        result.error.unwrap().code,
+        ErrorCode::ResourceBudgetExceeded
+    );
+    assert_eq!(s.profile_storage_bytes(), 0);
+    s.observe_graph_resources(
+        GraphServiceObservation {
+            resident_bytes: 0,
+            pending_retirements: 0,
+            preparing_or_candidate: false,
+        },
+        2,
+    )
+    .unwrap();
+    let query = command(
+        &s,
+        "profiles-after-graph",
+        Command::ProfilesList {
+            offset: 0,
+            limit: 16,
+        },
+    );
+    assert_eq!(s.submit(query).status, ReceiptStatus::Applied);
+}
+
+#[test]
+fn unloaded_catalog_blocks_profile_mutation_but_preserves_other_queries() {
+    let mut checkpoint = session().checkpoint();
+    checkpoint.profile_catalog.push(ProfileCatalogReference {
+        id: ProfileId::new("saved").unwrap(),
+        revision: 1,
+        profile_sha256: ProfileObjectHash::try_from("0".repeat(64)).unwrap(),
+    });
+    let mut s = Session::restore_owner(
+        ZoneId::new("main").unwrap(),
+        OwnerId::new("restored").unwrap(),
+        ControlLimits::default(),
+        checkpoint,
+    )
+    .unwrap();
+    for (index, payload) in [
+        Command::State,
+        Command::Capabilities,
+        Command::GraphInspect {},
+        Command::QueueGet {
+            offset: 0,
+            limit: 16,
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let query = command(&s, &format!("query-{index}"), payload);
+        assert_eq!(s.submit(query).status, ReceiptStatus::Applied);
+    }
+    let list = command(
+        &s,
+        "profiles",
+        Command::ProfilesList {
+            offset: 0,
+            limit: 16,
+        },
+    );
+    assert_eq!(s.submit(list).error.unwrap().code, ErrorCode::AssetInvalid);
+    let save = create(&s, "create-unloaded", false);
+    assert_eq!(s.submit(save).status, ReceiptStatus::Rejected);
+    assert_eq!(s.checkpoint().profile_catalog[0].id.as_str(), "saved");
+    assert!(s.profile_work().is_none());
+}
+
+#[test]
+fn local_start_preparation_blocks_profile_work_until_actual_resources_arrive() {
+    use earph_core::{
+        audio::{ChannelLayout, PcmFormat, PcmRepresentation},
+        session::{EngineEvent, EngineEventKind, PlaybackObservation},
+    };
+    let mut s = session();
+    s.enable_local_playback();
+    let output = serde_json::from_value(json!({"backend":"alsa","route":"system","endpoint":"null","device_id":"owned","profile_id":"legacy",
+        "period_frames":64,"buffer_frames":256,"volume_mode":"software","fidelity":"compatible_conversion"})).unwrap();
+    for (id, payload) in [
+        ("output", Command::OutputSelect { output }),
+        (
+            "consent",
+            Command::OutputConsent {
+                device_id: DeviceId::new("owned").unwrap(),
+                profile_id: ProfileId::new("legacy").unwrap(),
+            },
+        ),
+        (
+            "queue",
+            Command::QueueAppend {
+                path: "owned.wav".into(),
+            },
+        ),
+    ] {
+        let request = command(&s, id, payload);
+        assert_eq!(s.submit(request).status, ReceiptStatus::Applied);
+    }
+    let mut start = command(
+        &s,
+        "start",
+        Command::Start {
+            source: SourceKind::LocalFile,
+            device_id: DeviceId::new("owned").unwrap(),
+            takeover: false,
+            seekable: true,
+        },
+    );
+    start.session_id = Some(SessionId::new("local").unwrap());
+    assert_eq!(s.submit(start).status, ReceiptStatus::Accepted);
+    let save = create(&s, "during-start", false);
+    assert_eq!(s.submit(save).error.unwrap().code, ErrorCode::SourceBusy);
+    let state = s.snapshot();
+    s.advance(EngineEvent {
+        epochs: state.epochs,
+        monotonic_ns: 1,
+        kind: EngineEventKind::LocalPrepared {
+            observation: PlaybackObservation {
+                processing: None,
+                format: PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16)
+                    .unwrap(),
+                submitted_frames: 0,
+                consumed_frames: None,
+                backend_delay_frames: None,
+                consumption_basis: "prepared fixture",
+                source_entry_id: state.active_entry_id.unwrap(),
+                source_position_frames: 0,
+                audible_entry_id: None,
+                audible_source_position_frames: None,
+                input_peak: None,
+                output_peak: None,
+                modified: false,
+                backend: None,
+            },
+        },
+    })
+    .unwrap();
+    let save = create(&s, "after-prepared", false);
+    assert_eq!(s.submit_graph(save, 2).status, ReceiptStatus::Accepted);
+}
+
+#[test]
+fn correction_requests_keep_strings_in_history_and_cancel_through_the_shared_worker_slot() {
+    let mut s = session();
+    let mut report_json = String::with_capacity(200_000);
+    report_json.push_str("{}");
+    let source_text = "Preamp: -6 dB\n".repeat(1000);
+    let request_capacity = (report_json.capacity() + source_text.capacity()) as u64;
+    let import = command(
+        &s,
+        "import",
+        Command::ProfilesImport {
+            id: ProfileId::new("imported").unwrap(),
+            expected_profile_revision: None,
+            draft: draft(),
+            input: Arc::new(ProfileCorrectionInput::TextReport {
+                report_json,
+                source_text,
+            }),
+        },
+    );
+    assert_eq!(
+        s.submit_graph(import.clone(), 1).status,
+        ReceiptStatus::Accepted
+    );
+    let job = s.profile_work().unwrap();
+    let stop = command(&s, "stop-import", Command::Stop);
+    assert_eq!(s.submit(stop).status, ReceiptStatus::Applied);
+    assert!(s.profile_worker_busy());
+    assert!(s.profile_work().is_none());
+    assert!(
+        s.profile_storage_bytes() >= request_capacity,
+        "retained report/source request strings disappeared after cancellation"
+    );
+    let query = command(
+        &s,
+        "retiring-import",
+        Command::ProfilesList {
+            offset: 0,
+            limit: 16,
+        },
+    );
+    let Some(QueryResult::Profiles(page)) = s.submit(query).result else {
+        panic!("missing worker observation")
+    };
+    assert_eq!(page.operation.stage, Some(ProfileSaveStage::Retiring));
+    assert_eq!(page.operation.request_id.as_ref(), Some(&job.request_id));
+    assert_eq!(page.operation.deadline_monotonic_ns, None);
+    let another = create(&s, "overlapping-save", false);
+    assert_eq!(s.submit(another).error.unwrap().code, ErrorCode::SourceBusy);
+    assert!(
+        s.complete_profile_work(
+            &job.request_id,
+            &job.binding,
+            2,
+            Err(EngineError::new(
+                ErrorCode::OperationCancelled,
+                "actual cancelled work"
+            )),
+            |_| panic!("cancelled import reached publication")
+        )
+        .is_err()
+    );
+    assert!(!s.profile_worker_busy());
+    assert_eq!(s.submit(import).status, ReceiptStatus::Cancelled);
+    assert!(s.profile_storage_bytes() >= request_capacity);
+    assert!(s.profile_references().is_empty());
+}
+
+#[test]
+fn correction_request_capacity_refuses_small_content_with_oversized_retained_buffers() {
+    for (report_capacity, source_capacity) in [
+        (MAX_PROFILE_CORRECTION_BYTES + 1, 1),
+        (1, MAX_PROFILE_TEXT_BYTES + 1),
+    ] {
+        let mut s = session();
+        let mut report_json = String::with_capacity(report_capacity);
+        report_json.push('x');
+        let mut source_text = String::with_capacity(source_capacity);
+        source_text.push('x');
+        let import = command(
+            &s,
+            "oversized-import",
+            Command::ProfilesImport {
+                id: ProfileId::new("imported").unwrap(),
+                expected_profile_revision: None,
+                draft: draft(),
+                input: Arc::new(ProfileCorrectionInput::TextReport {
+                    report_json,
+                    source_text,
+                }),
+            },
+        );
+        assert_eq!(
+            s.submit(import).error.unwrap().code,
+            ErrorCode::ResourceBudgetExceeded
+        );
+        assert!(s.profile_work().is_none());
+        assert_eq!(s.profile_storage_bytes(), 0);
+    }
 }

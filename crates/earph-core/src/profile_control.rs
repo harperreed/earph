@@ -2,7 +2,9 @@
 // ABOUTME: Keeps portable intent separate from device qualification and catalog publication.
 use crate::{
     EngineError, ErrorCode,
-    graph::GraphDocument,
+    audio::ChannelLayout,
+    dsp_nodes::{FirAssetReference, FirPurpose},
+    graph::{FiniteGraphScalar, GraphDocument},
     graph_control::GraphIntent,
     ids::*,
     profiles::*,
@@ -14,6 +16,9 @@ use std::sync::Arc;
 pub const MAX_PROFILE_PAGE: usize = 16;
 pub const MAX_PROFILE_STORAGE_BYTES: u64 = 64 * 1024 * 1024;
 pub const PROFILE_SAVE_DEADLINE_NS: u64 = 5_000_000_000;
+pub const MAX_PROFILE_TEXT_BYTES: usize = 64 * 1024;
+pub const MAX_PROFILE_CORRECTION_BYTES: usize = 256 * 1024;
+pub const MAX_PROFILE_METADATA_BYTES: usize = 4 * 1024;
 pub(crate) const BUDGET: EngineError = EngineError::new(
     ErrorCode::ResourceBudgetExceeded,
     "profile retention exceeds admission",
@@ -126,6 +131,8 @@ pub struct ProfileRecord {
     pub profile: Arc<ProfileDocument>,
     pub profile_sha256: ProfileObjectHash,
     pub graph: Arc<GraphIntent>,
+    pub corrections: Arc<Vec<ProfileCorrectionObject>>,
+    pub correction_preview: Option<Arc<ProfileCorrectionPreview>>,
 }
 impl ProfileRecord {
     pub fn reference(&self) -> ProfileCatalogReference {
@@ -138,6 +145,29 @@ impl ProfileRecord {
     pub fn validate(&self) -> Result<(), EngineError> {
         self.profile.validate()?;
         validate_graph_storage(&self.graph.graph)?;
+        if self.corrections.capacity() > MAX_PROFILE_CORRECTIONS
+            || self.corrections.len() != self.profile.corrections.len()
+        {
+            return Err(INVALID);
+        }
+        let mut bytes = 0_usize;
+        for (reference, object) in self.profile.corrections.iter().zip(self.corrections.iter()) {
+            if reference.kind != object.kind || reference.object_sha256 != object.object_sha256 {
+                return Err(INVALID);
+            }
+            bytes = bytes
+                .checked_add(object.document_json.len())
+                .ok_or(BUDGET)?;
+        }
+        if bytes > MAX_PROFILE_CORRECTION_BYTES {
+            return Err(BUDGET);
+        }
+        if self.corrections.is_empty() != self.correction_preview.is_none() {
+            return Err(INVALID);
+        }
+        if let Some(preview) = &self.correction_preview {
+            preview.validate()?;
+        }
         Ok(())
     }
     pub fn retained_capacity_bytes(&self) -> Result<usize, EngineError> {
@@ -145,7 +175,23 @@ impl ProfileRecord {
             .checked_add(self.profile.retained_capacity_bytes()?)
             .and_then(|n| n.checked_add(size_of::<GraphIntent>()))
             .and_then(|n| n.checked_add(self.graph.graph.retained_capacity_bytes().ok()?))
-            .and_then(|n| n.checked_add(128))
+            .and_then(|n| {
+                n.checked_add(
+                    128 + self.corrections.capacity() * size_of::<ProfileCorrectionObject>(),
+                )
+            })
+            .and_then(|n| {
+                self.corrections
+                    .iter()
+                    .try_fold(n, |n, o| n.checked_add(o.document_json.len() + 128))
+            })
+            .and_then(|n| {
+                n.checked_add(self.correction_preview.as_ref().map_or(0, |p| {
+                    size_of::<ProfileCorrectionPreview>()
+                        + p.channel_peak_bounds.capacity() * size_of::<FiniteGraphScalar>()
+                        + 128
+                }))
+            })
             .ok_or(BUDGET)
     }
 }
@@ -206,6 +252,152 @@ pub struct ProfileSaveJob {
     pub draft: Arc<ProfileDraft>,
     pub graph: Arc<GraphIntent>,
     pub deadline_monotonic_ns: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileCorrectionContext {
+    pub sample_rate_hz: u32,
+    pub channels: ChannelLayout,
+    pub quantum_frames: usize,
+}
+impl ProfileCorrectionContext {
+    pub fn validate(&self) -> Result<(), EngineError> {
+        if self.sample_rate_hz == 0 || !(1..=8192).contains(&self.quantum_frames) {
+            return Err(INVALID);
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CorrectionNormalization {
+    Preserved,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProfileCorrectionInput {
+    TextReport {
+        report_json: String,
+        source_text: String,
+    },
+    Fir {
+        path: String,
+        purpose: FirPurpose,
+        context: ProfileCorrectionContext,
+        metadata_json: String,
+        preamp_db: FiniteGraphScalar,
+    },
+}
+impl ProfileCorrectionInput {
+    pub fn retained_capacity_bytes(&self) -> Result<usize, EngineError> {
+        let bytes = match self {
+            Self::TextReport {
+                report_json,
+                source_text,
+            } => {
+                if report_json.capacity() > MAX_PROFILE_CORRECTION_BYTES
+                    || source_text.capacity() > MAX_PROFILE_TEXT_BYTES
+                {
+                    return Err(BUDGET);
+                }
+                report_json.capacity() + source_text.capacity()
+            }
+            Self::Fir {
+                path,
+                metadata_json,
+                ..
+            } => {
+                crate::queue::validate_path(path)?;
+                if path.capacity() > 1024 || metadata_json.capacity() > MAX_PROFILE_METADATA_BYTES {
+                    return Err(BUDGET);
+                }
+                path.capacity() + metadata_json.capacity()
+            }
+        };
+        size_of::<Self>().checked_add(bytes).ok_or(BUDGET)
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProfileCorrectionObject {
+    pub kind: ProfileCorrectionKind,
+    pub object_sha256: ProfileObjectHash,
+    pub document_json: Arc<str>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProfileCorrectionPreview {
+    pub context: ProfileCorrectionContext,
+    pub preamp_db: FiniteGraphScalar,
+    pub channel_peak_bounds: Vec<FiniteGraphScalar>,
+    pub required_headroom_db: FiniteGraphScalar,
+    pub normalization: CorrectionNormalization,
+}
+impl ProfileCorrectionPreview {
+    pub fn validate(&self) -> Result<(), EngineError> {
+        self.context.validate()?;
+        if self.preamp_db.get().abs() > 150.0
+            || self.channel_peak_bounds.len() != self.context.channels.count()
+            || self.channel_peak_bounds.capacity() > 2
+            || self.channel_peak_bounds.iter().any(|p| p.get() < 0.0)
+            || self.required_headroom_db.get() < 0.0
+        {
+            return Err(INVALID);
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone)]
+pub enum ProfileWorkOperation {
+    Save {
+        id: ProfileId,
+        revision: u64,
+        draft: Arc<ProfileDraft>,
+        graph: Arc<GraphIntent>,
+    },
+    Import {
+        id: ProfileId,
+        revision: u64,
+        draft: Arc<ProfileDraft>,
+        input: Arc<ProfileCorrectionInput>,
+    },
+    FirAsset {
+        path: String,
+        purpose: FirPurpose,
+    },
+}
+#[derive(Debug, Clone)]
+pub struct ProfileWorkRequest {
+    pub request_id: RequestId,
+    pub binding: ProfileSaveBinding,
+    pub deadline_monotonic_ns: u64,
+    pub operation: ProfileWorkOperation,
+}
+impl ProfileWorkRequest {
+    pub fn retained_capacity_bytes(&self) -> Result<usize, EngineError> {
+        let bytes = match &self.operation {
+            ProfileWorkOperation::Save {
+                id, draft, graph, ..
+            } => {
+                id.capacity_bytes()
+                    + draft.retained_capacity_bytes()?
+                    + graph.graph.retained_capacity_bytes()?
+            }
+            ProfileWorkOperation::Import {
+                id, draft, input, ..
+            } => {
+                id.capacity_bytes()
+                    + draft.retained_capacity_bytes()?
+                    + input.retained_capacity_bytes()?
+            }
+            ProfileWorkOperation::FirAsset { path, .. } => path.capacity(),
+        };
+        bytes.checked_add(size_of::<Self>() + 1024).ok_or(BUDGET)
+    }
+}
+#[derive(Debug, Clone)]
+pub enum ProfileWorkOutput {
+    Profile(Arc<ProfileRecord>),
+    FirAsset(FirAssetReference),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProfileCapabilities {
