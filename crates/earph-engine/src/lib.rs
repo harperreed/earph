@@ -7,9 +7,11 @@ mod graph;
 mod host;
 mod ipc;
 mod output;
+mod output_replay;
 mod plan;
 mod render;
 mod runtime;
+pub mod stream_render;
 mod transport;
 mod worker;
 

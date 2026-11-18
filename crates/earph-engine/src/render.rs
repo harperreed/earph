@@ -257,18 +257,7 @@ impl PreparedRender {
         let format = self.period.header().format;
         let count = frames * format.channels().count();
         let gain = self.gain.process_f64(&mut self.output[..count], frames)?;
-        let (minimum, maximum) = format.representation().integer_bounds()?;
-        let reference = -(minimum as f64);
-        let mut saturation_count = 0;
-        let mut output_peak = 0.0_f64;
-        // One quantization: round ties away, saturate, and apply no dither.
-        for (index, sample) in self.output[..count].iter().enumerate() {
-            let rounded = (*sample * reference).round();
-            saturation_count += u64::from(rounded < minimum as f64 || rounded > maximum as f64);
-            let quantized = rounded.clamp(minimum as f64, maximum as f64) as i64;
-            output_peak = output_peak.max((quantized as f64).abs() / reference);
-            self.period.set_integer_sample(index, quantized)?;
-        }
+        let quantized = quantize(&self.output[..count], &mut self.period)?;
         self.period.set_span(
             self.graph.epochs(),
             self.sequence,
@@ -278,11 +267,11 @@ impl PreparedRender {
         self.sequence += 1;
         self.output_frames += frames as u64;
         Ok(RenderReport {
-            saturation_count,
+            saturation_count: quantized.saturation_count,
             input_peak,
             graph_peak: gain.input_peak,
             prequantization_peak: gain.output_peak,
-            output_peak,
+            output_peak: quantized.output_peak,
             ..self.report(frames, source_frames)
         })
     }
@@ -319,6 +308,42 @@ impl PreparedRender {
         }
         error
     }
+}
+pub(crate) struct QuantizationReport {
+    pub saturation_count: u64,
+    pub output_peak: f64,
+}
+pub(crate) fn quantize(
+    output: &[f64],
+    period: &mut PcmBlock,
+) -> Result<QuantizationReport, EngineError> {
+    let format = period.header().format;
+    let channels = format.channels().count();
+    if output.is_empty()
+        || !output.len().is_multiple_of(channels)
+        || output.len() / channels > period.capacity_frames()
+        || output.iter().any(|sample| !sample.is_finite())
+    {
+        return Err(EngineError::new(
+            ErrorCode::AssetInvalid,
+            "invalid quantization span",
+        ));
+    }
+    let (minimum, maximum) = format.representation().integer_bounds()?;
+    let reference = -(minimum as f64);
+    let mut report = QuantizationReport {
+        saturation_count: 0,
+        output_peak: 0.0,
+    };
+    // One quantization: round ties away, saturate, and apply no dither.
+    for (index, sample) in output.iter().enumerate() {
+        let rounded = (*sample * reference).round();
+        report.saturation_count += u64::from(rounded < minimum as f64 || rounded > maximum as f64);
+        let quantized = rounded.clamp(minimum as f64, maximum as f64) as i64;
+        report.output_peak = report.output_peak.max((quantized as f64).abs() / reference);
+        period.set_integer_sample(index, quantized)?;
+    }
+    Ok(report)
 }
 fn matches_geometry(a: PcmFormat, b: PcmFormat) -> bool {
     a.sample_rate_hz() == b.sample_rate_hz() && a.channels() == b.channels()
