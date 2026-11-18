@@ -71,3 +71,30 @@ The frozen library canonical check passes 469 tests, with three ignored and no w
 Independent main-model review finds no material issues in the declared library scope.
 The reviewer verifies all eight frozen file hashes and reruns the meaningful component scenarios.
 The review does not qualify worker, CLI, or hardware integration.
+
+## Live graph contracts
+
+Use one Core definition for immutable SRC parameters, resources, and compiled stage facts.
+Keep ordinary DSP reexports and serialized fact bytes unchanged.
+Share stage facts through one Arc array between compilation and graph inspection.
+The isolated shared-facts unit owns those moves before root changes GraphPreview.
+
+Represent same-rate and streaming timing as explicit variants.
+Keep existing same-rate numeric timing fields in serialized observations.
+Expose streaming stage facts without inventing an aggregate latency or exact tail.
+Keep audible source position and entry unknown through SRC.
+Observe truncated library delay only after actual preparation.
+
+Capture the worker's actual source cancellation token when submitting graph preparation.
+Reject preparation after that source retires.
+Drop unused stream candidates off-thread without cancelling their shared live source.
+Use the shared bridge resource preflight before compiler coefficient allocation.
+Charge active pipelines, candidate construction, assets, metadata, native buffers, and replay together.
+
+Advance decoder offsets only by accepted source frames.
+Advance native periods only after actual output acceptance.
+Keep decoder packets and DSP history across source-bound holds.
+Use the accepted source frontier for a declared muted graph replacement.
+Report discarded held output at replacement.
+Finish the stream only after the real final source EOF.
+Start native drain only after the stream is terminal and all valid output was submitted.
