@@ -403,6 +403,7 @@ fn executable_paused_graph_swap_publishes_the_installed_observation() {
     controller.send(&pause);
     controller.settled(&pause);
     for delay in [3, 7] {
+        let before_epoch = controller.state()["graph_epoch"].as_u64().unwrap();
         let (_, ready) = prepare_graph(controller, delay_gain_graph(delay, 0.5));
         let commit = controller.document(
             json!({"method":"graph.commit",
@@ -414,6 +415,8 @@ fn executable_paused_graph_swap_publishes_the_installed_observation() {
         let state = controller.state();
         let inspection = controller.query(json!({"method":"graph.inspect"}));
         assert_eq!(state["transport"], "paused");
+        assert_eq!(state["muted"], true);
+        assert_eq!(state["graph_epoch"], before_epoch + 1);
         assert_eq!(
             state["playback"]["processing"]["graph_hash"],
             inspection["active"]["graph_hash"]

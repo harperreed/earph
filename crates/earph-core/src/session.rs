@@ -59,6 +59,12 @@ enum PlaybackIntent {
     Playing,
     Paused,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LocalBoundary {
+    Pause,
+    Seek,
+    Stop,
+}
 impl PlaybackIntent {
     fn transport(self) -> TransportState {
         match self {
@@ -201,6 +207,9 @@ pub enum EngineEventKind {
     LocalStopped {
         observation: Option<PlaybackObservation>,
     },
+    LocalCompleted {
+        observation: PlaybackObservation,
+    },
     LocalFailed {
         code: ErrorCode,
     },
@@ -266,7 +275,7 @@ pub struct Session {
     playback_intent: PlaybackIntent,
     queue: LocalQueue,
     local_playback_enabled: bool,
-    local_stop_pending: bool,
+    local_boundary: Option<LocalBoundary>,
     graph: GraphControl,
 }
 impl Session {
@@ -307,7 +316,7 @@ impl Session {
             playback_intent: PlaybackIntent::Playing,
             queue: LocalQueue::default(),
             local_playback_enabled: false,
-            local_stop_pending: false,
+            local_boundary: None,
             graph: GraphControl::default(),
         }
     }
@@ -337,7 +346,12 @@ impl Session {
         }
         let mut session = Self::new_owner(zone_id, owner_id, limits);
         session.queue = LocalQueue::restore(checkpoint.queue)?;
-        session.state.revision = checkpoint.revision;
+        // Revisions belong to one owner. A new owner can reseed an exhausted revision.
+        session.state.revision = if checkpoint.revision == u64::MAX {
+            0
+        } else {
+            checkpoint.revision
+        };
         if let Some(output) = &checkpoint.output {
             output.validate()?;
         }
@@ -452,6 +466,7 @@ impl Session {
         error: Option<EngineError>,
         activation_frame: Option<u64>,
     ) {
+        self.local_boundary = None;
         if let Some(id) = self.state.operation.take()
             && let Some(record) = self
                 .receipts
@@ -969,10 +984,8 @@ impl Session {
         }
         let invalidated =
             next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
-        if matches!(command.payload, Command::Stop) && next.source == Some(SourceKind::LocalFile) {
-            self.local_stop_pending = true;
-        } else if clear_active {
-            self.local_stop_pending = false;
+        if clear_active {
+            self.local_boundary = None;
         }
         self.state = next;
         if invalidated || clear_active {
@@ -996,6 +1009,12 @@ impl Session {
         }
         if status == ReceiptStatus::Accepted {
             self.state.operation = Some(command.request_id.clone());
+            self.local_boundary = match &command.payload {
+                Command::Pause => Some(LocalBoundary::Pause),
+                Command::Seek { .. } => Some(LocalBoundary::Seek),
+                Command::Stop => Some(LocalBoundary::Stop),
+                _ => None,
+            };
         }
         self.playback_intent = intent;
         self.log(Some(command.request_id.clone()));
@@ -1107,6 +1126,16 @@ impl Session {
         }
         let mut next = self.state.clone();
         next.monotonic_ns = event.monotonic_ns;
+        let proved_completion = matches!(event.kind, EngineEventKind::LocalCompleted { .. });
+        let mut terminal_exhaustion = None;
+        let mut next_counter = |value| match increment(value) {
+            Ok(value) => Ok(value),
+            Err(error) if proved_completion => {
+                terminal_exhaustion = Some(error);
+                Ok(value)
+            }
+            Err(error) => Err(error),
+        };
         if !matches!(
             event.kind,
             EngineEventKind::Decoded { .. }
@@ -1114,20 +1143,64 @@ impl Session {
                 | EngineEventKind::LocalProgress { .. }
                 | EngineEventKind::LocalReserved { .. }
         ) {
-            next.revision = increment(next.revision)?;
+            next.revision = next_counter(next.revision)?;
         }
-        next.event_sequence = self.next_session_event_sequence(matches!(
-            event.kind,
-            EngineEventKind::LocalFailed { .. }
-                | EngineEventKind::OutputFailed
-                | EngineEventKind::OutputReplaced { .. }
-                | EngineEventKind::Discontinuity
-                | EngineEventKind::Cancelled { .. }
-                | EngineEventKind::LocalStopped { .. }
-                | EngineEventKind::Drained
-        ))?;
+        next.event_sequence = if proved_completion {
+            next_counter(next.event_sequence)?
+        } else {
+            self.next_session_event_sequence(matches!(
+                event.kind,
+                EngineEventKind::LocalFailed { .. }
+                    | EngineEventKind::OutputFailed
+                    | EngineEventKind::OutputReplaced { .. }
+                    | EngineEventKind::Discontinuity
+                    | EngineEventKind::Cancelled { .. }
+                    | EngineEventKind::LocalStopped { .. }
+                    | EngineEventKind::LocalCompleted { .. }
+                    | EngineEventKind::Drained
+            ))?
+        };
         let mut completion = None;
+        let mut graph_completion_error = None;
         match event.kind {
+            EngineEventKind::LocalCompleted { observation }
+                if next.source == Some(SourceKind::LocalFile)
+                    && next.session_id.is_some()
+                    && next.transport.accepts_source_events() =>
+            {
+                let ended = EngineError::new(
+                    ErrorCode::CapabilityUnsupported,
+                    "source ended before requested transition",
+                );
+                graph_completion_error = Some(ended);
+                let positioning = matches!(
+                    self.local_boundary,
+                    Some(LocalBoundary::Pause | LocalBoundary::Seek)
+                );
+                completion = Some((
+                    if positioning {
+                        ReceiptStatus::Failed
+                    } else {
+                        ReceiptStatus::Applied
+                    },
+                    positioning.then_some(ended),
+                    None,
+                ));
+                next.decoded_position_frames = observation.source_position_frames;
+                next.audible_position_frames = observation.audible_source_position_frames;
+                next.playback = Some(observation);
+                next.transport = TransportState::Idle;
+                next.muted = true;
+                next.session_id = None;
+                next.source = None;
+                next.seekable = false;
+                next.active_entry_id = None;
+                next.reserved_next_entry_id = None;
+                match next.epochs.next_stream() {
+                    Ok(epochs) => next.epochs = epochs,
+                    Err(error) => terminal_exhaustion = Some(error),
+                }
+            }
             EngineEventKind::LocalPrepared { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
             {
@@ -1319,6 +1392,12 @@ impl Session {
             }
             _ => return Err(STATE),
         }
+        if let Some(error) = terminal_exhaustion {
+            next.error = Some(error.code);
+            next.shutdown_requested = true;
+            graph_completion_error = Some(error);
+        }
+        let publish_event = next.event_sequence != self.state.event_sequence;
         let request_id = self.state.operation.clone();
         let invalidated =
             next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
@@ -1328,7 +1407,9 @@ impl Session {
         );
         self.state = next;
         if invalidated || clear_active {
-            let error = if clear_active && self.state.error.is_some() {
+            let error = if let Some(error) = graph_completion_error {
+                error
+            } else if clear_active && self.state.error.is_some() {
                 OUTPUT
             } else {
                 EngineError::new(
@@ -1340,12 +1421,14 @@ impl Session {
         }
         if clear_active {
             self.graph.active = None;
-            self.local_stop_pending = false;
+            self.local_boundary = None;
         }
         if let Some((status, error, activation)) = completion {
             self.finish_pending(status, error, activation);
         }
-        self.log(request_id);
+        if publish_event {
+            self.log(request_id);
+        }
         Ok(())
     }
 }

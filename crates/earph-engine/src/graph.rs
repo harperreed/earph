@@ -484,6 +484,13 @@ fn prepare(
         .map_err(GraphDiagnostic::from)?;
     let output = snapshot.output.as_ref().ok_or(STALE)?;
     output.validate().map_err(GraphDiagnostic::from)?;
+    if output.fidelity == FidelityPolicy::StrictPreservation && snapshot.gain_ramp_frames != 0 {
+        return Err(EngineError::new(
+            ErrorCode::FidelityPolicyConflict,
+            "strict output cannot apply a software gain ramp",
+        )
+        .into());
+    }
     let playback = snapshot.playback.as_ref().ok_or(STALE)?;
     let source = playback.format;
     // Both native adapters consume this integer PcmBlock format. SDK client

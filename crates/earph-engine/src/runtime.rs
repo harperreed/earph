@@ -133,6 +133,11 @@ fn read_checkpoint_with_sync(
             if previous.len() > MAX_CHECKPOINT_BYTES {
                 return Err(INVALID);
             }
+            if read(&directory.join("queue.json"), MAX_CHECKPOINT_BYTES)?.as_deref()
+                == Some(previous.as_bytes())
+            {
+                return Ok(Some(previous.into_bytes()));
+            }
             replace_atomic(
                 directory,
                 "queue.json",
@@ -384,14 +389,19 @@ fn replace_atomic(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     fn fixture() -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/checkpoint-recovery")
             .join(format!(
-                "{}-{}",
+                "{}-{}-{}",
                 std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed),
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
@@ -526,5 +536,33 @@ mod tests {
         assert_eq!(read(&path.join("queue.json"), 10).unwrap().unwrap(), b"old");
         assert_eq!(read_checkpoint(&path, "restart").unwrap().unwrap(), b"old");
         assert_eq!(fs::read(collision).unwrap(), b"preserve collision");
+    }
+    #[test]
+    fn pending_baseline_restores_without_requiring_another_checkpoint_write() {
+        let path = fixture();
+        write_checkpoint(&path, "old", b"old").unwrap();
+        let record = encode_record(&RecoveryRecord::Pending {
+            schema_version: 1,
+            previous: Some("old".into()),
+        })
+        .unwrap();
+        write_atomic(&path, RECOVERY_FILE, "pending", &record).unwrap();
+        let collision = path.join(".queue.json.restart-recover");
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&collision)
+            .unwrap()
+            .write_all(b"preserve collision")
+            .unwrap();
+        assert_eq!(read_checkpoint(&path, "restart").unwrap().unwrap(), b"old");
+        assert_eq!(fs::read(collision).unwrap(), b"preserve collision");
+        assert_eq!(
+            read(&path.join(RECOVERY_FILE), MAX_RECOVERY_BYTES)
+                .unwrap()
+                .unwrap(),
+            record
+        );
     }
 }

@@ -54,7 +54,35 @@ Root verifies the raw counts, log hashes, source hashes, and unchanged recorded 
 Mac verification covers 62 raw artifacts and 1448 archived source inputs.
 Two muted Mac graph swaps report current playback observations without submitting samples.
 Redacted review receipts now live under `docs/evidence/dsp/`.
-Push, remote feedback resolution, and merge remain pending.
+The fixes and receipts are pushed at `42eb803`.
+All twenty original review threads are resolved.
+A fresh review identified sixteen further findings before merge.
+Root and the worker owner are fixing the underlying transition and completion boundaries.
+The prior platform receipts remain bound to `cbc2785`; they do not qualify these later changes.
+
+The integrated second-round Linux canonical check passes 357 tests, with two ignored.
+Independent review approves the terminal protocol and counter policy without Important or Critical findings.
+Proved completion closes the source even when a terminal counter cannot advance.
+It never wraps counters and requests owner shutdown before further controls.
+A fresh owner reseeds only an exhausted persisted revision.
+Ordinary revisions, queue intent, and startup safety retain their existing contracts.
+The final diff review found no further in-scope defects.
+
+## Second review fixes
+
+Track pending pause, seek, and stop acknowledgements independently from visible transport state.
+Retain one completed drain until the owner acknowledges its exact token.
+Keep terminal proof across old-entry snapshots and repeated mute generations.
+Apply proved completion atomically and preserve consent after normal EOF.
+Settle raced graph and repositioning receipts without inventing an output fault.
+Read an already-matching recovery baseline without rewriting it.
+Reject strict-route gain ramps before graph preparation.
+Make failure tests distinguish timeout from disconnection and wait for retirement acknowledgement.
+
+Do not implement automatic removal of failed temporary files.
+Doctor Biz explicitly requires approval before deletion.
+The documented owner policy preserves partial writes for inspection.
+Cleanup remains a separately approved operation.
 
 Closing-source readiness now survives resume attempts and ordinary receipt rotation.
 Activation reserves its final event slot across source, queue, resource, and command updates.
