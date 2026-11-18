@@ -4,7 +4,7 @@
   "title": "Rust Audiophile Player \u2014 Product and Engineering Specification",
   "date_local": "2026-11-16",
   "timezone": "America/Chicago",
-  "status": "T01–T03 foundation implemented; Linux virtual output qualified; broader release gates remain unqualified",
+  "status": "Scoped local playback and hardware exercises tested on Linux and macOS; graph compilation active; release qualification remains partial",
   "q25": {
     "selection": "D",
     "option_text": null,
@@ -64,9 +64,13 @@
       "depends_on": [
         "ARCH-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-engine/tests/owner.rs",
+        "crates/earph-engine/tests/cli.rs",
+        "crates/earph-engine/PLAYBACK.md"
+      ]
     },
     {
       "id": "ARCH-04",
@@ -163,9 +167,9 @@
       "depends_on": [
         "ARCH-04"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": ["crates/earph-media/tests/decode.rs", "crates/earph-engine/tests/owner.rs", "docs/local-playback.md"]
     },
     {
       "id": "PLAY-02",
@@ -181,9 +185,13 @@
       "depends_on": [
         "PLAY-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-engine/tests/service_playback.rs",
+        "crates/earph-engine/tests/worker_playback.rs",
+        "crates/earph-engine/PLAYBACK.md"
+      ]
     },
     {
       "id": "PLAY-03",
@@ -199,9 +207,9 @@
       "depends_on": [
         "PLAY-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": ["crates/earph-media/tests/cli.rs", "docs/local-playback.md"]
     },
     {
       "id": "PLAY-04",
@@ -257,9 +265,9 @@
         "PLAY-01",
         "SAFE-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": ["crates/earph-engine/tests/owner.rs", "crates/earph-engine/tests/cli.rs"]
     },
     {
       "id": "PLAY-07",
@@ -428,9 +436,12 @@
       "depends_on": [
         "ARCH-04"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "alsa-spike.md",
+        "coreaudio-spike.md"
+      ]
     },
     {
       "id": "OUT-02",
@@ -446,9 +457,11 @@
       "depends_on": [
         "OUT-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "alsa-spike.md"
+      ]
     },
     {
       "id": "OUT-03",
@@ -464,9 +477,11 @@
       "depends_on": [
         "OUT-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "alsa-spike.md"
+      ]
     },
     {
       "id": "OUT-04",
@@ -484,9 +499,14 @@
       "depends_on": [
         "OUT-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-engine/tests/worker_playback.rs",
+        "crates/earph-coreaudio/tests/playback_native.rs",
+        "crates/earph-coreaudio/evidence/hardware-handoff-20261118.json",
+        "crates/earph-engine/PLAYBACK.md"
+      ]
     },
     {
       "id": "OUT-05",
@@ -503,9 +523,13 @@
         "OUT-01",
         "SAFE-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-engine/tests/worker_playback.rs",
+        "crates/earph-core/tests/local_control.rs",
+        "crates/earph-engine/PLAYBACK.md"
+      ]
     },
     {
       "id": "OUT-06",
@@ -522,9 +546,14 @@
       "depends_on": [
         "OUT-03"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-core/tests/local_control.rs",
+        "crates/earph-engine/src/output/coreaudio.rs",
+        "crates/earph-coreaudio/PLAYBACK.md",
+        "crates/earph-engine/PLAYBACK.md"
+      ]
     },
     {
       "id": "DSP-01",
@@ -712,9 +741,13 @@
       "depends_on": [
         "ARCH-02"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-core/tests/local_control.rs",
+        "crates/earph-engine/tests/service_playback.rs",
+        "crates/earph-engine/PLAYBACK.md"
+      ]
     },
     {
       "id": "SAFE-02",
@@ -750,9 +783,13 @@
         "SAFE-01",
         "OUT-03"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-core/tests/safety.rs",
+        "crates/earph-core/tests/local_control.rs",
+        "crates/earph-engine/PLAYBACK.md"
+      ]
     },
     {
       "id": "SAFE-04",
@@ -789,9 +826,13 @@
       "depends_on": [
         "ARCH-02"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-engine/tests/owner.rs",
+        "crates/earph-engine/README.md",
+        "crates/earph-engine/PLAYBACK.md"
+      ]
     },
     {
       "id": "SAFE-06",
@@ -902,9 +943,13 @@
       "depends_on": [
         "ARCH-02"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-core/tests/owner_control.rs",
+        "crates/earph-engine/tests/worker_playback.rs",
+        "crates/earph-engine/PLAYBACK.md"
+      ]
     },
     {
       "id": "CTL-02",
@@ -996,9 +1041,13 @@
       "depends_on": [
         "CTL-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-engine/src/ipc.rs",
+        "crates/earph-engine/tests/owner.rs",
+        "crates/earph-engine/PLAYBACK.md"
+      ]
     },
     {
       "id": "OBS-01",
@@ -1710,8 +1759,10 @@
         "hardware-matrix.json",
         "backend-negotiation.json"
       ],
-      "status": "not_run",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "alsa-spike.md"
+      ],
       "requirement_ids": [
         "OUT-01",
         "OUT-03",

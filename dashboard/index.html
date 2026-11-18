@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- ABOUTME: Presents Earph's verified work and remaining qualification gates. -->
+<!-- ABOUTME: Uses a private live data stream without guessing release completion. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="artifact-host-people" content="off">
+  <title>Earph Progress</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="/p/_host.js" defer></script>
+  <script type="module" src="app.mjs"></script>
+</head>
+<body>
+  <a class="skip" href="#current">Skip to progress</a>
+  <header class="masthead">
+    <a class="wordmark" href="#current" aria-label="Earph progress home">earph<span aria-hidden="true">●</span></a>
+    <nav aria-label="Page sections"><a href="#work">Work packages</a><a href="#milestones">Milestones</a><a href="#activity">Latest</a></nav>
+    <div class="live"><span class="dot" id="connection-dot"></span><span id="connection">Connecting</span></div>
+  </header>
+  <main>
+    <section class="hero" id="current" aria-labelledby="headline">
+      <div class="eyebrow"><span class="tag">BUILD LOG / LIVE</span><span>Local-first audio. Evidence-first progress.</span></div>
+      <div class="hero-grid">
+        <div><p class="kicker">On the workbench</p><h1 id="headline">Loading verified progress.</h1><p class="summary" id="summary">Opening the latest saved snapshot and live connection.</p></div>
+        <div class="record" aria-hidden="true"><div class="record-grooves"><div class="record-label"><span>EARPH</span><strong>IN<br>PROGRESS</strong><i></i><small>SIDE A · THE FOUNDATION</small></div></div><span class="record-note">GOOD SOUND TAKES PROOF.</span></div>
+      </div>
+      <div class="focus"><span class="focus-label">CURRENT FOCUS</span><p id="focus">Waiting for progress data</p><span class="pulse" aria-hidden="true">▂ ▅ ▃ ▇ ▄</span></div>
+      <p class="data-notice" id="data-notice" role="status">Opening saved progress…</p>
+    </section>
+    <section class="checks" id="checks" aria-label="Verified results and limits"></section>
+    <div class="workbench">
+      <section aria-labelledby="verified-title"><div class="section-heading"><span class="section-number">01</span><h2 id="verified-title">Verified &amp; saved</h2><span class="key green">Evidence in hand</span></div><div id="verified" class="evidence-list"></div></section>
+      <aside class="now"><div class="section-heading"><span class="section-number">02</span><h2>In the workshop</h2></div><div id="active" class="active-list"></div><div class="qualification"><p class="kicker">Hardware evidence &amp; limits</p><h3>Hardware qualification is open.</h3><div id="pending"></div></div></aside>
+    </div>
+    <section class="packages-section" id="work" aria-labelledby="work-title"><div class="section-heading"><span class="section-number">03</span><h2 id="work-title">The work, in order.</h2></div><p class="section-intro">Package status describes its scoped work. It does not certify a whole milestone or release.</p><div class="package-toolbar"><div class="filters" role="group" aria-label="Filter work packages"><button data-filter="all" aria-pressed="true">All packages</button><button data-filter="active" aria-pressed="false">Active</button><button data-filter="done" aria-pressed="false">Done</button><button data-filter="planned" aria-pressed="false">Planned</button><button data-filter="blocked" aria-pressed="false">Blocked</button></div><p id="package-count" aria-live="polite"></p></div><div id="packages" class="packages"></div></section>
+    <section id="milestones" aria-labelledby="milestone-title"><div class="section-heading"><span class="section-number">04</span><h2 id="milestone-title">Milestones need evidence.</h2></div><div id="gates" class="gates"></div></section>
+    <section id="activity" class="activity-section" aria-labelledby="activity-title"><div class="section-heading"><span class="section-number">05</span><h2 id="activity-title">Recent verified results</h2></div><ol id="activity-list" class="activity-list"></ol></section>
+  </main>
+  <footer><div class="footer-brand">earph<span> / quietly making progress.</span></div><p id="updated">No snapshot loaded</p><p id="provenance"></p><a href="https://github.com/harperreed/earph" target="_blank" rel="noopener noreferrer">Project &amp; specification ↗</a><p class="footer-note">Verified facts, unfinished work, and explicit limits. No estimated completion percentage.</p></footer>
+</body>
+</html>

@@ -1,6 +1,10 @@
 // ABOUTME: Counts allocations and frees only inside prepared processing.
 // ABOUTME: Exercises real virtual-output paths without mocking the allocator.
-use earph_core::{audio::MemoryBudget, ids::Epochs};
+use earph_core::{
+    audio::{ChannelLayout, MemoryBudget, PcmBlock, PcmFormat, PcmRepresentation},
+    gain::GainRamp,
+    ids::Epochs,
+};
 use earph_harness::{fixture::qualification_specs, render::*};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -74,4 +78,31 @@ fn prepared_processing_allocates_and_frees_nothing_even_on_faults() {
             assert!(result.is_err());
         }
     }
+    let format = PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed32).unwrap();
+    let mut gain = GainRamp::new(format).unwrap();
+    gain.set_target(Some(-40.0), 960).unwrap();
+    let mut block =
+        PcmBlock::prepare(format, 256, Epochs::default(), MemoryBudget::default()).unwrap();
+    block.set_span(Epochs::default(), 0, 0, 256).unwrap();
+    for i in 0..512 {
+        block
+            .set_integer_sample(
+                i,
+                if i % 2 == 0 {
+                    i32::MAX.into()
+                } else {
+                    i32::MIN.into()
+                },
+            )
+            .unwrap();
+    }
+    let allocations = ALLOCATIONS.load(Ordering::Relaxed);
+    let frees = FREES.load(Ordering::Relaxed);
+    ACTIVE.with(|active| active.set(true));
+    for _ in 0..8 {
+        gain.process(&mut block).unwrap();
+    }
+    ACTIVE.with(|active| active.set(false));
+    assert_eq!(ALLOCATIONS.load(Ordering::Relaxed) - allocations, 0);
+    assert_eq!(FREES.load(Ordering::Relaxed) - frees, 0);
 }

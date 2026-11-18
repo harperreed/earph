@@ -1,0 +1,63 @@
+{
+  "build": {
+    "commit": "ae10b7b3147b71cf809202458bc2994367cca86c",
+    "dependency_lock_sha256": "da0de6673326f5edf7188a2ebcca0bf06ec67dfaf54511a2a6ff14217abbde41",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": false,
+    "source_inputs_sha256": "ddc2a338871704456d403af0cec54f317995aac45ddae9b76df1314fe92d5104",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "busy_error": {
+    "code": "DEVICE_UNAVAILABLE",
+    "message": "cannot open selected endpoint; check access, availability, and other applications; no fallback attempted",
+    "native_errno": 16
+  },
+  "physical_playback": "not_run",
+  "report": {
+    "alsa_version": "1.2.15.3",
+    "downstream_transformations": "none_in_alsa_hw",
+    "evidence_level": "opened",
+    "identity": {
+      "card_index": 0,
+      "device_index": 0,
+      "pcm_id": "ALC700 Analog",
+      "pcm_name": "ALC700 Analog",
+      "subdevice_index": 0
+    },
+    "observed": {
+      "access": "RW_INTERLEAVED",
+      "alsa_format": "S16_LE",
+      "buffer_frames": 1024,
+      "format": {
+        "channels": "stereo",
+        "representation": "signed16",
+        "sample_rate_hz": 48000
+      },
+      "period_frames": 256,
+      "rate_denominator": 1,
+      "rate_numerator": 48000,
+      "significant_bits": 16
+    },
+    "payload_preservation": "unverified",
+    "pcm_type": "HW",
+    "requested": {
+      "buffer_frames": 1024,
+      "device": "hw:CARD=PCH,DEV=0,SUBDEV=0",
+      "format": {
+        "channels": "stereo",
+        "representation": "signed16",
+        "sample_rate_hz": 48000
+      },
+      "period_frames": 256,
+      "route": "direct_hardware",
+      "schema_version": 1
+    },
+    "schema_version": 1
+  },
+  "schema_version": 1,
+  "scope": "silent_open_busy_close_reopen",
+  "signals_submitted": 0,
+  "status": "pass"
+}

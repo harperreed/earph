@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# ABOUTME: Copies tracked Earph sources into an explicitly approved private Mac task folder.
+# ABOUTME: Runs pinned native checks without deleting files or starting audio devices.
+set -euo pipefail
+earph_inspect=false
+if [[ ${1-} == --ssh-config ]]; then
+    earph_inspect=true
+    shift
+fi
+if [[ $# -lt 2 || $# -gt 3 || ! "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ || ! "$2" =~ ^/Users/[a-zA-Z0-9][a-zA-Z0-9._-]*/\.cache/earph-coreaudio\.[a-zA-Z0-9]+/checkout(-[a-zA-Z0-9]+)?$ ]]; then
+    printf 'Usage: scripts/check-coreaudio-remote [--ssh-config] SSH_ALIAS /Users/USER/.cache/earph-coreaudio.ID/checkout [VERIFIED_PEER_ADDRESS]\n' >&2
+    exit 2
+fi
+cd "$(dirname "$0")/.."
+earph_host=$1
+earph_directory=$2
+earph_task_directory=${earph_directory%/*}
+earph_ssh=(ssh -T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes)
+if [[ $# -eq 3 ]]; then
+    if [[ ! "$3" =~ ^[a-zA-Z0-9.:_-]+$ ]]; then
+        printf 'Invalid verified peer address. Keep the authorized SSH alias and its existing host key.\n' >&2
+        exit 2
+    fi
+    earph_ssh+=(-o "HostName=$3" -o "HostKeyAlias=$earph_host")
+fi
+if [[ "$earph_inspect" == true ]]; then
+    "${earph_ssh[@]}" -G "$earph_host" | awk '
+        $1 == "stricthostkeychecking" {
+            strict = ($2 == "true") ? "true" : "false"
+            printf "{\"strict_host_key_checking\":%s,\"connection_attempted\":false}\n", strict
+        }'
+    exit 0
+fi
+mkdir -p target/core-audio-spike
+earph_archive=$(mktemp "$PWD/target/core-audio-spike/source.XXXXXX.tar")
+earph_file_list=$(mktemp "$PWD/target/core-audio-spike/files.XXXXXX")
+git ls-files -z > "$earph_file_list"
+tar --null -T "$earph_file_list" -cf "$earph_archive"
+"${earph_ssh[@]}" "$earph_host" "grep -qx earph-coreaudio-build-v1 $earph_task_directory/.earph-coreaudio-root && test -d $earph_directory/.git"
+"${earph_ssh[@]}" "$earph_host" "tar -xf - -C $earph_directory" < "$earph_archive"
+"${earph_ssh[@]}" "$earph_host" "bash -s -- $earph_directory" <<'REMOTE'
+set -euo pipefail
+cd "$1"
+earph_rustc=$(rustup which --toolchain 1.98.1 rustc)
+export PATH="$(dirname "$earph_rustc"):$PATH"
+export RUSTC="$earph_rustc"
+rustc --version
+cargo --version
+scripts/check
+REMOTE
+printf 'Native check completed. Sources and logs remain in %s:%s\n' "$earph_host" "$earph_directory"

@@ -1,0 +1,52 @@
+{
+  "buffer_frames": 512,
+  "build": {
+    "commit": "91cfa946aadb93b29996e363b3b78a92ea259fdb",
+    "dependency_lock_sha256": "7b308b8b7fb1f3e7586c03e19959c9546406b759160a2bb9645990be74c76545",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "584978e58bf33fbdf25469487c8c9c683866e2984a572595c6f1589dffc3b620",
+    "target": "aarch64-apple-darwin"
+  },
+  "current_device_sample_clock_observed": true,
+  "dac_preservation": "unverified",
+  "final_progress": {
+    "audible_position_frames": null,
+    "backend_delay_frames": null,
+    "callback_delivered_frames": 36352,
+    "callbacks_observed": 73,
+    "fault": false,
+    "measurement_boundary": "core_audio_ioproc_delivery",
+    "queued_frames": 0,
+    "state": "closed",
+    "submitted_frames": 36352
+  },
+  "format": {
+    "channels": "stereo",
+    "representation": "signed24",
+    "sample_rate_hz": 48000
+  },
+  "generated_frames": 36352,
+  "hardware_presentation": "unknown",
+  "pause_delivery_held": true,
+  "peak_level_dbfs_maximum": -48.16479930623699,
+  "planned_operations": [
+    "start",
+    "pause",
+    "resume",
+    "finish",
+    "stop",
+    "close"
+  ],
+  "route": "float32_compatibility",
+  "schema_version": 1,
+  "sdk_hardware_handoff_complete": true,
+  "settings_unchanged": true,
+  "source": "owned_generated_440hz_tones_with_linear_ramps",
+  "status": "pass",
+  "stimulus_payload_encoding": "signed24_little_endian_interleaved",
+  "stimulus_payload_sha256": "26db555e48651ffe54858bffd9a2d8c1a3c3223af15167e36089acb3b4e6aa4c",
+  "valid_sdk_output_timestamps_observed": true
+}

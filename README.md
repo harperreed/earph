@@ -2,14 +2,21 @@
 
 An inspectable, local-first audio renderer and DSP engine in Rust.
 
-The current foundation checks schemas and generates deterministic offline fixtures.
-It does not open physical outputs or implement network playback.
+The foundation checks schemas and generates deterministic offline fixtures.
+The Linux ALSA spike adds explicit output discovery and exact format negotiation.
+The local source adds exact integer WAV, FLAC, and AIFF decoding and offline track concatenation.
+The private owner service adds queue control and paused, muted crash recovery.
+Physical playback integration and network playback remain unfinished.
 The full product contract lives in [the specification](docs/SPEC.md).
-Follow [the foundation plan](docs/superpowers/plans/2026-11-16-foundation.md) for current progress.
+Follow [the local playback plan](docs/superpowers/plans/2026-11-17-local-playback.md) for current progress.
+See [local decoding](docs/local-playback.md) for supported files and offline commands.
 See [the state-machine map](docs/state-machines.md) for state owners, transitions, and recovery actions.
+See [the ALSA spike](docs/alsa-spike.md) for Linux output commands, evidence, and qualification limits.
+See [the Core Audio spike](docs/coreaudio-spike.md) for macOS inspection, precision assessment, and silent registration checks.
 
 Use Rust 1.98.1, selected in `mise.toml`.
 Run `scripts/check` for formatting, lint, tests, traceability, and dependency checks.
+The lossless fixture tests require FFmpeg.
 
 Generate owned PCM fixtures into a new directory:
 
@@ -72,7 +79,7 @@ It rejects corrupt artifacts, missing provenance, changed outcomes, and broader 
 It does not authenticate an author or replace independent review.
 Interrupted writes leave partial artifacts without a passing final report.
 
-The qualified scope is AC-06 on Linux virtual output.
+The offline qualified scope is AC-06 on Linux virtual output.
 Other scenarios have partial test coverage or remain not run.
 The next gate covers real backend spikes and the remaining M0 decisions.
 
@@ -82,7 +89,9 @@ Fixture loading admits raw bytes and typed samples together before reading the p
 
 Inspect command syntax with `cargo run --locked -p earph-harness -- --help`.
 Output is JSON. Failures exit with status 2.
-No commands emit sound or silently select a physical output.
+The harness commands remain offline and never select a physical output.
+The separate `earph-alsa` executable opens only an explicitly selected endpoint.
+Its fixture exercise requires `--allow-signal` after approval for that route.
 
 First-party code uses MIT. Dependencies retain their own terms.
 See `THIRD_PARTY_NOTICES.txt` and `docs/dependency-lock.json`.

@@ -2,7 +2,71 @@
 // ABOUTME: Detects feature or source changes without claiming future adapters work.
 use crate::{read_bounded, sha256};
 use serde_json::{Value, json};
-use std::{fs, path::Path, process::Command};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
+fn reviewed_license(package: &Value, crate_root: &Path) -> Result<(Vec<PathBuf>, Value), String> {
+    let directory = match package["name"].as_str() {
+        Some("objc2-core-audio" | "objc2-core-audio-types" | "objc2-core-foundation") => {
+            "objc2-0.3.2"
+        }
+        Some("windows-link") => "windows-link-0.2.1",
+        Some("windows-sys") => "windows-sys-0.61.2",
+        _ => {
+            return Err(format!(
+                "dependency needs manual license review: {}",
+                package["name"]
+            ));
+        }
+    };
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/dependency-licenses")
+        .join(directory);
+    let provenance: Value =
+        serde_json::from_slice(&read_bounded(&root.join("provenance.json"), 64 * 1024)?)
+            .map_err(|_| "invalid reviewed license provenance")?;
+    if provenance["schema_version"] != 1
+        || provenance["version"] != package["version"]
+        || provenance["repository"] != package["repository"]
+        || (provenance.get("license_expression").is_some()
+            && provenance["license_expression"] != package["license"])
+        || !provenance["packages"]
+            .as_array()
+            .is_some_and(|names| names.contains(&package["name"]))
+    {
+        return Err(format!(
+            "dependency needs manual license review: {}",
+            package["name"]
+        ));
+    }
+    let vcs: Value = serde_json::from_slice(&read_bounded(
+        &crate_root.join(".cargo_vcs_info.json"),
+        64 * 1024,
+    )?)
+    .map_err(|_| "invalid dependency VCS provenance")?;
+    if vcs["git"]["sha1"] != provenance["revision"] {
+        return Err("reviewed license revision differs from published dependency sources".into());
+    }
+    let filename = provenance["license_file"]
+        .as_str()
+        .ok_or("missing reviewed license file")?;
+    if Path::new(filename).components().count() != 1
+        || !matches!(
+            Path::new(filename).components().next(),
+            Some(std::path::Component::Normal(_))
+        )
+    {
+        return Err("reviewed license must be a local filename".into());
+    }
+    let path = root.join(filename);
+    if provenance["license_sha256"] != sha256(&read_bounded(&path, 1024 * 1024)?) {
+        return Err("reviewed license content differs from its recorded source".into());
+    }
+    Ok((vec![path], provenance))
+}
 
 pub fn snapshot() -> Result<(Value, String), String> {
     let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
@@ -44,11 +108,11 @@ pub fn snapshot() -> Result<(Value, String), String> {
             })
             .collect();
         paths.sort();
+        let mut license_provenance = None;
         if paths.is_empty() {
-            return Err(format!(
-                "dependency needs manual license review: {}",
-                package["name"]
-            ));
+            let (reviewed, provenance) = reviewed_license(package, root)?;
+            paths = reviewed;
+            license_provenance = Some(provenance);
         }
         let mut license_files = Vec::new();
         notices.push_str(&format!(
@@ -73,12 +137,16 @@ pub fn snapshot() -> Result<(Value, String), String> {
             .iter()
             .find(|node| node["id"] == package["id"])
             .ok_or("unresolved dependency")?;
-        packages.push(json!({
+        let mut record = json!({
             "name":package["name"], "version":package["version"], "source":package["source"],
             "license_expression":package["license"], "features":node["features"],
             "manifest_sha256":sha256(&read_bounded(&root.join("Cargo.toml"), 1024*1024)?),
             "license_files":license_files,
-        }));
+        });
+        if let Some(provenance) = license_provenance {
+            record["license_provenance"] = provenance;
+        }
+        packages.push(record);
     }
     packages.sort_by_key(|p| {
         (
@@ -99,9 +167,19 @@ pub fn snapshot() -> Result<(Value, String), String> {
         "operational store",
     ]
     .into_iter()
-    .map(
-        |name| json!({"name":name,"status":"unselected","qualification":"not_run","revision":null}),
-    )
+    .map(|name| {
+        if name == "ALSA" {
+            json!({"name":name,"status":"selected","qualification":"partial","revision":"alsa-sys 0.6.1"})
+        } else if name == "Core Audio" {
+            json!({"name":name,"status":"selected","qualification":"partial","revision":"objc2-core-audio 0.3.2"})
+        } else if name == "symphonia" {
+            json!({"name":name,"status":"selected","qualification":"partial","revision":"symphonia 0.6.1"})
+        } else if name == "operational store" {
+            json!({"name":name,"status":"selected","qualification":"partial","revision":"versioned JSON checkpoints v1"})
+        } else {
+            json!({"name":name,"status":"unselected","qualification":"not_run","revision":null})
+        }
+    })
     .collect();
     let final_len = notices.trim_end().len();
     notices.truncate(final_len);

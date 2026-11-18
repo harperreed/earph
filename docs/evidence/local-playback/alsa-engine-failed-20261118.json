@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "status": "fail",
+  "scope": "approved_single_route_attenuated_signal",
+  "route": "redacted",
+  "format": {
+    "channels": 2,
+    "representation": "signed16",
+    "sample_rate_hz": 48000
+  },
+  "generated_signal_seconds": 1,
+  "configured_software_gain_db": -40.0,
+  "ramp_frames": 960,
+  "submitted_frames": 48000,
+  "consumed_estimate_frames": null,
+  "consumption_basis": "alsa_client_estimate",
+  "backend_delay_frames": null,
+  "modified": true,
+  "completion": "failed",
+  "error": "OUTPUT_FAULT",
+  "mixer_unchanged": true,
+  "source_unchanged": true,
+  "fallback_attempted": false,
+  "mixer_changes_requested": false,
+  "evidence_level": "exercised",
+  "digital_preservation": "unverified",
+  "acoustic_measurement": "not_run"
+}

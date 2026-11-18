@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "spec": {
+    "seed": 2389,
+    "frames": 1031,
+    "format": {
+      "sample_rate_hz": 44100,
+      "channels": "stereo",
+      "representation": "signed32"
+    },
+    "pattern": "silence"
+  },
+  "payload_file": "signed32-stereo-44100-silence.pcm",
+  "payload_bytes": 8248,
+  "payload_sha256": "f29d13100289cc0a2304159aec50004b32d7485211b8f4b218adb5b9c5f48851"
+}
