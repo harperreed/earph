@@ -27,8 +27,25 @@
 //! The floor is 2^40*MIN_POSITIVE*K*max(1,A)*max(1,H).
 //! This exceeds propagation of all FFT, spectral sum, scaling, and overlap underflow errors.
 //! There are no recursive arithmetic states: each overlap value survives one block only.
-//! Zero padding creates only the declared latency and authored FIR support.
+//! Standalone drain emits only the declared latency and authored FIR support.
+//! Padded FFT blocks can carry rounding ghosts beyond that authored support.
 //! Bounds use the authored binary64 taps, including zeros, without normalization.
+//!
+//! Numerical history clearance follows storage lifetimes, rather than authored support.
+//! Number input blocks from zero. Let block b contain the last input before frame H.
+//! If H>0, b=floor((H-1)/P), including an arbitrary partial-block phase.
+//! A spectrum from block b last enters the partition sum for block b+K-1.
+//! That sum's second half enters ready for block b+K, through overlap once.
+//! Ready for block n emits at output frames (n+1)P through (n+2)P-1.
+//! Therefore the last possibly contaminated output is before frame (b+K+2)P.
+//! Since bP<H, H+(K+2)P safely exceeds that frontier for every phase.
+//! At that frontier, pending and every retained input spectrum contain only input from H onward.
+//! Transform and sum are overwritten on every block. No workspace residue survives their initialization.
+//! Ready and overlap then depend only on those spectra and immutable filter spectra.
+//! Consequently every later output obeys peak_bound(epsilon) when later input has magnitude <=epsilon.
+//! This includes the explicit underflow floor when epsilon=0.
+//! The claim assumes valid processing and the arithmetic model above, regardless of earlier admitted history.
+//! H=0 needs no history removal; the same conservative horizon remains valid.
 use std::mem::size_of;
 
 pub const ALGORITHM_VERSION: &str = "earph-convolution-ola256-radix2-f64-v1";
@@ -55,7 +72,7 @@ pub enum ConvolutionError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConvolutionResources {
-    /// Includes the prepared object, fixed arrays, and actual Vec capacities.
+    /// Includes the prepared object, fixed arrays, and Vec payload capacities.
     pub resident_bytes: u64,
     /// Includes resident storage and a conservative bounded preparation stack allowance.
     pub preparation_peak_bytes: u64,
@@ -93,39 +110,22 @@ enum State {
     Faulted,
 }
 
-pub struct PreparedConvolution {
+/// Allocation-free metadata for compiler admission, peak propagation, and finish scheduling.
+#[derive(Debug, Clone, Copy)]
+pub struct ConvolutionDesign {
     channels: usize,
     taps: usize,
     partitions: usize,
     max_quantum_frames: usize,
-    resources: ConvolutionResources,
     tap_l1: [f64; MAX_CHANNELS],
     runtime_multiplier: f64,
-    roots: [Complex; PARTITION_FRAMES],
-    spectra: Vec<Complex>,
-    history: Vec<Complex>,
-    stage: Vec<f64>,
-    transform: [Complex; FFT_FRAMES],
-    sum: [Complex; FFT_FRAMES],
-    pending: [f64; PARTITION_FRAMES * MAX_CHANNELS],
-    ready: [f64; PARTITION_FRAMES * MAX_CHANNELS],
-    overlap: [f64; PARTITION_FRAMES * MAX_CHANNELS],
-    position: usize,
-    head: usize,
-    input_frames: usize,
-    drain_remaining: usize,
-    state: State,
+    required_resources: ConvolutionResources,
 }
-
-impl PreparedConvolution {
-    /// Prepare off the processing boundary. Caller-owned tap storage is counted by its owner.
-    pub fn prepare(
-        taps: &[Vec<f64>],
-        max_quantum_frames: usize,
-        byte_budget: u64,
-    ) -> Result<Self, ConvolutionError> {
+impl ConvolutionDesign {
+    /// Validate authored taps and derive bounds without FFT preparation or heap activity.
+    pub fn analyze(taps: &[Vec<f64>], quantum: usize) -> Result<Self, ConvolutionError> {
         let channels = taps.len();
-        if !(1..=MAX_CHANNELS).contains(&channels) || max_quantum_frames == 0 {
+        if !(1..=MAX_CHANNELS).contains(&channels) || quantum == 0 {
             return Err(ConvolutionError::Parameters);
         }
         let tap_count = taps[0].len();
@@ -148,13 +148,117 @@ impl PreparedConvolution {
         }
         let partitions = tap_count.div_ceil(PARTITION_FRAMES);
         let spectrum_len = channels * partitions * FFT_FRAMES;
-        let stage_len = max_quantum_frames
+        let stage_len = quantum
             .checked_mul(channels)
             .ok_or(ConvolutionError::MemoryBudget)?;
-        let provisional = resources(spectrum_len, spectrum_len, stage_len, partitions)?;
-        if provisional.preparation_peak_bytes > byte_budget {
+        let required_resources = resources(spectrum_len, spectrum_len, stage_len, partitions)?;
+        let mut factor = 1.0;
+        for _ in 0..3 {
+            factor = multiply_up(factor, add_up(1.0, FFT_ERROR));
+        }
+        factor = multiply_up(factor, add_up(1.0, gamma(16 * partitions + 32)));
+        factor = multiply_up(factor, add_up(1.0, gamma(4)));
+        let defect = (factor - 1.0).next_up();
+        let runtime_multiplier = add_up(1.0, multiply_up(2.0 * PARTITION_FRAMES as f64, defect));
+        Ok(Self {
+            channels,
+            taps: tap_count,
+            partitions,
+            max_quantum_frames: quantum,
+            tap_l1,
+            runtime_multiplier,
+            required_resources,
+        })
+    }
+    pub fn channels(&self) -> usize {
+        self.channels
+    }
+    pub fn taps_per_channel(&self) -> usize {
+        self.taps
+    }
+    pub fn latency_frames(&self) -> usize {
+        PARTITION_FRAMES
+    }
+    /// Standalone emitted EOF tail, excluding the empty-source exception.
+    pub fn tail_frames(&self) -> usize {
+        PARTITION_FRAMES + self.taps - 1
+    }
+    /// Internal numerical settlement horizon. It does not extend the standalone emitted EOF tail.
+    pub fn history_clear_frames(&self) -> usize {
+        (self.partitions + 2) * PARTITION_FRAMES
+    }
+    /// Required prepared storage. Preparation separately checks actual allocation capacities.
+    pub fn resources(&self) -> ConvolutionResources {
+        self.required_resources
+    }
+    pub fn tap_l1_bound(&self, channel: usize) -> Result<f64, ConvolutionError> {
+        self.tap_l1
+            .get(channel)
+            .copied()
+            .filter(|_| channel < self.channels)
+            .ok_or(ConvolutionError::Parameters)
+    }
+    /// Includes FFT error, accumulation error, overlap rounding, and an underflow floor.
+    pub fn peak_bound(&self, channel: usize, input_peak: f64) -> Result<f64, ConvolutionError> {
+        let l1 = self.tap_l1_bound(channel)?;
+        if !input_peak.is_finite()
+            || input_peak < 0.0
+            || input_peak > INTERMEDIATE_LIMIT / l1.max(1.0)
+        {
+            return Err(ConvolutionError::InputPeak);
+        }
+        let ideal = multiply_up(input_peak, l1);
+        let floor = multiply_up(
+            multiply_up(
+                multiply_up(FLOOR, self.partitions as f64),
+                input_peak.max(1.0),
+            ),
+            l1.max(1.0),
+        );
+        let bound = add_up(multiply_up(ideal, self.runtime_multiplier), floor);
+        if bound.is_finite() {
+            Ok(bound)
+        } else {
+            Err(ConvolutionError::InputPeak)
+        }
+    }
+}
+
+pub struct PreparedConvolution {
+    design: ConvolutionDesign,
+    roots: [Complex; PARTITION_FRAMES],
+    spectra: Vec<Complex>,
+    history: Vec<Complex>,
+    stage: Vec<f64>,
+    transform: [Complex; FFT_FRAMES],
+    sum: [Complex; FFT_FRAMES],
+    pending: [f64; PARTITION_FRAMES * MAX_CHANNELS],
+    ready: [f64; PARTITION_FRAMES * MAX_CHANNELS],
+    overlap: [f64; PARTITION_FRAMES * MAX_CHANNELS],
+    position: usize,
+    head: usize,
+    input_frames: usize,
+    drain_remaining: usize,
+    state: State,
+}
+
+impl PreparedConvolution {
+    pub fn history_clear_frames(&self) -> usize {
+        self.design.history_clear_frames()
+    }
+    /// Prepare off the processing boundary. Caller-owned tap storage is counted by its owner.
+    pub fn prepare(
+        taps: &[Vec<f64>],
+        max_quantum_frames: usize,
+        byte_budget: u64,
+    ) -> Result<Self, ConvolutionError> {
+        let mut design = ConvolutionDesign::analyze(taps, max_quantum_frames)?;
+        if design.resources().preparation_peak_bytes > byte_budget {
             return Err(ConvolutionError::MemoryBudget);
         }
+        let partitions = design.partitions;
+        let spectrum_len = design.channels * partitions * FFT_FRAMES;
+        let stage_len = design.max_quantum_frames * design.channels;
         let spectra = zeroed_vec(spectrum_len)?;
         let history = zeroed_vec(spectrum_len)?;
         let stage = zeroed_vec(stage_len)?;
@@ -167,22 +271,9 @@ impl PreparedConvolution {
         if measured.preparation_peak_bytes > byte_budget {
             return Err(ConvolutionError::MemoryBudget);
         }
-        let mut factor = 1.0;
-        for _ in 0..3 {
-            factor = multiply_up(factor, add_up(1.0, FFT_ERROR));
-        }
-        factor = multiply_up(factor, add_up(1.0, gamma(16 * partitions + 32)));
-        factor = multiply_up(factor, add_up(1.0, gamma(4)));
-        let defect = (factor - 1.0).next_up();
-        let runtime_multiplier = add_up(1.0, multiply_up(2.0 * PARTITION_FRAMES as f64, defect));
+        design.required_resources = measured;
         let mut prepared = Self {
-            channels,
-            taps: tap_count,
-            partitions,
-            max_quantum_frames,
-            resources: measured,
-            tap_l1,
-            runtime_multiplier,
+            design,
             roots: [Complex::ZERO; PARTITION_FRAMES],
             spectra,
             history,
@@ -226,53 +317,29 @@ impl PreparedConvolution {
     }
 
     pub fn channels(&self) -> usize {
-        self.channels
+        self.design.channels()
     }
     pub fn taps_per_channel(&self) -> usize {
-        self.taps
+        self.design.taps_per_channel()
     }
     pub fn latency_frames(&self) -> usize {
-        PARTITION_FRAMES
+        self.design.latency_frames()
     }
     /// Extra frames after the final source frame. Empty sources produce no drain frames.
     pub fn tail_frames(&self) -> usize {
-        PARTITION_FRAMES + self.taps - 1
+        self.design.tail_frames()
     }
     pub fn resources(&self) -> ConvolutionResources {
-        self.resources
+        self.design.resources()
     }
 
     pub fn tap_l1_bound(&self, channel: usize) -> Result<f64, ConvolutionError> {
-        self.tap_l1
-            .get(channel)
-            .copied()
-            .filter(|_| channel < self.channels)
-            .ok_or(ConvolutionError::Parameters)
+        self.design.tap_l1_bound(channel)
     }
 
     /// Includes FFT error, accumulation error, overlap rounding, and an underflow floor.
     pub fn peak_bound(&self, channel: usize, input_peak: f64) -> Result<f64, ConvolutionError> {
-        let l1 = self.tap_l1_bound(channel)?;
-        if !input_peak.is_finite()
-            || input_peak < 0.0
-            || input_peak > INTERMEDIATE_LIMIT / l1.max(1.0)
-        {
-            return Err(ConvolutionError::InputPeak);
-        }
-        let ideal = multiply_up(input_peak, l1);
-        let floor = multiply_up(
-            multiply_up(
-                multiply_up(FLOOR, self.partitions as f64),
-                input_peak.max(1.0),
-            ),
-            l1.max(1.0),
-        );
-        let bound = add_up(multiply_up(ideal, self.runtime_multiplier), floor);
-        if bound.is_finite() {
-            Ok(bound)
-        } else {
-            Err(ConvolutionError::InputPeak)
-        }
+        self.design.peak_bound(channel, input_peak)
     }
 
     /// Consume and produce equal interleaved spans. Validation errors leave state and output unchanged.
@@ -294,7 +361,7 @@ impl PreparedConvolution {
             .filter(|count| count.checked_add(self.tail_frames()).is_some())
             .ok_or(ConvolutionError::Span)?;
         let mut peaks = [0.0_f64; MAX_CHANNELS];
-        for frame in input.chunks_exact(self.channels) {
+        for frame in input.chunks_exact(self.design.channels) {
             for (channel, value) in frame.iter().enumerate() {
                 if !value.is_finite() {
                     return Err(ConvolutionError::NonFinite);
@@ -302,14 +369,14 @@ impl PreparedConvolution {
                 peaks[channel] = peaks[channel].max(value.abs());
             }
         }
-        for (channel, peak) in peaks.iter().enumerate().take(self.channels) {
+        for (channel, peak) in peaks.iter().enumerate().take(self.design.channels) {
             self.peak_bound(channel, *peak)?;
         }
         for frame in 0..frames {
-            for channel in 0..self.channels {
-                let index = self.position * self.channels + channel;
-                self.stage[frame * self.channels + channel] = self.ready[index];
-                self.pending[index] = input[frame * self.channels + channel];
+            for channel in 0..self.design.channels {
+                let index = self.position * self.design.channels + channel;
+                self.stage[frame * self.design.channels + channel] = self.ready[index];
+                self.pending[index] = input[frame * self.design.channels + channel];
             }
             if !self.advance() {
                 return self.fault();
@@ -343,9 +410,9 @@ impl PreparedConvolution {
         }
         let frames = self.validate_span(output)?.min(self.drain_remaining);
         for frame in 0..frames {
-            for channel in 0..self.channels {
-                let index = self.position * self.channels + channel;
-                self.stage[frame * self.channels + channel] = self.ready[index];
+            for channel in 0..self.design.channels {
+                let index = self.position * self.design.channels + channel;
+                self.stage[frame * self.design.channels + channel] = self.ready[index];
                 self.pending[index] = 0.0;
             }
             if !self.advance() {
@@ -356,7 +423,7 @@ impl PreparedConvolution {
         if self.drain_remaining == 0 {
             self.state = State::Finished;
         }
-        let samples = frames * self.channels;
+        let samples = frames * self.design.channels;
         output[..samples].copy_from_slice(&self.stage[..samples]);
         Ok(frames)
     }
@@ -383,12 +450,12 @@ impl PreparedConvolution {
     }
 
     fn validate_span(&self, output: &[f64]) -> Result<usize, ConvolutionError> {
-        if !output.len().is_multiple_of(self.channels)
-            || output.len() / self.channels > self.max_quantum_frames
+        if !output.len().is_multiple_of(self.design.channels)
+            || output.len() / self.design.channels > self.design.max_quantum_frames
         {
             return Err(ConvolutionError::Span);
         }
-        Ok(output.len() / self.channels)
+        Ok(output.len() / self.design.channels)
     }
 
     fn fault<T>(&mut self) -> Result<T, ConvolutionError> {
@@ -402,19 +469,20 @@ impl PreparedConvolution {
             return true;
         }
         self.position = 0;
-        for channel in 0..self.channels {
+        for channel in 0..self.design.channels {
             self.transform.fill(Complex::ZERO);
             for frame in 0..PARTITION_FRAMES {
-                self.transform[frame].re = self.pending[frame * self.channels + channel];
+                self.transform[frame].re = self.pending[frame * self.design.channels + channel];
             }
             fft(&mut self.transform, &self.roots, false);
-            let start = (channel * self.partitions + self.head) * FFT_FRAMES;
+            let start = (channel * self.design.partitions + self.head) * FFT_FRAMES;
             self.history[start..start + FFT_FRAMES].copy_from_slice(&self.transform);
             self.sum.fill(Complex::ZERO);
-            for partition in 0..self.partitions {
-                let slot = (self.head + self.partitions - partition) % self.partitions;
-                let source = (channel * self.partitions + slot) * FFT_FRAMES;
-                let filter = (channel * self.partitions + partition) * FFT_FRAMES;
+            for partition in 0..self.design.partitions {
+                let slot =
+                    (self.head + self.design.partitions - partition) % self.design.partitions;
+                let source = (channel * self.design.partitions + slot) * FFT_FRAMES;
+                let filter = (channel * self.design.partitions + partition) * FFT_FRAMES;
                 for bin in 0..FFT_FRAMES {
                     let product = self.history[source + bin].multiply(self.spectra[filter + bin]);
                     self.sum[bin].re += product.re;
@@ -423,7 +491,7 @@ impl PreparedConvolution {
             }
             fft(&mut self.sum, &self.roots, true);
             for frame in 0..PARTITION_FRAMES {
-                let index = frame * self.channels + channel;
+                let index = frame * self.design.channels + channel;
                 let ready = self.sum[frame].re / FFT_FRAMES as f64 + self.overlap[index];
                 let overlap = self.sum[frame + PARTITION_FRAMES].re / FFT_FRAMES as f64;
                 if !ready.is_finite() || !overlap.is_finite() {
@@ -440,7 +508,7 @@ impl PreparedConvolution {
                 return false;
             }
         }
-        self.head = (self.head + 1) % self.partitions;
+        self.head = (self.head + 1) % self.design.partitions;
         true
     }
 }
@@ -475,7 +543,7 @@ fn resources(
         .and_then(|n| n.checked_add(size_of::<PreparedConvolution>() as u64))
         .ok_or(ConvolutionError::MemoryBudget)?;
     // Reserve four object-sized construction slots plus scalar frames and callees.
-    // Rust 1.98.1 x86_64 debug preparation uses a 101128-byte frame; FFT uses 520 bytes.
+    // This includes compiler-created copies of the fixed arrays during construction.
     // Recheck this compiler-dependent allowance when qualifying another compiler or target.
     // No planner, hidden heap tables, or additional preparation Vecs exist.
     let preparation_stack_bytes = 4 * size_of::<PreparedConvolution>() as u64 + 8192;

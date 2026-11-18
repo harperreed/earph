@@ -1,6 +1,6 @@
 // ABOUTME: Checks partitioned convolution against independent direct time-domain sums.
 // ABOUTME: Exercises exact stream lengths, channel isolation, and prepared ownership offline.
-use earph_dsp::convolution::{self, ConvolutionError, PreparedConvolution};
+use earph_dsp::convolution::{self, ConvolutionDesign, ConvolutionError, PreparedConvolution};
 
 fn reference(input: &[f64], taps: &[Vec<f64>]) -> Vec<f64> {
     let channels = taps.len();
@@ -469,6 +469,7 @@ fn generated_long_stereo_correction_emits_numeric_receipt() {
         "quantum_frames": 513,
         "latency_frames": kernel.latency_frames(),
         "tail_frames": kernel.tail_frames(),
+        "history_clear_frames": kernel.history_clear_frames(),
         "rendered_frames": output.len() / 2,
         "max_absolute_error": maximum,
         "relative_l2_error": (error_squared / norm_squared).sqrt(),
@@ -501,4 +502,106 @@ fn an_empty_drain_buffer_cannot_report_false_end_of_stream() {
     }
     assert_eq!(count, 256);
     assert_eq!(kernel.drain(&mut []).unwrap(), 0);
+}
+
+#[test]
+fn analysis_matches_prepared_contract_without_heap_activity() {
+    for taps in [
+        vec![vec![2.0, -0.5, 0.0]],
+        vec![vec![0.01; 513], vec![-0.02; 513]],
+    ] {
+        let (design, counts) = tracked(|| ConvolutionDesign::analyze(&taps, 257).unwrap());
+        assert_eq!(counts, AllocationCounts::default());
+        let kernel = PreparedConvolution::prepare(&taps, 257, 1 << 26).unwrap();
+        assert_eq!(design.channels(), taps.len());
+        assert_eq!(design.taps_per_channel(), taps[0].len());
+        assert_eq!(design.latency_frames(), 256);
+        assert_eq!(design.tail_frames(), 256 + taps[0].len() - 1);
+        assert_eq!(design.resources(), kernel.resources());
+        assert_eq!(design.history_clear_frames(), kernel.history_clear_frames());
+        for channel in 0..taps.len() {
+            assert_eq!(design.tap_l1_bound(channel), kernel.tap_l1_bound(channel));
+            assert_eq!(
+                design.peak_bound(channel, 0.75),
+                kernel.peak_bound(channel, 0.75)
+            );
+            assert!(
+                design.peak_bound(channel, 0.75).unwrap()
+                    > 0.75 * design.tap_l1_bound(channel).unwrap()
+            );
+        }
+        let (_, counts) = tracked(|| {
+            let copied = design;
+            std::hint::black_box(copied);
+        });
+        assert_eq!(counts, AllocationCounts::default());
+    }
+}
+
+#[test]
+fn analysis_rejects_invalid_assets_and_geometry_without_heap_activity() {
+    for taps in [
+        vec![],
+        vec![vec![]],
+        vec![vec![1.0]; 3],
+        vec![vec![1.0], vec![1.0, 0.0]],
+        vec![vec![f64::NAN]],
+        vec![vec![0.0; 262145]],
+        vec![vec![f64::MAX]],
+    ] {
+        let (design, counts) = tracked(|| ConvolutionDesign::analyze(&taps, 256));
+        assert!(design.is_err());
+        assert_eq!(counts, AllocationCounts::default());
+    }
+    let taps = [vec![1.0]];
+    for quantum in [0, usize::MAX] {
+        let (design, counts) = tracked(|| ConvolutionDesign::analyze(&taps, quantum));
+        assert!(design.is_err());
+        assert_eq!(counts, AllocationCounts::default());
+    }
+}
+
+#[test]
+fn numerical_history_clears_after_every_partition_phase_with_persistent_small_input() {
+    for length in [1, 17, 255, 256, 257, 511, 513, 769] {
+        let taps: Vec<Vec<_>> = (0..2)
+            .map(|channel| {
+                (0..length)
+                    .map(|tap| {
+                        let sign = if (tap + channel) % 3 == 0 { -1.0 } else { 1.0 };
+                        sign * (1.0 + tap as f64 / length as f64) / length as f64
+                    })
+                    .collect()
+            })
+            .collect();
+        let design = ConvolutionDesign::analyze(&taps, 513).unwrap();
+        for history in [1, 255, 256, 257, 511, 512, 513] {
+            for epsilon in [0.0, 1e-12] {
+                let frontier = history + design.history_clear_frames();
+                let frames = frontier + 3 * 256;
+                let input: Vec<_> = (0..frames)
+                    .flat_map(|frame| {
+                        if frame < history {
+                            [
+                                1e9 * (frame as f64 * 0.137).cos(),
+                                -1e8 * (frame as f64 * 0.273).sin(),
+                            ]
+                        } else {
+                            [epsilon, if frame % 2 == 0 { epsilon } else { -epsilon }]
+                        }
+                    })
+                    .collect();
+                let output = render(&input, &taps, 513);
+                for channel in 0..2 {
+                    let bound = design.peak_bound(channel, epsilon).unwrap();
+                    for sample in output.iter().skip(frontier * 2 + channel).step_by(2) {
+                        assert!(
+                            sample.abs() <= bound,
+                            "length {length}, history {history}, epsilon {epsilon}, channel {channel}, sample {sample}, bound {bound}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
