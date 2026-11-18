@@ -5,6 +5,7 @@ mod compile;
 pub mod convolution;
 mod model;
 pub mod peq;
+pub mod resample;
 mod runtime;
 pub use compile::{compile, compile_with_assets, compile_with_input_bounds};
 pub use model::*;

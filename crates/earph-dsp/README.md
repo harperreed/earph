@@ -93,7 +93,7 @@ Set `EARPH_DSP_FIXTURE_DIR` to a writable directory to export graph and plan fix
 The default tests serialize and parse in memory without writing into the checkout.
 The tests compile real typed documents and serialized round trips without mocks.
 They check topology, format boundaries, deterministic scheduling, compensation, preservation, and resource rejection.
-The round-trip test retains its branch fixture and resolved plan under `target/dsp-compiler-fixtures/`.
+Opt-in export retains both files under `EARPH_DSP_FIXTURE_DIR/<pid>-<nonce>/`.
 They do not qualify execution, real-time allocation behavior, hardware playback, or activation transactions.
 
 ## Prepared execution

@@ -263,13 +263,21 @@ impl Session {
         }
     }
     pub(super) fn validate_graph_control(&self, command: &Command) -> Result<(), EngineError> {
-        if self.local_stop_pending
+        if (self.local_boundary.is_some()
             && matches!(
                 command,
-                Command::Pause | Command::Resume | Command::Seek { .. }
-            )
+                Command::Resume
+                    | Command::GraphPrepare { .. }
+                    | Command::GraphValidate { .. }
+                    | Command::GraphCommit { .. }
+            ))
+            || (self.local_boundary == Some(LocalBoundary::Stop)
+                && matches!(command, Command::Pause | Command::Seek { .. }))
         {
-            return Err(BUSY);
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "local playback transition awaits worker acknowledgement",
+            ));
         }
         if self.graph.activation.is_some()
             && !matches!(
@@ -330,7 +338,7 @@ impl Session {
                 }
                 if self.state.source != Some(SourceKind::LocalFile)
                     || self.state.playback.is_none()
-                    || self.local_stop_pending
+                    || self.local_boundary.is_some()
                     || !matches!(
                         self.state.transport,
                         TransportState::Buffering
@@ -593,6 +601,14 @@ impl Session {
             TransportState::Paused
         };
         staged.state.muted = true;
+        staged.state.active_entry_id = Some(observation.source_entry_id.clone());
+        staged.state.reserved_next_entry_id = staged
+            .queue
+            .entries()
+            .iter()
+            .position(|entry| entry.id == observation.source_entry_id)
+            .and_then(|index| staged.queue.entries().get(index + 1))
+            .map(|entry| entry.id.clone());
         staged.state.decoded_position_frames = observation.source_position_frames;
         staged.state.audible_position_frames = observation.audible_source_position_frames;
         staged.state.playback = Some(observation);
@@ -626,7 +642,7 @@ impl Session {
         {
             self.state.muted = true;
             self.state.transport = TransportState::Failed;
-            self.local_stop_pending = false;
+            self.local_boundary = None;
             self.state.output_consented = false;
             self.state.error = Some(error.code);
             self.graph.active = None;
@@ -840,6 +856,17 @@ mod tests {
     #[test]
     fn pending_stop_cannot_resume_or_prepare_after_receipt_rotation() {
         let mut s = fixture();
+        s.state.seekable = true;
+        let entry = s.state.active_entry_id.clone().unwrap();
+        s.queue
+            .update_status(
+                &entry,
+                crate::queue::PreparationStatus::Ready {
+                    format: s.state.playback.as_ref().unwrap().format,
+                    total_frames: 1000,
+                },
+            )
+            .unwrap();
         let stop = command(&s, "stop", Command::Stop);
         assert_eq!(s.submit_graph(stop, 1).status, ReceiptStatus::Accepted);
         for i in 0..1025 {
@@ -852,11 +879,219 @@ mod tests {
             Command::Seek { position_frames: 0 },
         ] {
             let c = command(&s, &format!("closing-{payload:?}"), payload);
-            assert_eq!(s.submit_graph(c, 3).status, ReceiptStatus::Rejected);
+            let receipt = s.submit_graph(c, 3);
+            assert_eq!(receipt.status, ReceiptStatus::Rejected);
+            assert_eq!(receipt.error.unwrap().code, ErrorCode::SourceBusy);
         }
         let c = prepare(&s, "prepare-after-closing-resume");
         assert_eq!(s.submit_graph(c, 4).status, ReceiptStatus::Rejected);
         assert!(s.graph_job().is_none());
+    }
+    #[test]
+    fn graph_preparation_waits_for_pause_and_seek_worker_acknowledgements() {
+        for payload in [
+            Command::Pause,
+            Command::Seek {
+                position_frames: 50,
+            },
+        ] {
+            let mut s = fixture();
+            s.state.seekable = true;
+            let entry = s.state.active_entry_id.clone().unwrap();
+            s.queue
+                .update_status(
+                    &entry,
+                    crate::queue::PreparationStatus::Ready {
+                        format: s.state.playback.as_ref().unwrap().format,
+                        total_frames: 1000,
+                    },
+                )
+                .unwrap();
+            let request = command(&s, "reposition", payload);
+            assert_eq!(
+                s.submit_graph(request.clone(), 1).status,
+                ReceiptStatus::Accepted
+            );
+            let c = prepare(&s, "before-ack");
+            assert_eq!(
+                s.submit_graph(c, 2).error.unwrap().code,
+                ErrorCode::SourceBusy
+            );
+            let resume = command(&s, "early-resume", Command::Resume);
+            assert_eq!(
+                s.submit_graph(resume, 3).error.unwrap().code,
+                ErrorCode::SourceBusy
+            );
+            s.advance(EngineEvent {
+                epochs: s.state.epochs,
+                monotonic_ns: 4,
+                kind: EngineEventKind::LocalPaused {
+                    observation: s.state.playback.as_ref().unwrap().clone(),
+                },
+            })
+            .unwrap();
+            assert_eq!(s.submit_graph(request, 5).status, ReceiptStatus::Applied);
+            let c = prepare(&s, "after-ack");
+            assert_eq!(s.submit_graph(c, 6).status, ReceiptStatus::Accepted);
+        }
+    }
+    #[test]
+    fn proven_source_completion_cancels_activation_without_an_output_fault() {
+        let mut s = fixture();
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "commit", &p);
+        s.submit_graph(c.clone(), 21);
+        let mut observation = s.state.playback.clone().unwrap();
+        observation.source_position_frames = 1000;
+        observation.submitted_frames = 1000;
+        let epochs = s.state.epochs;
+        s.advance(EngineEvent {
+            epochs,
+            monotonic_ns: 22,
+            kind: EngineEventKind::LocalCompleted {
+                observation: observation.clone(),
+            },
+        })
+        .unwrap();
+        assert_eq!(s.state.transport, TransportState::Idle);
+        assert!(s.state.muted && s.state.output_consented);
+        assert!(s.state.session_id.is_none() && s.graph_activation().is_none());
+        assert!(!s.graph_inspection().recovery_required);
+        assert_eq!(s.state.playback.as_ref(), Some(&observation));
+        assert_eq!(s.state.error, None);
+        let receipt = s.submit_graph(c, 23);
+        assert_eq!(receipt.status, ReceiptStatus::Failed);
+        assert_eq!(
+            receipt.error.unwrap().code,
+            ErrorCode::CapabilityUnsupported
+        );
+        let before = s.state.clone();
+        assert!(
+            s.advance(EngineEvent {
+                epochs,
+                monotonic_ns: 24,
+                kind: EngineEventKind::LocalCompleted { observation },
+            })
+            .is_err()
+        );
+        assert_eq!(s.state, before);
+    }
+    #[test]
+    fn proven_completion_settles_repositioning_as_ended_without_revoking_consent() {
+        for payload in [
+            Command::Pause,
+            Command::Seek {
+                position_frames: 50,
+            },
+        ] {
+            let mut s = fixture();
+            s.state.seekable = true;
+            let entry = s.state.active_entry_id.clone().unwrap();
+            s.queue
+                .update_status(
+                    &entry,
+                    crate::queue::PreparationStatus::Ready {
+                        format: s.state.playback.as_ref().unwrap().format,
+                        total_frames: 1000,
+                    },
+                )
+                .unwrap();
+            let c = command(&s, "reposition", payload);
+            assert_eq!(s.submit_graph(c.clone(), 1).status, ReceiptStatus::Accepted);
+            s.advance(EngineEvent {
+                epochs: s.state.epochs,
+                monotonic_ns: 2,
+                kind: EngineEventKind::LocalCompleted {
+                    observation: s.state.playback.clone().unwrap(),
+                },
+            })
+            .unwrap();
+            let receipt = s.submit_graph(c, 3);
+            assert_eq!(receipt.status, ReceiptStatus::Failed);
+            assert_eq!(
+                receipt.error.unwrap().code,
+                ErrorCode::CapabilityUnsupported
+            );
+            assert_eq!(s.state.transport, TransportState::Idle);
+            assert!(s.state.output_consented && s.state.muted);
+            assert!(s.local_boundary.is_none());
+        }
+    }
+    #[test]
+    fn proved_completion_retires_the_owner_when_a_terminal_counter_is_exhausted() {
+        for counter in ["revision", "events", "stream"] {
+            let mut s = fixture();
+            match counter {
+                "revision" => s.state.revision = u64::MAX,
+                "events" => s.state.event_sequence = u64::MAX,
+                "stream" => s.state.epochs.stream = u64::MAX,
+                _ => unreachable!(),
+            }
+            s.advance(EngineEvent {
+                epochs: s.state.epochs,
+                monotonic_ns: 1,
+                kind: EngineEventKind::LocalCompleted {
+                    observation: s.state.playback.clone().unwrap(),
+                },
+            })
+            .unwrap();
+            assert_eq!(s.state.transport, TransportState::Idle, "{counter}");
+            assert!(s.state.muted && s.state.output_consented, "{counter}");
+            assert!(s.shutdown_requested(), "{counter}");
+            assert_eq!(s.state.error, Some(ErrorCode::ResourceBudgetExceeded));
+            assert!(s.state.source.is_none() && s.state.session_id.is_none());
+            assert!(!s.graph_inspection().recovery_required);
+        }
+    }
+    #[test]
+    fn normal_completion_settles_activation_even_after_revision_exhaustion() {
+        let mut s = fixture();
+        s.state.revision = u64::MAX - 2;
+        let p = ready(&mut s, "prepare", 1.0);
+        let c = commit(&s, "commit", &p);
+        assert_eq!(
+            s.submit_graph(c.clone(), 21).status,
+            ReceiptStatus::Accepted
+        );
+        let mute = command(&s, "mute", Command::Mute { muted: true });
+        assert_eq!(s.submit_graph(mute, 22).status, ReceiptStatus::Applied);
+        s.advance(EngineEvent {
+            epochs: s.state.epochs,
+            monotonic_ns: 23,
+            kind: EngineEventKind::LocalCompleted {
+                observation: s.state.playback.clone().unwrap(),
+            },
+        })
+        .unwrap();
+        assert!(s.graph_activation().is_none());
+        let receipt = s.submit_graph(c, 24);
+        assert_eq!(receipt.status, ReceiptStatus::Failed);
+        assert_eq!(
+            receipt.error.unwrap().code,
+            ErrorCode::ResourceBudgetExceeded
+        );
+        assert!(s.shutdown_requested());
+    }
+    #[test]
+    fn a_new_owner_reseeds_only_an_exhausted_revision_and_preserves_the_queue() {
+        for revision in [123, u64::MAX] {
+            let mut s = fixture();
+            s.state.revision = revision;
+            let queue = s.queue_snapshot();
+            let restored = Session::restore_owner(
+                ZoneId::new("main").unwrap(),
+                OwnerId::new("new-owner").unwrap(),
+                ControlLimits::default(),
+                s.checkpoint(),
+            )
+            .unwrap();
+            assert_eq!(
+                restored.state.revision,
+                if revision == u64::MAX { 0 } else { revision }
+            );
+            assert_eq!(restored.queue_snapshot(), queue);
+            assert!(restored.state.muted && !restored.state.output_consented);
+        }
     }
     #[test]
     fn activation_completion_keeps_its_final_event_slot() {
@@ -1176,6 +1411,96 @@ mod tests {
         let mut malformed = attenuated;
         malformed.channel_peak_bounds[0] = f64::NAN;
         assert!(malformed.validate_headroom(-40.0, 0.0).is_err());
+    }
+    #[test]
+    fn active_graph_mute_rewinds_only_at_a_new_stream_epoch() {
+        for payload in [
+            Command::Mute { muted: true },
+            Command::VolumeCaps {
+                software_millidecibels: -60000,
+                hardware_millidecibels: None,
+            },
+        ] {
+            let mut s = fixture();
+            let p = ready(&mut s, "prepare-mute", 1.0);
+            let c = commit(&s, "commit-mute", &p);
+            s.submit_graph(c.clone(), 21);
+            s.complete_graph_activation(
+                GraphActivationAck {
+                    request_id: c.request_id,
+                    epochs: s.state.epochs,
+                    graph_hash: p.preview.graph_hash.clone(),
+                    activation_frame: 0,
+                    observation: s.state.playback.clone().unwrap(),
+                },
+                22,
+                |_| Ok(()),
+            )
+            .unwrap();
+            let unmute = command(&s, "unmute-before-rewind", Command::Mute { muted: false });
+            assert_eq!(s.submit_graph(unmute, 23).status, ReceiptStatus::Applied);
+            let before = s.state.epochs;
+            let mute = command(&s, "mute-for-rewind", payload.clone());
+            assert_eq!(s.submit_graph(mute, 24).status, ReceiptStatus::Applied);
+            assert!(s.state.muted);
+            assert_eq!(s.state.epochs, before.next_stream().unwrap());
+            let after = s.state.epochs;
+            let repeat = command(&s, "repeat-mute-without-rewind", payload);
+            assert_eq!(s.submit_graph(repeat, 25).status, ReceiptStatus::Applied);
+            assert_eq!(s.state.epochs, after);
+        }
+    }
+    #[test]
+    fn activation_at_final_queue_join_updates_seek_authority_atomically() {
+        let mut s = fixture();
+        s.state.seekable = true;
+        let first = s.state.active_entry_id.clone().unwrap();
+        let last = s.queue.append("final.wav").unwrap();
+        let format = s.state.playback.as_ref().unwrap().format;
+        for (entry, total_frames) in [(&first, 48000), (&last, 12000)] {
+            s.queue
+                .update_status(
+                    entry,
+                    crate::queue::PreparationStatus::Ready {
+                        format,
+                        total_frames,
+                    },
+                )
+                .unwrap();
+        }
+        s.state.reserved_next_entry_id = Some(last.clone());
+        let p = ready(&mut s, "prepare-final-join", 1.0);
+        let c = commit(&s, "commit-final-join", &p);
+        s.submit_graph(c.clone(), 21);
+        let mut observation = s.state.playback.clone().unwrap();
+        observation.source_entry_id = last.clone();
+        observation.source_position_frames = 37;
+        s.complete_graph_activation(
+            GraphActivationAck {
+                request_id: c.request_id,
+                epochs: s.state.epochs,
+                graph_hash: p.preview.graph_hash.clone(),
+                activation_frame: 48037,
+                observation,
+            },
+            22,
+            |staged| {
+                assert_eq!(staged.state.active_entry_id.as_ref(), Some(&last));
+                assert_eq!(staged.state.reserved_next_entry_id, None);
+                Ok(())
+            },
+        )
+        .unwrap();
+        let seek = command(
+            &s,
+            "seek-past-final-file",
+            Command::Seek {
+                position_frames: 24000,
+            },
+        );
+        let receipt = s.submit_graph(seek, 23);
+        assert_eq!(receipt.status, ReceiptStatus::Rejected);
+        assert_eq!(receipt.error.unwrap().code, ErrorCode::AssetInvalid);
     }
     #[test]
     fn activation_persists_the_post_install_playback_observation_atomically() {

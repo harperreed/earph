@@ -4,7 +4,7 @@ use crate::{
     directory,
     graph::{GraphCancellation, GraphService, PreparedPipeline},
     ipc, runtime,
-    worker::{Action, Event, Settings, Worker},
+    worker::{Action, DrainToken, Event, Settings, Worker},
 };
 use earph_core::{
     EngineError, ErrorCode,
@@ -38,6 +38,7 @@ pub(crate) fn serve(
     let mut graphs = GraphJobs::spawn(directory.clone())?;
     // Worker pipelines must retire before the preparation service shuts down.
     let mut worker = Worker::spawn();
+    let mut drain_acknowledgement = None;
     let clock = Instant::now();
     loop {
         loop {
@@ -73,7 +74,11 @@ pub(crate) fn serve(
                         worker.cancel_active();
                     }
                 }
-                Ok(event) => observation(&mut session, event, &clock),
+                Ok(event) => {
+                    if let Ok(Some(token)) = observation(&mut session, event, &clock) {
+                        drain_acknowledgement = Some(token);
+                    }
+                }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     if session.snapshot().session_id.is_some() {
@@ -89,6 +94,14 @@ pub(crate) fn serve(
                     break;
                 }
             }
+        }
+        if let Some(token) = drain_acknowledgement.as_ref()
+            && worker.send(Action::AcknowledgeDrain(token.clone())).is_ok()
+        {
+            drain_acknowledgement = None;
+        }
+        if session.shutdown_requested() {
+            return Ok(());
         }
         let progress = worker
             .progress
@@ -385,7 +398,11 @@ fn advance(session: &mut Session, kind: EngineEventKind, epochs: Option<Epochs>,
         kind,
     });
 }
-fn observation(session: &mut Session, event: Event, clock: &Instant) {
+fn observation(
+    session: &mut Session,
+    event: Event,
+    clock: &Instant,
+) -> Result<Option<DrainToken>, EngineError> {
     match event {
         Event::GraphActivated(_) | Event::GraphFailed { .. } => {
             unreachable!("graph events reconcile with persistence in the owner loop")
@@ -441,15 +458,26 @@ fn observation(session: &mut Session, event: Event, clock: &Instant) {
         Event::End { epochs } => advance(session, EngineEventKind::EndOfInput, Some(epochs), clock),
         Event::Drained {
             epochs,
+            token,
             observation,
         } => {
-            advance(
-                session,
-                EngineEventKind::LocalProgress { observation },
-                Some(epochs),
-                clock,
-            );
-            advance(session, EngineEventKind::Drained, Some(epochs), clock);
+            let snapshot = session.snapshot();
+            if !token.matches_source(&snapshot)
+                || epochs != snapshot.epochs
+                || epochs.stream < token.origin_epochs.stream
+                || observation.source_entry_id != token.final_entry_id
+            {
+                return Err(EngineError::new(
+                    ErrorCode::StaleSession,
+                    "native completion no longer matches the source",
+                ));
+            }
+            session.advance(EngineEvent {
+                epochs,
+                monotonic_ns: monotonic(clock),
+                kind: EngineEventKind::LocalCompleted { observation },
+            })?;
+            return Ok(Some(token));
         }
         Event::Failed {
             epochs,
@@ -474,6 +502,7 @@ fn observation(session: &mut Session, event: Event, clock: &Instant) {
             }
         }
     }
+    Ok(None)
 }
 
 fn monotonic(clock: &Instant) -> u64 {
@@ -929,10 +958,179 @@ mod tests {
                 observation: None,
             },
             &clock,
-        );
+        )
+        .unwrap();
         let replay = session.submit_graph(pause, monotonic(&clock) + 1);
         assert_eq!(replay.status, ReceiptStatus::Failed);
         assert_eq!(replay.error.unwrap().code, ErrorCode::CapabilityUnsupported);
         assert!(session.snapshot().operation.is_none());
+    }
+    fn drain_token(
+        session: &Session,
+        origin: Epochs,
+        observation: &PlaybackObservation,
+    ) -> DrainToken {
+        let snapshot = session.snapshot();
+        DrainToken {
+            owner_id: snapshot.owner_id,
+            session_id: snapshot.session_id.unwrap(),
+            origin_epochs: origin,
+            graph_epoch: snapshot.graph_epoch,
+            device_epoch: snapshot.device_epoch,
+            final_entry_id: observation.source_entry_id.clone(),
+        }
+    }
+    #[test]
+    fn proven_native_completion_cancels_graph_commit_without_an_output_fault() {
+        let (mut session, acknowledgement) = activation();
+        let activation = session.graph_activation().unwrap();
+        let mut commit = command(
+            &session,
+            "commit",
+            Command::GraphCommit {
+                token: activation.prepared.token.clone(),
+                graph_hash: activation.prepared.preview.graph_hash.clone(),
+            },
+        );
+        commit.expected_revision = Some(activation.previous_binding.expected_revision);
+        let epochs = session.snapshot().epochs;
+        let mut final_observation = acknowledgement.observation;
+        final_observation.processing = None;
+        final_observation.source_position_frames = 65;
+        let token = drain_token(
+            &session,
+            activation.previous_binding.epochs,
+            &final_observation,
+        );
+        let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        let accepted = observation(
+            &mut session,
+            Event::Drained {
+                epochs,
+                token: token.clone(),
+                observation: final_observation.clone(),
+            },
+            &clock,
+        )
+        .unwrap();
+        assert_eq!(session.snapshot().transport, TransportState::Idle);
+        assert!(session.snapshot().output_consented);
+        assert!(!session.graph_inspection().recovery_required);
+        assert!(session.graph_activation().is_none());
+        assert_eq!(session.snapshot().playback.unwrap(), final_observation);
+        assert_eq!(accepted, Some(token));
+        let replay = session.submit_graph(commit, monotonic(&clock) + 1);
+        assert_eq!(replay.status, ReceiptStatus::Failed);
+        assert_eq!(replay.error.unwrap().code, ErrorCode::CapabilityUnsupported);
+    }
+    #[test]
+    fn proven_completion_settles_pause_and_seek_without_revoking_consent() {
+        for payload in [Command::Pause, Command::Seek { position_frames: 0 }] {
+            let (mut session, acknowledgement) = activation();
+            reconcile_graph_activation(&mut session, acknowledgement, 7, |_| Ok(())).unwrap();
+            let before = session.snapshot();
+            let final_observation = before.playback.clone().unwrap();
+            session
+                .set_queue_preparation(
+                    before.epochs,
+                    &final_observation.source_entry_id,
+                    earph_core::queue::PreparationStatus::Ready {
+                        format: final_observation.format,
+                        total_frames: 65,
+                    },
+                )
+                .unwrap();
+            let token = drain_token(&session, before.epochs, &final_observation);
+            let position = command(&session, "position-completed", payload);
+            assert_eq!(
+                session.submit_graph(position.clone(), 8).status,
+                ReceiptStatus::Accepted
+            );
+            let epochs = session.snapshot().epochs;
+            let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+            let accepted = observation(
+                &mut session,
+                Event::Drained {
+                    epochs,
+                    token: token.clone(),
+                    observation: final_observation,
+                },
+                &clock,
+            )
+            .unwrap();
+            assert_eq!(accepted, Some(token));
+            assert_eq!(session.snapshot().transport, TransportState::Idle);
+            assert!(session.snapshot().output_consented);
+            assert!(!session.graph_inspection().recovery_required);
+            let replay = session.submit_graph(position, monotonic(&clock) + 1);
+            assert_eq!(replay.status, ReceiptStatus::Failed);
+            assert_eq!(replay.error.unwrap().code, ErrorCode::CapabilityUnsupported);
+            assert!(session.snapshot().operation.is_none());
+        }
+    }
+    #[test]
+    fn a_stale_completion_does_not_acknowledge_or_discard_the_current_activation() {
+        let (mut session, acknowledgement) = activation();
+        let activation = session.graph_activation().unwrap();
+        let observation_value = acknowledgement.observation;
+        let token = drain_token(
+            &session,
+            activation.previous_binding.epochs,
+            &observation_value,
+        );
+        let before = session.snapshot();
+        let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        let result = observation(
+            &mut session,
+            Event::Drained {
+                epochs: activation.previous_binding.epochs,
+                token,
+                observation: observation_value,
+            },
+            &clock,
+        );
+        assert_eq!(result.unwrap_err().code, ErrorCode::StaleSession);
+        assert_eq!(session.snapshot(), before);
+        assert!(session.graph_activation().is_some());
+    }
+    #[test]
+    fn proven_completion_at_revision_exhaustion_closes_the_source_and_retires_the_owner() {
+        let (mut session, acknowledgement) = activation_at_revision(u64::MAX - 8);
+        let activation = session.graph_activation().unwrap();
+        for (now, id) in [(7, "first-mute"), (8, "last-mute")] {
+            let mute = command(&session, id, Command::Mute { muted: true });
+            assert_eq!(
+                session.submit_graph(mute, now).status,
+                ReceiptStatus::Applied
+            );
+        }
+        assert_eq!(session.snapshot().revision, u64::MAX);
+        let epochs = session.snapshot().epochs;
+        let value = acknowledgement.observation;
+        let token = drain_token(&session, activation.previous_binding.epochs, &value);
+        let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        assert_eq!(
+            observation(
+                &mut session,
+                Event::Drained {
+                    epochs,
+                    token: token.clone(),
+                    observation: value
+                },
+                &clock
+            )
+            .unwrap(),
+            Some(token)
+        );
+        assert_eq!(session.snapshot().revision, u64::MAX);
+        assert_eq!(session.snapshot().transport, TransportState::Idle);
+        assert_eq!(
+            session.snapshot().error,
+            Some(ErrorCode::ResourceBudgetExceeded)
+        );
+        assert!(session.shutdown_requested());
+        assert!(session.snapshot().output_consented);
+        assert!(!session.graph_inspection().recovery_required);
+        assert!(session.graph_activation().is_none());
     }
 }

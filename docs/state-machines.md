@@ -34,7 +34,7 @@ The later T05 spike adds a native adapter with its own explicit lifecycle.
 | Filter settlement | The compiler selects authored FIR support or bounded IIR truncation and carries per-node future envelopes. | Flush global zeros. Mask FIR-only output after authored support. Verify the final discarded-output bound before preparing a token. |
 | Correction assets | The [private store](../crates/earph-engine/src/assets.rs) validates source bytes, publishes immutable content identity, and freezes coefficients during preparation. | Preserve originals and failed writes. Reject conflicting objects, wrong geometry, and missing assets. Never resolve files during processing or activation. |
 | Source and tail periods | The worker owns `Feeding -> GraphTail -> BackendDrain -> Finished` and a source-or-tail pending period. | Retain partially written samples. Never reprocess retries or advance source offsets for tail frames. |
-| Completed drain handoff | The worker retains one final observation after releasing playback. | Reconcile only a matching mute generation. Preserve harmless settings; reject ended-source repositioning explicitly. |
+| Completed drain handoff | The worker retains one immutable completion token and final observation after releasing playback. | Reissue proof across matching mute generations and earlier-entry snapshots. Release only on exact acknowledgement or explicit stream replacement. |
 | Mute and gain intent | `Session` owns mute, gain caps, output consent, and fixed-output arming. | The worker applies admitted software gain. Hardware gain control remains unsupported. Restore caps without consent or arming. |
 | Event subscription | `Session::events_since` projects bounded events against a cursor. Pending activation reserves its final completion slot. | Keep sequence-based recovery. Nonterminal observations cannot exhaust completion capacity. Terminal source states cancel graph work. |
 | PCM storage | [`PcmBlock`](../crates/earph-core/src/audio.rs) owns typed storage and a checked valid frame span. Reuse changes the span. | Keep checked constructors and valid-prefix serialization. Never serialize unused capacity. |
@@ -177,14 +177,16 @@ Core Audio adapter lifecycle, SDK handoff, and scoped owner-and-CLI playback pas
 The final Linux owner-and-CLI hardware run also passed after the explicit drain correction.
 Those observations do not establish DAC preservation, acoustic safety, or full release qualification.
 Crash-restored queues now recover paused and muted without opening an output.
-Prepared PCM graph review fixes pass 338 Linux tests, with two hardware-gated tests ignored.
+Prepared PCM graph review fixes pass 361 Linux tests, with two hardware-gated tests ignored.
 The canonical formatting, strict lint, catalog, and dependency checks pass.
-Ten real owner/CLI scenarios include graph joins, tails, rebuffering, paused replacement, and restart.
+Real owner/CLI scenarios include graph joins, tails, rebuffering, paused replacement, restart, and retained semantic rejections.
 See [prepared graph contracts and limits](dsp-graphs.md).
-The same runtime-source digest passes 315 Mac tests, with two hardware-gated tests ignored.
+The same runtime-source digest passes 331 Mac tests, with two hardware-gated tests ignored.
 One attenuated graph signal passes on each previously approved Linux and Mac route.
 Settings and generated sources remain unchanged.
-The [review receipts](evidence/dsp/review-verification-20261118.json) preserve these qualification limits.
+The [final review receipts](evidence/dsp/final-review-verification-20261118.json) preserve these qualification limits.
+The overlapping eleven-test SDK recheck also passes.
+Earlier [review receipts](evidence/dsp/review-verification-20261118.json) retain their original source binding.
 The [earlier graph receipts](evidence/dsp/verification-20261118.json) remain bound to their original source snapshot.
 Profiles, network roles, FFI clients, and GUIs remain unimplemented or unqualified.
 This task does not qualify power-loss durability beyond completed writes and atomic JSON publication.

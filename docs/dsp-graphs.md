@@ -14,6 +14,7 @@ Use its owner, session, and revision for graph commands.
 Select the output and grant consent for that output before starting a local source muted.
 An accepted start does not establish graph readiness.
 Wait for `state.get` to report buffering and a playback format before preparing or validating a graph.
+Use the owner, session, and revision from that readiness response to build the graph command.
 Its observed format and selected output supply the preparation context.
 Controllers cannot supply device facts, relax fidelity, or enlarge allocation budgets.
 
@@ -121,6 +122,14 @@ Tail frames increase output counts and never advance source positions.
 Structural graphs subtract scheduling latency when backend consumption is known.
 PEQ and convolution keep audible source positions unknown because scheduling latency does not establish filter phase.
 Filter previews expose their tail policy, per-node horizons, and terminal channel bounds.
+The worker retains completion proof until the owner acknowledges its exact token.
+Old queue-entry snapshots and repeated mute generations cannot consume that proof.
+Normal completion settles raced graph or positioning requests without inventing an output fault.
+Graph preparation and resume wait for pending pause or seek acknowledgements.
+
+If terminal counters exhaust, proved completion still closes the source muted and requests owner shutdown.
+Counters never wrap.
+A fresh owner resets only an exhausted persisted revision and restores intent without granting output consent.
 
 Activation, pause, seek, and mute rebuffering reset graph history.
 They discard the old tail at an explicit discontinuity.
@@ -133,6 +142,8 @@ Activation failure requests output stop and exposes `recovery_required`.
 It publishes one terminal event correlated with the graph request.
 Stale acknowledgements cannot terminate the owner or replace the current observation.
 Renewed consent alone cannot clear that gate.
+If checkpoint persistence stops the owner, restart it and let startup reconcile storage first.
+Then read fresh state before granting consent and starting a muted source.
 Renew consent for the selected output before restarting a failed source.
 If the failed session still owns the source, use `takeover: true` when calling `sessions.start`.
 Keep output muted until a valid replacement graph activates.

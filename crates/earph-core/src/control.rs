@@ -200,6 +200,16 @@ pub struct CommandEnvelope {
 }
 impl CommandEnvelope {
     pub fn validate(&self) -> Result<(), EngineError> {
+        self.validate_storage()?;
+        if let Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } =
+            &self.payload
+        {
+            graph.validate_structure()?;
+        }
+        Ok(())
+    }
+    // Bounded semantic failures must reach the owner's retained receipt history.
+    fn validate_storage(&self) -> Result<(), EngineError> {
         if self.schema_version != 1 || matches!(self.payload, Command::Unsupported) {
             return Err(EngineError::new(
                 ErrorCode::CapabilityUnsupported,
@@ -217,7 +227,7 @@ impl CommandEnvelope {
         if let Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } =
             &self.payload
         {
-            graph.validate_structure()?;
+            graph.validate_storage()?;
         }
         if let Command::GraphCommit { graph_hash, .. } = &self.payload
             && !valid_graph_hash(graph_hash)
@@ -266,7 +276,7 @@ pub fn decode_command(
     }
     let command: CommandEnvelope = serde_json::from_slice(bytes)
         .map_err(|_| EngineError::new(ErrorCode::AssetInvalid, "invalid command document"))?;
-    command.validate()?;
+    command.validate_storage()?;
     if matches!(
         command.payload,
         Command::GraphValidate { .. } | Command::GraphPrepare { .. }

@@ -109,7 +109,8 @@ Startup reconciles the recovery record before restoring graph intent.
 Only a successful durable commit publishes the staged session and an applied receipt.
 A storage failure returns a failed receipt and stops the owner.
 The persisted outcome can be uncertain if the final directory sync fails.
-Reinspect the checkpoint after restarting before issuing another mutation.
+After restarting, query fresh `state.get` and `queue.get` before issuing another mutation.
+Retained checkpoint files are diagnostic evidence and may differ from the recovered logical state.
 See [checkpoint recovery](../../docs/operational-storage.md) for the bounded uncertainty contract.
 
 The session retains at most 1024 command receipts in memory.
