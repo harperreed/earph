@@ -10,6 +10,7 @@ pub mod offline_render;
 mod output;
 mod output_replay;
 mod plan;
+mod profiles;
 mod render;
 mod runtime;
 pub mod stream_render;
@@ -102,6 +103,8 @@ impl EngineOwner {
         };
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         session.enable_local_playback();
+        let records = profiles::restore(&runtime, session.profile_references())?;
+        session.restore_profile_records(records)?;
         let endpoint = serde_json::to_vec(&Endpoint {
             schema_version: 1,
             socket,

@@ -5,6 +5,8 @@ use crate::{
     graph::{GraphDocument, GraphProcessingRequest},
     graph_control::*,
     ids::*,
+    profile_control::*,
+    profiles::{ProfileOutputSelector, ProfileResolution},
     safety::{FidelityPolicy, VolumeMode},
 };
 use serde::{Deserialize, Serialize};
@@ -111,6 +113,28 @@ pub enum Command {
     QueueGet { offset: usize, limit: usize },
     #[serde(rename = "graph.inspect")]
     GraphInspect {},
+    #[serde(rename = "profiles.list")]
+    ProfilesList { offset: usize, limit: usize },
+    #[serde(rename = "profiles.get")]
+    ProfilesGet { id: ProfileId },
+    #[serde(rename = "profiles.resolve")]
+    ProfilesResolve {
+        manual_profile_id: Option<ProfileId>,
+        output: ProfileOutputSelector,
+    },
+    #[serde(rename = "profiles.create")]
+    ProfilesCreate {
+        id: ProfileId,
+        draft: Arc<ProfileDraft>,
+        graph: Arc<GraphIntent>,
+    },
+    #[serde(rename = "profiles.update")]
+    ProfilesUpdate {
+        id: ProfileId,
+        expected_profile_revision: u64,
+        draft: Arc<ProfileDraft>,
+        graph: Arc<GraphIntent>,
+    },
     #[serde(rename = "graph.validate")]
     GraphValidate {
         graph: Arc<GraphDocument>,
@@ -181,10 +205,29 @@ pub enum Command {
     Unsupported,
 }
 impl Command {
+    pub fn is_profile_save(&self) -> bool {
+        matches!(
+            self,
+            Self::ProfilesCreate { .. } | Self::ProfilesUpdate { .. }
+        )
+    }
+    pub fn is_profile(&self) -> bool {
+        self.is_profile_save()
+            || matches!(
+                self,
+                Self::ProfilesList { .. } | Self::ProfilesGet { .. } | Self::ProfilesResolve { .. }
+            )
+    }
     pub fn is_query(&self) -> bool {
         matches!(
             self,
-            Self::Capabilities | Self::State | Self::QueueGet { .. } | Self::GraphInspect { .. }
+            Self::Capabilities
+                | Self::State
+                | Self::QueueGet { .. }
+                | Self::GraphInspect { .. }
+                | Self::ProfilesList { .. }
+                | Self::ProfilesGet { .. }
+                | Self::ProfilesResolve { .. }
         )
     }
 }
@@ -202,6 +245,63 @@ pub struct CommandEnvelope {
     pub payload: Command,
 }
 impl CommandEnvelope {
+    pub(crate) fn profile_capacity_bytes(&self) -> Result<usize, EngineError> {
+        if !self.payload.is_profile() {
+            return Ok(0);
+        }
+        let ids = [
+            self.request_id.capacity_bytes(),
+            self.zone_id.capacity_bytes(),
+            self.owner_id.as_ref().map_or(0, OwnerId::capacity_bytes),
+            self.session_id
+                .as_ref()
+                .map_or(0, SessionId::capacity_bytes),
+        ];
+        if ids.iter().any(|n| *n > 128) {
+            return Err(BUDGET);
+        }
+        let mut bytes = size_of::<Self>() + 128 + ids.iter().sum::<usize>();
+        let id = match &self.payload {
+            Command::ProfilesCreate { id, draft, graph }
+            | Command::ProfilesUpdate {
+                id, draft, graph, ..
+            } => {
+                draft.validate_storage()?;
+                validate_graph_storage(&graph.graph)?;
+                bytes = bytes
+                    .checked_add(draft.retained_capacity_bytes()?)
+                    .and_then(|n| n.checked_add(graph.graph.retained_capacity_bytes().ok()?))
+                    .and_then(|n| n.checked_add(size_of::<GraphIntent>()))
+                    .ok_or(BUDGET)?;
+                Some(id)
+            }
+            Command::ProfilesGet { id } => Some(id),
+            Command::ProfilesResolve {
+                manual_profile_id,
+                output,
+            } => {
+                if output.device_id.capacity_bytes() > 128
+                    || output
+                        .manual_setup
+                        .as_ref()
+                        .is_some_and(|s| s.capacity() > 128)
+                {
+                    return Err(BUDGET);
+                }
+                bytes += output.device_id.capacity_bytes()
+                    + output.manual_setup.as_ref().map_or(0, String::capacity);
+                manual_profile_id.as_ref()
+            }
+            _ => None,
+        };
+        if let Some(id) = id {
+            if id.capacity_bytes() > 128 {
+                return Err(BUDGET);
+            }
+            bytes += id.capacity_bytes();
+        }
+        Ok(bytes)
+    }
     pub fn validate(&self) -> Result<(), EngineError> {
         self.validate_storage()?;
         if let Command::GraphCommit { graph_hash, .. } = &self.payload
@@ -238,6 +338,9 @@ impl CommandEnvelope {
         self.validate_retained_storage()
     }
     pub(crate) fn validate_retained_storage(&self) -> Result<(), EngineError> {
+        if self.payload.is_profile() {
+            self.profile_capacity_bytes()?;
+        }
         match &self.payload {
             Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } => {
                 graph.validate_storage()
@@ -334,12 +437,17 @@ pub enum QueryResult {
     GraphPrepared(GraphPrepared),
     GraphInspection(GraphInspection),
     GraphDiagnostic(GraphDiagnostic),
+    ProfileSaved(Arc<ProfileRecord>),
+    Profile(Arc<ProfileRecord>),
+    Profiles(ProfilePage),
+    ProfileResolution(ProfileResolution),
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Capabilities {
     pub schema_version: u32,
     pub sources: Vec<SourceKind>,
     pub physical_output: bool,
+    pub profiles: ProfileCapabilities,
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Receipt {

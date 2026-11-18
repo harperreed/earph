@@ -17,7 +17,6 @@ use earph_core::{
 use earph_dsp::{CompileContext, CompiledPlan, GraphBudget, GraphError, ProcessingPolicy};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
     io::Write,
     path::{Path, PathBuf},
     sync::{
@@ -644,6 +643,7 @@ fn prepare(
     let intent_bytes = intent_capacity(&request.intent)?;
     let metadata = METADATA_ALLOWANCE
         .checked_add(intent_bytes)
+        .and_then(|n| n.checked_add(snapshot.profile_storage_bytes))
         .ok_or(RESOURCE)?;
     let host_input = if float {
         processing_input
@@ -702,38 +702,9 @@ fn prepare(
     let existing_route_bytes = source
         .storage_bytes(quantum as u64)
         .map_err(GraphDiagnostic::from)? as u64;
-    let mut references = BTreeMap::new();
-    for node in &request.intent.graph.nodes {
-        if let NodeKind::Convolution { asset } = &node.kind {
-            asset.validate().map_err(GraphDiagnostic::from)?;
-            if let Some(previous) = references.insert(asset.sha256.clone(), asset)
-                && previous != asset
-            {
-                return Err(EngineError::new(
-                    ErrorCode::AssetInvalid,
-                    "correction identity has conflicting geometry",
-                )
-                .into());
-            }
-        }
-    }
-    let declared_asset_bytes = references
-        .values()
-        .try_fold(0_u64, |n, a| {
-            n.checked_add(
-                (a.taps_per_channel as u64)
-                    .checked_mul(a.channels.count() as u64)?
-                    .checked_mul(8)?
-                    .checked_add(1024)?,
-            )
-        })
-        .ok_or(RESOURCE)?;
-    // One bounded source, packet, decoder buffer, and metadata exist during sequential resolution.
-    let asset_scratch = if references.is_empty() {
-        0
-    } else {
-        8 * 1024 * 1024
-    };
+    let asset_admission =
+        assets::GraphAssets::inspect(&request.intent.graph).map_err(GraphDiagnostic::from)?;
+    let asset_scratch = asset_admission.scratch_bytes();
     let bridge_bytes = match stream_bridge {
         Some(bridge) => bridge.bridge_bytes,
         None => sum(&[host_input, host_output, native_period])?,
@@ -748,27 +719,11 @@ fn prepare(
         asset_scratch,
     ])?;
     let kernel_allowance = LIMIT.checked_sub(fixed).ok_or(RESOURCE)?;
-    if declared_asset_bytes > kernel_allowance {
-        return Err(RESOURCE.into());
-    }
-    let mut resolved = Vec::with_capacity(references.len());
-    for reference in references.values() {
-        check()?;
-        let correction = assets::resolve(
-            asset_store.ok_or_else(|| {
-                GraphDiagnostic::from(EngineError::new(
-                    ErrorCode::AssetInvalid,
-                    "correction store is unavailable",
-                ))
-            })?,
-            reference,
-        )
+    let resolved = asset_admission
+        .resolve(asset_store, kernel_allowance, || {
+            check().map_err(|e| e.error())
+        })
         .map_err(GraphDiagnostic::from)?;
-        resolved.push(
-            earph_dsp::FirCoefficients::new(correction.reference, correction.taps)
-                .map_err(diagnostic)?,
-        );
-    }
     check()?;
     let context = CompileContext {
         input_format: processing_input,

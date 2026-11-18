@@ -82,6 +82,35 @@ Never choose the first of multiple exact-device setups.
 
 ## Task 2: Immutable storage and owner save/import
 
+Task 2a implements owner saves and manual resolution before provenance imports.
+Its shared command and recovery contract lives in [listening-profile-save.md](../../listening-profile-save.md).
+Root approved the existing synchronous checkpoint callback for this unit.
+New immutable-object I/O runs outside the owner loop.
+The checkpoint callback retains its existing bounded persistence latency.
+No new 100 ms control-latency claim applies.
+Task 2b still owns correction provenance imports and their complete workflow evidence.
+
+### Task 2a checkpoint
+
+- [x] Save and update named profiles through actual owner commands and the JSON CLI.
+- [x] Provide bounded list/get and explicit offline manual resolution.
+- [x] Verify immutable graph/profile objects before catalog reachability.
+- [x] Preserve cancellation, retirement admission, safety state, and checkpoint recovery.
+- [x] Run corrected Linux canonical checks and one independent main-model review.
+- [x] Run the focused zero-device Mac owner/filesystem gate.
+
+The corrected Linux check passes 633 tests, with three ignored and no warnings.
+Its log SHA-256 is `f7325a4150b58d169f24d656a115b22caa85b9b56bb5978e45c3d1c0dbe2f5e9`.
+The independent review receipt SHA-256 is `a31ba7dee305b69fd7fbc7fc22e5e81f82b629bd0139075ff5a321b5991d667e`.
+The Mac gate passes 30 focused tests with zero failed or ignored.
+It verifies 1,530 source files across five phases and 62 raw artifacts.
+Both platform receipts bind the reviewed dirty precommit snapshot, not a clean release.
+The public [precommit evidence](../../evidence/profiles/task2a-precommit-verification-20261118.json) preserves their exact hash bindings.
+Post-gate edits add these documentation and evidence files only.
+Correction provenance import, verified associations, apply, and packages remain incomplete.
+
+### Remaining Task 2 work
+
 Files: new `earph-engine/src/profiles.rs`, existing `assets.rs`, `runtime.rs`, `host.rs`, `main.rs`, and Core control/session modules.
 
 Store immutable JSON objects by verified byte hash.
@@ -161,5 +190,10 @@ The canonical check passes 610 tests, with three ignored and no warnings.
 Its log SHA-256 is `bd1312784f51fcec1ec15b84b037d8ae055398ff458441b1aa63c5eb78f44f08`.
 One independent main-model review approves the five-file unit without material findings.
 Its receipt SHA-256 is `241247137625e5cac6fa52cc772de83d22e3fc699d97305e32678973d75e506e`.
-Task 2 is next; object existence and trusted native identity production remain unwired.
+Task 2a now saves and recovers verified immutable objects through the owner.
+Its corrected canonical check passes 633 tests, with three ignored and no warnings.
+One independent review and the focused Mac owner/filesystem gate pass.
+The evidence above records the dirty precommit scope and exact hashes.
+Task 2b correction provenance imports are next after Root confirms integration.
+Trusted native identity, profile application, and package workflows remain unwired.
 T11 qualification continues independently against its frozen source.

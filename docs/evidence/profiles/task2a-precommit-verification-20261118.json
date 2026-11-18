@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "result": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "task2a_named_profile_owner_save_precommit",
+  "source": {
+    "baseline_commit": "2320ccffdfd6d8a994372ab3c22821c66af02965",
+    "source_dirty": true,
+    "snapshot_kind": "reviewed_uncommitted_working_tree_patch",
+    "patch_sha256": "2dc013b714a27d7dffc7f5d07b8d47f922c508d7d9fd4c99c92483077140eb95",
+    "source_manifest_sha256": "abad2bbde1a89056b5973a8f4b17f83a3c1799a496a7d5a9b713f8fc99ca8aeb",
+    "source_files": 1530
+  },
+  "linux_canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "tests_passed": 633,
+    "tests_failed": 0,
+    "tests_ignored": 3,
+    "warnings_or_errors": 0,
+    "log_sha256": "f7325a4150b58d169f24d656a115b22caa85b9b56bb5978e45c3d1c0dbe2f5e9"
+  },
+  "independent_review": {
+    "result": "pass_after_narrow_correction",
+    "receipt_sha256": "a31ba7dee305b69fd7fbc7fc22e5e81f82b629bd0139075ff5a321b5991d667e",
+    "correction_patch_sha256": "6e1d1c6de3c710c9769430f2a4168d53022c70d22d8aaa6677d124cd6fae1559",
+    "remaining_material_findings": 0
+  },
+  "macos_precommit": {
+    "candidate": "macos-task2a-precommit-candidate-20261118.json",
+    "candidate_sha256": "97c1ebdc5416268c2e5c5407603c230b05fb32f20a415f7592a05487de3231cb",
+    "root_verification": "macos-task2a-precommit-root-verification-20261118.json",
+    "root_verification_sha256": "b205b6a7c8af607102ec5222acf4acc60ba2f98d18fff6fb6b1c7cfe1b002cce",
+    "tests_passed": 30,
+    "tests_failed": 0,
+    "tests_ignored": 0,
+    "strict_core_engine_clippy_exit": 0,
+    "runtime_source_sha256": "fdb951b8d8ed471e31b2fb35f1f5e2ba8246e4726188392ea7bd5a7823bd640d",
+    "source_verification_phases": 5,
+    "raw_files_verified": 62,
+    "native_output_opened": false,
+    "signal_exercises": 0
+  },
+  "limitations": [
+    "These receipts bind a dirty precommit snapshot, not a clean release or the final commit.",
+    "Post-gate edits add documentation and evidence only.",
+    "The Mac gate covers focused owner and filesystem behavior, not the full macOS canonical suite.",
+    "No native hardware, acoustic, real disk-sync failure, or power-loss qualification is claimed.",
+    "Correction provenance imports, verified associations, profile application, and packages remain incomplete."
+  ]
+}

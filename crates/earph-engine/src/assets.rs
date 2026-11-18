@@ -1,9 +1,14 @@
 // ABOUTME: Stores immutable correction WAV bytes in private owner storage.
 // ABOUTME: Verifies content identity and geometry before freezing preparation inputs.
 use crate::runtime;
-use earph_core::{EngineError, ErrorCode, dsp_nodes::FirAssetReference};
+use earph_core::{
+    EngineError, ErrorCode,
+    dsp_nodes::{FirAssetReference, FirSha256},
+    graph::{GraphDocument, NodeKind},
+};
 use earph_media::{FirCorrection, decode_fir_wav, read_fir_file, read_fir_source};
 use std::{
+    collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::Write,
     os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
@@ -13,6 +18,80 @@ const INVALID: EngineError = EngineError::new(
     ErrorCode::AssetInvalid,
     "correction store is missing, corrupt, or differs from its reference",
 );
+
+/// Shared asset admission for live preparation and offline profile validation.
+pub struct GraphAssets<'a> {
+    references: BTreeMap<FirSha256, &'a FirAssetReference>,
+    declared_bytes: u64,
+}
+impl<'a> GraphAssets<'a> {
+    pub fn inspect(graph: &'a GraphDocument) -> Result<Self, EngineError> {
+        let mut references = BTreeMap::new();
+        for node in &graph.nodes {
+            if let NodeKind::Convolution { asset } = &node.kind {
+                asset.validate()?;
+                if let Some(prior) = references.insert(asset.sha256.clone(), asset)
+                    && prior != asset
+                {
+                    return Err(EngineError::new(
+                        ErrorCode::AssetInvalid,
+                        "correction identity has conflicting geometry",
+                    ));
+                }
+            }
+        }
+        let declared_bytes = references
+            .values()
+            .try_fold(0_u64, |n, a| {
+                n.checked_add(
+                    (a.taps_per_channel as u64)
+                        .checked_mul(a.channels.count() as u64)?
+                        .checked_mul(8)?
+                        .checked_add(1024)?,
+                )
+            })
+            .ok_or(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "correction storage exceeds admission",
+            ))?;
+        Ok(Self {
+            references,
+            declared_bytes,
+        })
+    }
+    /// One bounded source, packet, decoder buffer, and metadata during sequential resolution.
+    pub fn scratch_bytes(&self) -> u64 {
+        if self.references.is_empty() {
+            0
+        } else {
+            8 * 1024 * 1024
+        }
+    }
+    pub fn resolve(
+        &self,
+        runtime_path: Option<&Path>,
+        allowance: u64,
+        mut check: impl FnMut() -> Result<(), EngineError>,
+    ) -> Result<Vec<earph_dsp::FirCoefficients>, EngineError> {
+        if self.declared_bytes > allowance {
+            return Err(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "correction storage exceeds admission",
+            ));
+        }
+        let mut resolved = Vec::with_capacity(self.references.len());
+        for reference in self.references.values() {
+            check()?;
+            let correction = resolve(runtime_path.ok_or(INVALID)?, reference)?;
+            resolved.push(
+                earph_dsp::FirCoefficients::new(correction.reference, correction.taps)
+                    .map_err(|e| EngineError::new(e.code, e.message))?,
+            );
+        }
+        check()?;
+        Ok(resolved)
+    }
+}
 
 fn directory(runtime_path: &Path, create: bool) -> Result<PathBuf, EngineError> {
     let runtime = runtime::directory(runtime_path, create)?;
@@ -39,6 +118,13 @@ fn directory(runtime_path: &Path, create: bool) -> Result<PathBuf, EngineError> 
 
 /// Import without replacing any source or existing object. Interrupted files remain inspectable.
 pub fn import(runtime_path: &Path, source: &Path) -> Result<FirAssetReference, EngineError> {
+    import_with_sync(runtime_path, source, &mut File::sync_all)
+}
+fn import_with_sync(
+    runtime_path: &Path,
+    source: &Path,
+    sync_file: &mut impl FnMut(&File) -> std::io::Result<()>,
+) -> Result<FirAssetReference, EngineError> {
     let directory = directory(runtime_path, true)?;
     let bytes = read_fir_source(source)?;
     let reference = decode_fir_wav(&bytes)?.reference;
@@ -50,25 +136,15 @@ pub fn import(runtime_path: &Path, source: &Path) -> Result<FirAssetReference, E
         .open(&path)
     {
         Ok(mut file) => {
-            file.write_all(&bytes)
-                .and_then(|_| file.sync_all())
-                .map_err(|_| runtime::IO)?;
-            File::open(&directory)
-                .and_then(|f| f.sync_all())
-                .map_err(|_| runtime::IO)?;
+            file.write_all(&bytes).map_err(|_| runtime::IO)?;
         }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            let observed = read_fir_file(runtime::open_private_file(&path)?.ok_or(INVALID)?)?;
-            if observed != bytes {
-                return Err(INVALID);
-            }
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(_) => return Err(runtime::IO),
     }
-    let observed = read_fir_file(runtime::open_private_file(&path)?.ok_or(INVALID)?)?;
-    if observed != bytes {
-        return Err(INVALID);
-    }
+    runtime::verify_immutable_file(&path, &bytes, sync_file)?;
+    File::open(&directory)
+        .and_then(|f| f.sync_all())
+        .map_err(|_| runtime::IO)?;
     Ok(reference)
 }
 
@@ -88,4 +164,65 @@ pub fn resolve(
         return Err(INVALID);
     }
     Ok(correction)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn existing_complete_fir_is_file_synced_before_import_succeeds() {
+        let runtime = PathBuf::from("/tmp").join(format!(
+            "efd-{:x}-{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
+        let mut bytes = Vec::new();
+        bytes.extend(b"RIFF");
+        bytes.extend(44_u32.to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        bytes.extend(16_u32.to_le_bytes());
+        bytes.extend(3_u16.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(48000_u32.to_le_bytes());
+        bytes.extend(384000_u32.to_le_bytes());
+        bytes.extend(8_u16.to_le_bytes());
+        bytes.extend(64_u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend(8_u32.to_le_bytes());
+        bytes.extend(0.5_f64.to_le_bytes());
+        let source = runtime.join("authored.wav");
+        fs::write(&source, &bytes).unwrap();
+        let expected = decode_fir_wav(&bytes).unwrap().reference;
+        let directory = directory(&runtime, true).unwrap();
+        let path = directory.join(format!("{}.wav", expected.sha256.as_str()));
+        let mut interrupted = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        interrupted.write_all(&bytes).unwrap();
+        let metadata = interrupted.metadata().unwrap();
+        drop(interrupted);
+        let mut synced = 0;
+        let observed = import_with_sync(&runtime, &source, &mut |file| {
+            let observed = file.metadata()?;
+            assert_eq!(
+                (observed.dev(), observed.ino()),
+                (metadata.dev(), metadata.ino())
+            );
+            file.sync_all()?;
+            synced += 1;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(observed, expected);
+        assert_eq!(synced, 1, "retry did not synchronize the verified FIR file");
+        assert_eq!(fs::read(path).unwrap(), bytes);
+    }
 }

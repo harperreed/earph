@@ -243,6 +243,21 @@ fn snapshot() -> SessionSnapshot {
 fn active_source() -> Arc<std::sync::atomic::AtomicBool> {
     Arc::new(std::sync::atomic::AtomicBool::new(false))
 }
+
+#[test]
+fn retained_profile_metadata_refuses_a_graph_before_pipeline_publication() {
+    let mut state = snapshot();
+    state.profile_storage_bytes = 256 * 1024 * 1024;
+    let request = request(&state, serde_json::json!({"kind":"bypass"}));
+    let mut service = GraphService::spawn(None).unwrap();
+    service.submit(request, state, active_source()).unwrap();
+    let result = completion(&mut service);
+    assert_eq!(
+        result.result.err().unwrap().code,
+        earph_core::ErrorCode::ResourceBudgetExceeded
+    );
+    assert_eq!(service.resources().resident_bytes, 0);
+}
 fn request(state: &SessionSnapshot, effect: serde_json::Value) -> GraphJobRequest {
     let port = serde_json::json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":64});
     let document: GraphDocument = serde_json::from_value(serde_json::json!({

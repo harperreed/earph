@@ -60,6 +60,26 @@ impl DeviceId {
         self.0.capacity()
     }
 }
+impl RequestId {
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
+impl OwnerId {
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
+impl SessionId {
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
+impl ZoneId {
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

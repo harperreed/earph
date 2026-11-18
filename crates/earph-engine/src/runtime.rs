@@ -350,6 +350,31 @@ pub(crate) fn read(path: &Path, limit: usize) -> Result<Option<Vec<u8>>, EngineE
     Ok(Some(bytes))
 }
 
+/// Verify and synchronize one admitted object handle without buffering a second object.
+pub(crate) fn verify_immutable_file(
+    path: &Path,
+    expected: &[u8],
+    sync_file: &mut impl FnMut(&File) -> std::io::Result<()>,
+) -> Result<(), EngineError> {
+    let file = open_private_file(path)?.ok_or(INVALID)?;
+    if file.metadata().map_err(|_| IO)?.len() != expected.len() as u64 {
+        return Err(INVALID);
+    }
+    let mut reader = &file;
+    let mut buffer = [0_u8; 16 * 1024];
+    for chunk in expected.chunks(buffer.len()) {
+        let observed = &mut buffer[..chunk.len()];
+        reader.read_exact(observed).map_err(|_| IO)?;
+        if observed != chunk {
+            return Err(INVALID);
+        }
+    }
+    if reader.read(&mut [0_u8; 1]).map_err(|_| IO)? != 0 {
+        return Err(INVALID);
+    }
+    sync_file(&file).map_err(|_| IO)
+}
+
 pub(crate) fn write_atomic(
     directory: &Path,
     name: &str,
