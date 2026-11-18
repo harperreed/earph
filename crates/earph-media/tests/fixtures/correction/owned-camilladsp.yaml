@@ -1,0 +1,21 @@
+filters:
+  preamp:
+    type: Gain
+    parameters: {gain: -6.0, scale: dB}
+  peak:
+    type: Biquad
+    description: Owned peaking fixture
+    parameters: {type: Peaking, freq: 1000.0, gain: -6.0, q: 1.0}
+  unused:
+    type: Gain
+    parameters: {gain: 0.5, scale: linear}
+pipeline:
+  - type: Filter
+    names: [preamp]
+  - type: Filter
+    channels: [0]
+    names: [peak]
+  - type: Filter
+    channels: [1]
+    names: [peak]
+    bypassed: true

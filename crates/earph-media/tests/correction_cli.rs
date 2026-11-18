@@ -1,0 +1,245 @@
+// ABOUTME: Exercises the actual offline correction CLI and consumes its validated graph reports.
+// ABOUTME: Checks source preservation, metadata roundtrips, hostile filenames, and precise rejection results.
+use serde_json::Value;
+use std::{
+    fs,
+    path::PathBuf,
+    process::Command,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
+};
+fn directory() -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/correction-import-cli")
+        .join(format!(
+            "{}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+    fs::create_dir_all(&path).unwrap();
+    path
+}
+#[test]
+fn real_cli_exports_and_reimports_graph_and_metadata_without_touching_the_source() {
+    let dir = directory();
+    let source = dir.join("owned correction; touch NEVER.txt");
+    let original = include_bytes!("fixtures/correction/owned-autoeq.txt");
+    fs::write(&source, original).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
+        .args([
+            "--format",
+            "autoeq",
+            "--rate",
+            "48000",
+            "--channels",
+            "stereo",
+            "--quantum",
+            "64",
+            "--model",
+            "Owned fixture",
+            "--provider",
+            "Owned synthetic response",
+            "--target",
+            "Flat test target",
+            "--parameter-set",
+            "PK-only",
+            "--revision",
+            "fixture-1",
+            "--license",
+            "MIT test data",
+            "--",
+        ])
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "validated");
+    assert_eq!(report["metadata"]["headphone_model"], "Owned fixture");
+    assert!(report.get("owner_id").is_none());
+    assert!(report.get("output_consent").is_none());
+    assert_eq!(fs::read(&source).unwrap(), original);
+    assert!(!dir.join("NEVER.txt").exists());
+    let file = dir.join("import-report.json");
+    fs::write(&file, &output.stdout).unwrap();
+    let checked = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
+        .arg("--validate-report")
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(checked.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&checked.stdout).unwrap(),
+        report
+    );
+    let exported = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
+        .arg("--export")
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(exported.status.success());
+    let imported = earph_media::correction_text::read_correction_report(&output.stdout).unwrap();
+    let again = earph_media::correction_text::import_correction_text(
+        &exported.stdout,
+        imported.source.format,
+        imported.context,
+        imported.metadata.clone(),
+    )
+    .unwrap();
+    assert_eq!(again.semantic_sha256, imported.semantic_sha256);
+    assert_eq!(again.graph, imported.graph);
+}
+
+#[test]
+fn real_cli_rejects_unsupported_shelves_and_never_reports_an_applied_graph() {
+    let dir = directory();
+    let source = dir.join("unsupported.txt");
+    fs::write(
+        &source,
+        b"Preamp: -6 dB\nFilter 1: ON LSC Fc 105 Hz Gain 3 dB Q 0.70\n",
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
+        .args([
+            "--format",
+            "autoeq",
+            "--rate",
+            "48000",
+            "--channels",
+            "stereo",
+            "--quantum",
+            "64",
+        ])
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "UNSUPPORTED_FILTER");
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(source.to_str().unwrap()));
+}
+
+#[test]
+fn invalid_format_options_reject_before_the_source_is_opened() {
+    let dir = directory();
+    let source = dir.join("missing-file.txt");
+    let output = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
+        .args(["--rate", "48000", "--channels", "stereo", "--quantum", "64"])
+        .arg(source)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "USAGE");
+}
+
+#[test]
+fn invalid_processing_context_rejects_before_the_source_is_opened() {
+    let dir = directory();
+    let output = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
+        .args([
+            "--format",
+            "autoeq",
+            "--rate",
+            "0",
+            "--channels",
+            "stereo",
+            "--quantum",
+            "64",
+        ])
+        .arg(dir.join("missing-file.txt"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "INVALID_CONTEXT");
+}
+
+#[test]
+fn real_cli_graphs_drive_the_actual_dsp_consumer_for_all_three_formats() {
+    use earph_core::{
+        audio::{ChannelLayout, PcmFormat, PcmRepresentation},
+        ids::Epochs,
+    };
+    use earph_dsp::{CompileContext, GraphBudget, PreparedGraph, ProcessingPolicy};
+    let dir = directory();
+    let pcm = PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Float64).unwrap();
+    let alpha = (std::f64::consts::TAU * 1000.0 / 48000.0).sin() / 2.0;
+    let amplitude = 10.0_f64.powf(-6.0 / 40.0);
+    let peaking_first = (1.0 + alpha * amplitude) / (1.0 + alpha / amplitude);
+    let preamp = 10.0_f64.powf(-6.0 / 20.0);
+    for (format, source, expected) in [
+        (
+            "autoeq",
+            include_bytes!("fixtures/correction/owned-autoeq.txt").as_slice(),
+            [preamp * peaking_first; 2],
+        ),
+        (
+            "rew",
+            include_bytes!("fixtures/correction/owned-rew.txt").as_slice(),
+            [peaking_first; 2],
+        ),
+        (
+            "camilladsp",
+            include_bytes!("fixtures/correction/owned-camilladsp.yaml").as_slice(),
+            [preamp * peaking_first, preamp],
+        ),
+    ] {
+        let file = dir.join(format!("{format}.txt"));
+        fs::write(&file, source).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
+            .args([
+                "--format",
+                format,
+                "--rate",
+                "48000",
+                "--channels",
+                "stereo",
+                "--quantum",
+                "64",
+            ])
+            .arg(&file)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report = earph_media::correction_text::read_correction_report(&output.stdout).unwrap();
+        let plan = earph_dsp::compile(
+            &report.graph,
+            &CompileContext {
+                input_format: pcm,
+                output_format: pcm,
+                quantum_frames: 64,
+                policy: ProcessingPolicy::AllowProcessing,
+                budget: GraphBudget::default(),
+            },
+        )
+        .unwrap();
+        let mut graph = PreparedGraph::prepare(plan, Epochs::default()).unwrap();
+        let mut input = [0.0; 128];
+        input[0] = 0.1;
+        input[1] = 0.1;
+        let mut rendered = [0.0; 128];
+        graph.process(&input, &mut rendered).unwrap();
+        for ch in 0..2 {
+            assert!(
+                (rendered[ch] - 0.1 * expected[ch]).abs() < 1e-14,
+                "{format} channel {ch}"
+            );
+        }
+        assert_eq!(fs::read(&file).unwrap(), source);
+    }
+}

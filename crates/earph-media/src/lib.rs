@@ -2,6 +2,7 @@
 // ABOUTME: Preserves integer samples at the worker-to-engine boundary.
 #![forbid(unsafe_code)]
 mod admission;
+pub mod correction_text;
 mod fir;
 mod render;
 use earph_core::{
