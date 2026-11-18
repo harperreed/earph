@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "status": "partial",
+  "verified_on": "2026-11-18",
+  "scope": "T10_review_fixes",
+  "runtime_commit": "cbc2785bbe8c9d4fbfcf0ccb5988185e822b60ce",
+  "runtime_source_inputs_sha256": "3008c4d29dd3ec00b3a83737a247e09a449e9c56b62f6625b5563c283f9523c5",
+  "dependency_lock_sha256": "411273dfa7d7db901ddace51fedcb2e6d8875459cea21ce57f07610c6a2e41fc",
+  "records": [
+    "linux-review-canonical-20261118.json",
+    "macos-review-canonical-20261118.json",
+    "alsa-review-engine-20261118.json",
+    "coreaudio-review-engine-20261118.json"
+  ],
+  "independent_review": {
+    "core_service_and_wire": "no_remaining_important_or_critical_findings",
+    "host_worker_and_storage": "no_remaining_important_or_critical_findings",
+    "reproduced_regressions": true
+  },
+  "root_raw_verification": {
+    "linux_final_source_frames": 48000,
+    "linux_submitted_frames": 48007,
+    "mac_final_source_frames": 24000,
+    "mac_submitted_frames": 24003,
+    "mac_raw_artifacts_verified": 62,
+    "mac_snapshot_inputs_verified": 1448,
+    "sources_and_recorded_settings_unchanged": true
+  },
+  "limits": {
+    "M2_complete": false,
+    "T11_included": false,
+    "whole_worker_realtime": "unqualified",
+    "DAC_preservation": "unverified",
+    "acoustic_safety": "unverified",
+    "mac_consumption": "unknown",
+    "linux_consumption": "client_estimate",
+    "power_loss": "bounded_by_successful_sync_semantics"
+  },
+  "summary": "Reviewed graph activation, terminal drain handoff, checkpoint recovery, resource ownership, and wire precision fixes pass scoped Linux and Mac checks. Earlier graph evidence remains bound to its earlier source snapshot."
+}

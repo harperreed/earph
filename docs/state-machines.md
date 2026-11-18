@@ -175,14 +175,15 @@ Core Audio adapter lifecycle, SDK handoff, and scoped owner-and-CLI playback pas
 The final Linux owner-and-CLI hardware run also passed after the explicit drain correction.
 Those observations do not establish DAC preservation, acoustic safety, or full release qualification.
 Crash-restored queues now recover paused and muted without opening an output.
-Prepared PCM graph integration now passes 307 Linux tests, with two hardware-gated tests ignored.
+Prepared PCM graph review fixes pass 338 Linux tests, with two hardware-gated tests ignored.
 The canonical formatting, strict lint, catalog, and dependency checks pass.
-Nine real owner/CLI scenarios include graph joins, tails, rebuffering, rejected replacements, and restart.
+Ten real owner/CLI scenarios include graph joins, tails, rebuffering, paused replacement, and restart.
 See [prepared graph contracts and limits](dsp-graphs.md).
-The same runtime-source digest passes 289 Mac tests, with two hardware-gated tests ignored.
+The same runtime-source digest passes 315 Mac tests, with two hardware-gated tests ignored.
 One attenuated graph signal passes on each previously approved Linux and Mac route.
 Settings and generated sources remain unchanged.
-The [scoped graph receipts](evidence/dsp/verification-20261118.json) preserve these qualification limits.
+The [review receipts](evidence/dsp/review-verification-20261118.json) preserve these qualification limits.
+The [earlier graph receipts](evidence/dsp/verification-20261118.json) remain bound to their original source snapshot.
 Profiles, network roles, FFI clients, and GUIs remain unimplemented or unqualified.
 This task does not qualify power-loss durability beyond completed writes and atomic JSON publication.
 Their proposed lifecycles remain in [the product specification](SPEC.md).

@@ -3,7 +3,8 @@
 Earph compiles and activates bounded PCM graphs through the existing engine owner.
 The Linux checks exercise real CLI commands and native file-to-null captures.
 Mac canonical checks and one selected hardware exercise on each platform also pass.
-See the [scoped receipts](evidence/dsp/verification-20261118.json) for exact source and qualification boundaries.
+See the [review receipts](evidence/dsp/review-verification-20261118.json) for current source and qualification boundaries.
+The [earlier receipts](evidence/dsp/verification-20261118.json) retain their original source scope.
 This work does not complete M2 or release qualification.
 
 ## Control flow
