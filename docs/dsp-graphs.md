@@ -115,6 +115,14 @@ Compatible queue joins preserve graph history.
 Final EOF drains the declared graph tail once, then drains the native backend.
 Tail frames increase output counts and never advance source positions.
 Audible mapping subtracts graph latency and remains unknown during priming or unknown backend consumption.
+The worker retains completion proof until the owner acknowledges its exact token.
+Old queue-entry snapshots and repeated mute generations cannot consume that proof.
+Normal completion settles raced graph or positioning requests without inventing an output fault.
+Graph preparation and resume wait for pending pause or seek acknowledgements.
+
+If terminal counters exhaust, proved completion still closes the source muted and requests owner shutdown.
+Counters never wrap.
+A fresh owner resets only an exhausted persisted revision and restores intent without granting output consent.
 
 Activation, pause, seek, and mute rebuffering reset graph history.
 They discard the old tail at an explicit discontinuity.

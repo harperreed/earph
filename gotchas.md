@@ -1,5 +1,9 @@
 # Gotchas
 
+- GitHub inline threads omit findings embedded in review summaries.
+  Fetch review bodies and PR comments alongside threads before claiming all feedback is handled.
+  The second graph review included four findings outside its sixteen inline threads.
+
 - The build-input digest sorts Rust path components, rather than whole path strings.
   Match that order when recomputing it in another language; `output/` sorts before `output.rs`.
   Keep the u64 little-endian length framing in [build provenance](crates/earph-harness/build.rs).
