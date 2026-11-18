@@ -503,6 +503,18 @@ fn prepared_numeric_spans_and_native_packing_allocate_and_free_nothing() {
         2,
     );
     let packet = block(PcmRepresentation::Signed16, &[1, -1, 3, -3, 5, -5]);
+    let mut current_epoch_packet = block(PcmRepresentation::Signed16, &[1, -1]);
+    current_epoch_packet
+        .set_span(
+            Epochs {
+                session: 0,
+                stream: 1,
+            },
+            0,
+            0,
+            1,
+        )
+        .unwrap();
     let mut bytes = [0_u8; 8];
     let (_, counts) = tracked(|| {
         render.set_gain_target(Some(0.0), 4).unwrap();
@@ -524,7 +536,13 @@ fn prepared_numeric_spans_and_native_packing_allocate_and_free_nothing() {
             .unwrap();
         assert!(render.reset(Epochs::default()).is_err());
         render.cancel();
-        assert!(render.process(&packet, 0, 1).is_err());
+        assert_eq!(
+            render
+                .process(&current_epoch_packet, 0, 1)
+                .unwrap_err()
+                .code,
+            ErrorCode::OperationCancelled
+        );
         assert!(render.finish().is_err());
     });
     assert_eq!(counts, AllocationCounts::default());

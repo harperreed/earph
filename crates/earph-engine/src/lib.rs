@@ -88,15 +88,14 @@ impl EngineOwner {
             .map_err(|_| runtime::IO)?;
         let zone = ZoneId::new("main")?;
         let owner = OwnerId::new(token.clone())?;
-        let mut session =
-            match runtime::read(&runtime.join("queue.json"), 2 * transport::MAX_BYTES)? {
-                Some(bytes) => {
-                    let checkpoint: SessionCheckpoint =
-                        serde_json::from_slice(&bytes).map_err(|_| INVALID)?;
-                    Session::restore_owner(zone, owner, ControlLimits::default(), checkpoint)?
-                }
-                None => Session::new_owner(zone, owner, ControlLimits::default()),
-            };
+        let mut session = match runtime::read_checkpoint(&runtime, &token)? {
+            Some(bytes) => {
+                let checkpoint: SessionCheckpoint =
+                    serde_json::from_slice(&bytes).map_err(|_| INVALID)?;
+                Session::restore_owner(zone, owner, ControlLimits::default(), checkpoint)?
+            }
+            None => Session::new_owner(zone, owner, ControlLimits::default()),
+        };
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         session.enable_local_playback();
         let endpoint = serde_json::to_vec(&Endpoint {

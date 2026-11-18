@@ -10,7 +10,9 @@ This work does not complete M2 or release qualification.
 
 Read `state.get` with a fresh request ID.
 Use its owner, session, and revision for graph commands.
-Start a local source muted before preparing a graph.
+Select the output and grant consent for that output before starting a local source muted.
+An accepted start does not establish graph readiness.
+Wait for `state.get` to report buffering and a playback format before preparing or validating a graph.
 Its observed format and selected output supply the preparation context.
 Controllers cannot supply device facts, relax fidelity, or enlarge allocation budgets.
 
@@ -120,7 +122,13 @@ The whole playback worker still allocates, locks, decodes, and performs I/O.
 
 Preparation failure preserves the active graph.
 Activation failure requests output stop and exposes `recovery_required`.
+It publishes one terminal event correlated with the graph request.
+Stale acknowledgements cannot terminate the owner or replace the current observation.
 Renewed consent alone cannot clear that gate.
-Explicitly restart a failed source and activate a valid graph before unmuting.
+Renew consent for the selected output before restarting a failed source.
+If the failed session still owns the source, use `takeover: true` when calling `sessions.start`.
+Keep output muted until a valid replacement graph activates.
 Restart restores saved intent muted, without active resources or ready tokens.
 It never silently substitutes bypass for saved processing.
+Checkpoint replacement uses [bounded recovery](operational-storage.md) before restoring graph intent.
+An uncertain storage outcome promises neither the old nor replacement checkpoint until startup reconciles it.

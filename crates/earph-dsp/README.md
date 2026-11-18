@@ -71,11 +71,14 @@ Integer retention alone does not implement integer metering; the owner must prov
 
 Compiled plans expose read-only metadata and cannot deserialize from untrusted JSON.
 The SHA-256 hash includes canonical intent, the compilation context, and the implementation version.
-Context includes source/output formats, budgets, policy, and quantum.
+The hashed context includes source/output formats, policy, and quantum.
+Admission budgets can change acceptance without changing the hash when both budgets admit the graph.
 Activation tokens must bind the resulting hash to source/device epochs and the expected session revision.
 The compiler does not introduce another revision authority.
 
 Run `cargo test --locked -p earph-dsp --test compiler` for compiler contract tests.
+Set `EARPH_DSP_FIXTURE_DIR` to a writable directory to export graph and plan fixtures.
+The default tests serialize and parse in memory without writing into the checkout.
 The tests compile real typed documents and serialized round trips without mocks.
 They check topology, format boundaries, deterministic scheduling, compensation, preservation, and resource rejection.
 The round-trip test retains its branch fixture and resolved plan under `target/dsp-compiler-fixtures/`.

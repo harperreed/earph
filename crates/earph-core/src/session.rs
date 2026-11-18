@@ -266,6 +266,7 @@ pub struct Session {
     playback_intent: PlaybackIntent,
     queue: LocalQueue,
     local_playback_enabled: bool,
+    local_stop_pending: bool,
     graph: GraphControl,
 }
 impl Session {
@@ -306,6 +307,7 @@ impl Session {
             playback_intent: PlaybackIntent::Playing,
             queue: LocalQueue::default(),
             local_playback_enabled: false,
+            local_stop_pending: false,
             graph: GraphControl::default(),
         }
     }
@@ -518,7 +520,7 @@ impl Session {
         // Do not retain structurally oversized intent, including rejected commands.
         if let Command::GraphPrepare { graph, .. } | Command::GraphValidate { graph, .. } =
             &command.payload
-            && let Err(error) = graph.validate_structure()
+            && let Err(error) = graph.validate_storage()
         {
             return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
         }
@@ -623,7 +625,10 @@ impl Session {
         self.validate_live_queue_edit(&command.payload)?;
         let mut next = self.state.clone();
         next.revision = increment(next.revision)?;
-        next.event_sequence = increment(next.event_sequence)?;
+        next.event_sequence = self.next_session_event_sequence(matches!(
+            command.payload,
+            Command::Stop | Command::OwnerShutdown
+        ))?;
         let mut intent = self.playback_intent;
         let mut cancel_previous = false;
         let status = match &command.payload {
@@ -964,6 +969,11 @@ impl Session {
         }
         let invalidated =
             next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
+        if matches!(command.payload, Command::Stop) && next.source == Some(SourceKind::LocalFile) {
+            self.local_stop_pending = true;
+        } else if clear_active {
+            self.local_stop_pending = false;
+        }
         self.state = next;
         if invalidated || clear_active {
             self.invalidate_graph_work(EngineError::new(
@@ -1080,7 +1090,7 @@ impl Session {
         if epochs != self.state.epochs {
             return Err(STALE);
         }
-        let sequence = increment(self.state.event_sequence)?;
+        let sequence = self.next_session_event_sequence(false)?;
         self.queue.update_status(id, status)?;
         self.state.event_sequence = sequence;
         Ok(())
@@ -1106,7 +1116,16 @@ impl Session {
         ) {
             next.revision = increment(next.revision)?;
         }
-        next.event_sequence = increment(next.event_sequence)?;
+        next.event_sequence = self.next_session_event_sequence(matches!(
+            event.kind,
+            EngineEventKind::LocalFailed { .. }
+                | EngineEventKind::OutputFailed
+                | EngineEventKind::OutputReplaced { .. }
+                | EngineEventKind::Discontinuity
+                | EngineEventKind::Cancelled { .. }
+                | EngineEventKind::LocalStopped { .. }
+                | EngineEventKind::Drained
+        ))?;
         let mut completion = None;
         match event.kind {
             EngineEventKind::LocalPrepared { observation }
@@ -1308,7 +1327,7 @@ impl Session {
             TransportState::Idle | TransportState::Failed | TransportState::Suspended
         );
         self.state = next;
-        if invalidated {
+        if invalidated || clear_active {
             let error = if clear_active && self.state.error.is_some() {
                 OUTPUT
             } else {
@@ -1321,6 +1340,7 @@ impl Session {
         }
         if clear_active {
             self.graph.active = None;
+            self.local_stop_pending = false;
         }
         if let Some((status, error, activation)) = completion {
             self.finish_pending(status, error, activation);

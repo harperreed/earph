@@ -791,6 +791,7 @@
     {
       "features": [
         "default",
+        "float_roundtrip",
         "std"
       ],
       "license_expression": "MIT OR Apache-2.0",

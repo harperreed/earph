@@ -240,6 +240,30 @@ pub fn decode_command(
             "command exceeds byte limit",
         ));
     }
+    if bytes.len() > GRAPH_COMMAND_BYTES {
+        #[derive(Deserialize)]
+        struct Method<'a> {
+            #[serde(borrow)]
+            method: std::borrow::Cow<'a, str>,
+        }
+        #[derive(Deserialize)]
+        struct Header<'a> {
+            #[serde(borrow)]
+            payload: Method<'a>,
+        }
+        // Scan ignored values without retaining the graph or its parameters.
+        if let Ok(header) = serde_json::from_slice::<Header<'_>>(bytes)
+            && matches!(
+                header.payload.method.as_ref(),
+                "graph.prepare" | "graph.validate"
+            )
+        {
+            return Err(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "graph command exceeds byte limit",
+            ));
+        }
+    }
     let command: CommandEnvelope = serde_json::from_slice(bytes)
         .map_err(|_| EngineError::new(ErrorCode::AssetInvalid, "invalid command document"))?;
     command.validate()?;
