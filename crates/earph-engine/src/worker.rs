@@ -85,6 +85,8 @@ pub(crate) enum Action {
         entries: Vec<QueueEntry>,
         cancel: Arc<AtomicBool>,
     },
+    #[cfg(all(test, target_os = "linux"))]
+    PausePreparation(tests::PreparationGate),
     Settings(Settings),
     Pause(Settings),
     Seek {
@@ -397,6 +399,8 @@ impl Playback {
                     "preparation was cancelled",
                 ));
             }
+            #[cfg(all(test, target_os = "linux"))]
+            tests::after_preparation_check();
             let track = Track::open(entry.clone(), epochs, events)?;
             if expected.is_some_and(|format| format != track.file.format()) {
                 item(
@@ -1362,6 +1366,11 @@ fn run(
                         }
                     }
                 }
+                #[cfg(all(test, target_os = "linux"))]
+                Action::PausePreparation(gate) => {
+                    tests::install_preparation_gate(gate);
+                    Ok(())
+                }
                 Action::Settings(settings) => {
                     if let Some(current) = &mut playback {
                         current.apply_settings(settings, &events)
@@ -1482,6 +1491,55 @@ pub(crate) mod tests {
     use super::*;
     use earph_core::{control::ControlLimits, ids::ZoneId, session::Session};
 
+    #[cfg(target_os = "linux")]
+    pub(crate) struct PreparationGate {
+        reached: SyncSender<()>,
+        release: Receiver<()>,
+    }
+    #[cfg(target_os = "linux")]
+    struct PreparationRelease(Option<SyncSender<()>>);
+    #[cfg(target_os = "linux")]
+    impl Drop for PreparationRelease {
+        fn drop(&mut self) {
+            // The only release sender wakes the worker even if the test unwinds.
+            if let Some(sender) = self.0.take() {
+                let _ = sender.send(());
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    thread_local! {
+        // A one-shot gate cannot pause another test's worker thread.
+        static PREPARATION_GATE: std::cell::RefCell<Option<PreparationGate>> = const { std::cell::RefCell::new(None) };
+    }
+    #[cfg(target_os = "linux")]
+    fn preparation_gate() -> (PreparationGate, Receiver<()>, PreparationRelease) {
+        let (reached, receiver) = mpsc::sync_channel(1);
+        let (release, wait) = mpsc::sync_channel(1);
+        (
+            PreparationGate {
+                reached,
+                release: wait,
+            },
+            receiver,
+            PreparationRelease(Some(release)),
+        )
+    }
+    #[cfg(target_os = "linux")]
+    pub(super) fn install_preparation_gate(gate: PreparationGate) {
+        PREPARATION_GATE.with(|slot| assert!(slot.borrow_mut().replace(gate).is_none()));
+    }
+    #[cfg(target_os = "linux")]
+    pub(super) fn after_preparation_check() {
+        let gate = PREPARATION_GATE.with(|slot| slot.borrow_mut().take());
+        if let Some(gate) = gate {
+            gate.reached.send(()).unwrap();
+            gate.release
+                .recv_timeout(Duration::from_secs(5))
+                .expect("test must release preparation gate");
+        }
+    }
+
     fn settings(muted: bool) -> Settings {
         let mut snapshot =
             Session::new(ZoneId::new("main").unwrap(), ControlLimits::default()).snapshot();
@@ -1517,19 +1575,10 @@ pub(crate) mod tests {
         (worker, settings, observation)
     }
     #[cfg(target_os = "linux")]
-    pub(crate) fn drain_proof(
-        tracks: usize,
-    ) -> (Worker, Settings, SourceTerminalToken, PlaybackObservation) {
-        use earph_core::{
-            control::{OutputBackend, OutputConfiguration, OutputRoute, SourceKind},
-            ids::{DeviceId, ProfileId, SessionId},
-            queue::LocalQueue,
-            safety::{FidelityPolicy, VolumeMode},
-            session::TransportState,
-        };
+    pub(crate) fn owned_silence_waves(tracks: usize) -> Vec<std::path::PathBuf> {
         use std::{
             fs,
-            time::{Instant, SystemTime, UNIX_EPOCH},
+            time::{SystemTime, UNIX_EPOCH},
         };
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1558,10 +1607,25 @@ pub(crate) mod tests {
         bytes.extend(b"data");
         bytes.extend(260_u32.to_le_bytes());
         bytes.extend([0_u8; 260]);
-        let mut queue = LocalQueue::default();
+        let mut sources = Vec::new();
         for index in 0..tracks {
             let source = path.join(format!("silence-{index}.wav"));
             fs::write(&source, &bytes).unwrap();
+            sources.push(source);
+        }
+        sources
+    }
+    #[cfg(target_os = "linux")]
+    fn local_source_fixture(tracks: usize) -> (Settings, earph_core::queue::LocalQueue) {
+        use earph_core::{
+            control::{OutputBackend, OutputConfiguration, OutputRoute, SourceKind},
+            ids::{DeviceId, ProfileId, SessionId},
+            queue::LocalQueue,
+            safety::{FidelityPolicy, VolumeMode},
+            session::TransportState,
+        };
+        let mut queue = LocalQueue::default();
+        for source in owned_silence_waves(tracks) {
             queue.append(source.to_str().unwrap()).unwrap();
         }
         let entry = queue.snapshot().entries[0].id.clone();
@@ -1584,6 +1648,12 @@ pub(crate) mod tests {
             volume_mode: VolumeMode::Software,
             fidelity: FidelityPolicy::CompatibleConversion,
         });
+        (settings, queue)
+    }
+    #[cfg(target_os = "linux")]
+    fn drain_proof(tracks: usize) -> (Worker, Settings, SourceTerminalToken, PlaybackObservation) {
+        use std::time::Instant;
+        let (settings, queue) = local_source_fixture(tracks);
         let mut worker = Worker::spawn();
         worker.view.lock().unwrap().publish(queue.snapshot());
         worker
@@ -2255,6 +2325,93 @@ pub(crate) mod tests {
         assert!(
             matches!(worker.events.recv_timeout(Duration::from_secs(5)).unwrap(),Event::StopFailed{request,error:EngineError{code:ErrorCode::AssetInvalid,..},..} if request.request_id==request_id)
         );
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn stop_after_preparation_check_preserves_the_genuine_error_reported_after_cancellation() {
+        let (settings, queue) = local_source_fixture(1);
+        let mut snapshot = queue.snapshot();
+        snapshot.entries[0].path.push_str(".missing");
+        assert!(!Path::new(&snapshot.entries[0].path).exists());
+        let entry = snapshot.entries[0].id.clone();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut worker = Worker::spawn();
+        let (gate, reached, release) = preparation_gate();
+        worker.view.lock().unwrap().publish(snapshot.clone());
+        worker.send(Action::PausePreparation(gate)).unwrap();
+        worker
+            .send(Action::Start {
+                settings: settings.clone(),
+                entries: snapshot.entries,
+                cancel: cancel.clone(),
+            })
+            .unwrap();
+        reached.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(!cancel.load(Ordering::Acquire));
+        let request_id = RequestId::new("stop-during-source-open").unwrap();
+        let mut stopped = settings.clone();
+        stopped.snapshot.epochs = stopped.snapshot.epochs.next_stream().unwrap();
+        stopped.snapshot.operation = Some(request_id.clone());
+        let expected = StopRequest {
+            request_id,
+            settings: stopped,
+        };
+        worker.send(Action::Stop(expected.clone())).unwrap();
+        assert!(cancel.load(Ordering::Acquire));
+        drop(release);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut failure_token = None;
+        let mut saw_item = false;
+        loop {
+            let event = worker
+                .events
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .unwrap();
+            assert!(cancel.load(Ordering::Acquire));
+            match event {
+                Event::Item { epochs, id, status } => {
+                    assert_eq!(epochs, settings.snapshot.epochs);
+                    assert_eq!(id, entry);
+                    assert_eq!(
+                        status,
+                        PreparationStatus::Failed {
+                            code: ErrorCode::AssetInvalid
+                        }
+                    );
+                    saw_item = true;
+                }
+                Event::Failed {
+                    epochs,
+                    token,
+                    error,
+                    observation,
+                } => {
+                    assert!(saw_item);
+                    assert_eq!(epochs, settings.snapshot.epochs);
+                    assert_eq!(error.code, ErrorCode::AssetInvalid);
+                    assert!(observation.is_none());
+                    let token = token.unwrap();
+                    assert_eq!(token.origin_epochs, settings.snapshot.epochs);
+                    assert_eq!(token.final_entry_id, entry);
+                    failure_token = Some(token);
+                }
+                Event::StopFailed {
+                    request,
+                    token,
+                    error,
+                    observation,
+                } => {
+                    assert_eq!(request.request_id, expected.request_id);
+                    assert_eq!(request.settings.snapshot, expected.settings.snapshot);
+                    assert!(request.matches_source(&token));
+                    assert_eq!(error.code, ErrorCode::AssetInvalid);
+                    assert!(observation.is_none());
+                    assert_eq!(Some(token), failure_token);
+                    break;
+                }
+                _ => panic!("cancelled source preparation lost its genuine failure"),
+            }
+        }
     }
     #[test]
     #[cfg(target_os = "linux")]
