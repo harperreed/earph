@@ -110,3 +110,23 @@ The complete canonical check passes 525 tests, with three ignored and no warning
 Independent main-model review approves the two-file extraction without material findings.
 The reviewer reruns five wrapper scenarios and ten real offline CLI scenarios.
 Live GraphService admission still needs this helper and actual worker cancellation ownership.
+
+## Source cancellation checkpoint
+
+Graph preparation now requires the worker's actual source cancellation Arc.
+The owner captures that token when submitting each graph job.
+Replacement Start and source cancellation invalidate the same shared token.
+Admission rejects retired sources without reserving a candidate slot.
+Preparation checks both job cancellation and source cancellation at its existing checkpoints.
+Graph job cancellation and candidate retirement do not cancel the live source token.
+Existing same-rate renderers still own their private processing cancellation state.
+The stream pipeline will share the captured source token when it is installed.
+
+The public service API regression fails before the required source parameter exists.
+Thirty service scenarios pass with explicit test-owned source tokens.
+The worker identity scenario verifies the actual Start producer, replacement, and cancellation path.
+That supporting accessor has no separate retained test-first baseline.
+The combined canonical check passes 566 tests, with three ignored and no warnings.
+Independent main-model review approves the source-token foundation without material findings.
+It reruns thirty service tests, the actual worker identity scenario, and a real owner/client graph flow.
+GraphService stream mode and native worker integration remain unfinished.

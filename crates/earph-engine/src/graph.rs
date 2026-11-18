@@ -224,6 +224,7 @@ struct Job {
     request: GraphJobRequest,
     snapshot: Box<SessionSnapshot>,
     cancellation: GraphCancellation,
+    source_cancel: Arc<AtomicBool>,
     retirement: Arc<Retirement>,
     started: Instant,
 }
@@ -295,7 +296,11 @@ impl GraphService {
         &mut self,
         request: GraphJobRequest,
         snapshot: SessionSnapshot,
+        source_cancel: Arc<AtomicBool>,
     ) -> Result<GraphCancellation, EngineError> {
+        if source_cancel.load(Ordering::Acquire) {
+            return Err(CANCELLED);
+        }
         let accounting = &self.retirement.accounting;
         if accounting.retiring.load(Ordering::Acquire) != 0
             || accounting.owners.load(Ordering::Acquire) >= 2
@@ -317,6 +322,7 @@ impl GraphService {
             request,
             snapshot: Box::new(snapshot),
             cancellation: cancellation.clone(),
+            source_cancel,
             retirement: self.retirement.clone(),
             started: Instant::now(),
         });
@@ -405,6 +411,7 @@ fn run(
                 request,
                 snapshot,
                 cancellation,
+                source_cancel,
                 retirement,
                 started,
             } = job;
@@ -416,6 +423,7 @@ fn run(
                     &request,
                     &snapshot,
                     &cancellation,
+                    &source_cancel,
                     &retirement,
                     started,
                     asset_store.as_deref(),
@@ -465,13 +473,14 @@ fn prepare(
     request: &GraphJobRequest,
     snapshot: &SessionSnapshot,
     cancellation: &GraphCancellation,
+    source_cancel: &Arc<AtomicBool>,
     retirement: &Arc<Retirement>,
     started: Instant,
     asset_store: Option<&Path>,
 ) -> Result<GraphSuccess, GraphDiagnostic> {
     let check = || -> Result<(), GraphDiagnostic> {
         let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
-        if cancellation.0.load(Ordering::Acquire) {
+        if cancellation.0.load(Ordering::Acquire) || source_cancel.load(Ordering::Acquire) {
             return Err(CANCELLED.into());
         }
         if snapshot

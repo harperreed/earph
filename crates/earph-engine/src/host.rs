@@ -145,7 +145,7 @@ pub(crate) fn serve(
                             command.payload,
                             Command::GraphPrepare { .. } | Command::GraphValidate { .. }
                         ) {
-                            return graphs.submit(staged);
+                            return graphs.submit(staged, &worker);
                         }
                         if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
                             worker.cancel_active();
@@ -640,10 +640,12 @@ impl GraphJobs {
             now_ns,
         )
     }
-    fn submit(&mut self, session: &Session) -> Result<(), EngineError> {
+    fn submit(&mut self, session: &Session, worker: &Worker) -> Result<(), EngineError> {
         let job = session.graph_job().ok_or(IO)?;
         let id = job.request_id.clone();
-        let cancel = self.service.submit(job, session.snapshot())?;
+        let cancel = self
+            .service
+            .submit(job, session.snapshot(), worker.source_cancellation()?)?;
         self.job = Some((id, cancel));
         Ok(())
     }
@@ -845,7 +847,13 @@ mod tests {
         );
         let mut service = GraphService::spawn(None).unwrap();
         let job = session.graph_job().unwrap();
-        service.submit(job.clone(), session.snapshot()).unwrap();
+        service
+            .submit(
+                job.clone(),
+                session.snapshot(),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         let result = loop {
             if let Some(result) = service.try_completion() {

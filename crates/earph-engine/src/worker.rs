@@ -212,6 +212,13 @@ impl Worker {
             cancel.store(true, Ordering::Release);
         }
     }
+    pub fn source_cancellation(&self) -> Result<Arc<AtomicBool>, EngineError> {
+        self.cancel
+            .as_ref()
+            .filter(|cancel| !cancel.load(Ordering::Acquire))
+            .cloned()
+            .ok_or_else(|| EngineError::new(ErrorCode::StaleSession, "source is unavailable"))
+    }
     pub fn send(&mut self, action: Action) -> Result<(), EngineError> {
         let safety = action.is_safety();
         let reserved = safety || matches!(action, Action::AcknowledgeSourceTerminal(_));
@@ -1504,6 +1511,45 @@ pub(crate) mod tests {
             playing: true,
         }
     }
+    #[test]
+    fn graph_source_token_tracks_actual_start_replacement_and_cancellation() {
+        let (mut worker, _receiver) = admission();
+        assert_eq!(
+            worker.source_cancellation().unwrap_err().code,
+            ErrorCode::StaleSession
+        );
+        let original = Arc::new(AtomicBool::new(false));
+        worker
+            .send(Action::Start {
+                settings: settings(true),
+                entries: vec![],
+                cancel: original.clone(),
+            })
+            .unwrap();
+        assert!(Arc::ptr_eq(
+            &worker.source_cancellation().unwrap(),
+            &original
+        ));
+        let replacement = Arc::new(AtomicBool::new(false));
+        worker
+            .send(Action::Start {
+                settings: settings(true),
+                entries: vec![],
+                cancel: replacement.clone(),
+            })
+            .unwrap();
+        assert!(original.load(Ordering::Acquire));
+        assert!(Arc::ptr_eq(
+            &worker.source_cancellation().unwrap(),
+            &replacement
+        ));
+        worker.cancel_active();
+        assert!(replacement.load(Ordering::Acquire));
+        assert_eq!(
+            worker.source_cancellation().unwrap_err().code,
+            ErrorCode::StaleSession
+        );
+    }
     fn admission() -> (Worker, Receiver<Action>) {
         let (sender, receiver) = mpsc::sync_channel(COMMANDS);
         let (_, events) = mpsc::sync_channel(1);
@@ -1793,6 +1839,7 @@ pub(crate) mod tests {
                     deadline_monotonic_ns: u64::MAX,
                 },
                 snapshot,
+                Arc::new(AtomicBool::new(false)),
             )
             .unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
