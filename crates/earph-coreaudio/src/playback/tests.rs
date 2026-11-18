@@ -159,7 +159,7 @@ fn bounded_ring_preserves_partial_writes_and_wrap_order() {
     );
     assert_eq!(&tail[18..], &[0; 6]);
     assert_eq!(output.ring.consumed.load(Ordering::Acquire), 5);
-    assert_eq!(output.ring.fault.load(Ordering::Acquire), 0);
+    assert!(!output.ring.fault.is_set());
 }
 #[test]
 fn underrun_is_silent_terminal_and_never_replays_buffered_audio() {
@@ -176,6 +176,198 @@ fn underrun_is_silent_terminal_and_never_replays_buffered_audio() {
     output.ring.render(&mut bytes);
     assert_eq!(bytes, [0; 12]);
     assert_eq!(output.ring.consumed.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn starved_real_ring_retains_its_first_cause_and_actual_submission_frontier() {
+    let mut request = request(PlaybackRoute::Float32Compatibility);
+    request.buffer_frames = 512;
+    request.ring_frames = 4096;
+    let mut output = Producer::new(request.clone(), Epochs::default()).unwrap();
+    let mut input = PcmBlock::prepare(
+        request.format,
+        3132,
+        Epochs::default(),
+        MemoryBudget::default(),
+    )
+    .unwrap();
+    for index in 0..3132 * 2 {
+        input
+            .set_integer_sample(index, if index.is_multiple_of(2) { 123 } else { -123 })
+            .unwrap();
+    }
+    input.set_span(Epochs::default(), 0, 0, 3132).unwrap();
+    assert_eq!(
+        output.write(&input, 0, 2993).unwrap(),
+        WriteProgress::Accepted { frames: 2993 }
+    );
+    output.ring.enabled.store(true, Ordering::Release);
+    let mut bytes = [0_u8; 512 * 8];
+    for _ in 0..5 {
+        output.ring.render(&mut bytes);
+    }
+    assert_eq!(output.ring.consumed.load(Ordering::Acquire), 2560);
+    assert_eq!(output.ring.queued_frames(), 433);
+    bytes.fill(255);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let (_, counts) = allocations::tracked(|| output.ring.render(&mut bytes));
+        assert_eq!(counts, allocations::AllocationCounts::default());
+    }
+    #[cfg(target_os = "macos")]
+    output.ring.render(&mut bytes);
+    assert_eq!(bytes, [0; 512 * 8]);
+    let first = OutputFaultDetail {
+        reason: OutputFaultReason::RingUnderrun,
+        requested_frames: Some(512),
+        queued_frames: Some(433),
+    };
+    assert_eq!(output.ring.fault.detail(), Some(first));
+    assert_eq!(output.ring.consumed.load(Ordering::Acquire), 2560);
+    assert_eq!(output.submitted, 2993);
+    assert_eq!(output.ring.queued_frames(), 433);
+    assert_eq!(
+        output.write(&input, 2993, 139).unwrap_err().code,
+        ErrorCode::OutputFault
+    );
+    output
+        .ring
+        .fault
+        .latch(OutputFaultReason::DevicePropertyChanged, None, None);
+    output.ring.fail(OutputFaultReason::NativeStop);
+    assert_eq!(output.ring.fault.detail(), Some(first));
+    assert_eq!(output.submitted, 2993);
+}
+
+#[test]
+fn first_fault_word_preserves_bounds_unknown_causes_and_complete_concurrent_records() {
+    for reason in [
+        OutputFaultReason::Unknown,
+        OutputFaultReason::DevicePropertyChanged,
+        OutputFaultReason::DeviceIdentityChanged,
+        OutputFaultReason::DeviceConfigurationChanged,
+        OutputFaultReason::CallbackBufferCount,
+        OutputFaultReason::CallbackBufferSize,
+        OutputFaultReason::CallbackBufferChannels,
+        OutputFaultReason::CallbackBufferPointer,
+        OutputFaultReason::CallbackReentry,
+        OutputFaultReason::RingReentry,
+        OutputFaultReason::RingCursorInvalid,
+        OutputFaultReason::RingUnderrun,
+        OutputFaultReason::NativeListenerRegistration,
+        OutputFaultReason::NativeStart,
+        OutputFaultReason::NativeStop,
+        OutputFaultReason::NativeListenerRemoval,
+        OutputFaultReason::NativeDestruction,
+        OutputFaultReason::NativePresentation,
+        OutputFaultReason::NativeClose,
+    ] {
+        let fault = FaultSignal::new();
+        fault.latch(reason, None, None);
+        assert_eq!(fault.detail().unwrap().reason, reason);
+    }
+    for (requested, queued, expected_requested, expected_queued) in [
+        (None, None, None, None),
+        (Some(0), Some(0), Some(0), Some(0)),
+        (Some(8192), Some(65536), Some(8192), Some(65536)),
+        (Some(8193), Some(65537), None, None),
+        (Some(u64::MAX), Some(u64::MAX), None, None),
+    ] {
+        let fault = FaultSignal::new();
+        fault.latch(OutputFaultReason::RingUnderrun, requested, queued);
+        assert_eq!(
+            fault.detail(),
+            Some(OutputFaultDetail {
+                reason: OutputFaultReason::RingUnderrun,
+                requested_frames: expected_requested,
+                queued_frames: expected_queued,
+            })
+        );
+    }
+    for raw in [255, 1 << 63, 1 << 8] {
+        let unknown = FaultSignal(AtomicU64::new(raw));
+        assert!(unknown.is_set());
+        assert_eq!(unknown.detail().unwrap().reason, OutputFaultReason::Unknown);
+    }
+
+    let fault = Arc::new(FaultSignal::new());
+    let barrier = Arc::new(std::sync::Barrier::new(8));
+    let contenders = (0_u64..8)
+        .map(|index| {
+            let fault = fault.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                let reason = if index.is_multiple_of(2) {
+                    OutputFaultReason::RingUnderrun
+                } else {
+                    OutputFaultReason::DevicePropertyChanged
+                };
+                fault.latch(reason, Some(index), Some(100 + index));
+            })
+        })
+        .collect::<Vec<_>>();
+    for contender in contenders {
+        contender.join().unwrap();
+    }
+    let first = fault.detail().unwrap();
+    let requested = first.requested_frames.unwrap();
+    assert!(requested < 8);
+    assert_eq!(
+        first.reason,
+        if requested.is_multiple_of(2) {
+            OutputFaultReason::RingUnderrun
+        } else {
+            OutputFaultReason::DevicePropertyChanged
+        }
+    );
+    assert_eq!(first.queued_frames, Some(100 + requested));
+    fault.latch(OutputFaultReason::DevicePropertyChanged, None, None);
+    assert_eq!(fault.detail(), Some(first));
+}
+
+#[test]
+#[cfg(not(target_os = "macos"))]
+fn native_progress_serializes_the_same_fault_word_without_changing_state_priority() {
+    let mut output = CoreAudioOutput {
+        producer: producer(PlaybackRoute::StrictInteger),
+        report: OutputReport {
+            requested: request(PlaybackRoute::StrictInteger),
+            observed: device(),
+            evidence_level: "owned_ring_without_sdk",
+            payload_preservation: "unverified",
+            downstream_transformations: "unknown",
+        },
+        state: OutputState::Closed,
+    };
+    let healthy = output.progress();
+    assert_eq!(healthy.state, OutputState::Closed);
+    assert!(!healthy.fault);
+    assert_eq!(healthy.fault_detail, None);
+    output
+        .producer
+        .ring
+        .fault
+        .latch(OutputFaultReason::RingUnderrun, Some(2), Some(1));
+    for state in [
+        OutputState::Prepared,
+        OutputState::Running,
+        OutputState::Paused,
+        OutputState::Stopped,
+        OutputState::Closed,
+    ] {
+        output.state = state;
+        let (progress, counts) = allocations::tracked(|| output.progress());
+        assert_eq!(counts, allocations::AllocationCounts::default());
+        assert_eq!(progress.state, OutputState::Failed);
+        assert!(progress.fault);
+        assert_eq!(
+            serde_json::to_value(progress).unwrap()["fault_detail"],
+            serde_json::json!({
+                "reason":"ring_underrun","requested_frames":2,"queued_frames":1,
+            })
+        );
+    }
 }
 #[test]
 fn producer_rejects_stale_epochs_format_gaps_and_invalid_spans() {
@@ -343,9 +535,12 @@ fn retired_fault_signals_are_never_reused_and_have_a_fixed_budget() {
     static SIGNALS: FaultSignals<2> = FaultSignals::new();
     let retired = SIGNALS.reserve().unwrap();
     let current = SIGNALS.reserve().unwrap();
-    retired.store(1, Ordering::Release);
-    assert_eq!(retired.load(Ordering::Acquire), 1);
-    assert_eq!(current.load(Ordering::Acquire), 0);
+    retired.latch(OutputFaultReason::DevicePropertyChanged, None, None);
+    assert_eq!(
+        retired.detail().unwrap().reason,
+        OutputFaultReason::DevicePropertyChanged
+    );
+    assert!(!current.is_set());
     assert_eq!(
         SIGNALS.reserve().unwrap_err().code,
         ErrorCode::ResourceBudgetExceeded

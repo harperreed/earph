@@ -52,6 +52,19 @@ fn observed(format: &StreamFormat) -> ObservedStreamFormat {
     }
 }
 
+fn write_fault_diagnostic(
+    writer: &mut impl std::io::Write,
+    operation: &'static str,
+    error: Option<earph_coreaudio::CoreAudioError>,
+    progress: Option<earph_coreaudio::OutputProgress>,
+) -> std::io::Result<()> {
+    let record = serde_json::json!({"backend_fault": {
+        "backend":"core_audio", "operation":operation, "error":error, "progress":progress,
+    }});
+    serde_json::to_writer(&mut *writer, &record).map_err(std::io::Error::other)?;
+    writer.write_all(b"\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,5 +151,62 @@ mod tests {
             observed(&native).representation,
             ObservedSampleRepresentation::Unknown
         );
+    }
+
+    #[test]
+    fn native_fault_diagnostic_retains_first_cause_and_actual_counter_boundaries() {
+        let progress = earph_coreaudio::OutputProgress {
+            state: earph_coreaudio::OutputState::Failed,
+            submitted_frames: 2993,
+            callback_delivered_frames: 2560,
+            queued_frames: 433,
+            callbacks_observed: 6,
+            measurement_boundary: "core_audio_ioproc_delivery",
+            audible_position_frames: None,
+            backend_delay_frames: None,
+            fault: true,
+            fault_detail: Some(earph_coreaudio::OutputFaultDetail {
+                reason: earph_coreaudio::OutputFaultReason::RingUnderrun,
+                requested_frames: Some(512),
+                queued_frames: Some(433),
+            }),
+        };
+        let failure = earph_coreaudio::CoreAudioError::new(
+            ErrorCode::OutputFault,
+            "output is terminal or finished; open a new stream explicitly",
+        );
+        let mut bytes = Vec::new();
+        write_fault_diagnostic(&mut bytes, "write", Some(failure), Some(progress)).unwrap();
+        let document: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let fault = &document["backend_fault"];
+        assert_eq!(fault["backend"], "core_audio");
+        assert_eq!(fault["operation"], "write");
+        assert_eq!(fault["error"]["code"], "OUTPUT_FAULT");
+        assert_eq!(fault["progress"]["fault_detail"]["reason"], "ring_underrun");
+        assert_eq!(fault["progress"]["fault_detail"]["requested_frames"], 512);
+        assert_eq!(fault["progress"]["fault_detail"]["queued_frames"], 433);
+        assert_eq!(fault["progress"]["submitted_frames"], 2993);
+        assert_eq!(fault["progress"]["callback_delivered_frames"], 2560);
+        assert!(fault["progress"]["audible_position_frames"].is_null());
+        assert!(!fault.as_object().unwrap().contains_key("device_uid"));
+        assert!(!fault.as_object().unwrap().contains_key("endpoint"));
+        assert_eq!(bytes.last(), Some(&b'\n'));
+    }
+
+    #[test]
+    fn native_fault_diagnostic_preserves_errors_without_an_open_output() {
+        let error = earph_coreaudio::CoreAudioError {
+            code: ErrorCode::OutputFault,
+            message: "native open failed",
+            os_status: Some(-50),
+        };
+        let mut bytes = Vec::new();
+        write_fault_diagnostic(&mut bytes, "open", Some(error), None).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["backend_fault"]["error"]["os_status"], -50);
+        assert!(value["backend_fault"]["progress"].is_null());
+        let (mut writer, peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        drop(peer);
+        assert!(write_fault_diagnostic(&mut writer, "open", Some(error), None).is_err());
     }
 }

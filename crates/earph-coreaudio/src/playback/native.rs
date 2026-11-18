@@ -20,9 +20,9 @@ unsafe extern "C-unwind" fn changed(
     _: NonNull<ca::AudioObjectPropertyAddress>,
     context: *mut c_void,
 ) -> i32 {
-    if let Some(signal) = NonNull::new(context.cast::<AtomicU8>()) {
+    if let Some(signal) = NonNull::new(context.cast::<FaultSignal>()) {
         // SAFETY: Each listener points only to one never-reused process-lifetime fault slot.
-        unsafe { signal.as_ref() }.store(1, Ordering::Release);
+        unsafe { signal.as_ref() }.latch(OutputFaultReason::DevicePropertyChanged, None, None);
     }
     0
 }
@@ -43,30 +43,34 @@ unsafe extern "C-unwind" fn callback(
     // SAFETY: The SDK supplies a writable AudioBufferList and its declared trailing buffers.
     let output = unsafe { output.as_mut() };
     if output.mNumberBuffers > 16 {
-        context.ring.fail();
+        context.ring.fail(OutputFaultReason::CallbackBufferCount);
         return -50;
     }
     // SAFETY: The SDK owns mNumberBuffers valid trailing AudioBuffers for this invocation.
     let buffers = unsafe {
         std::slice::from_raw_parts_mut(output.mBuffers.as_mut_ptr(), output.mNumberBuffers as usize)
     };
-    let mut valid = buffers.len() == 1;
+    let mut invalid = (buffers.len() != 1).then_some(OutputFaultReason::CallbackBufferCount);
     for buffer in buffers.iter_mut() {
         let size = buffer.mDataByteSize as usize;
-        if size > 8192 * 8 || (size > 0 && buffer.mData.is_null()) {
-            context.ring.fail();
+        if size > 8192 * 8 {
+            context.ring.fail(OutputFaultReason::CallbackBufferSize);
+            return -50;
+        }
+        if size > 0 && buffer.mData.is_null() {
+            context.ring.fail(OutputFaultReason::CallbackBufferPointer);
             return -50;
         }
         if buffer.mNumberChannels != context.channels {
-            valid = false;
+            invalid.get_or_insert(OutputFaultReason::CallbackBufferChannels);
         }
         if size > 0 {
             // SAFETY: The SDK supplies the writable byte count. Access stays within this bounded buffer.
             unsafe { std::slice::from_raw_parts_mut(buffer.mData.cast::<u8>(), size) }.fill(0);
         }
     }
-    if !valid {
-        context.ring.fail();
+    if let Some(reason) = invalid {
+        context.ring.fail(reason);
         return 0;
     }
     let buffer = &mut buffers[0];
@@ -82,15 +86,13 @@ unsafe extern "C-unwind" fn callback(
         .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
         .is_err()
     {
-        context.ring.fail();
+        context.ring.fail(OutputFaultReason::CallbackReentry);
         return 0;
     }
     let before = context.ring.consumed.load(Ordering::Acquire);
     context.ring.render(bytes);
     let total = context.ring.consumed.load(Ordering::Acquire);
-    if context.ring.enabled.load(Ordering::Acquire)
-        && context.ring.fault.load(Ordering::Acquire) == 0
-    {
+    if context.ring.enabled.load(Ordering::Acquire) && !context.ring.fault.is_set() {
         // SAFETY: The SDK owns this output timestamp for the callback's duration.
         context.timing.record_buffer(
             unsafe { output_time.as_ref() },
@@ -98,7 +100,7 @@ unsafe extern "C-unwind" fn callback(
             total,
             bytes.len() / context.ring.frame_bytes,
         );
-    } else if context.ring.fault.load(Ordering::Acquire) != 0 {
+    } else if context.ring.fault.is_set() {
         bytes.fill(0);
     }
     context.entered.store(false, Ordering::Release);
@@ -215,6 +217,7 @@ impl Registration {
             };
             if status != 0 {
                 return Err(registration.fail(
+                    OutputFaultReason::NativeListenerRegistration,
                     "Core Audio listener registration uncertain; callback context retained",
                     status,
                 ));
@@ -235,7 +238,12 @@ impl Registration {
         }
         Ok(())
     }
-    fn fail(&mut self, message: &'static str, status: i32) -> CoreAudioError {
+    fn fail(
+        &mut self,
+        reason: OutputFaultReason,
+        message: &'static str,
+        status: i32,
+    ) -> CoreAudioError {
         let mut error = CoreAudioError::native(message, status);
         error.code = ErrorCode::OutputFault;
         self.terminal = Some(error);
@@ -243,7 +251,7 @@ impl Registration {
             .as_ref()
             .expect("live registration owns context")
             .ring
-            .fail();
+            .fail(reason);
         error
     }
     pub(super) fn start(&mut self) -> Result<(), CoreAudioError> {
@@ -257,6 +265,7 @@ impl Registration {
         let status = unsafe { ca::AudioDeviceStart(self.device, self.id) };
         if status != 0 {
             return Err(self.fail(
+                OutputFaultReason::NativeStart,
                 "Core Audio start outcome uncertain; callback context retained",
                 status,
             ));
@@ -274,6 +283,7 @@ impl Registration {
             let status = unsafe { ca::AudioDeviceStop(self.device, self.id) };
             if status != 0 {
                 return Err(self.fail(
+                    OutputFaultReason::NativeStop,
                     "Core Audio stop outcome uncertain; callback context retained",
                     status,
                 ));
@@ -334,6 +344,7 @@ impl Registration {
             };
             if status != 0 {
                 return Err(self.fail(
+                    OutputFaultReason::NativeListenerRemoval,
                     "Core Audio listener removal uncertain; callback context retained",
                     status,
                 ));
@@ -343,6 +354,7 @@ impl Registration {
         let status = unsafe { ca::AudioDeviceDestroyIOProcID(self.device, self.id) };
         if status != 0 {
             return Err(self.fail(
+                OutputFaultReason::NativeDestruction,
                 "Core Audio destruction outcome uncertain; callback context retained",
                 status,
             ));
