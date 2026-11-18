@@ -400,6 +400,20 @@ impl Playback {
         progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
         events: &SyncSender<Event>,
     ) -> Result<Self, EngineError> {
+        let profile_bytes = settings.snapshot.profile_storage_bytes;
+        let profile_budget = EngineError::new(
+            ErrorCode::ResourceBudgetExceeded,
+            "profile metadata exceeds source admission",
+        );
+        let metadata = entries
+            .iter()
+            .try_fold(
+                size_of::<Self>() as u64 + (entries.capacity() * size_of::<QueueEntry>()) as u64,
+                |n, e| n.checked_add(e.path.capacity() as u64 + e.id.as_str().len() as u64),
+            )
+            .ok_or(profile_budget)?;
+        let base = profile_bytes.checked_add(metadata).ok_or(profile_budget)?;
+        MemoryBudget::default().admit(usize::try_from(base).map_err(|_| profile_budget)?)?;
         let epochs = settings.snapshot.epochs;
         let selected = settings.snapshot.active_entry_id.as_ref().ok_or(FAILED)?;
         let selected_index = entries
@@ -444,6 +458,13 @@ impl Playback {
         }
         let mut output = output::open(config, format, epochs)?;
         let backend = output.observation()?;
+        let retained = base
+            .checked_add(output.audio_storage_bytes()?)
+            .and_then(|n| {
+                n.checked_add(format.storage_bytes(config.period_frames as u64).ok()? as u64)
+            })
+            .ok_or(profile_budget)?;
+        MemoryBudget::default().admit(usize::try_from(retained).map_err(|_| profile_budget)?)?;
         let last_counters = output.progress()?;
         let period = PcmBlock::prepare(
             format,
@@ -2125,6 +2146,26 @@ pub(crate) mod tests {
         };
         assert_eq!(observation.submitted_frames, 65 * tracks as u64);
         (worker, settings, token, observation)
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn profile_retention_refuses_source_preparation_before_opening_output() {
+        let (mut settings, queue) = local_source_fixture(1);
+        settings.snapshot.profile_storage_bytes = 256 * 1024 * 1024;
+        let (events, _receiver) = mpsc::sync_channel(32);
+        let result = Playback::prepare(
+            settings,
+            queue.snapshot().entries,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(PlanView::default())),
+            Arc::new(Mutex::new(None)),
+            &events,
+        );
+        assert_eq!(
+            result.err().unwrap().code,
+            ErrorCode::ResourceBudgetExceeded
+        );
     }
     #[cfg(target_os = "linux")]
     fn next_drain(worker: &Worker) -> (Epochs, PlaybackObservation) {

@@ -36,6 +36,7 @@ pub(crate) fn serve(
 ) -> Result<(), EngineError> {
     let server = ipc::Server::spawn(listener)?;
     let mut graphs = GraphJobs::spawn(directory.clone())?;
+    let mut profiles = crate::profiles::ProfileJobs::spawn(directory.clone());
     // Worker pipelines must retire before the preparation service shuts down.
     let mut worker = Worker::spawn();
     let mut terminal_acknowledgement = None;
@@ -119,6 +120,7 @@ pub(crate) fn serve(
             );
         }
         graphs.poll(&mut session, monotonic(&clock))?;
+        profiles.poll(&mut session, monotonic(&clock), &directory, &token)?;
         match server.requests.recv_timeout(Duration::from_millis(1)) {
             Ok(pending) => {
                 let command = pending.command;
@@ -141,6 +143,9 @@ pub(crate) fn serve(
                     directory::paths,
                     |staged| {
                         actual_check?;
+                        if command.payload.is_profile_save() {
+                            return profiles.submit(staged);
+                        }
                         if matches!(
                             command.payload,
                             Command::GraphPrepare { .. } | Command::GraphValidate { .. }

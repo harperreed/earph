@@ -15,6 +15,9 @@ use std::{collections::VecDeque, sync::Arc};
 #[path = "session_graph.rs"]
 mod graph;
 use graph::GraphControl;
+#[path = "session_profiles.rs"]
+mod profiles;
+use profiles::ProfileControl;
 
 // A fresh owner needs room for consent, preparation, activation, and transport acknowledgements.
 const RESTART_REVISION_HEADROOM: u64 = 64;
@@ -78,6 +81,9 @@ impl PlaybackIntent {
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SessionSnapshot {
+    pub profile_worker_busy: bool,
+    /// Conservative profile payload retention allowance; excludes allocator overhead.
+    pub profile_storage_bytes: u64,
     pub zone_id: ZoneId,
     pub owner_id: Option<OwnerId>,
     pub session_id: Option<SessionId>,
@@ -294,6 +300,8 @@ pub struct SessionCheckpoint {
     pub output: Option<OutputConfiguration>,
     #[serde(default)]
     pub graph_intent: Option<Arc<GraphIntent>>,
+    #[serde(default)]
+    pub profile_catalog: Vec<crate::profile_control::ProfileCatalogReference>,
 }
 
 #[derive(Clone)]
@@ -308,11 +316,14 @@ pub struct Session {
     local_playback_enabled: bool,
     local_boundary: Option<LocalBoundary>,
     graph: GraphControl,
+    profiles: ProfileControl,
 }
 impl Session {
     pub fn new(zone_id: ZoneId, limits: ControlLimits) -> Self {
         Self {
             state: SessionSnapshot {
+                profile_worker_busy: false,
+                profile_storage_bytes: 0,
                 zone_id,
                 owner_id: None,
                 session_id: None,
@@ -350,6 +361,7 @@ impl Session {
             local_playback_enabled: false,
             local_boundary: None,
             graph: GraphControl::default(),
+            profiles: ProfileControl::default(),
         }
     }
     pub fn new_owner(zone_id: ZoneId, owner_id: OwnerId, limits: ControlLimits) -> Self {
@@ -386,6 +398,11 @@ impl Session {
         }
         let mut session = Self::new_owner(zone_id, owner_id, limits);
         session.queue = LocalQueue::restore(checkpoint.queue)?;
+        crate::profile_control::validate_catalog(
+            &checkpoint.profile_catalog,
+            checkpoint.profile_catalog.capacity(),
+        )?;
+        session.profiles.references = checkpoint.profile_catalog;
         // Terminal observations can exhaust an owner after its last persisted command.
         session.state.revision = if checkpoint
             .revision
@@ -423,13 +440,17 @@ impl Session {
             volume_policy: self.state.volume_policy.clone(),
             output: self.state.output.clone(),
             graph_intent: self.graph.configured.clone(),
+            profile_catalog: self.profiles.references.clone(),
         }
     }
     pub fn shutdown_requested(&self) -> bool {
         self.state.shutdown_requested
     }
     pub fn snapshot(&self) -> SessionSnapshot {
-        self.state.clone()
+        let mut state = self.state.clone();
+        state.profile_storage_bytes = self.profile_storage_bytes();
+        state.profile_worker_busy = self.profile_worker_busy();
+        state
     }
     pub fn events_since(&self, cursor: u64) -> EventBatch {
         let oldest = self
@@ -478,11 +499,23 @@ impl Session {
                             vec![SourceKind::Virtual]
                         },
                         physical_output: self.local_playback_enabled,
+                        profiles: crate::profile_control::ProfileCapabilities {
+                            save: true,
+                            manual_resolution: true,
+                            exact_associations: false,
+                            apply: false,
+                            correction_import: false,
+                            packages: false,
+                            max_profiles: crate::profiles::MAX_PROFILES,
+                            max_page: crate::profile_control::MAX_PROFILE_PAGE,
+                            max_profile_bytes: crate::profiles::MAX_PROFILE_BYTES,
+                            max_graph_bytes: crate::graph::MAX_GRAPH_INTENT_BYTES,
+                        },
                     })),
                     Command::GraphInspect {} => {
                         Some(QueryResult::GraphInspection(self.graph_inspection()))
                     }
-                    _ => None,
+                    _ => self.profile_query(&c.payload).ok().flatten(),
                 }
             } else {
                 None
@@ -562,6 +595,10 @@ impl Session {
         commit: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Receipt {
         self.expire_graph_work(now_ns);
+        self.expire_profile_work(now_ns);
+        if let Some(record) = self.profile_receipt(&command.request_id) {
+            return self.replay_graph_record(&command, record);
+        }
         if let Some(record) = self.live_graph_receipt(&command.request_id) {
             return self.replay_graph_record(&command, record);
         }
@@ -596,11 +633,17 @@ impl Session {
         let result = staged.apply_command(&command, now_ns, expand);
         let receipt = match result {
             Ok(status) => {
+                let proposed = staged.receipt(&command, status, None);
+                if let Err(error) = staged.validate_profile_receipt_admission(&command, &proposed) {
+                    return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+                }
                 let persisted = if staged.state.revision != self.state.revision
                     || matches!(
                         command.payload,
                         Command::GraphPrepare { .. } | Command::GraphValidate { .. }
-                    ) {
+                    )
+                    || command.payload.is_profile_save()
+                {
                     commit(&staged)
                 } else {
                     Ok(())
@@ -615,11 +658,22 @@ impl Session {
             }
             Err(error) => self.receipt(&command, ReceiptStatus::Rejected, Some(error)),
         };
+        if self
+            .validate_profile_receipt_admission(&command, &receipt)
+            .is_err()
+        {
+            return self.receipt(
+                &command,
+                ReceiptStatus::Rejected,
+                Some(crate::profile_control::BUDGET),
+            );
+        }
         if self.receipts.len() == self.limits.receipts {
             self.receipts.pop_front();
         }
         let record = Arc::new((command, receipt.clone()));
         self.retain_graph_record(record.clone());
+        self.retain_profile_receipt(record.clone());
         if receipt.status == ReceiptStatus::Accepted
             && self.state.operation.as_ref() == Some(&record.0.request_id)
         {
@@ -669,11 +723,16 @@ impl Session {
                 | Command::VolumeSet { .. }
                 | Command::VolumeCaps { .. }
                 | Command::FixedArm { .. }
-        ) && (command.session_id.is_none() || command.session_id != self.state.session_id)
+        ) && !command.payload.is_profile()
+            && !(matches!(command.payload, Command::Stop)
+                && self.profile_worker_busy()
+                && command.session_id == self.state.session_id)
+            && (command.session_id.is_none() || command.session_id != self.state.session_id)
         {
             return Err(STALE);
         }
         if command.payload.is_query() {
+            self.profile_query(&command.payload)?;
             if let Command::QueueGet { offset, limit } = command.payload {
                 self.queue.page(offset, limit)?;
             }
@@ -688,6 +747,25 @@ impl Session {
             ));
         }
         self.validate_graph_control(&command.payload)?;
+        if command.payload.is_profile_save() {
+            return self.apply_profile_save(command, now_ns);
+        }
+        if self.profile_worker_busy()
+            && matches!(
+                command.payload,
+                Command::GraphPrepare { .. }
+                    | Command::GraphValidate { .. }
+                    | Command::GraphCommit { .. }
+                    | Command::Start { .. }
+                    | Command::Resume
+                    | Command::Seek { .. }
+            )
+        {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "profile save owns the preparation slot",
+            ));
+        }
         if matches!(
             command.payload,
             Command::GraphPrepare { .. }
@@ -1047,6 +1125,7 @@ impl Session {
             self.local_boundary = None;
         }
         self.state = next;
+        self.cancel_profile_work();
         if invalidated || clear_active {
             self.invalidate_graph_work(EngineError::new(
                 ErrorCode::OperationCancelled,

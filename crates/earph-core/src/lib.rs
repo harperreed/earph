@@ -8,6 +8,8 @@ pub mod gain;
 pub mod graph;
 pub mod graph_control;
 pub mod ids;
+pub mod profile_control;
+pub mod profiles;
 pub mod queue;
 pub mod safety;
 pub mod session;
