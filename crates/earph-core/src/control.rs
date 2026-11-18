@@ -31,6 +31,20 @@ pub enum Command {
     Capabilities,
     #[serde(rename = "state.get")]
     State,
+    #[serde(rename = "queue.get")]
+    QueueGet { offset: usize, limit: usize },
+    #[serde(rename = "queue.append")]
+    QueueAppend { path: String },
+    #[serde(rename = "queue.append_directory")]
+    QueueAppendDirectory { path: String },
+    #[serde(rename = "queue.remove")]
+    QueueRemove { id: QueueEntryId },
+    #[serde(rename = "queue.reorder")]
+    QueueMove { id: QueueEntryId, new_index: usize },
+    #[serde(rename = "queue.select")]
+    QueueSelect { id: Option<QueueEntryId> },
+    #[serde(rename = "owner.shutdown")]
+    OwnerShutdown,
     #[serde(rename = "sessions.start")]
     Start {
         source: SourceKind,
@@ -53,7 +67,10 @@ pub enum Command {
 }
 impl Command {
     pub fn is_query(&self) -> bool {
-        matches!(self, Self::Capabilities | Self::State)
+        matches!(
+            self,
+            Self::Capabilities | Self::State | Self::QueueGet { .. }
+        )
     }
 }
 
@@ -63,6 +80,8 @@ pub struct CommandEnvelope {
     pub schema_version: u32,
     pub request_id: RequestId,
     pub zone_id: ZoneId,
+    #[serde(default)]
+    pub owner_id: Option<OwnerId>,
     pub session_id: Option<SessionId>,
     pub expected_revision: Option<u64>,
     pub payload: Command,
@@ -74,6 +93,11 @@ impl CommandEnvelope {
                 ErrorCode::CapabilityUnsupported,
                 "unsupported command version or method",
             ));
+        }
+        if let Command::QueueAppend { path } | Command::QueueAppendDirectory { path } =
+            &self.payload
+        {
+            crate::queue::validate_path(path)?;
         }
         Ok(())
     }
@@ -108,6 +132,7 @@ pub enum ReceiptStatus {
 pub enum QueryResult {
     State(crate::session::SessionSnapshot),
     Capabilities(Capabilities),
+    Queue(crate::queue::QueuePage),
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Capabilities {

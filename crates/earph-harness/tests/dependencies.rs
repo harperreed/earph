@@ -3,6 +3,20 @@
 use earph_harness::inventory;
 
 #[test]
+fn selected_decoder_keeps_extended_format_qualification_partial() {
+    let (snapshot, _) = inventory::snapshot().unwrap();
+    let candidate = snapshot["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "symphonia")
+        .unwrap();
+    assert_eq!(candidate["status"], "selected");
+    assert_eq!(candidate["revision"], "symphonia 0.6.1");
+    assert_eq!(candidate["qualification"], "partial");
+}
+
+#[test]
 fn changed_dependency_features_or_license_hashes_are_rejected() {
     let (snapshot, _) = inventory::snapshot().unwrap();
     inventory::validate(&snapshot).unwrap();

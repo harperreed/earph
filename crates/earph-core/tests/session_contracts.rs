@@ -8,6 +8,7 @@ fn session() -> Session {
 fn command(session: &Session, id: &str, payload: Command) -> CommandEnvelope {
     CommandEnvelope {
         schema_version: 1,
+        owner_id: None,
         request_id: RequestId::new(id).unwrap(),
         zone_id: ZoneId::new("main").unwrap(),
         session_id: session.snapshot().session_id,

@@ -55,8 +55,12 @@ fn main() {
         "crates/earph-alsa/src",
         "crates/earph-coreaudio/Cargo.toml",
         "crates/earph-coreaudio/src",
+        "crates/earph-media/Cargo.toml",
+        "crates/earph-media/src",
+        "crates/earph-engine/Cargo.toml",
+        "crates/earph-engine/src",
         "docs/requirements.json",
-        "docs/dependency-licenses/objc2-0.3.2",
+        "docs/dependency-licenses",
         "fixtures/audio/manifest.json",
     ] {
         let path = root.join(relative);

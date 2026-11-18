@@ -25,7 +25,16 @@ macro_rules! identity {
         impl From<$name> for String { fn from(id: $name) -> Self { id.0 } }
     )+};
 }
-identity!(ZoneId, SessionId, DeviceId, ProfileId, GraphId, RequestId);
+identity!(
+    ZoneId,
+    SessionId,
+    DeviceId,
+    ProfileId,
+    GraphId,
+    RequestId,
+    OwnerId,
+    QueueEntryId
+);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

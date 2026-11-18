@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/microsoft/windows-rs",
+  "revision": "32c3144490c016fe496a0aed769bce60987a2e9d",
+  "version": "0.61.2",
+  "packages": ["windows-sys"],
+  "license_expression": "MIT OR Apache-2.0",
+  "selected_license": "MIT",
+  "license_file": "LICENSE-MIT",
+  "license_sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+  "source_url": "https://raw.githubusercontent.com/microsoft/windows-rs/32c3144490c016fe496a0aed769bce60987a2e9d/license-mit"
+}

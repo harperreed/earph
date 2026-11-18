@@ -163,9 +163,9 @@
       "depends_on": [
         "ARCH-04"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": ["crates/earph-media/tests/decode.rs", "crates/earph-engine/tests/owner.rs", "docs/local-playback.md"]
     },
     {
       "id": "PLAY-02",
@@ -199,9 +199,9 @@
       "depends_on": [
         "PLAY-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": ["crates/earph-media/tests/cli.rs", "docs/local-playback.md"]
     },
     {
       "id": "PLAY-04",
@@ -257,9 +257,9 @@
         "PLAY-01",
         "SAFE-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": ["crates/earph-engine/tests/owner.rs", "crates/earph-engine/tests/cli.rs"]
     },
     {
       "id": "PLAY-07",

@@ -4,8 +4,9 @@ use crate::{
     EngineError, ErrorCode,
     control::*,
     ids::{increment, *},
+    queue::{LocalQueue, QueueSnapshot},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 const STALE: EngineError =
@@ -62,6 +63,7 @@ impl PlaybackIntent {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SessionSnapshot {
     pub zone_id: ZoneId,
+    pub owner_id: Option<OwnerId>,
     pub session_id: Option<SessionId>,
     pub source: Option<SourceKind>,
     pub output_id: Option<DeviceId>,
@@ -78,6 +80,7 @@ pub struct SessionSnapshot {
     pub operation: Option<RequestId>,
     pub error: Option<ErrorCode>,
     pub seekable: bool,
+    pub shutdown_requested: bool,
 }
 #[derive(Debug, Clone)]
 pub struct EngineEvent {
@@ -116,18 +119,29 @@ pub struct EventBatch {
     pub snapshot: SessionSnapshot,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionCheckpoint {
+    pub schema_version: u32,
+    pub revision: u64,
+    pub queue: QueueSnapshot,
+}
+
+#[derive(Clone)]
 pub struct Session {
     state: SessionSnapshot,
     limits: ControlLimits,
     receipts: VecDeque<(CommandEnvelope, Receipt)>,
     events: VecDeque<StateEvent>,
     playback_intent: PlaybackIntent,
+    queue: LocalQueue,
 }
 impl Session {
     pub fn new(zone_id: ZoneId, limits: ControlLimits) -> Self {
         Self {
             state: SessionSnapshot {
                 zone_id,
+                owner_id: None,
                 session_id: None,
                 source: None,
                 output_id: None,
@@ -144,12 +158,51 @@ impl Session {
                 operation: None,
                 error: None,
                 seekable: false,
+                shutdown_requested: false,
             },
             receipts: VecDeque::with_capacity(limits.receipts),
             events: VecDeque::with_capacity(limits.events),
             limits,
             playback_intent: PlaybackIntent::Playing,
+            queue: LocalQueue::default(),
         }
+    }
+    pub fn new_owner(zone_id: ZoneId, owner_id: OwnerId, limits: ControlLimits) -> Self {
+        let mut session = Self::new(zone_id, limits);
+        session.state.owner_id = Some(owner_id);
+        session
+    }
+    pub fn restore_owner(
+        zone_id: ZoneId,
+        owner_id: OwnerId,
+        limits: ControlLimits,
+        checkpoint: SessionCheckpoint,
+    ) -> Result<Self, EngineError> {
+        if checkpoint.schema_version != 1 {
+            return Err(EngineError::new(
+                ErrorCode::CapabilityUnsupported,
+                "unsupported checkpoint version",
+            ));
+        }
+        let mut session = Self::new_owner(zone_id, owner_id, limits);
+        session.queue = LocalQueue::restore(checkpoint.queue)?;
+        session.state.revision = checkpoint.revision;
+        session.state.transport = TransportState::Paused;
+        session.playback_intent = PlaybackIntent::Paused;
+        Ok(session)
+    }
+    pub fn queue_snapshot(&self) -> QueueSnapshot {
+        self.queue.snapshot()
+    }
+    pub fn checkpoint(&self) -> SessionCheckpoint {
+        SessionCheckpoint {
+            schema_version: 1,
+            revision: self.state.revision,
+            queue: self.queue.snapshot(),
+        }
+    }
+    pub fn shutdown_requested(&self) -> bool {
+        self.state.shutdown_requested
     }
     pub fn snapshot(&self) -> SessionSnapshot {
         self.state.clone()
@@ -188,9 +241,16 @@ impl Session {
             result: if status == ReceiptStatus::Applied {
                 match c.payload {
                     Command::State => Some(QueryResult::State(self.snapshot())),
+                    Command::QueueGet { offset, limit } => {
+                        self.queue.page(offset, limit).ok().map(QueryResult::Queue)
+                    }
                     Command::Capabilities => Some(QueryResult::Capabilities(Capabilities {
                         schema_version: 1,
-                        sources: vec![SourceKind::Virtual],
+                        sources: if self.state.owner_id.is_some() {
+                            vec![]
+                        } else {
+                            vec![SourceKind::Virtual]
+                        },
                         physical_output: false,
                     })),
                     _ => None,
@@ -232,6 +292,23 @@ impl Session {
         }
     }
     pub fn submit(&mut self, command: CommandEnvelope) -> Receipt {
+        self.submit_with_commit(command, |_| Ok(()))
+    }
+    /// Publishes a staged mutation only after the durable commit succeeds.
+    pub fn submit_with_commit(
+        &mut self,
+        command: CommandEnvelope,
+        commit: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Receipt {
+        self.submit_with_queue_expansion(command, |_| Err(STATE), commit)
+    }
+    /// Resolves a directory only after target, revision, and retry validation.
+    pub fn submit_with_queue_expansion(
+        &mut self,
+        command: CommandEnvelope,
+        expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
+        commit: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Receipt {
         if let Some((prior, receipt)) = self
             .receipts
             .iter()
@@ -250,9 +327,23 @@ impl Session {
                 )
             };
         }
-        let result = self.apply_command(&command);
+        let mut staged = self.clone();
+        let result = staged.apply_command(&command, expand);
         let receipt = match result {
-            Ok(status) => self.receipt(&command, status, None),
+            Ok(status) => {
+                let persisted = if staged.state.revision != self.state.revision {
+                    commit(&staged)
+                } else {
+                    Ok(())
+                };
+                match persisted {
+                    Ok(()) => {
+                        *self = staged;
+                        self.receipt(&command, status, None)
+                    }
+                    Err(error) => self.receipt(&command, ReceiptStatus::Failed, Some(error)),
+                }
+            }
             Err(error) => self.receipt(&command, ReceiptStatus::Rejected, Some(error)),
         };
         if self.receipts.len() == self.limits.receipts {
@@ -261,9 +352,19 @@ impl Session {
         self.receipts.push_back((command, receipt.clone()));
         receipt
     }
-    fn apply_command(&mut self, command: &CommandEnvelope) -> Result<ReceiptStatus, EngineError> {
+    fn apply_command(
+        &mut self,
+        command: &CommandEnvelope,
+        expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
+    ) -> Result<ReceiptStatus, EngineError> {
         command.validate()?;
         if command.zone_id != self.state.zone_id {
+            return Err(STALE);
+        }
+        if !command.payload.is_query()
+            && self.state.owner_id.is_some()
+            && command.owner_id != self.state.owner_id
+        {
             return Err(STALE);
         }
         if matches!(command.payload, Command::Mute { .. })
@@ -274,12 +375,25 @@ impl Session {
         }
         if !matches!(
             command.payload,
-            Command::Start { .. } | Command::Mute { .. } | Command::State | Command::Capabilities
+            Command::Start { .. }
+                | Command::Mute { .. }
+                | Command::State
+                | Command::Capabilities
+                | Command::QueueGet { .. }
+                | Command::QueueAppend { .. }
+                | Command::QueueAppendDirectory { .. }
+                | Command::QueueRemove { .. }
+                | Command::QueueMove { .. }
+                | Command::QueueSelect { .. }
+                | Command::OwnerShutdown
         ) && (command.session_id.is_none() || command.session_id != self.state.session_id)
         {
             return Err(STALE);
         }
         if command.payload.is_query() {
+            if let Command::QueueGet { offset, limit } = command.payload {
+                self.queue.page(offset, limit)?;
+            }
             return Ok(ReceiptStatus::Applied);
         }
         if !matches!(command.payload, Command::Mute { muted: true })
@@ -296,12 +410,53 @@ impl Session {
         let mut intent = self.playback_intent;
         let mut cancel_previous = false;
         let status = match &command.payload {
+            Command::QueueAppendDirectory { path } => {
+                let paths = expand(path)?;
+                if paths.len() > 256 || self.queue.entries().len().saturating_add(paths.len()) > 256
+                {
+                    return Err(EngineError::new(
+                        ErrorCode::ResourceBudgetExceeded,
+                        "directory exceeds queue capacity",
+                    ));
+                }
+                for path in paths {
+                    self.queue.append(path)?;
+                }
+                ReceiptStatus::Applied
+            }
+            Command::QueueAppend { path } => {
+                self.queue.append(path.clone())?;
+                ReceiptStatus::Applied
+            }
+            Command::QueueRemove { id } => {
+                self.queue.remove(id)?;
+                ReceiptStatus::Applied
+            }
+            Command::QueueMove { id, new_index } => {
+                self.queue.move_entry(id, *new_index)?;
+                ReceiptStatus::Applied
+            }
+            Command::QueueSelect { id } => {
+                self.queue.select(id.clone())?;
+                ReceiptStatus::Applied
+            }
+            Command::OwnerShutdown if next.owner_id.is_some() => {
+                next.shutdown_requested = true;
+                next.muted = true;
+                next.transport = TransportState::Paused;
+                next.epochs = next.epochs.next_stream()?;
+                cancel_previous = true;
+                ReceiptStatus::Applied
+            }
             Command::Start {
                 source,
                 device_id,
                 takeover,
                 seekable,
             } => {
+                if self.state.owner_id.is_some() {
+                    return Err(STATE);
+                }
                 if self.state.session_id.is_some() && !takeover {
                     return Err(EngineError::new(
                         ErrorCode::SourceBusy,
@@ -518,6 +673,7 @@ mod tests {
         let before = session.snapshot();
         let receipt = session.submit(CommandEnvelope {
             schema_version: 1,
+            owner_id: None,
             request_id: RequestId::new("mute").unwrap(),
             zone_id: before.zone_id.clone(),
             session_id: None,

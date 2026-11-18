@@ -119,10 +119,25 @@ An interrupted atomic write leaves a sibling `.json.partial` file instead of tru
 | Qualification error or uncertain process exit | Inspect the record and run `evidence-check` before treating it as passed. |
 | Existing output directory | Inspect it. Choose a fresh directory for another run; the current tool does not resume in place. |
 
-The session API is currently a Rust interface.
-There is no running IPC host, GUI, or session-control CLI to inspect yet.
-`Session::snapshot()` provides a fresh Rust snapshot.
+The session API now also runs behind private Unix IPC in `earph-engine`.
+Its CLI forwards the same versioned command envelope and prints JSON receipts.
+Use `state.get` to discover the current owner identity and revision.
+Mutations target that owner; stale owners reject after restart.
+Queue reads use bounded pages with the receipt revision.
+`Session::snapshot()` still provides a fresh Rust snapshot for embedded consumers.
 Request IDs identify logical reads and mutations; replaying an old state query returns its retained result.
+
+`LocalQueue` owns stable entry identities, selection, ordering, and preparation status.
+The session owns queue revisions and receipts.
+Persistence commits a staged mutation before the owner publishes its applied receipt.
+Recovery validates saved queue bounds and identities, then restores paused and muted.
+It discards preparation claims and never opens an output.
+
+`LocalFile` owns packet position, pending PCM, decoder state, and seek generation.
+Its explicit reader states separate reading, confirmed EOF, an explicit end seek, and failure.
+Natural EOF checks for extra audio beyond the declared frame count.
+A failed reader requires a fresh open.
+The offline capture owns its bytes and final report; failed writes cannot claim successful hashes.
 
 ## Verification and limits
 

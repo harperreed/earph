@@ -3,7 +3,10 @@
 #![forbid(unsafe_code)]
 pub mod audio;
 pub mod control;
+pub mod gain;
 pub mod ids;
+pub mod queue;
+pub mod safety;
 pub mod session;
 
 use serde::{Deserialize, Serialize};

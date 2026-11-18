@@ -4,15 +4,19 @@ An inspectable, local-first audio renderer and DSP engine in Rust.
 
 The foundation checks schemas and generates deterministic offline fixtures.
 The Linux ALSA spike adds explicit output discovery and exact format negotiation.
-It keeps signal writes behind explicit approval and does not implement a full player or network playback.
+The local source adds exact integer WAV, FLAC, and AIFF decoding and offline track concatenation.
+The private owner service adds queue control and paused, muted crash recovery.
+Physical playback integration and network playback remain unfinished.
 The full product contract lives in [the specification](docs/SPEC.md).
-Follow [the foundation plan](docs/superpowers/plans/2026-11-16-foundation.md) for current progress.
+Follow [the local playback plan](docs/superpowers/plans/2026-11-17-local-playback.md) for current progress.
+See [local decoding](docs/local-playback.md) for supported files and offline commands.
 See [the state-machine map](docs/state-machines.md) for state owners, transitions, and recovery actions.
 See [the ALSA spike](docs/alsa-spike.md) for Linux output commands, evidence, and qualification limits.
 See [the Core Audio spike](docs/coreaudio-spike.md) for macOS inspection, precision assessment, and silent registration checks.
 
 Use Rust 1.98.1, selected in `mise.toml`.
 Run `scripts/check` for formatting, lint, tests, traceability, and dependency checks.
+The lossless fixture tests require FFmpeg.
 
 Generate owned PCM fixtures into a new directory:
 

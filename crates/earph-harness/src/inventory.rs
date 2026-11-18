@@ -9,14 +9,30 @@ use std::{
 };
 
 fn reviewed_license(package: &Value, crate_root: &Path) -> Result<(Vec<PathBuf>, Value), String> {
-    let root =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/dependency-licenses/objc2-0.3.2");
+    let directory = match package["name"].as_str() {
+        Some("objc2-core-audio" | "objc2-core-audio-types" | "objc2-core-foundation") => {
+            "objc2-0.3.2"
+        }
+        Some("windows-link") => "windows-link-0.2.1",
+        Some("windows-sys") => "windows-sys-0.61.2",
+        _ => {
+            return Err(format!(
+                "dependency needs manual license review: {}",
+                package["name"]
+            ));
+        }
+    };
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/dependency-licenses")
+        .join(directory);
     let provenance: Value =
         serde_json::from_slice(&read_bounded(&root.join("provenance.json"), 64 * 1024)?)
             .map_err(|_| "invalid reviewed license provenance")?;
     if provenance["schema_version"] != 1
         || provenance["version"] != package["version"]
         || provenance["repository"] != package["repository"]
+        || (provenance.get("license_expression").is_some()
+            && provenance["license_expression"] != package["license"])
         || !provenance["packages"]
             .as_array()
             .is_some_and(|names| names.contains(&package["name"]))
@@ -156,6 +172,10 @@ pub fn snapshot() -> Result<(Value, String), String> {
             json!({"name":name,"status":"selected","qualification":"partial","revision":"alsa-sys 0.6.1"})
         } else if name == "Core Audio" {
             json!({"name":name,"status":"selected","qualification":"partial","revision":"objc2-core-audio 0.3.2"})
+        } else if name == "symphonia" {
+            json!({"name":name,"status":"selected","qualification":"partial","revision":"symphonia 0.6.1"})
+        } else if name == "operational store" {
+            json!({"name":name,"status":"selected","qualification":"partial","revision":"versioned JSON checkpoints v1"})
         } else {
             json!({"name":name,"status":"unselected","qualification":"not_run","revision":null})
         }
