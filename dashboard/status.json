@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-18T09:49:21.139Z",
-  "headline": "Saving the qualified graph activation checkpoint.",
-  "focus": "T10 · Native graph receipts verified; integration commit and PR merge remain pending",
-  "summary": "Integrated graph checks and selected Linux/Mac hardware procedures pass on the same frozen runtime. Scoped gain, delay, tail, ownership, and muted validation evidence is retained. T10 stays active until shipping; M2, full-worker real-time, DAC/acoustic, and release qualification remain incomplete.",
+  "updated_at": "2026-11-18T10:29:14.479Z",
+  "headline": "Addressing graph review findings before merge.",
+  "focus": "T10 · PR #2 changes requested: validate and fix concurrency/state, shutdown ownership, and wire precision",
+  "summary": "CodeRabbit requested changes on PR #2. Concurrency/state, shutdown ownership, and wire-precision findings are being validated and fixed before merge. Prior platform receipts remain historical frozen checkpoints; forthcoming fixes require fresh verification. T11 kernel/source-proof work has started without production qualification.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -14,7 +14,8 @@
     "T07": "done",
     "T08": "done",
     "T09": "done",
-    "T10": "active"
+    "T10": "active",
+    "T11": "active"
   },
   "milestone_states": {
     "M0": {
@@ -27,7 +28,7 @@
     },
     "M2": {
       "state": "active",
-      "detail": "Scoped single-rate PCM graph activation passed selected Linux and Mac procedures. Shipping remains pending. Broader DSP-player, full-worker real-time, and release qualification remain incomplete."
+      "detail": "T10 review fixes are in progress before PR #2 can merge. T11 PEQ kernel and SRC source-proof work has started. Broader DSP-player, full-worker real-time, and release qualification remain incomplete."
     },
     "M3": {
       "state": "planned",
@@ -40,20 +41,20 @@
   },
   "checks": [
     {
-      "title": "Linux 307 · Mac 289 passed",
-      "detail": "Each canonical run ignored two gated tests. The separate 11-test Mac silent SDK recheck also passes and overlaps its canonical count."
+      "title": "PR #2 changes requested",
+      "detail": "CodeRabbit completed review. Concurrency/state, shutdown ownership, and wire-precision findings are being validated and fixed before merge."
     },
     {
-      "title": "48,007 Linux graph frames",
-      "detail": "48,000 source frames plus seven tail frames were submitted and client-estimated consumed. Zero saturation; source/mixer unchanged; graph resources retired."
+      "title": "Historical Linux: 307 passed",
+      "detail": "The frozen graph checkpoint passed 307 tests with two ignored and selected-route acceptance. These receipts do not qualify forthcoming review fixes."
     },
     {
-      "title": "24,003 Mac graph frames",
-      "detail": "24,000 source frames plus three tail frames were submitted. Consumption and audible position remain unknown; source and selected device snapshot stayed unchanged."
+      "title": "Historical Mac: 289 passed",
+      "detail": "The frozen checkpoint passed 289 tests with two ignored. Its overlapping 11-test SDK recheck and 24,003-frame exercise retain their original scope."
     },
     {
-      "title": "Muted transaction check passes",
-      "detail": "Mac validation returned no runtime token or revision change. Prepare/commit stayed muted, hashes matched, and zero frames were submitted. Shipping remains pending."
+      "title": "T11 work is starting",
+      "detail": "PEQ kernel work and SRC source proof run in parallel on the new DSP-node branch. Baseline checks pass; no T11 production qualification is claimed."
     }
   ],
   "verified": [
@@ -75,11 +76,11 @@
     },
     {
       "title": "Frozen platform canonical checks",
-      "detail": "The frozen graph snapshot passed Linux 307 and Mac 289 canonical tests, with two ignored on each platform. Formatting, strict Clippy, catalog, and dependency checks pass. The separate Mac silent SDK recheck passed 11 tests and overlaps canonical coverage. All 1,441 Mac archive inputs matched before and after."
+      "detail": "Historical pre-review graph snapshot: Linux 307 and Mac 289 canonical tests passed, with two ignored on each. The separate 11-test Mac SDK recheck overlaps canonical coverage; 1,441 archive inputs matched. CodeRabbit later requested changes. Forthcoming fixes require fresh verification."
     },
     {
       "title": "Scoped native graph activation acceptance",
-      "detail": "One selected attenuated graph signal passed on each platform. Linux submitted and client-estimated consumed 48,007 frames, including seven tail frames, with zero saturation and retired resources. Mac submitted 24,003 frames, including three tail frames; consumed/audible fields remain unknown. Sources, Mac device snapshot, and Linux mixer stayed unchanged. These modified routes do not prove DAC or acoustic preservation."
+      "detail": "Historical frozen graph receipts: Linux submitted and client-estimated consumed 48,007 frames, including seven tail frames, with zero saturation and retired resources. Mac submitted 24,003 frames, including three tail frames; consumed/audible fields remain unknown. Recorded source/device state stayed unchanged. These modified-route receipts do not qualify forthcoming review fixes or prove DAC/acoustic preservation."
     },
     {
       "title": "Safety and diagnostic regressions fixed",
@@ -91,29 +92,29 @@
     },
     {
       "title": "Reviewed compiler and prepared runtime checks",
-      "detail": "Reviewed compiler/runtime changes are integrated. Focused compiler, prepared execution, allocator, and render-bridge scenarios pass; the integrated owner/CLI checkpoint has nine passing real scenarios. Platform canonical and scoped native graph procedures pass on the same frozen runtime. Full-worker real-time qualification remains partial."
+      "detail": "Compiler/runtime and integrated owner/CLI checks passed on the recorded frozen graph snapshot. CodeRabbit has since requested concurrency/state, shutdown-ownership, and wire-precision changes. Those findings are being validated and fixed before merge; forthcoming source requires fresh verification. Full-worker real-time qualification remains partial."
     },
     {
       "title": "Graph preparation and retirement lifecycle",
-      "detail": "The preparation/retirement service has 22 passing tests, with reviewed ownership/capacity fixes imported. Final Linux graph resources report zero resident bytes, no pending retirement, and no preparing/candidate state. Independent integrated-contract review found no remaining important or critical findings."
+      "detail": "The frozen preparation/retirement checkpoint passed 22 tests with ownership/capacity fixes. Recorded Linux graph resources retired cleanly. The earlier independent review found no remaining important or critical findings in its scope; subsequent CodeRabbit findings are now being addressed."
     },
     {
       "title": "Integrated graph owner and CLI checkpoint",
-      "detail": "Nine real owner/CLI/native-file scenarios pass: exact delay/gain across two files with one tail, competing/unsafe/resource rejection preserving the plan, pause/seek/resume exact suffix, and real restart muted without runtime tokens. Additional muted Mac validation/prepare/commit passes with matching hashes, no token or revision change from validation, and zero submitted frames."
+      "detail": "The recorded frozen snapshot passed nine real owner/CLI/native-file cases, including exact delay/gain join and tail, rejection preserving the plan, pause/seek/resume suffix, and muted restart. Separate muted Mac validation/prepare/commit also passed. These are historical checkpoints; review fixes need fresh acceptance."
     }
   ],
   "active": [
     {
-      "title": "Save and ship reviewed graph integration",
-      "detail": "Native receipts are verified. T10 stays active while the integration commit and PR merge remain pending. Scoped native acceptance does not complete M2 or release qualification."
+      "title": "Validate and fix PR #2 review findings",
+      "detail": "CodeRabbit requested changes. Concurrency/state, shutdown ownership, and wire precision are being reviewed and fixed before merge. T10 remains active."
     },
     {
-      "title": "Broader DSP and real-time qualification",
-      "detail": "Full-worker real-time evidence remains partial. PEQ, convolution, resampling, profiles, and broader DSP-player workflows remain unfinished or unqualified."
+      "title": "Start T11 DSP-node work",
+      "detail": "PEQ kernel implementation and SRC source proof run in parallel in the DSP-node branch. The branch baseline canonical check passes; no T11 production qualification is claimed."
     },
     {
-      "title": "GUI and independent physical measurement",
-      "detail": "GUI and broader route qualification stay open. Mac physical consumption and audible position remain unknown. Linux consumption is client-estimated; independent DAC and acoustic preservation are unverified."
+      "title": "Broader qualification remains open",
+      "detail": "M2, GUI, full-worker real-time, DAC/acoustic, and release gates remain incomplete. Historical selected-route receipts retain their original measurement boundaries."
     }
   ],
   "pending": [
@@ -132,24 +133,24 @@
   ],
   "activity": [
     {
-      "title": "Native graph receipts verified on both platforms",
-      "detail": "Linux passed 48,000 source plus seven tail frames; Mac passed 24,000 source plus three tail frames. Sources and recorded device state stayed unchanged. T10 shipping remains pending."
+      "title": "CodeRabbit requested changes on PR #2",
+      "detail": "The pushed graph PR remains unmerged. Concurrency/state, shutdown ownership, and wire-precision findings are being validated and fixed before merge."
     },
     {
-      "title": "Platform graph canonical checks passed",
-      "detail": "Linux 307 and Mac 289 tests passed, with two ignored on each. The separate 11-test Mac silent SDK recheck overlaps canonical coverage. All 1,441 Mac archive inputs matched before and after."
+      "title": "T11 worktree and parallel work started",
+      "detail": "The new DSP-node branch starts at the pushed graph head with a passing baseline canonical check. PEQ kernel work and SRC source proof run in parallel; production qualification has not been claimed."
     },
     {
-      "title": "Muted Mac validation transaction passed",
-      "detail": "Validation produced no runtime token or revision change. Prepared hashes matched, prepare/commit stayed muted, and submitted frames stayed zero."
+      "title": "T10 pushed at ced9ae2",
+      "detail": "PR #2 contains the saved graph integration and dashboard checkpoint. Shipping and merge remain pending review resolution."
     },
     {
-      "title": "Owner/CLI graph checkpoint and review passed",
-      "detail": "Nine real owner/CLI cases and 22 preparation/retirement tests pass. Independent integrated-contract review found no remaining important or critical findings."
+      "title": "Historical native graph checkpoints preserved",
+      "detail": "Selected Linux and Mac graph procedures passed on the recorded frozen source. All prior artifacts remain preserved; these receipts do not qualify forthcoming fixes."
     },
     {
-      "title": "Qualification limits remain explicit",
-      "detail": "This checkpoint covers bounded single-rate PCM graphs and selected routes. M2, full-worker real-time, DAC/acoustic, and release qualification remain incomplete."
+      "title": "Milestone and release gates stay open",
+      "detail": "T10 and T11 remain active. M0, M1, M2, full-worker real-time, and release qualification remain incomplete."
     }
   ]
 }
