@@ -17,36 +17,81 @@ fn design(filter: PeqFilter, rate: u32, channels: ChannelLayout) -> PeqDesign {
     PeqDesign::prepare(&filter, rate, channels).unwrap()
 }
 
+fn q_shelf(high: bool, frequency: f64, q: f64, gain: f64) -> PeqFilter {
+    serde_json::from_value(serde_json::json!({"kind":if high {"high_shelf_q"}else{"low_shelf_q"},"frequency_hz":frequency,"q":q,"gain_db":gain})).unwrap()
+}
+
 #[test]
-fn settled_envelope_bounds_small_persistent_input_after_large_history() {
-    let design = design(peak(40.0, 0.1, -24.0), 48000, ChannelLayout::Stereo);
-    let tail = design.tail(1.0, 1.0, 1e-12).unwrap();
-    for frames in [0, 1, 257, 16384] {
-        let mut kernel = design.instantiate(tail).unwrap();
-        let mut output = [0.0; 128];
-        for _ in 0..32 {
-            kernel.process(&[1.0; 128], &mut output).unwrap();
-        }
-        let epsilon = 1e-8;
-        let bound = design.settled_output_bound(1.0, epsilon, frames).unwrap();
-        for _ in 0..frames {
-            kernel
-                .process(&[epsilon, -epsilon], &mut output[..2])
-                .unwrap();
-        }
-        for _ in 0..1024 {
-            kernel
-                .process(&[epsilon, -epsilon], &mut output[..2])
-                .unwrap();
-            assert!(output[..2].iter().all(|x| x.abs() <= bound));
+fn q_shelves_match_independent_analog_response_including_resonant_controls() {
+    for high in [false, true] {
+        for q in [0.2, 0.7, 2.0, 10.0] {
+            for gain in [-12.0, 12.0] {
+                let center = if high { 8000.0 } else { 105.0 };
+                let filter = q_shelf(high, center, q, gain);
+                let design = design(filter, 48000, ChannelLayout::Mono);
+                let [b0, b1, b2, a1, a2] = design.coefficients();
+                for frequency in [20.0, 80.0, 300.0, 2000.0, 10000.0, 20000.0] {
+                    let omega = std::f64::consts::TAU * frequency / 48000.0;
+                    let measured = (b0 + b1 * omega.cos() + b2 * (2.0 * omega).cos())
+                        .hypot(-b1 * omega.sin() - b2 * (2.0 * omega).sin())
+                        / (1.0 + a1 * omega.cos() + a2 * (2.0 * omega).cos())
+                            .hypot(-a1 * omega.sin() - a2 * (2.0 * omega).sin());
+                    let a = 10.0_f64.powf(gain / 40.0);
+                    let t = (std::f64::consts::PI * frequency / 48000.0).tan()
+                        / (std::f64::consts::PI * center / 48000.0).tan();
+                    let (nr, dr) = if high {
+                        (a * (1.0 - a * t * t), a - t * t)
+                    } else {
+                        (a * (a - t * t), 1.0 - a * t * t)
+                    };
+                    let damping = a.sqrt() * t / q;
+                    let expected = nr.hypot(a * damping) / dr.hypot(damping);
+                    assert!(
+                        (20.0 * (measured / expected).log10()).abs() < 1e-7,
+                        "{filter:?} at {frequency}"
+                    );
+                }
+            }
         }
     }
-    assert!(
-        design.settled_output_bound(1.0, 1e-8, 16384).unwrap()
-            < design.settled_output_bound(1.0, 1e-8, 0).unwrap()
-    );
-    for (past, future) in [(f64::NAN, 0.0), (1.0, -1.0), (1.0, f64::INFINITY)] {
-        assert!(design.settled_output_bound(past, future, 1).is_err());
+}
+
+#[test]
+fn settled_envelope_bounds_small_persistent_input_after_large_history() {
+    for filter in [
+        peak(40.0, 0.1, -24.0),
+        q_shelf(false, 105.0, 2.0, 12.0),
+        q_shelf(true, 8000.0, 1.2, -12.0),
+    ] {
+        let design = design(filter, 48000, ChannelLayout::Stereo);
+        let tail = design.tail(1.0, 1.0, 1e-12).unwrap();
+        for frames in [0, 1, 257, 16384] {
+            let mut kernel = design.instantiate(tail).unwrap();
+            let mut output = [0.0; 128];
+            for _ in 0..32 {
+                kernel.process(&[1.0; 128], &mut output).unwrap();
+            }
+            let epsilon = 1e-8;
+            let bound = design.settled_output_bound(1.0, epsilon, frames).unwrap();
+            for _ in 0..frames {
+                kernel
+                    .process(&[epsilon, -epsilon], &mut output[..2])
+                    .unwrap();
+            }
+            for _ in 0..1024 {
+                kernel
+                    .process(&[epsilon, -epsilon], &mut output[..2])
+                    .unwrap();
+                assert!(output[..2].iter().all(|x| x.abs() <= bound));
+            }
+        }
+        assert!(
+            design.settled_output_bound(1.0, 1e-8, 16384).unwrap()
+                < design.settled_output_bound(1.0, 1e-8, 0).unwrap()
+        );
+        for (past, future) in [(f64::NAN, 0.0), (1.0, -1.0), (1.0, f64::INFINITY)] {
+            assert!(design.settled_output_bound(past, future, 1).is_err());
+        }
     }
 }
 
@@ -89,6 +134,10 @@ fn boundary_filters_have_finite_peak_and_explicit_tail_admission() {
                         frequency_hz: scalar(frequency),
                         gain_db: scalar(gain),
                     },
+                    q_shelf(false, frequency, 0.1, gain),
+                    q_shelf(false, frequency, 20.0, gain),
+                    q_shelf(true, frequency, 0.1, gain),
+                    q_shelf(true, frequency, 20.0, gain),
                 ];
                 for filter in filters {
                     let design = design(filter, rate, ChannelLayout::Mono);
@@ -184,6 +233,16 @@ fn analog_magnitude(filter: &PeqFilter, rate: u32, frequency: f64) -> f64 {
         | PeqFilter::HighShelf {
             frequency_hz,
             gain_db,
+        }
+        | PeqFilter::LowShelfQ {
+            frequency_hz,
+            gain_db,
+            ..
+        }
+        | PeqFilter::HighShelfQ {
+            frequency_hz,
+            gain_db,
+            ..
         } => (frequency_hz.get(), gain_db.get()),
     };
     let a = 10_f64.powf(gain / 40.0);
@@ -204,6 +263,18 @@ fn analog_magnitude(filter: &PeqFilter, rate: u32, frequency: f64) -> f64 {
             a * (2.0 * a).sqrt() * t,
             a - t * t,
             (2.0 * a).sqrt() * t,
+        ),
+        PeqFilter::LowShelfQ { q, .. } => (
+            a * (a - t * t),
+            a * a.sqrt() * t / q.get(),
+            1.0 - a * t * t,
+            a.sqrt() * t / q.get(),
+        ),
+        PeqFilter::HighShelfQ { q, .. } => (
+            a * (1.0 - a * t * t),
+            a * a.sqrt() * t / q.get(),
+            a - t * t,
+            a.sqrt() * t / q.get(),
         ),
     };
     nr.hypot(ni) / dr.hypot(di)
@@ -248,6 +319,8 @@ fn measured_response_matches_independent_analog_oracle_and_writes_numeric_receip
             frequency_hz: scalar(21600.0),
             gain_db: scalar(-24.0),
         },
+        q_shelf(false, 105.0, 0.7, 6.0),
+        q_shelf(true, 8000.0, 1.2, -3.0),
     ];
     let mut maximum_error = 0_f64;
     for (index, filter) in fixtures.into_iter().enumerate() {
@@ -294,7 +367,7 @@ fn measured_response_matches_independent_analog_oracle_and_writes_numeric_receip
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    let report = serde_json::json!({"algorithm":peq::ALGORITHM_VERSION,"source":"generated unit impulse; no device I/O","coefficient_reference":"https://www.w3.org/TR/audio-eq-cookbook/","oracle":"independent bilinear-transform analog complex transfer functions; shelves S=1","source_sha256":source_hash,"test_sha256":test_hash,"maximum_response_error_db":maximum_error,"cpu_qualification":"unknown; no reference-host timing","results":rows});
+    let report = serde_json::json!({"algorithm":peq::ALGORITHM_VERSION,"source":"generated unit impulse; no device I/O","coefficient_reference":"https://www.w3.org/TR/audio-eq-cookbook/","oracle":"independent bilinear-transform analog complex transfer functions; fixed S=1 and explicit Q shelves","source_sha256":source_hash,"test_sha256":test_hash,"maximum_response_error_db":maximum_error,"cpu_qualification":"unknown; no reference-host timing","results":rows});
     std::fs::write(
         root.join("numeric-test-results.json"),
         serde_json::to_vec_pretty(&report).unwrap(),
@@ -304,27 +377,42 @@ fn measured_response_matches_independent_analog_oracle_and_writes_numeric_receip
 
 #[test]
 fn adversarial_sign_input_challenges_peak_bound_beyond_frequency_gain() {
-    let design = design(peak(1000.0, 1.0, 24.0), 48000, ChannelLayout::Mono);
-    let tail = design.tail(1.0, 1.0, 1e-12).unwrap();
-    let mut impulse = vec![0.0; 8192];
-    impulse[0] = 1.0;
-    let impulse = reference(&impulse, design.coefficients());
-    let input: Vec<_> = impulse
-        .iter()
-        .rev()
-        .map(|h| if *h >= 0.0 { 1.0 } else { -1.0 })
-        .collect();
-    let mut output = vec![0.0; input.len()];
-    let mut kernel = design.instantiate(tail).unwrap();
-    kernel.process(&input, &mut output).unwrap();
-    let achieved = output.last().unwrap().abs();
-    assert!(achieved > 10_f64.powf(24.0 / 20.0));
-    assert!(achieved <= design.full_l1_bound());
-    assert!(
-        output
+    for filter in [
+        peak(1000.0, 1.0, 24.0),
+        q_shelf(false, 105.0, 3.0, 12.0),
+        q_shelf(true, 8000.0, 2.0, 12.0),
+    ] {
+        let design = design(filter, 48000, ChannelLayout::Mono);
+        let tail = design.tail(1.0, 1.0, 1e-12).unwrap();
+        let mut impulse = vec![0.0; 8192];
+        impulse[0] = 1.0;
+        let impulse = reference(&impulse, design.coefficients());
+        let input: Vec<_> = impulse
             .iter()
-            .all(|x| x.abs() <= design.peak_bound(1.0).unwrap())
-    );
+            .rev()
+            .map(|h| if *h >= 0.0 { 1.0 } else { -1.0 })
+            .collect();
+        let mut output = vec![0.0; input.len()];
+        let mut kernel = design.instantiate(tail).unwrap();
+        kernel.process(&input, &mut output).unwrap();
+        let achieved = output.last().unwrap().abs();
+        assert!(
+            achieved
+                > 10_f64.powf(
+                    if matches!(filter, PeqFilter::Peaking { .. }) {
+                        24.0
+                    } else {
+                        12.0
+                    } / 20.0
+                )
+        );
+        assert!(achieved <= design.full_l1_bound());
+        assert!(
+            output
+                .iter()
+                .all(|x| x.abs() <= design.peak_bound(1.0).unwrap())
+        );
+    }
 }
 
 #[test]
@@ -336,6 +424,8 @@ fn terminal_residual_encloses_longer_independent_zero_input_reference() {
             frequency_hz: scalar(30.0),
             gain_db: scalar(24.0),
         },
+        q_shelf(false, 105.0, 3.0, 12.0),
+        q_shelf(true, 8000.0, 1.2, -12.0),
     ] {
         let design = design(filter, 48000, ChannelLayout::Mono);
         let tail = design.tail(1.0, 8.0, 1e-12).unwrap();
@@ -482,38 +572,44 @@ fn prepared_process_drain_reset_cancel_and_failure_have_no_heap_activity() {
     assert!(counts.allocations > 0);
     let (_, counts) = tracked(|| drop(allocation));
     assert!(counts.frees > 0);
-    let (design, counts) = tracked(|| design(peak(1000.0, 1.0, 6.0), 48000, ChannelLayout::Stereo));
-    assert_eq!(counts, AllocationCounts::default());
-    let resources = design.resources();
-    assert!(resources.resident_bytes >= size_of::<peq::PreparedPeq>());
-    assert!(resources.preparation_scratch_bytes < 65536);
-    assert_eq!(resources.state_scalars, 4);
-    assert_eq!(resources.filter_operations_per_frame, 18);
-    assert_eq!(resources.proof_matrix_products, 2);
-    let tail = design.tail(1.0, 1.0, 1e-12).unwrap();
-    let mut kernel = design.instantiate(tail).unwrap();
-    let mut output = [0.0; 128];
-    let (_, counts) = tracked(|| {
-        kernel.process(&[0.25; 128], &mut output).unwrap();
-        kernel.begin_drain().unwrap();
-        while kernel.drain(&mut output).unwrap() > 0 {}
-        kernel.reset();
-        kernel.process(&[0.5; 128], &mut output).unwrap();
-        kernel.cancel();
-        assert_eq!(
-            kernel.process(&[0.0; 128], &mut output),
-            Err(PeqError::Lifecycle)
-        );
-        kernel.reset();
-        assert_eq!(
-            kernel.process(&[f64::NAN; 128], &mut output),
-            Err(PeqError::NonFinite)
-        );
-        kernel.reset();
-        kernel.begin_drain().unwrap();
-        assert_eq!(kernel.drain(&mut []), Err(PeqError::Span));
-    });
-    assert_eq!(counts, AllocationCounts::default());
+    for filter in [
+        peak(1000.0, 1.0, 6.0),
+        q_shelf(false, 105.0, 0.7, 6.0),
+        q_shelf(true, 8000.0, 1.2, -3.0),
+    ] {
+        let (design, counts) = tracked(|| design(filter, 48000, ChannelLayout::Stereo));
+        assert_eq!(counts, AllocationCounts::default());
+        let resources = design.resources();
+        assert!(resources.resident_bytes >= size_of::<peq::PreparedPeq>());
+        assert!(resources.preparation_scratch_bytes < 65536);
+        assert_eq!(resources.state_scalars, 4);
+        assert_eq!(resources.filter_operations_per_frame, 18);
+        assert_eq!(resources.proof_matrix_products, 2);
+        let tail = design.tail(1.0, 1.0, 1e-12).unwrap();
+        let mut kernel = design.instantiate(tail).unwrap();
+        let mut output = [0.0; 128];
+        let (_, counts) = tracked(|| {
+            kernel.process(&[0.25; 128], &mut output).unwrap();
+            kernel.begin_drain().unwrap();
+            while kernel.drain(&mut output).unwrap() > 0 {}
+            kernel.reset();
+            kernel.process(&[0.5; 128], &mut output).unwrap();
+            kernel.cancel();
+            assert_eq!(
+                kernel.process(&[0.0; 128], &mut output),
+                Err(PeqError::Lifecycle)
+            );
+            kernel.reset();
+            assert_eq!(
+                kernel.process(&[f64::NAN; 128], &mut output),
+                Err(PeqError::NonFinite)
+            );
+            kernel.reset();
+            kernel.begin_drain().unwrap();
+            assert_eq!(kernel.drain(&mut []), Err(PeqError::Span));
+        });
+        assert_eq!(counts, AllocationCounts::default());
+    }
 }
 
 #[test]

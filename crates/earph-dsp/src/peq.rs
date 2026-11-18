@@ -575,6 +575,16 @@ fn cookbook(filter: &PeqFilter, rate: u32) -> Result<[f64; 5], PeqError> {
         | PeqFilter::HighShelf {
             frequency_hz,
             gain_db,
+        }
+        | PeqFilter::LowShelfQ {
+            frequency_hz,
+            gain_db,
+            ..
+        }
+        | PeqFilter::HighShelfQ {
+            frequency_hz,
+            gain_db,
+            ..
         } => (frequency_hz.get(), gain_db.get()),
     };
     if gain == 0.0 {
@@ -592,8 +602,11 @@ fn cookbook(filter: &PeqFilter, rate: u32) -> Result<[f64; 5], PeqError> {
                 [1.0 + alpha / a, -2.0 * cosine, 1.0 - alpha / a],
             )
         }
-        PeqFilter::LowShelf { .. } => {
-            let v = (2.0 * a).sqrt() * sine;
+        PeqFilter::LowShelf { .. } | PeqFilter::LowShelfQ { .. } => {
+            let v = match *filter {
+                PeqFilter::LowShelfQ { q, .. } => a.sqrt() * sine / q.get(),
+                _ => (2.0 * a).sqrt() * sine,
+            };
             (
                 [
                     a * ((a + 1.0) - (a - 1.0) * cosine + v),
@@ -607,8 +620,11 @@ fn cookbook(filter: &PeqFilter, rate: u32) -> Result<[f64; 5], PeqError> {
                 ],
             )
         }
-        PeqFilter::HighShelf { .. } => {
-            let v = (2.0 * a).sqrt() * sine;
+        PeqFilter::HighShelf { .. } | PeqFilter::HighShelfQ { .. } => {
+            let v = match *filter {
+                PeqFilter::HighShelfQ { q, .. } => a.sqrt() * sine / q.get(),
+                _ => (2.0 * a).sqrt() * sine,
+            };
             (
                 [
                     a * ((a + 1.0) + (a - 1.0) * cosine + v),

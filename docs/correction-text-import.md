@@ -3,8 +3,8 @@
 The offline importer creates graph intent and a provenance report.
 It never connects to an engine, applies a graph, unmutes output, or changes volume.
 This checkpoint implements a documented subset of DSP-06 and AC-30.
-Full AutoEq preset support remains incomplete because common Q-controlled shelves reject.
-Profiles and Session import commands remain separate work.
+AutoEq PK, LSC, and HSC parametric presets are supported within the declared bounds.
+Full DSP-06 remains open until profiles and Session import commands also ship.
 
 ## Run an import
 
@@ -12,7 +12,7 @@ Profiles and Session import commands remain separate work.
 cargo run --locked -p earph-media --bin earph-correction-import -- \
   --format autoeq --rate 48000 --channels stereo --quantum 256 \
   --model 'Owned headphones' --provider 'Owned measurement' \
-  --target 'My target' --parameter-set 'PK only' --revision '1' \
+  --target 'My target' --parameter-set 'Imported preset' --revision '1' \
   --license 'Private use' -- correction.txt > import-report.json
 ```
 
@@ -42,22 +42,27 @@ Source and semantic hashes identify bytes and normalized intent; they do not aut
 | Format | Supported | Rejected |
 |---|---|---|
 | REW Generic text | `Filter N: ON/OFF PK Fc F Hz Gain G dB Q Q`; explicit `None` slots; optional preamp | Other equalisers, bandwidth controls, shelves, filter families, and processing directives |
-| AutoEq parametric | Required `Preamp: G dB`; ordered PK lines; explicit OFF state | LSC/HSC shelves and other APO commands |
-| CamillaDSP filter fragment | `Biquad` Peaking with `freq`, `gain`, `q`; static `Gain`; ordered `Filter` pipeline steps | Full device configurations, mixers, processors, convolution paths, other biquads, bandwidth controls, and shelves |
+| AutoEq parametric | Required `Preamp: G dB`; ordered PK, LSC, and HSC lines with explicit Q; explicit OFF state | Slope forms, corner-frequency shelf forms, bandwidth controls, and other APO commands |
+| CamillaDSP filter fragment | `Biquad` Peaking, Lowshelf, or Highshelf with `freq`, `gain`, `q`; static `Gain`; ordered `Filter` steps | Full device configurations, mixers, processors, convolution paths, other biquads, bandwidth controls, and slope forms |
 
 Numeric controls retain their parsed binary64 value without decimal rounding or Q conversion.
 Text units may attach to the number or follow it as a separate token.
 Values must be finite.
-Peaking frequency spans 10 Hz through 0.45 times the processing rate.
-Peaking gain spans -24 through 24 dB, and Q spans 0.1 through 20.
+Equalizer frequency spans 10 Hz through 0.45 times the processing rate.
+Equalizer gain spans -24 through 24 dB, and Q spans 0.1 through 20.
 Preamp and static dB Gain span -150 through 150 dB.
 Static linear Gain spans -10 through 10.
 Headroom admission can reject otherwise valid source controls.
 
-Core shelves currently use fixed S=1.
-AutoEq shelves export Q, while CamillaDSP shelves accept Q or slope in dB per octave.
-Those controls do not establish the same response.
-The importer rejects them instead of changing their sound.
+Core `low_shelf` and `high_shelf` retain fixed S=1 and reject Q fields.
+Explicit `low_shelf_q` and `high_shelf_q` kinds preserve imported Q controls.
+AutoEq and CamillaDSP Q shelves use the same center-frequency transfer function.
+Their shared damping term is `sqrt(A) * sin(omega) / Q`, with `A = 10^(gain_dB/40)`.
+The fixed-S=1 damping term stays `sqrt(2*A) * sin(omega)`.
+Q is never substituted for slope.
+CamillaDSP's separate dB-per-octave slope forms remain unsupported.
+All shelf coefficients use the existing PEQ stability, peak, and finite-tail admission machinery.
+Valid source parameters can still reject during numerical proof, tail-budget, or engine headroom admission.
 Unsupported definitions reject even when unused or bypassed.
 
 REW accepts its documented `Filter Settings file` header and `Room EQ V...` version.
@@ -138,10 +143,18 @@ Its older DSP1124P PA/BW layout remains unsupported.
 The [AutoEq exporter at revision 7ae0f56](https://github.com/jaakkopasanen/AutoEq/blob/7ae0f56d53074872b028649617a22bbb4232feb7/autoeq/frequency_response.py)
 emits one preamp followed by PK, LSC, or HSC lines with frequency, gain, and Q.
 Its exporter emits ON; the importer also preserves explicit APO-style OFF state.
+Its [shelf kernels](https://github.com/jaakkopasanen/AutoEq/blob/7ae0f56d53074872b028649617a22bbb4232feb7/autoeq/peq.py)
+use `alpha = sin(omega)/(2*Q)` with the cookbook shelf coefficients.
+The official [Equalizer APO reference](https://sourceforge.net/p/equalizerapo/wiki/Configuration%20reference/)
+distinguishes LSC/HSC center-frequency Q controls from dB-per-octave shelf forms.
 
 The [CamillaDSP 4.1 guide at revision 05e9cfc](https://github.com/HEnquist/camilladsp/blob/05e9cfcdf43c0dfe078ed3feb8af4c8bd701fd74/README.md)
 and [configuration definitions](https://github.com/HEnquist/camilladsp/blob/05e9cfcdf43c0dfe078ed3feb8af4c8bd701fd74/src/config/mod.rs)
 define the imported filters, channel selections, and bypass behavior.
+Its [Q shelf kernels](https://github.com/HEnquist/camilladsp/blob/05e9cfcdf43c0dfe078ed3feb8af4c8bd701fd74/src/filters/biquad.rs)
+use the same damping term as AutoEq.
+Independent test oracles evaluate the bilinear-transformed analog shelf transfer functions.
+They compare off-center vectors and rendered impulses, rather than copying normalized coefficient arrays.
 
 The selected [yaml-rust2 published source](https://github.com/Ethiraric/yaml-rust2/tree/e12069447073e0c8dd9ceab415159c4c92927534)
 provides parser events without requiring its alias-expanding document loader.

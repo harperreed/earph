@@ -24,13 +24,16 @@ Use the `peq` node with a `filter` object:
 }
 ```
 
-Supported filter types are `peaking`, `low_shelf`, and `high_shelf`.
+Supported filter types are `peaking`, `low_shelf`, `high_shelf`, `low_shelf_q`, and `high_shelf_q`.
 Frequency spans 10 Hz through 0.45 times the processing rate.
 Gain spans -24 through 24 dB.
-Peaking Q spans 0.1 through 20.
-Shelves use a fixed slope of one and reject Q or slope fields.
+Peaking and Q-controlled shelf Q spans 0.1 through 20.
+`low_shelf` and `high_shelf` use fixed S=1 and reject Q or slope fields.
+`low_shelf_q` and `high_shelf_q` require explicit Q and reject slope fields.
+The Q kinds preserve AutoEq and CamillaDSP Q controls without converting them to shelf slope.
 Filters use one normalized biquad with separate state per channel.
 The chosen coefficients must pass stability and finite arithmetic checks.
+The same interval, peak, and tail proof applies to every filter kind.
 Zero dB filters still declare processing and conflict with strict preservation.
 
 ## Correction WAV import

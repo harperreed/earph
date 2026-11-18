@@ -111,12 +111,32 @@ pub enum PeqFilter {
         frequency_hz: FiniteGraphScalar,
         gain_db: FiniteGraphScalar,
     },
+    LowShelfQ {
+        frequency_hz: FiniteGraphScalar,
+        q: FiniteGraphScalar,
+        gain_db: FiniteGraphScalar,
+    },
+    HighShelfQ {
+        frequency_hz: FiniteGraphScalar,
+        q: FiniteGraphScalar,
+        gain_db: FiniteGraphScalar,
+    },
 }
 
 impl PeqFilter {
     pub fn validate(&self, sample_rate_hz: u32) -> Result<(), EngineError> {
         let (frequency_hz, gain_db, q) = match *self {
             Self::Peaking {
+                frequency_hz,
+                gain_db,
+                q,
+            }
+            | Self::LowShelfQ {
+                frequency_hz,
+                gain_db,
+                q,
+            }
+            | Self::HighShelfQ {
                 frequency_hz,
                 gain_db,
                 q,

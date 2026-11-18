@@ -51,8 +51,8 @@ fn imports_exact_peaking_parameters_and_preamp_without_granting_volume_authority
 }
 
 #[test]
-fn rejects_source_shelves_instead_of_changing_their_q_or_slope() {
-    let source = "Preamp: -6 dB\nFilter 1: ON LSC Fc 105 Hz Gain 3 dB Q 0.70\n";
+fn rejects_source_shelf_slopes_instead_of_changing_them_to_q() {
+    let source = "Preamp: -6 dB\nFilter 1: ON LSC 12 dB Fc 105 Hz Gain 3 dB\n";
     let error = import_correction_text(
         source.as_bytes(),
         CorrectionFormat::AutoEq,
@@ -183,7 +183,7 @@ fn yaml_rejects_ambiguous_or_executable_constructs_and_unsupported_active_contro
         "%YAML 1.2\n---\nfilters: {}\npipeline: []\n",
         "filters: {}\npipeline: []\n---\nfilters: {}\npipeline: []\n",
         "filters: {}\npipeline: [{type: Mixer, name: crossfeed}]\n",
-        "filters: {shelf: {type: Biquad, parameters: {type: Lowshelf, freq: 100, gain: 3, q: 0.7}}}\npipeline: []\n",
+        "filters: {shelf: {type: Biquad, parameters: {type: Lowshelf, freq: 100, gain: 3, slope: 12}}}\npipeline: []\n",
         "filters: {peak: {type: Biquad, parameters: {type: Peaking, freq: 100, gain: 3, bandwidth: 1}}}\npipeline: [{type: Filter, names: [peak]}]\n",
         "filters: {fir: {type: Conv, parameters: {filename: /private/not-read.wav}}}\npipeline: []\n",
         "filters: {}\npipeline: []\ndevices: {samplerate: 96000}\n",
@@ -493,4 +493,173 @@ fn export_rejects_an_encoding_larger_than_the_source_admission_limit() {
         export_correction_text(&imported).unwrap_err().code,
         "RESOURCE_LIMIT"
     );
+}
+
+fn correction_preset_response_db(frequency: f64) -> f64 {
+    let mut result = -18.0;
+    for (kind, center, q, gain) in [
+        ("low", 105.0, 0.7, 6.0),
+        ("peak", 1000.0, 1.0, -6.0),
+        ("high", 8000.0, 1.2, -3.0),
+    ] {
+        let a = 10.0_f64.powf(gain / 40.0);
+        let t = (std::f64::consts::PI * frequency / 48000.0).tan()
+            / (std::f64::consts::PI * center / 48000.0).tan();
+        let (nr, ni, dr, di) = match kind {
+            "low" => (
+                a * (a - t * t),
+                a * a.sqrt() * t / q,
+                1.0 - a * t * t,
+                a.sqrt() * t / q,
+            ),
+            "high" => (
+                a * (1.0 - a * t * t),
+                a * a.sqrt() * t / q,
+                a - t * t,
+                a.sqrt() * t / q,
+            ),
+            _ => (1.0 - t * t, a * t / q, 1.0 - t * t, t / (a * q)),
+        };
+        result += 20.0 * (nr.hypot(ni) / dr.hypot(di)).log10();
+    }
+    result
+}
+
+#[test]
+fn complete_autoeq_and_camilla_q_shelf_presets_roundtrip_and_render_exact_controls() {
+    for (format, source) in [
+        (
+            CorrectionFormat::AutoEq,
+            include_bytes!("fixtures/correction/owned-autoeq-shelves.txt").as_slice(),
+        ),
+        (
+            CorrectionFormat::CamillaDsp,
+            include_bytes!("fixtures/correction/owned-camilladsp-shelves.yaml").as_slice(),
+        ),
+    ] {
+        let imported =
+            import_correction_text(source, format, context(), ImportMetadata::default()).unwrap();
+        let filters: Vec<_> = imported
+            .graph
+            .nodes
+            .iter()
+            .filter_map(|n| {
+                if let NodeKind::Peq { filter } = n.kind {
+                    Some(serde_json::to_value(filter).unwrap())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(filters.len(), 3);
+        assert_eq!(filters[0]["kind"], "low_shelf_q");
+        assert_eq!(filters[0]["q"], 0.7);
+        assert_eq!(filters[2]["kind"], "high_shelf_q");
+        assert_eq!(filters[2]["q"], 1.2);
+        assert!(imported.pipeline.last().unwrap().bypassed);
+        let exported = export_correction_text(&imported).unwrap();
+        let roundtrip = import_correction_text(
+            exported.as_bytes(),
+            format,
+            context(),
+            ImportMetadata::default(),
+        )
+        .unwrap();
+        assert_eq!(roundtrip.graph, imported.graph);
+        assert_eq!(roundtrip.semantic_sha256, imported.semantic_sha256);
+        for frequency in [100.0, 400.0, 3000.0, 12000.0] {
+            assert!(
+                (measured_gain(&imported.graph, 0, frequency)
+                    - correction_preset_response_db(frequency))
+                .abs()
+                    < 1e-7
+            );
+        }
+    }
+}
+
+#[test]
+fn q_shelf_imports_reject_ambiguous_controls_and_dialect_relabeling() {
+    for kind in ["Lowshelf", "Highshelf"] {
+        for controls in [
+            "q: 0.7, slope: 12",
+            "q: 0.7, bandwidth: 1",
+            "slope: 12",
+            "q: 0.7, unexpected: 1",
+            "q: 0.099",
+            "q: 20.01",
+            "q: .nan",
+        ] {
+            let source = format!(
+                "filters: {{shelf: {{type: Biquad, parameters: {{type: {kind}, freq: 105, gain: 6, {controls}}}}}}}\npipeline: [{{type: Filter, names: [shelf], bypassed: true}}]\n"
+            );
+            assert!(
+                import_correction_text(
+                    source.as_bytes(),
+                    CorrectionFormat::CamillaDsp,
+                    context(),
+                    ImportMetadata::default()
+                )
+                .is_err(),
+                "{kind}: {controls}"
+            );
+        }
+    }
+    for kind in ["LSC", "HSC", "LS", "HS"] {
+        let source = format!("Filter 1: ON {kind} Fc 105 Hz Gain 6 dB Q 0.7\n");
+        assert!(
+            import_correction_text(
+                source.as_bytes(),
+                CorrectionFormat::Rew,
+                context(),
+                ImportMetadata::default()
+            )
+            .is_err()
+        );
+    }
+    let mut imported = import_correction_text(
+        include_bytes!("fixtures/correction/owned-autoeq-shelves.txt"),
+        CorrectionFormat::AutoEq,
+        context(),
+        ImportMetadata::default(),
+    )
+    .unwrap();
+    imported.source.format = CorrectionFormat::Rew;
+    assert!(
+        earph_media::correction_text::read_correction_report(
+            &serde_json::to_vec(&imported).unwrap()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn missing_shelf_q_names_the_correct_equalizer_control() {
+    let source = b"Preamp: 0 dB\nFilter 1: ON LSC Fc 105 Hz Gain 6 dB Q\n";
+    let error = import_correction_text(
+        source,
+        CorrectionFormat::AutoEq,
+        context(),
+        ImportMetadata::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "MALFORMED_FORMAT");
+    assert_eq!(error.message, "missing equalizer Q");
+}
+
+#[test]
+fn unknown_text_filters_report_the_selected_dialect_without_claiming_pk_only_support() {
+    let error = import_correction_text(
+        b"Preamp: 0 dB\nFilter 1: ON LP Fc 105 Hz Gain 6 dB Q 0.7\n",
+        CorrectionFormat::AutoEq,
+        context(),
+        ImportMetadata::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "UNSUPPORTED_FILTER");
+    assert_eq!(
+        error.message,
+        "filter type is unsupported by the selected text dialect"
+    );
+    assert_eq!(error.line, Some(2));
 }
