@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "final_graph_review_linux_canonical",
+  "command": "scripts/check",
+  "command_exit": 0,
+  "tests_passed": 361,
+  "tests_ignored": 2,
+  "signal_tests_executed": false,
+  "log_sha256": "f40e14589070c745687c08002226b7ea41d0478280872612326106a169df5b58",
+  "build": {
+    "commit": "ad6ef0ff62c49b199225b4314b7e926164f6fafd",
+    "dependency_lock_sha256": "411273dfa7d7db901ddace51fedcb2e6d8875459cea21ce57f07610c6a2e41fc",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": false,
+    "source_inputs_sha256": "7c9c981a89a6d7b0629d069623b35235b967f9c7ce8b9c69671123a9ba21c000",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "qualified_runtime_commit": "ad6ef0ff62c49b199225b4314b7e926164f6fafd",
+  "runtime_source_match_independently_verified": true
+}

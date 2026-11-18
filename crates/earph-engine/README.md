@@ -99,10 +99,26 @@ A malformed checkpoint stops startup and remains available for inspection.
 
 Mutations stage a copy of the authoritative session.
 The owner writes and syncs a private temporary checkpoint before atomic rename and directory sync.
+It records pending and settled recovery states around checkpoint replacement.
+Startup reconciles the recovery record before restoring graph intent.
 Only a successful durable commit publishes the staged session and an applied receipt.
 A storage failure returns a failed receipt and stops the owner.
 The persisted outcome can be uncertain if the final directory sync fails.
-Reinspect the checkpoint after restarting before issuing another mutation.
+After restarting, query fresh `state.get` and `queue.get` before issuing another mutation.
+For an uncertain graph write, also query fresh `graph.inspect` and check its `configured` intent.
+The `active` graph and `prepared` candidate reset on restart.
+Retained checkpoint files are diagnostic evidence and may differ from the recovered logical state.
+See [checkpoint recovery](../../docs/operational-storage.md) for the bounded uncertainty contract.
+
+The worker retains one terminal source result until the owner applies and acknowledges it.
+Normal EOF and source faults share that bounded lifetime.
+Mute keeps its stream boundary, while source faults survive later matching mute generations.
+Stale results cannot close a replacement source.
+Terminal source tokens carry the installed graph generation even when queued settings are older.
+Ordinary progress carries stream epochs and a playback observation.
+Stop faults also bind to the exact pending Stop and its captured source identity.
+Stop preserves unacknowledged faults for that source; replacement Start discards the old source's result.
+Normal EOF preserves consent; actual source faults revoke it and can require graph recovery.
 
 The session retains at most 1024 command receipts in memory.
 Use a fresh request ID for each fresh read.

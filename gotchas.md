@@ -1,5 +1,13 @@
 # Gotchas
 
+- GitHub inline threads omit findings embedded in review summaries.
+  Fetch review bodies and PR comments alongside threads before claiming all feedback is handled.
+  The second graph review included four findings outside its sixteen inline threads.
+
+- The build-input digest sorts Rust path components, rather than whole path strings.
+  Match that order when recomputing it in another language; `output/` sorts before `output.rs`.
+  Keep the u64 little-endian length framing in [build provenance](crates/earph-harness/build.rs).
+
 - On the tested macOS 27.2.1 host, registrations sharing one callback and a null client context collide with HAL `nope`.
   Keep a unique owned context for each registration, including silent probes.
   See [the Core Audio decision](docs/adr/0003-coreaudio-spike.md) and the real native ownership tests.

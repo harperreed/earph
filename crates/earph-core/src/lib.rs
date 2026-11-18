@@ -4,6 +4,8 @@
 pub mod audio;
 pub mod control;
 pub mod gain;
+pub mod graph;
+pub mod graph_control;
 pub mod ids;
 pub mod queue;
 pub mod safety;

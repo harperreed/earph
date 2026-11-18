@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "status": "partial",
+  "verified_on": "2026-11-18",
+  "scope": "T10 bounded single-rate PCM graphs",
+  "source_inputs_sha256": "d32854235b156bf3de9bf0a5e0e6c79fd8c612991d2f107b80a5d67d69a0d354",
+  "dependency_lock_sha256": "411273dfa7d7db901ddace51fedcb2e6d8875459cea21ce57f07610c6a2e41fc",
+  "precommit_snapshot": true,
+  "requirements": {
+    "DSP-01": "implemented_scoped",
+    "DSP-03": "partial_filters_and_rate_adapters_pending",
+    "DSP-04": "implemented_single_rate_integer_compensation",
+    "DSP-05": "implemented_scoped_graph_transactions",
+    "ARCH-05": "prepared_boundary_only"
+  },
+  "checks": {
+    "linux_canonical": {
+      "passed": 307,
+      "ignored": 2
+    },
+    "macos_canonical": {
+      "passed": 289,
+      "ignored": 2
+    },
+    "macos_silent_sdk_recheck": {
+      "passed": 11,
+      "ignored": 0,
+      "overlaps_canonical": true
+    },
+    "prepared_render_scenarios": 13,
+    "preparation_retirement_scenarios": 22,
+    "real_linux_owner_cli_scenarios": 9
+  },
+  "reviews": {
+    "compiler_runtime": "passed",
+    "shared_intent": "passed_with_strict_field_fix",
+    "render_bridge": "passed_with_stale_epoch_fix",
+    "session_transactions": "passed_with_terminal_replay_recovery_boundary_fixes",
+    "preparation_retirement": "passed_with_actual_id_capacity_fix",
+    "integrated_owner_worker_contracts": "passed_no_remaining_important_or_critical_findings"
+  },
+  "memory": {
+    "node_bytes": 72,
+    "edge_bytes": 64,
+    "document_bytes": 80,
+    "scalar_bytes": 8,
+    "maximum_shape_payload_bytes": 111824,
+    "intent_capacity_limit_bytes": 131072,
+    "ordinary_window_graph_payload_limit_bytes": 134217728,
+    "measurement_target": "x86_64-unknown-linux-gnu",
+    "measurement_rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "shape": "structural maximum including semantically invalid retained intent",
+    "graph_aggregate_admission_bytes": 268435456,
+    "metadata_allowance_bytes": 2097152,
+    "preparation_scratch_bytes": 4194304,
+    "exclusions": [
+      "allocator and shared-owner headers",
+      "ordinary control metadata and retained previews from document payload bound",
+      "existing decoder/backend storage from graph admission",
+      "total process RSS"
+    ]
+  },
+  "hardware": {
+    "linux": "one_selected_route_one_owned_attenuated_signal_passed",
+    "macos": "one_selected_route_one_owned_attenuated_signal_passed",
+    "settings_changed": false,
+    "physical_consumption": "unverified",
+    "dac_preservation": "unverified",
+    "acoustic_qualification": "not_run"
+  },
+  "receipts": [
+    "linux-canonical-20261118.json",
+    "macos-canonical-20261118.json",
+    "alsa-engine-20261118.json",
+    "coreaudio-engine-20261118.json"
+  ],
+  "limits": [
+    "PEQ, convolution, SRC, profiles, network roles, FFI, and product GUIs remain unfinished or unqualified",
+    "Allocation-free measurements cover prepared processing; the whole playback worker performs allocation, locking, decoding, and I/O",
+    "Muted rebuffering resets graph history and does not establish physical continuity",
+    "M2 and release qualification remain incomplete"
+  ]
+}

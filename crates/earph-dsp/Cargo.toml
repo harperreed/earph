@@ -1,0 +1,14 @@
+# ABOUTME: Compiles bounded typed audio graphs into product-owned schedules.
+# ABOUTME: Shares domain formats without exposing adapter implementation types.
+[package]
+name = "earph-dsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+earph-core = { path = "../earph-core" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

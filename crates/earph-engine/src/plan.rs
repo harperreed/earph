@@ -1,5 +1,5 @@
 // ABOUTME: Publishes committed queue configuration and observed playback reservations.
-// ABOUTME: Keeps filesystem work outside the short reservation gate.
+// ABOUTME: Guards queue reservations through final checkpoint settlement.
 use earph_core::{
     EngineError, ErrorCode,
     control::Command,

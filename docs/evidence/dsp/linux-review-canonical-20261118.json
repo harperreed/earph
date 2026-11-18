@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "graph_review_fixes_linux_canonical",
+  "command": "scripts/check",
+  "command_exit": 0,
+  "tests_passed": 338,
+  "tests_ignored": 2,
+  "signal_tests_executed": false,
+  "log_sha256": "5d3ad7022568a96c965c031f1efeb8737006455c50c58a79328318cc944eb84c",
+  "build": {
+    "commit": "ced9ae24e4865256058c51e0d04ea6b1ec3e0c90",
+    "dependency_lock_sha256": "411273dfa7d7db901ddace51fedcb2e6d8875459cea21ce57f07610c6a2e41fc",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "3008c4d29dd3ec00b3a83737a247e09a449e9c56b62f6625b5563c283f9523c5",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "qualified_runtime_commit": "cbc2785bbe8c9d4fbfcf0ccb5988185e822b60ce",
+  "runtime_source_match_independently_verified": true,
+  "qualification": "Canonical run built precommit dirty sources. Source inputs match the committed review fixes. Hardware evidence records a separate clean committed build."
+}

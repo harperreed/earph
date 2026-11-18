@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "graph_review_fixes_canonical_and_silent_coreaudio_sdk_checks",
+  "command": "scripts/check",
+  "command_exit": 0,
+  "tests_passed": 315,
+  "tests_ignored": 2,
+  "signal_tests_executed": false,
+  "device_settings_changes_requested": false,
+  "snapshot_inputs_verified_before_and_after": 1448,
+  "snapshot_inputs_verified_after_exercises": 1448,
+  "snapshot_archive_sha256": "3a270ae50288e2067c76db4ee73b9a50b6e97d80ca9b0d7132049ad0ac1f77d2",
+  "snapshot_file_manifest_sha256": "a1e6a943c576256e124606a93f36db72f74a48697c3f0ed7ca9fe802ee0969e9",
+  "private_log_retained": true,
+  "log_sha256": "e6f9bc58d9e7e6b7cd76d07722f756b5af55f19bcde433df2e780231dd4fa493",
+  "silent_sdk": {
+    "command": "cargo test --locked -p earph-coreaudio --test native --test playback_native --test cli",
+    "command_exit": 0,
+    "tests_passed": 11,
+    "tests_ignored": 0,
+    "overlaps_canonical_coverage": true,
+    "log_sha256": "dc1b04064d3b7f4707791dd8e9333a51022d6c20faf9c6deb73dbd06e7aac443"
+  },
+  "build": {
+    "commit": "cbc2785bbe8c9d4fbfcf0ccb5988185e822b60ce",
+    "dependency_lock_sha256": "411273dfa7d7db901ddace51fedcb2e6d8875459cea21ce57f07610c6a2e41fc",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": false,
+    "source_inputs_sha256": "3008c4d29dd3ec00b3a83737a247e09a449e9c56b62f6625b5563c283f9523c5",
+    "target": "aarch64-apple-darwin"
+  },
+  "sdk_host": {
+    "architecture": "arm64",
+    "macos": "27.2.1",
+    "xcode": "27.2",
+    "xcode_build": "27B52"
+  },
+  "evidence_archive_sha256": "7552ce23b455fd0946c01c41eeba4266704449615eed98f317a723d9ecbed40d",
+  "evidence_file_manifest_sha256": "3989b1a38350eacb5d614e568b19e2275e67a557bc25bc85c5c691bf84436602",
+  "evidence_artifacts_verified": 62,
+  "qualification": "Clean committed source build and silent SDK checks. Selected graph playback is recorded separately."
+}

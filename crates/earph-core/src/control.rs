@@ -2,10 +2,16 @@
 // ABOUTME: Rejects unsupported features before the session can accept work.
 use crate::{
     EngineError, ErrorCode,
+    graph::{GraphDocument, GraphProcessingRequest},
+    graph_control::*,
     ids::*,
     safety::{FidelityPolicy, VolumeMode},
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+// Two digest widths bound retained capacity while allowing malformed owner rejections.
+pub const GRAPH_HASH_STORAGE_BYTES: usize = 128;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ControlLimits {
@@ -103,6 +109,23 @@ pub enum Command {
     State,
     #[serde(rename = "queue.get")]
     QueueGet { offset: usize, limit: usize },
+    #[serde(rename = "graph.inspect")]
+    GraphInspect {},
+    #[serde(rename = "graph.validate")]
+    GraphValidate {
+        graph: Arc<GraphDocument>,
+        processing: GraphProcessingRequest,
+    },
+    #[serde(rename = "graph.prepare")]
+    GraphPrepare {
+        graph: Arc<GraphDocument>,
+        processing: GraphProcessingRequest,
+    },
+    #[serde(rename = "graph.commit")]
+    GraphCommit {
+        token: PreparedGraphId,
+        graph_hash: String,
+    },
     #[serde(rename = "queue.append")]
     QueueAppend { path: String },
     #[serde(rename = "queue.append_directory")]
@@ -161,7 +184,7 @@ impl Command {
     pub fn is_query(&self) -> bool {
         matches!(
             self,
-            Self::Capabilities | Self::State | Self::QueueGet { .. }
+            Self::Capabilities | Self::State | Self::QueueGet { .. } | Self::GraphInspect { .. }
         )
     }
 }
@@ -180,6 +203,24 @@ pub struct CommandEnvelope {
 }
 impl CommandEnvelope {
     pub fn validate(&self) -> Result<(), EngineError> {
+        self.validate_storage()?;
+        if let Command::GraphCommit { graph_hash, .. } = &self.payload
+            && !valid_graph_hash(graph_hash)
+        {
+            return Err(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "invalid graph resolution hash",
+            ));
+        }
+        if let Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } =
+            &self.payload
+        {
+            graph.validate_structure()?;
+        }
+        Ok(())
+    }
+    // Bounded semantic failures must reach the owner's retained receipt history.
+    fn validate_storage(&self) -> Result<(), EngineError> {
         if self.schema_version != 1 || matches!(self.payload, Command::Unsupported) {
             return Err(EngineError::new(
                 ErrorCode::CapabilityUnsupported,
@@ -194,7 +235,34 @@ impl CommandEnvelope {
         if let Command::OutputSelect { output } = &self.payload {
             output.validate()?;
         }
-        Ok(())
+        self.validate_retained_storage()
+    }
+    pub(crate) fn validate_retained_storage(&self) -> Result<(), EngineError> {
+        match &self.payload {
+            Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } => {
+                graph.validate_storage()
+            }
+            Command::GraphCommit { graph_hash, .. }
+                if graph_hash.capacity() > GRAPH_HASH_STORAGE_BYTES =>
+            {
+                Err(EngineError::new(
+                    ErrorCode::ResourceBudgetExceeded,
+                    "graph digest exceeds storage limit",
+                ))
+            }
+            Command::GraphCommit { token, graph_hash }
+                if token
+                    .capacity_bytes()
+                    .checked_add(graph_hash.capacity())
+                    .is_none_or(|bytes| bytes > crate::graph::MAX_GRAPH_INTENT_BYTES) =>
+            {
+                Err(EngineError::new(
+                    ErrorCode::ResourceBudgetExceeded,
+                    "graph commit identities exceed storage limit",
+                ))
+            }
+            _ => Ok(()),
+        }
     }
 }
 pub fn decode_command(
@@ -207,9 +275,43 @@ pub fn decode_command(
             "command exceeds byte limit",
         ));
     }
+    if bytes.len() > GRAPH_COMMAND_BYTES {
+        #[derive(Deserialize)]
+        struct Method<'a> {
+            #[serde(borrow)]
+            method: std::borrow::Cow<'a, str>,
+        }
+        #[derive(Deserialize)]
+        struct Header<'a> {
+            #[serde(borrow)]
+            payload: Method<'a>,
+        }
+        // Scan ignored values without retaining the graph or its parameters.
+        if let Ok(header) = serde_json::from_slice::<Header<'_>>(bytes)
+            && matches!(
+                header.payload.method.as_ref(),
+                "graph.prepare" | "graph.validate"
+            )
+        {
+            return Err(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "graph command exceeds byte limit",
+            ));
+        }
+    }
     let command: CommandEnvelope = serde_json::from_slice(bytes)
         .map_err(|_| EngineError::new(ErrorCode::AssetInvalid, "invalid command document"))?;
-    command.validate()?;
+    command.validate_storage()?;
+    if matches!(
+        command.payload,
+        Command::GraphValidate { .. } | Command::GraphPrepare { .. }
+    ) && bytes.len() > GRAPH_COMMAND_BYTES
+    {
+        return Err(EngineError::new(
+            ErrorCode::ResourceBudgetExceeded,
+            "graph command exceeds byte limit",
+        ));
+    }
     Ok(command)
 }
 
@@ -228,6 +330,10 @@ pub enum QueryResult {
     State(Box<crate::session::SessionSnapshot>),
     Capabilities(Capabilities),
     Queue(crate::queue::QueuePage),
+    GraphPreview(Arc<GraphPreview>),
+    GraphPrepared(GraphPrepared),
+    GraphInspection(GraphInspection),
+    GraphDiagnostic(GraphDiagnostic),
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Capabilities {

@@ -4,12 +4,20 @@ use crate::{
     EngineError, ErrorCode,
     audio::{PcmFormat, PcmRepresentation},
     control::*,
+    graph_control::*,
     ids::{increment, *},
     queue::{LocalQueue, QueueSnapshot},
     safety::{FidelityPolicy, OutputContext, SampleDomain, VolumePolicy},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
+
+#[path = "session_graph.rs"]
+mod graph;
+use graph::GraphControl;
+
+// A fresh owner needs room for consent, preparation, activation, and transport acknowledgements.
+const RESTART_REVISION_HEADROOM: u64 = 64;
 
 const STALE: EngineError =
     EngineError::new(ErrorCode::StaleSession, "session or zone target changed");
@@ -54,6 +62,12 @@ enum PlaybackIntent {
     Playing,
     Paused,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LocalBoundary {
+    Pause,
+    Seek,
+    Stop,
+}
 impl PlaybackIntent {
     fn transport(self) -> TransportState {
         match self {
@@ -75,6 +89,7 @@ pub struct SessionSnapshot {
     pub epochs: Epochs,
     pub revision: u64,
     pub graph_epoch: u64,
+    pub device_epoch: u64,
     pub event_sequence: u64,
     pub monotonic_ns: u64,
     pub audible_position_frames: Option<u64>,
@@ -94,6 +109,7 @@ pub struct SessionSnapshot {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PlaybackObservation {
+    pub processing: Option<PlaybackProcessingObservation>,
     pub format: PcmFormat,
     pub submitted_frames: u64,
     pub consumed_frames: Option<u64>,
@@ -107,6 +123,19 @@ pub struct PlaybackObservation {
     pub output_peak: Option<f64>,
     pub modified: bool,
     pub backend: Option<BackendObservation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlaybackProcessingObservation {
+    pub resident_bytes: u64,
+    pub audio_payload_bytes: usize,
+    pub failure_node: Option<NodeId>,
+    pub graph_hash: String,
+    pub latency_frames: u64,
+    pub tail_frames: u64,
+    pub saturation_count: u64,
+    pub graph_peak: Option<f64>,
+    pub prequantization_peak: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -181,6 +210,9 @@ pub enum EngineEventKind {
     LocalStopped {
         observation: Option<PlaybackObservation>,
     },
+    LocalCompleted {
+        observation: PlaybackObservation,
+    },
     LocalFailed {
         code: ErrorCode,
     },
@@ -233,17 +265,22 @@ pub struct SessionCheckpoint {
     pub volume_policy: VolumePolicy,
     #[serde(default)]
     pub output: Option<OutputConfiguration>,
+    #[serde(default)]
+    pub graph_intent: Option<Arc<GraphIntent>>,
 }
 
 #[derive(Clone)]
 pub struct Session {
     state: SessionSnapshot,
     limits: ControlLimits,
-    receipts: VecDeque<(CommandEnvelope, Receipt)>,
+    receipts: VecDeque<Arc<(CommandEnvelope, Receipt)>>,
+    transport_record: Option<Arc<(CommandEnvelope, Receipt)>>,
     events: VecDeque<StateEvent>,
     playback_intent: PlaybackIntent,
     queue: LocalQueue,
     local_playback_enabled: bool,
+    local_boundary: Option<LocalBoundary>,
+    graph: GraphControl,
 }
 impl Session {
     pub fn new(zone_id: ZoneId, limits: ControlLimits) -> Self {
@@ -260,6 +297,7 @@ impl Session {
                 epochs: Epochs::default(),
                 revision: 0,
                 graph_epoch: 0,
+                device_epoch: 0,
                 event_sequence: 0,
                 monotonic_ns: 0,
                 audible_position_frames: Some(0),
@@ -277,11 +315,14 @@ impl Session {
                 playback: None,
             },
             receipts: VecDeque::with_capacity(limits.receipts),
+            transport_record: None,
             events: VecDeque::with_capacity(limits.events),
             limits,
             playback_intent: PlaybackIntent::Playing,
             queue: LocalQueue::default(),
             local_playback_enabled: false,
+            local_boundary: None,
+            graph: GraphControl::default(),
         }
     }
     pub fn new_owner(zone_id: ZoneId, owner_id: OwnerId, limits: ControlLimits) -> Self {
@@ -295,6 +336,14 @@ impl Session {
     }
     pub fn wants_playback(&self) -> bool {
         matches!(self.playback_intent, PlaybackIntent::Playing)
+    }
+    pub fn pending_local_stop_request(&self) -> Option<&RequestId> {
+        let record = self.transport_record.as_ref()?;
+        (self.local_boundary == Some(LocalBoundary::Stop)
+            && self.state.operation.as_ref() == Some(&record.0.request_id)
+            && record.1.status == ReceiptStatus::Accepted
+            && matches!(record.0.payload, Command::Stop))
+        .then_some(&record.0.request_id)
     }
     pub fn restore_owner(
         zone_id: ZoneId,
@@ -310,11 +359,24 @@ impl Session {
         }
         let mut session = Self::new_owner(zone_id, owner_id, limits);
         session.queue = LocalQueue::restore(checkpoint.queue)?;
-        session.state.revision = checkpoint.revision;
+        // Terminal observations can exhaust an owner after its last persisted command.
+        session.state.revision = if checkpoint
+            .revision
+            .checked_add(RESTART_REVISION_HEADROOM)
+            .is_none()
+        {
+            0
+        } else {
+            checkpoint.revision
+        };
         if let Some(output) = &checkpoint.output {
             output.validate()?;
         }
         session.state.output = checkpoint.output;
+        if let Some(intent) = checkpoint.graph_intent {
+            intent.graph.validate_structure()?;
+            session.graph.configured = Some(intent);
+        }
         session.state.volume_policy = checkpoint.volume_policy;
         session.state.volume_policy.disarm();
         session.state.software_gain_db =
@@ -333,6 +395,7 @@ impl Session {
             queue: self.queue.snapshot(),
             volume_policy: self.state.volume_policy.clone(),
             output: self.state.output.clone(),
+            graph_intent: self.graph.configured.clone(),
         }
     }
     pub fn shutdown_requested(&self) -> bool {
@@ -389,6 +452,9 @@ impl Session {
                         },
                         physical_output: self.local_playback_enabled,
                     })),
+                    Command::GraphInspect {} => {
+                        Some(QueryResult::GraphInspection(self.graph_inspection()))
+                    }
                     _ => None,
                 }
             } else {
@@ -417,14 +483,27 @@ impl Session {
         error: Option<EngineError>,
         activation_frame: Option<u64>,
     ) {
+        self.local_boundary = None;
         if let Some(id) = self.state.operation.take()
-            && let Some((_, receipt)) = self.receipts.iter_mut().find(|(c, _)| c.request_id == id)
+            && let Some(prior) = self.transport_record.as_ref()
+            && prior.0.request_id == id
         {
+            let mut updated = (**prior).clone();
+            let receipt = &mut updated.1;
             receipt.status = status;
             receipt.error = error;
             receipt.activation_frame = activation_frame;
             receipt.revision = self.state.revision;
             receipt.epochs = self.state.epochs;
+            let updated = Arc::new(updated);
+            if let Some(slot) = self
+                .receipts
+                .iter_mut()
+                .find(|slot| Arc::ptr_eq(slot, prior))
+            {
+                *slot = updated.clone();
+            }
+            self.transport_record = Some(updated);
         }
     }
     pub fn submit(&mut self, command: CommandEnvelope) -> Receipt {
@@ -445,13 +524,32 @@ impl Session {
         expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
         commit: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Receipt {
-        if let Some((prior, receipt)) = self
+        self.submit_with_graph_effects(command, self.state.monotonic_ns, expand, commit)
+    }
+    /// Admits graph jobs through the same staged session and durable mutation hook.
+    pub fn submit_with_graph_effects(
+        &mut self,
+        command: CommandEnvelope,
+        now_ns: u64,
+        expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
+        commit: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Receipt {
+        self.expire_graph_work(now_ns);
+        if let Some(record) = self.live_graph_receipt(&command.request_id) {
+            return self.replay_graph_record(&command, record);
+        }
+        if let Some(record) = self.transport_record.as_ref()
+            && record.0.request_id == command.request_id
+        {
+            return self.replay_graph_record(&command, record);
+        }
+        if let Some(record) = self
             .receipts
             .iter()
-            .find(|(c, _)| c.request_id == command.request_id)
+            .find(|record| record.0.request_id == command.request_id)
         {
-            return if prior == &command {
-                receipt.clone()
+            return if record.0 == command {
+                record.1.clone()
             } else {
                 self.receipt(
                     &command,
@@ -463,11 +561,19 @@ impl Session {
                 )
             };
         }
+        // Do not retain structurally oversized intent, including rejected commands.
+        if let Err(error) = command.validate_retained_storage() {
+            return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+        }
         let mut staged = self.clone();
-        let result = staged.apply_command(&command, expand);
+        let result = staged.apply_command(&command, now_ns, expand);
         let receipt = match result {
             Ok(status) => {
-                let persisted = if staged.state.revision != self.state.revision {
+                let persisted = if staged.state.revision != self.state.revision
+                    || matches!(
+                        command.payload,
+                        Command::GraphPrepare { .. } | Command::GraphValidate { .. }
+                    ) {
                     commit(&staged)
                 } else {
                     Ok(())
@@ -485,12 +591,20 @@ impl Session {
         if self.receipts.len() == self.limits.receipts {
             self.receipts.pop_front();
         }
-        self.receipts.push_back((command, receipt.clone()));
+        let record = Arc::new((command, receipt.clone()));
+        self.retain_graph_record(record.clone());
+        if receipt.status == ReceiptStatus::Accepted
+            && self.state.operation.as_ref() == Some(&record.0.request_id)
+        {
+            self.transport_record = Some(record.clone());
+        }
+        self.receipts.push_back(record);
         receipt
     }
     fn apply_command(
         &mut self,
         command: &CommandEnvelope,
+        now_ns: u64,
         expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
     ) -> Result<ReceiptStatus, EngineError> {
         command.validate()?;
@@ -516,6 +630,7 @@ impl Session {
                 | Command::State
                 | Command::Capabilities
                 | Command::QueueGet { .. }
+                | Command::GraphInspect { .. }
                 | Command::QueueAppend { .. }
                 | Command::QueueAppendDirectory { .. }
                 | Command::QueueRemove { .. }
@@ -545,10 +660,22 @@ impl Session {
                 "refresh expected revision",
             ));
         }
+        self.validate_graph_control(&command.payload)?;
+        if matches!(
+            command.payload,
+            Command::GraphPrepare { .. }
+                | Command::GraphValidate { .. }
+                | Command::GraphCommit { .. }
+        ) {
+            return self.apply_graph_command(command, now_ns);
+        }
         self.validate_live_queue_edit(&command.payload)?;
         let mut next = self.state.clone();
         next.revision = increment(next.revision)?;
-        next.event_sequence = increment(next.event_sequence)?;
+        next.event_sequence = self.next_session_event_sequence(matches!(
+            command.payload,
+            Command::Stop | Command::OwnerShutdown
+        ))?;
         let mut intent = self.playback_intent;
         let mut cancel_previous = false;
         let status = match &command.payload {
@@ -569,6 +696,7 @@ impl Session {
                 }
                 output.validate()?;
                 next.output_id = Some(output.device_id.clone());
+                next.device_epoch = increment(next.device_epoch)?;
                 next.output = Some(output.clone());
                 next.playback = None;
                 next.audible_position_frames = None;
@@ -638,6 +766,9 @@ impl Session {
                     ));
                 }
                 next.software_gain_db = gain;
+                if let Some(active) = &self.graph.active {
+                    active.validate_headroom(gain, next.volume_policy.software_cap_db())?;
+                }
                 next.gain_ramp_frames = *ramp_frames;
                 if !next.muted {
                     Self::validate_local_unmute(&next)?;
@@ -845,6 +976,7 @@ impl Session {
             }
             Command::Mute { muted } => {
                 if !muted && self.local_playback_enabled {
+                    self.validate_graph_unmute(&next)?;
                     Self::validate_local_unmute(&next)?;
                 }
                 next.muted = *muted;
@@ -868,7 +1000,35 @@ impl Session {
                 .and_then(|index| self.queue.entries().get(index + 1))
                 .map(|entry| entry.id.clone());
         }
+        let clear_active = matches!(
+            command.payload,
+            Command::Start { .. }
+                | Command::Stop
+                | Command::OwnerShutdown
+                | Command::OutputSelect { .. }
+        );
+        if self.graph.active.is_some()
+            && next.muted
+            && !self.state.muted
+            && next.epochs == self.state.epochs
+        {
+            next.epochs = next.epochs.next_stream()?;
+        }
+        let invalidated =
+            next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
+        if clear_active {
+            self.local_boundary = None;
+        }
         self.state = next;
+        if invalidated || clear_active {
+            self.invalidate_graph_work(EngineError::new(
+                ErrorCode::OperationCancelled,
+                "graph work superseded",
+            ));
+        }
+        if clear_active {
+            self.graph.active = None;
+        }
         if cancel_previous {
             self.finish_pending(
                 ReceiptStatus::Cancelled,
@@ -881,6 +1041,12 @@ impl Session {
         }
         if status == ReceiptStatus::Accepted {
             self.state.operation = Some(command.request_id.clone());
+            self.local_boundary = match &command.payload {
+                Command::Pause => Some(LocalBoundary::Pause),
+                Command::Seek { .. } => Some(LocalBoundary::Seek),
+                Command::Stop => Some(LocalBoundary::Stop),
+                _ => None,
+            };
         }
         self.playback_intent = intent;
         self.log(Some(command.request_id.clone()));
@@ -975,9 +1141,13 @@ impl Session {
         if epochs != self.state.epochs {
             return Err(STALE);
         }
-        let sequence = increment(self.state.event_sequence)?;
+        if self.defer_graph_readiness(id, status)? {
+            return Ok(());
+        }
+        let sequence = self.next_session_event_sequence(false)?;
         self.queue.update_status(id, status)?;
         self.state.event_sequence = sequence;
+        self.clear_deferred_graph_readiness(id);
         Ok(())
     }
     pub fn advance(&mut self, event: EngineEvent) -> Result<(), EngineError> {
@@ -990,8 +1160,38 @@ impl Session {
                 "non-monotonic event time",
             ));
         }
+        // The activation acknowledgement publishes reservation and playback together.
+        if self.graph_activation().is_some()
+            && matches!(event.kind, EngineEventKind::LocalReserved { .. })
+        {
+            return Ok(());
+        }
         let mut next = self.state.clone();
         next.monotonic_ns = event.monotonic_ns;
+        let failed_source = matches!(event.kind, EngineEventKind::LocalFailed { .. });
+        let completed_source = matches!(event.kind, EngineEventKind::LocalCompleted { .. });
+        let source_terminal = matches!(
+            event.kind,
+            EngineEventKind::LocalCompleted { .. }
+                | EngineEventKind::LocalFailed { .. }
+                | EngineEventKind::LocalStopped { .. }
+        );
+        let graph_request = source_terminal
+            .then(|| self.graph_activation().map(|a| a.request_id))
+            .flatten();
+        let transport_request = self.state.operation.clone();
+        let event_request = graph_request.clone().or(transport_request.clone());
+        let second_request =
+            transport_request.filter(|id| graph_request.as_ref().is_some_and(|g| g != id));
+        let mut terminal_exhaustion = None;
+        let mut next_counter = |value| match increment(value) {
+            Ok(value) => Ok(value),
+            Err(error) if source_terminal => {
+                terminal_exhaustion = Some(error);
+                Ok(value)
+            }
+            Err(error) => Err(error),
+        };
         if !matches!(
             event.kind,
             EngineEventKind::Decoded { .. }
@@ -999,11 +1199,62 @@ impl Session {
                 | EngineEventKind::LocalProgress { .. }
                 | EngineEventKind::LocalReserved { .. }
         ) {
-            next.revision = increment(next.revision)?;
+            next.revision = next_counter(next.revision)?;
         }
-        next.event_sequence = increment(next.event_sequence)?;
+        next.event_sequence = if source_terminal {
+            next_counter(next.event_sequence)?
+        } else {
+            self.next_session_event_sequence(matches!(
+                event.kind,
+                EngineEventKind::LocalFailed { .. }
+                    | EngineEventKind::OutputFailed
+                    | EngineEventKind::OutputReplaced { .. }
+                    | EngineEventKind::Discontinuity
+                    | EngineEventKind::Cancelled { .. }
+                    | EngineEventKind::LocalStopped { .. }
+                    | EngineEventKind::LocalCompleted { .. }
+                    | EngineEventKind::Drained
+            ))?
+        };
+        let first_sequence = next.event_sequence;
         let mut completion = None;
+        let mut graph_completion_error = None;
         match event.kind {
+            EngineEventKind::LocalCompleted { observation }
+                if next.source == Some(SourceKind::LocalFile)
+                    && next.session_id.is_some()
+                    && next.transport.accepts_source_events() =>
+            {
+                let ended = EngineError::new(
+                    ErrorCode::CapabilityUnsupported,
+                    "source ended before requested transition",
+                );
+                graph_completion_error = Some(ended);
+                let positioning = matches!(
+                    self.local_boundary,
+                    Some(LocalBoundary::Pause | LocalBoundary::Seek)
+                );
+                completion = Some((
+                    if positioning {
+                        ReceiptStatus::Failed
+                    } else {
+                        ReceiptStatus::Applied
+                    },
+                    positioning.then_some(ended),
+                    None,
+                ));
+                next.decoded_position_frames = observation.source_position_frames;
+                next.audible_position_frames = observation.audible_source_position_frames;
+                next.playback = Some(observation);
+                next.transport = TransportState::Idle;
+                next.muted = true;
+                next.session_id = None;
+                next.source = None;
+                next.seekable = false;
+                next.active_entry_id = None;
+                next.reserved_next_entry_id = None;
+                next.epochs.stream = next_counter(next.epochs.stream)?;
+            }
             EngineEventKind::LocalPrepared { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
             {
@@ -1050,6 +1301,10 @@ impl Session {
             EngineEventKind::LocalStopped { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
             {
+                graph_completion_error = Some(EngineError::new(
+                    ErrorCode::OperationCancelled,
+                    "source stopped",
+                ));
                 if let Some(observation) = observation {
                     next.decoded_position_frames = observation.source_position_frames;
                     next.playback = Some(observation);
@@ -1065,6 +1320,10 @@ impl Session {
                 completion = Some((ReceiptStatus::Applied, None, None));
             }
             EngineEventKind::LocalFailed { code } => {
+                let error =
+                    EngineError::new(code, "local playback failed; explicit recovery is required");
+                graph_completion_error = Some(error);
+                next.device_epoch = next_counter(next.device_epoch)?;
                 next.audible_position_frames = None;
                 if let Some(playback) = &mut next.playback {
                     playback.consumed_frames = None;
@@ -1077,15 +1336,8 @@ impl Session {
                 next.output_consented = false;
                 next.volume_policy.disarm();
                 next.error = Some(code);
-                next.epochs = next.epochs.next_stream()?;
-                completion = Some((
-                    ReceiptStatus::Failed,
-                    Some(EngineError::new(
-                        code,
-                        "local playback failed; explicit recovery is required",
-                    )),
-                    None,
-                ));
+                next.epochs.stream = next_counter(next.epochs.stream)?;
+                completion = Some((ReceiptStatus::Failed, Some(error), None));
             }
             EngineEventKind::Prepared
                 if matches!(
@@ -1159,6 +1411,7 @@ impl Session {
                 ));
             }
             EngineEventKind::OutputReplaced { device_id } => {
+                next.device_epoch = increment(next.device_epoch)?;
                 next.transport = TransportState::Suspended;
                 next.muted = true;
                 next.output_id = Some(device_id);
@@ -1166,6 +1419,7 @@ impl Session {
                 completion = Some((ReceiptStatus::Cancelled, Some(OUTPUT), None));
             }
             EngineEventKind::OutputFailed => {
+                next.device_epoch = increment(next.device_epoch)?;
                 next.transport = TransportState::Failed;
                 next.muted = true;
                 next.error = Some(ErrorCode::OutputFault);
@@ -1192,12 +1446,76 @@ impl Session {
             }
             _ => return Err(STATE),
         }
-        let request_id = self.state.operation.clone();
+        let second_sequence = if second_request.is_some() {
+            let sequence = next_counter(first_sequence)?;
+            (sequence > first_sequence).then_some(sequence)
+        } else {
+            None
+        };
+        if let Some(sequence) = second_sequence {
+            next.event_sequence = sequence;
+        }
+        if source_terminal
+            && [
+                next.revision,
+                next.event_sequence,
+                next.device_epoch,
+                next.epochs.session,
+                next.epochs.stream,
+            ]
+            .contains(&u64::MAX)
+        {
+            terminal_exhaustion.get_or_insert(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "owner terminal counter exhausted",
+            ));
+        }
+        if let Some(error) = terminal_exhaustion {
+            next.error.get_or_insert(error.code);
+            next.shutdown_requested = true;
+            if completed_source {
+                graph_completion_error = Some(error);
+            }
+        }
+        let publish_event = first_sequence != self.state.event_sequence;
+        let invalidated =
+            next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
+        let clear_active = matches!(
+            next.transport,
+            TransportState::Idle | TransportState::Failed | TransportState::Suspended
+        );
         self.state = next;
+        if failed_source && graph_request.is_some() {
+            self.graph.recovery_required = true;
+        }
+        if invalidated || clear_active {
+            let error = if let Some(error) = graph_completion_error {
+                error
+            } else if clear_active && self.state.error.is_some() {
+                OUTPUT
+            } else {
+                EngineError::new(
+                    ErrorCode::OperationCancelled,
+                    "graph stream generation changed",
+                )
+            };
+            self.invalidate_graph_work(error);
+        }
+        if clear_active {
+            self.graph.active = None;
+            self.local_boundary = None;
+        }
         if let Some((status, error, activation)) = completion {
             self.finish_pending(status, error, activation);
         }
-        self.log(request_id);
+        if publish_event {
+            self.state.event_sequence = first_sequence;
+            self.log(event_request);
+            if let Some(sequence) = second_sequence {
+                self.state.event_sequence = sequence;
+                self.log(second_request);
+            }
+        }
         Ok(())
     }
 }
@@ -1205,6 +1523,46 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn invalid_non_graph_requests_keep_the_existing_replay_contract() {
+        let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());
+        let mut command = CommandEnvelope {
+            schema_version: 1,
+            owner_id: None,
+            request_id: RequestId::new("invalid").unwrap(),
+            zone_id: ZoneId::new("main").unwrap(),
+            session_id: None,
+            expected_revision: Some(0),
+            payload: Command::QueueAppend {
+                path: String::new(),
+            },
+        };
+        assert_eq!(
+            session.submit(command.clone()).status,
+            ReceiptStatus::Rejected
+        );
+        command.payload = Command::Mute { muted: true };
+        assert_eq!(session.submit(command).status, ReceiptStatus::Rejected);
+        assert_eq!(session.state.revision, 0);
+    }
+    #[test]
+    fn staging_shares_immutable_receipt_history() {
+        let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());
+        session.submit(CommandEnvelope {
+            schema_version: 1,
+            owner_id: None,
+            request_id: RequestId::new("history").unwrap(),
+            zone_id: ZoneId::new("main").unwrap(),
+            session_id: None,
+            expected_revision: None,
+            payload: Command::State,
+        });
+        let staged = session.clone();
+        assert!(std::ptr::eq(
+            &session.receipts.front().unwrap().0,
+            &staged.receipts.front().unwrap().0,
+        ));
+    }
     #[test]
     fn exhausted_revisions_do_not_partially_change_mute() {
         let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());

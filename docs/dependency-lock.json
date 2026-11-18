@@ -726,6 +726,7 @@
       "features": [
         "default",
         "derive",
+        "rc",
         "serde_derive",
         "std"
       ],
@@ -747,6 +748,7 @@
     },
     {
       "features": [
+        "rc",
         "result",
         "std"
       ],
@@ -789,6 +791,7 @@
     {
       "features": [
         "default",
+        "float_roundtrip",
         "std"
       ],
       "license_expression": "MIT OR Apache-2.0",

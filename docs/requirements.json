@@ -4,7 +4,7 @@
   "title": "Rust Audiophile Player \u2014 Product and Engineering Specification",
   "date_local": "2026-11-16",
   "timezone": "America/Chicago",
-  "status": "Scoped local playback and hardware exercises tested on Linux and macOS; graph compilation active; release qualification remains partial",
+  "status": "Scoped playback tested on Linux and macOS; prepared PCM graphs pass Linux integration; native graph qualification and release gates remain partial",
   "q25": {
     "selection": "D",
     "option_text": null,
@@ -570,9 +570,9 @@
       "depends_on": [
         "ARCH-04"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": ["evidence/dsp/verification-20261118.json"]
     },
     {
       "id": "DSP-02",
@@ -609,9 +609,9 @@
       "depends_on": [
         "DSP-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": ["evidence/dsp/verification-20261118.json"]
     },
     {
       "id": "DSP-04",
@@ -628,9 +628,9 @@
       "depends_on": [
         "DSP-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": ["evidence/dsp/verification-20261118.json"]
     },
     {
       "id": "DSP-05",
@@ -647,9 +647,9 @@
         "DSP-01",
         "ARCH-05"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": ["evidence/dsp/verification-20261118.json"]
     },
     {
       "id": "DSP-06",
