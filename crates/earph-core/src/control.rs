@@ -135,6 +135,18 @@ pub enum Command {
         draft: Arc<ProfileDraft>,
         graph: Arc<GraphIntent>,
     },
+    #[serde(rename = "profiles.import_correction")]
+    ProfilesImport {
+        id: ProfileId,
+        expected_profile_revision: Option<u64>,
+        draft: Arc<ProfileDraft>,
+        input: Arc<ProfileCorrectionInput>,
+    },
+    #[serde(rename = "assets.import_fir")]
+    FirImport {
+        path: String,
+        purpose: crate::dsp_nodes::FirPurpose,
+    },
     #[serde(rename = "graph.validate")]
     GraphValidate {
         graph: Arc<GraphDocument>,
@@ -208,7 +220,10 @@ impl Command {
     pub fn is_profile_save(&self) -> bool {
         matches!(
             self,
-            Self::ProfilesCreate { .. } | Self::ProfilesUpdate { .. }
+            Self::ProfilesCreate { .. }
+                | Self::ProfilesUpdate { .. }
+                | Self::ProfilesImport { .. }
+                | Self::FirImport { .. }
         )
     }
     pub fn is_profile(&self) -> bool {
@@ -262,6 +277,24 @@ impl CommandEnvelope {
         }
         let mut bytes = size_of::<Self>() + 128 + ids.iter().sum::<usize>();
         let id = match &self.payload {
+            Command::ProfilesImport {
+                id, draft, input, ..
+            } => {
+                draft.validate_storage()?;
+                bytes = bytes
+                    .checked_add(draft.retained_capacity_bytes()?)
+                    .and_then(|n| n.checked_add(input.retained_capacity_bytes().ok()?))
+                    .ok_or(BUDGET)?;
+                Some(id)
+            }
+            Command::FirImport { path, .. } => {
+                crate::queue::validate_path(path)?;
+                if path.capacity() > 1024 {
+                    return Err(BUDGET);
+                }
+                bytes += path.capacity();
+                None
+            }
             Command::ProfilesCreate { id, draft, graph }
             | Command::ProfilesUpdate {
                 id, draft, graph, ..
@@ -441,6 +474,7 @@ pub enum QueryResult {
     Profile(Arc<ProfileRecord>),
     Profiles(ProfilePage),
     ProfileResolution(ProfileResolution),
+    FirAsset(crate::dsp_nodes::FirAssetReference),
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Capabilities {

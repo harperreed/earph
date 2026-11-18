@@ -390,6 +390,69 @@ pub(crate) fn verify_immutable_file(
     sync_file(&file).map_err(|_| IO)
 }
 
+/// Publish a complete immutable object without replacing an existing hash name.
+pub(crate) fn publish_immutable_file(
+    path: &Path,
+    bytes: &[u8],
+    check: &mut impl FnMut() -> Result<(), EngineError>,
+    sync_file: &mut impl FnMut(&File) -> std::io::Result<()>,
+) -> Result<(), EngineError> {
+    publish_immutable_with_writer(path, bytes, check, sync_file, &mut |file, chunk| {
+        file.write_all(chunk)
+    })
+}
+fn publish_immutable_with_writer(
+    path: &Path,
+    bytes: &[u8],
+    check: &mut impl FnMut() -> Result<(), EngineError>,
+    sync_file: &mut impl FnMut(&File) -> std::io::Result<()>,
+    write: &mut impl FnMut(&mut File, &[u8]) -> std::io::Result<()>,
+) -> Result<(), EngineError> {
+    check()?;
+    let directory = path.parent().ok_or(INVALID)?;
+    if open_private_file(path)?.is_some() {
+        verify_immutable_file(path, bytes, sync_file)?;
+    } else {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| IO)?
+            .as_nanos();
+        let stage = directory.join(format!(
+            ".immutable-{}-{time:x}-{sequence:x}",
+            std::process::id()
+        ));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&stage)
+            .map_err(|_| IO)?;
+        validate_file(&file.metadata().map_err(|_| IO)?)?;
+        for chunk in bytes.chunks(16 * 1024) {
+            check()?;
+            write(&mut file, chunk).map_err(|_| IO)?;
+        }
+        verify_immutable_file(&stage, bytes, sync_file)?;
+        check()?;
+        match rustix::fs::renameat_with(
+            rustix::fs::CWD,
+            &stage,
+            rustix::fs::CWD,
+            path,
+            rustix::fs::RenameFlags::NOREPLACE,
+        ) {
+            Ok(()) => {}
+            Err(rustix::io::Errno::EXIST) => verify_immutable_file(path, bytes, sync_file)?,
+            Err(_) => return Err(IO),
+        }
+    }
+    // Keep every abandoned stage. Only complete synced bytes can acquire the final hash name.
+    sync_directory(directory).map_err(|_| IO)?;
+    check()
+}
+
 pub(crate) fn write_atomic(
     directory: &Path,
     name: &str,
@@ -460,6 +523,95 @@ mod tests {
         fs::create_dir_all(&path).unwrap();
         path
     }
+    #[test]
+    fn interrupted_immutable_write_preserves_prefix_and_retry_publishes() {
+        let directory = fixture();
+        let path = directory.join("content.hash");
+        let bytes = b"the complete immutable object";
+        let result = publish_immutable_with_writer(
+            &path,
+            bytes,
+            &mut || Ok(()),
+            &mut File::sync_all,
+            &mut |file, chunk| {
+                file.write_all(&chunk[..5])?;
+                Err(std::io::Error::other(
+                    "controlled interruption after prefix",
+                ))
+            },
+        );
+        assert!(result.is_err());
+        assert!(!path.exists());
+        let stages: Vec<_> = fs::read_dir(&directory)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(stages.len(), 1);
+        assert_eq!(fs::read(&stages[0]).unwrap(), &bytes[..5]);
+        publish_immutable_file(&path, bytes, &mut || Ok(()), &mut File::sync_all).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::read(&stages[0]).unwrap(), &bytes[..5]);
+    }
+    #[test]
+    fn exclusive_publication_preserves_racing_object_and_completed_stage() {
+        let directory = fixture();
+        let path = directory.join("content.hash");
+        let bytes = b"racing complete object";
+        let mut winner = None;
+        publish_immutable_file(&path, bytes, &mut || Ok(()), &mut |file| {
+            file.sync_all()?;
+            if winner.is_none() {
+                let mut competing = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&path)?;
+                competing.write_all(bytes)?;
+                winner = Some(competing.metadata()?);
+            }
+            Ok(())
+        })
+        .unwrap();
+        let observed = fs::metadata(&path).unwrap();
+        assert_eq!(observed.ino(), winner.unwrap().ino());
+        assert_eq!(observed.nlink(), 1);
+        let files: Vec<_> = fs::read_dir(directory)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(files.len(), 2);
+        for file in files {
+            assert_eq!(fs::read(file).unwrap(), bytes);
+        }
+    }
+    #[test]
+    fn immutable_publication_rejects_corrupt_and_hard_linked_destinations() {
+        let directory = fixture();
+        let path = directory.join("content.hash");
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"prefix").unwrap();
+        assert_eq!(
+            publish_immutable_file(&path, b"complete", &mut || Ok(()), &mut File::sync_all)
+                .unwrap_err()
+                .code,
+            ErrorCode::AssetInvalid
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"prefix");
+        fs::hard_link(&path, directory.join("linked")).unwrap();
+        assert_eq!(
+            publish_immutable_file(&path, b"prefix", &mut || Ok(()), &mut File::sync_all)
+                .unwrap_err()
+                .code,
+            ErrorCode::AuthDenied
+        );
+        assert_eq!(fs::metadata(&path).unwrap().nlink(), 2);
+    }
+
     fn fail_syncs(first: usize, count: usize) -> impl FnMut(&Path) -> std::io::Result<()> {
         let mut calls = 0;
         move |directory| {

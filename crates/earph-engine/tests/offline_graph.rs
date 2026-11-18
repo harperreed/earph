@@ -899,3 +899,23 @@ fn append_stdout_uses_remaining_space_after_existing_bytes_without_overwriting_t
     let error: Value = serde_json::from_slice(&output.stderr).unwrap();
     assert_eq!(error["error"]["code"], "OUTPUT_FAULT");
 }
+
+#[test]
+fn report_delivery_to_a_closed_real_consumer_returns_output_fault_without_panicking() {
+    use std::{
+        os::{fd::OwnedFd, unix::net::UnixStream},
+        process::Stdio,
+    };
+    let (consumer, writer) = UnixStream::pair().unwrap();
+    drop(consumer);
+    let output = Command::new(env!("CARGO_BIN_EXE_earph-engine"))
+        .arg("render-graph")
+        .stdout(Stdio::from(OwnedFd::from(writer)))
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "OUTPUT_FAULT");
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("panicked"));
+}

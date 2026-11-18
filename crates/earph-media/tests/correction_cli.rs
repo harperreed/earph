@@ -10,18 +10,17 @@ use std::{
 };
 fn directory() -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/correction-import-cli")
-        .join(format!(
-            "{}-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-    fs::create_dir_all(&path).unwrap();
+    let path = std::env::temp_dir().join(format!(
+        "earph-correction-cli-{}-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
     path
 }
 #[test]
@@ -55,6 +54,7 @@ fn real_cli_exports_and_reimports_graph_and_metadata_without_touching_the_source
             "--",
         ])
         .arg(&source)
+        .current_dir(&dir)
         .output()
         .unwrap();
     assert!(
@@ -290,4 +290,102 @@ fn real_cli_graphs_drive_the_actual_dsp_consumer_for_all_three_formats() {
         assert_eq!(again.graph, report.graph);
         assert_eq!(again.semantic_sha256, report.semantic_sha256);
     }
+}
+
+#[test]
+fn cli_export_preserves_an_exact_limit_source_without_an_extra_byte() {
+    use earph_core::audio::ChannelLayout;
+    use earph_media::correction_text::{
+        CorrectionFormat, ImportContext, ImportMetadata, MAX_CORRECTION_BYTES,
+        export_correction_text, import_correction_text,
+    };
+    let source = |tabs: usize, plain: usize| {
+        let mut source = String::from("filters:\n");
+        for index in 0..32 {
+            let count = tabs.saturating_sub(index * 1024).min(1024);
+            source.push_str(&format!("  f{index}:\n    type: Gain\n    description: \"{}{}\"\n    parameters: {{gain: 0}}\n", "\t".repeat(count), if index==31 { "x".repeat(plain) } else { String::new() }));
+        }
+        source.push_str("pipeline: []\n");
+        source
+    };
+    let context = ImportContext {
+        sample_rate_hz: 48000,
+        channels: ChannelLayout::Stereo,
+        quantum_frames: 64,
+    };
+    let base = import_correction_text(
+        source(0, 0).as_bytes(),
+        CorrectionFormat::CamillaDsp,
+        context,
+        ImportMetadata::default(),
+    )
+    .unwrap();
+    let difference = MAX_CORRECTION_BYTES - export_correction_text(&base).unwrap().len();
+    let imported = import_correction_text(
+        source(difference / 2, difference % 2).as_bytes(),
+        CorrectionFormat::CamillaDsp,
+        context,
+        ImportMetadata::default(),
+    )
+    .unwrap();
+    let expected = export_correction_text(&imported).unwrap();
+    assert_eq!(expected.len(), MAX_CORRECTION_BYTES);
+    let dir = directory();
+    let report = dir.join("exact-report.json");
+    fs::write(&report, serde_json::to_vec(&imported).unwrap()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
+        .arg("--export")
+        .arg(&report)
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        output.stdout.len(),
+        MAX_CORRECTION_BYTES,
+        "CLI added bytes after export admission"
+    );
+    assert_eq!(output.stdout, expected.as_bytes());
+    let again = import_correction_text(
+        &output.stdout,
+        CorrectionFormat::CamillaDsp,
+        context,
+        imported.metadata,
+    )
+    .unwrap();
+    assert_eq!(again.semantic_sha256, imported.semantic_sha256);
+}
+
+#[test]
+fn exported_source_delivery_failure_reports_the_existing_cli_error() {
+    use earph_core::audio::ChannelLayout;
+    use earph_media::correction_text::{
+        CorrectionFormat, ImportContext, ImportMetadata, import_correction_text,
+    };
+    use std::{
+        os::{fd::OwnedFd, unix::net::UnixStream},
+        process::Stdio,
+    };
+    let report=import_correction_text(b"filters: {gain: {type: Gain, parameters: {gain: -6}}}\npipeline: [{type: Filter, names: [gain]}]\n",
+        CorrectionFormat::CamillaDsp, ImportContext { sample_rate_hz:48000,channels:ChannelLayout::Stereo,quantum_frames:64 },ImportMetadata::default()).unwrap();
+    let dir = directory();
+    let path = dir.join("report.json");
+    fs::write(&path, serde_json::to_vec(&report).unwrap()).unwrap();
+    let (consumer, writer) = UnixStream::pair().unwrap();
+    drop(consumer);
+    let output = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
+        .arg("--export")
+        .arg(&path)
+        .current_dir(&dir)
+        .stdout(Stdio::from(OwnedFd::from(writer)))
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "OUTPUT_UNAVAILABLE");
 }

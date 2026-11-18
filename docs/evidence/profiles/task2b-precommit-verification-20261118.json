@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "reviewed_correction_provenance_import_precommit",
+  "source": {
+    "baseline_commit": "29a50ddf94e87369ad9f66ac3b3066615618bbeb",
+    "source_dirty": true,
+    "source_files": 1550,
+    "patch_sha256": "e52d4f9fcf814c8657d5842c2a04995ea3b5a0ad5ea83f571935d735dc39ea55",
+    "manifest_sha256": "e408b83bd6e884b1c6949b6fa113986634f8d0844b665afa175db99065f5529d",
+    "runtime_source_sha256": "6fa2f053b5b8e7d11ba10af22c710f4465595fd211559dac0d4788037aa73005",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574"
+  },
+  "linux_canonical": {
+    "passed": 675,
+    "failed": 0,
+    "ignored": 4,
+    "compiler_warnings_or_errors": 0,
+    "log_sha256": "1aab6636f9bf5ad39b885c302426429d32606886863921c38122279375b78878",
+    "receipt_sha256": "8ea1ecf151576d3b3870240669f5df0a9f1646051ff364bd39d632d9056724a6"
+  },
+  "independent_review": {
+    "result": "approved",
+    "material_findings": 0,
+    "receipt_sha256": "6dfe3408b8d8ff658625719676c2d58870623acf616e29ae2d9522de31086f43"
+  },
+  "macos": {
+    "result": "pass",
+    "raw_artifacts": 331,
+    "ordered_source_phases": 9,
+    "scoped_test_invocations": 18,
+    "strict_scoped_clippy": "pass",
+    "actual_owner_cli": "pass",
+    "owner_exit_codes": [
+      0,
+      0
+    ],
+    "native_device_operations": 0,
+    "signal_exercises": 0,
+    "receipts": [
+      {
+        "file": "macos-task2b-precommit-candidate-20261118.json",
+        "sha256": "cb2b7c66e2b189907eb458f729cc8d485ffe88a3b0c36524a1a0eb185731d2fd"
+      },
+      {
+        "file": "macos-task2b-precommit-root-verification-20261118.json",
+        "sha256": "f6eee2511ea8dc18df670c73f650f0b7d3f30abe13df6c80ec3ca966b241c430"
+      },
+      {
+        "file": "macos-task2b-precommit-root-source-verification-20261118.json",
+        "sha256": "be5abcd9f769ecc4c3eb22025b953af423e48b39219ed4ae50677cba08db5425"
+      }
+    ]
+  },
+  "limits": [
+    "Dirty precommit source, not a clean shipped build or full macOS canonical qualification",
+    "Scoped test invocations overlap and are not additive coverage claims",
+    "Controlled interruption does not establish physical disk-sync failure or power-loss behavior",
+    "Missing-interface RED does not establish an old terminator-only output failure",
+    "Reported safety fields only; private fixed-output arming is not directly observed",
+    "Initial helper revision expectation and partial collector failures remain preserved",
+    "Profile application, verified device associations, packages, UI and physical playback remain unqualified"
+  ]
+}

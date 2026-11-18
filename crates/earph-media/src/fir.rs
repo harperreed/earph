@@ -40,11 +40,7 @@ pub struct FirCorrection {
 
 /// Read an owned source without modifying it. Admission rejects special files before reading.
 pub fn read_fir_source(path: &Path) -> Result<Vec<u8>, EngineError> {
-    let metadata = std::fs::metadata(path).map_err(|_| INVALID)?;
-    if metadata.len() > MAX_FIR_WAV_BYTES as u64 {
-        return Err(BUDGET);
-    }
-    read_fir_file(crate::admission::open(path)?)
+    read_fir_file(crate::admission::open_regular(path)?)
 }
 
 /// Read a previously admitted regular file without growing its prepared byte span.
@@ -176,7 +172,8 @@ fn preflight(bytes: &[u8]) -> Result<(), EngineError> {
         return Err(INVALID);
     }
     let (mut position, mut metadata, mut count, mut format, mut data) =
-        (12_usize, 0_usize, 0_usize, None, false);
+        (12_usize, 0_usize, 0_usize, None, None);
+    let mut fact = None;
     while position < bytes.len() {
         count += 1;
         if count > 256 {
@@ -189,7 +186,7 @@ fn preflight(bytes: &[u8]) -> Result<(), EngineError> {
         let payload = bytes.get(start..end).ok_or(INVALID)?;
         match &header[..4] {
             b"fmt " => {
-                if format.is_some() || data || ![16, 18].contains(&size) {
+                if format.is_some() || data.is_some() || ![16, 18].contains(&size) {
                     return Err(INVALID);
                 }
                 if u16::from_le_bytes(payload[..2].try_into().map_err(|_| INVALID)?) != 3 {
@@ -213,14 +210,28 @@ fn preflight(bytes: &[u8]) -> Result<(), EngineError> {
             }
             b"data" => {
                 let align = format.ok_or(INVALID)?;
-                if data || size == 0 || !size.is_multiple_of(align) || size / align > 262144 {
+                if data.is_some()
+                    || size == 0
+                    || !size.is_multiple_of(align)
+                    || size / align > 262144
+                {
                     return Err(INVALID);
                 }
-                data = true;
+                data = Some(size / align);
             }
             b"JUNK" | b"PAD " | b"fact" => {
-                if &header[..4] == b"fact" && size != 4 {
-                    return Err(INVALID);
+                if &header[..4] == b"fact" {
+                    if size != 4 {
+                        return Err(INVALID);
+                    }
+                    let declared =
+                        u32::from_le_bytes(payload.try_into().map_err(|_| INVALID)?) as usize;
+                    if fact
+                        .replace(declared)
+                        .is_some_and(|prior| prior != declared)
+                    {
+                        return Err(INVALID);
+                    }
                 }
                 metadata = metadata.checked_add(size).ok_or(BUDGET)?;
                 if metadata > 1024 * 1024 {
@@ -235,7 +246,7 @@ fn preflight(bytes: &[u8]) -> Result<(), EngineError> {
             return Err(INVALID);
         }
     }
-    if format.is_none() || !data {
+    if format.is_none() || data.is_none() || fact.is_some_and(|declared| Some(declared) != data) {
         return Err(INVALID);
     }
     Ok(())

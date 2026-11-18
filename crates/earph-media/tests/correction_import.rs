@@ -175,28 +175,70 @@ fn actual_dsp_consumers_preserve_preamp_and_asymmetric_camilla_channels() {
 
 #[test]
 fn yaml_rejects_ambiguous_or_executable_constructs_and_unsupported_active_controls() {
-    let fixtures = [
-        "filters: &defs {}\npipeline: []\n",
-        "filters: !!map {}\npipeline: []\n",
-        "filters: {<<: {bad: value}}\npipeline: []\n",
-        "filters: {}\nfilters: {}\npipeline: []\n",
-        "%YAML 1.2\n---\nfilters: {}\npipeline: []\n",
-        "filters: {}\npipeline: []\n---\nfilters: {}\npipeline: []\n",
-        "filters: {}\npipeline: [{type: Mixer, name: crossfeed}]\n",
-        "filters: {shelf: {type: Biquad, parameters: {type: Lowshelf, freq: 100, gain: 3, slope: 12}}}\npipeline: []\n",
-        "filters: {peak: {type: Biquad, parameters: {type: Peaking, freq: 100, gain: 3, bandwidth: 1}}}\npipeline: [{type: Filter, names: [peak]}]\n",
-        "filters: {fir: {type: Conv, parameters: {filename: /private/not-read.wav}}}\npipeline: []\n",
-        "filters: {}\npipeline: []\ndevices: {samplerate: 96000}\n",
-    ];
-    for source in fixtures {
+    let gain = "filters: {gain: {type: Gain, parameters: {gain: -6}}}\npipeline: [{type: Filter, names: [gain]}]\n";
+    let equalizer = "filters: {peak: {type: Biquad, parameters: {type: Peaking, freq: 100, gain: 3, q: 1}}}\npipeline: [{type: Filter, names: [peak]}]\n";
+    for baseline in [gain, equalizer] {
         assert!(
+            import_correction_text(
+                baseline.as_bytes(),
+                CorrectionFormat::CamillaDsp,
+                context(),
+                ImportMetadata::default()
+            )
+            .is_ok()
+        );
+    }
+    let fixtures = [
+        (
+            gain.replace("filters:", "filters: &defs"),
+            "UNSUPPORTED_YAML",
+        ),
+        (
+            gain.replace("filters:", "filters: !!map"),
+            "UNSUPPORTED_YAML",
+        ),
+        (
+            gain.replace("{gain:", "{<<: {extra: value}, gain:"),
+            "UNSUPPORTED_YAML",
+        ),
+        (format!("{gain}filters: {{}}\n"), "DUPLICATE_FIELD"),
+        (format!("%YAML 1.2\n---\n{gain}"), "UNSUPPORTED_YAML"),
+        (format!("{gain}---\n{gain}"), "UNSUPPORTED_YAML"),
+        (
+            gain.replace("type: Filter", "type: Mixer"),
+            "UNSUPPORTED_PIPELINE",
+        ),
+        (
+            equalizer.replace(", q: 1", ", q: 1, slope: 12"),
+            "UNSUPPORTED_FILTER",
+        ),
+        (
+            equalizer.replace(", q: 1", ", q: 1, bandwidth: 1"),
+            "UNSUPPORTED_FILTER",
+        ),
+        (
+            gain.replace(
+                "type: Gain, parameters: {gain: -6}",
+                "type: Conv, parameters: {filename: /private/not-read.wav}",
+            ),
+            "UNSUPPORTED_FILTER",
+        ),
+        (
+            format!("{gain}devices: {{samplerate: 96000}}\n"),
+            "MALFORMED_FORMAT",
+        ),
+    ];
+    for (source, expected) in fixtures {
+        assert_eq!(
             import_correction_text(
                 source.as_bytes(),
                 CorrectionFormat::CamillaDsp,
                 context(),
                 ImportMetadata::default()
             )
-            .is_err(),
+            .unwrap_err()
+            .code,
+            expected,
             "{source}"
         );
     }
@@ -662,4 +704,135 @@ fn unknown_text_filters_report_the_selected_dialect_without_claiming_pk_only_sup
         "filter type is unsupported by the selected text dialect"
     );
     assert_eq!(error.line, Some(2));
+}
+
+#[test]
+fn tiny_numeric_controls_export_within_the_parser_token_bound() {
+    for value in ["1e-100", "-1e-100", "5e-324", "-5e-324"] {
+        let source =
+            format!("Preamp: {value} dB\nFilter 1: ON PK Fc 1000 Hz Gain {value} dB Q 1\n");
+        let imported = import_correction_text(
+            source.as_bytes(),
+            CorrectionFormat::AutoEq,
+            context(),
+            ImportMetadata::default(),
+        )
+        .unwrap();
+        let exported = export_correction_text(&imported).unwrap();
+        let again = import_correction_text(
+            exported.as_bytes(),
+            CorrectionFormat::AutoEq,
+            context(),
+            ImportMetadata::default(),
+        )
+        .unwrap_or_else(|error| panic!("{value}: {error:?}, exported {exported}"));
+        assert_eq!(again.preamp_db.to_bits(), imported.preamp_db.to_bits());
+        assert_eq!(again.definitions, imported.definitions);
+        assert_eq!(again.semantic_sha256, imported.semantic_sha256);
+    }
+}
+
+#[test]
+fn camilla_reports_reject_untyped_definition_slots_even_when_unused() {
+    let mut imported = import_correction_text(
+        b"Filter 1: OFF None\n",
+        CorrectionFormat::Rew,
+        context(),
+        ImportMetadata::default(),
+    )
+    .unwrap();
+    assert!(
+        earph_media::correction_text::read_correction_report(
+            &serde_json::to_vec(&imported).unwrap()
+        )
+        .is_ok()
+    );
+    imported.source.format = CorrectionFormat::CamillaDsp;
+    assert_eq!(
+        earph_media::correction_text::read_correction_report(
+            &serde_json::to_vec(&imported).unwrap()
+        )
+        .unwrap_err()
+        .code,
+        "INVALID_REPORT"
+    );
+}
+
+#[test]
+fn percent_block_description_is_preserved_while_directives_are_rejected() {
+    let source = "filters:\n  gain:\n    type: Gain\n    description: |-\n      % left-channel match\n    parameters: {gain: -6}\npipeline: [{type: Filter, names: [gain]}]\n";
+    let imported = import_correction_text(
+        source.as_bytes(),
+        CorrectionFormat::CamillaDsp,
+        context(),
+        ImportMetadata::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        imported.definitions[0].description.as_deref(),
+        Some("% left-channel match")
+    );
+    let exported = export_correction_text(&imported).unwrap();
+    let again = import_correction_text(
+        exported.as_bytes(),
+        CorrectionFormat::CamillaDsp,
+        context(),
+        ImportMetadata::default(),
+    )
+    .unwrap();
+    assert_eq!(again.semantic_sha256, imported.semantic_sha256);
+    for directive in ["%YAML 1.2\n---\n", "%TAG !e! tag:example.com,2026:\n---\n"] {
+        assert_eq!(
+            import_correction_text(
+                format!("{directive}{source}").as_bytes(),
+                CorrectionFormat::CamillaDsp,
+                context(),
+                ImportMetadata::default()
+            )
+            .unwrap_err()
+            .code,
+            "UNSUPPORTED_YAML"
+        );
+    }
+}
+
+#[test]
+fn report_fingerprint_binds_the_validation_format_without_replacing_source_identity() {
+    let source = b"Preamp: -6 dB\nFilter 1: ON PK Fc 1000 Hz Gain -6 dB Q 1\n";
+    let imported = import_correction_text(
+        source,
+        CorrectionFormat::AutoEq,
+        context(),
+        ImportMetadata::default(),
+    )
+    .unwrap();
+    let other = import_correction_text(
+        source,
+        CorrectionFormat::Rew,
+        context(),
+        ImportMetadata::default(),
+    )
+    .unwrap();
+    assert_eq!(imported.source.sha256, other.source.sha256);
+    assert_eq!(imported.graph, other.graph);
+    assert_ne!(imported.semantic_sha256, other.semantic_sha256);
+    let mut altered = imported.clone();
+    altered.source.format = CorrectionFormat::Rew;
+    assert_eq!(
+        earph_media::correction_text::read_correction_report(
+            &serde_json::to_vec(&altered).unwrap()
+        )
+        .unwrap_err()
+        .code,
+        "INVALID_REPORT"
+    );
+    let exported = export_correction_text(&imported).unwrap();
+    let again = import_correction_text(
+        exported.as_bytes(),
+        imported.source.format,
+        imported.context,
+        imported.metadata,
+    )
+    .unwrap();
+    assert_eq!(again.semantic_sha256, imported.semantic_sha256);
 }

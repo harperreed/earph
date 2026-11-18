@@ -305,10 +305,19 @@ pub(super) fn validate_report(imported: &CorrectionImport) -> Result<(), ImportE
     Ok(())
 }
 
+fn number(value: f64) -> String {
+    let decimal = value.to_string();
+    if decimal.len() > 64 {
+        format!("{value:e}")
+    } else {
+        decimal
+    }
+}
+
 pub(super) fn export(imported: &CorrectionImport) -> Result<String, ImportError> {
     let mut output = String::new();
     if imported.preamp_explicit {
-        output.push_str(&format!("Preamp: {} dB\n", imported.preamp_db));
+        output.push_str(&format!("Preamp: {} dB\n", number(imported.preamp_db)));
     }
     for (definition, step) in imported.definitions.iter().zip(&imported.pipeline) {
         let state = if step.bypassed { "OFF" } else { "ON" };
@@ -319,7 +328,10 @@ pub(super) fn export(imported: &CorrectionImport) -> Result<String, ImportError>
                 q,
             }) => output.push_str(&format!(
                 "Filter {}: {state} PK Fc {frequency_hz} Hz Gain {gain_db} dB Q {q}\n",
-                definition.name
+                definition.name,
+                frequency_hz = number(*frequency_hz),
+                gain_db = number(*gain_db),
+                q = number(*q)
             )),
             Some(ImportedFilter::LowShelfQ {
                 frequency_hz,
@@ -327,7 +339,10 @@ pub(super) fn export(imported: &CorrectionImport) -> Result<String, ImportError>
                 q,
             }) => output.push_str(&format!(
                 "Filter {}: {state} LSC Fc {frequency_hz} Hz Gain {gain_db} dB Q {q}\n",
-                definition.name
+                definition.name,
+                frequency_hz = number(*frequency_hz),
+                gain_db = number(*gain_db),
+                q = number(*q)
             )),
             Some(ImportedFilter::HighShelfQ {
                 frequency_hz,
@@ -335,7 +350,10 @@ pub(super) fn export(imported: &CorrectionImport) -> Result<String, ImportError>
                 q,
             }) => output.push_str(&format!(
                 "Filter {}: {state} HSC Fc {frequency_hz} Hz Gain {gain_db} dB Q {q}\n",
-                definition.name
+                definition.name,
+                frequency_hz = number(*frequency_hz),
+                gain_db = number(*gain_db),
+                q = number(*q)
             )),
             None if imported.source.format == CorrectionFormat::Rew => {
                 output.push_str(&format!("Filter {}: {state} None\n", definition.name))

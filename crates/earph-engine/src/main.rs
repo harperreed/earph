@@ -30,8 +30,14 @@ fn execute() -> Result<u8, EngineError> {
         return Ok(code);
     }
     if args.len() == 4 && args[0] == "import-fir" && args[1] == "--runtime" {
-        let asset =
-            earph_engine::assets::import(&PathBuf::from(&args[2]), &PathBuf::from(&args[3]))?;
+        let runtime = PathBuf::from(&args[2]);
+        let source = PathBuf::from(&args[3]);
+        let asset = match earph_engine::assets::import(&runtime, &source) {
+            Err(error) if error.code == ErrorCode::SourceBusy => {
+                earph_engine::assets::import_via_owner(&runtime, &source)?
+            }
+            result => result?,
+        };
         println!(
             "{}",
             serde_json::json!({"schema_version":1,"status":"pass","asset":asset})

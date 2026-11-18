@@ -136,6 +136,29 @@ Import creates saved intent and provenance without changing playback.
 - [ ] Validate restart as paused/muted without consent, fixed arming, or prepared tokens.
 - [ ] Run canonical checks, one independent review, and commit.
 
+### Task 2b implementation checkpoint
+
+Root authorized the bounded import contract after integrating Task 2a at `29a50dd`.
+The owner imports real correction reports with their original source and explicit-purpose FIR WAVs.
+The legacy FIR CLI now shares the owner worker or the same offline owner lock.
+Text request strings remain in exact-content receipt history and count actual retained capacity.
+Profile application, device binding, packages, and full DSP-06 qualification remain incomplete.
+
+The same unit corrects reviewed save-path admission and immutable publication bugs.
+Local Start waits for prepared-resource facts before profile work begins.
+Unloaded catalog references block profile access while unrelated query contracts remain available.
+Save and restore compile against the entire prospective catalog, independent of record ordering.
+One shared publisher synchronizes complete staged objects and uses exclusive atomic rename.
+It preserves all partial stages and existing corrupt objects without replacement.
+Root approved Engine's direct Rustix `fs` feature without a version or lock change.
+
+- [x] Exercise real text producer CLI, owner request CLI, retrieved report validator/exporter, and DSP consumers.
+- [x] Preserve exact mono/stereo FIR taps, channel maps, preamp, and unknown metadata.
+- [x] Verify tampering, stale edits, retained capacities, shared cancellation, and dependency recovery refusal.
+- [ ] Finish canonical verification and freeze exact source provenance.
+- [ ] Obtain one independent main-model review and the actual scoped Mac owner/filesystem gate.
+- [ ] Commit after Root releases those gates.
+
 ## Task 3: Bound profile preparation and atomic application
 
 Files: Core profile/control/session modules, `session_graph.rs`, and Engine `graph.rs`, `host.rs`, and worker callers.
@@ -180,7 +203,7 @@ Export no secrets, queue recordings, local paths, consent, arming, or runtime re
 - [ ] Update requirements, state machines, public evidence, and the delegated dashboard.
 - [ ] Run canonical and supported-platform checks, one independent review, then push and merge through a PR.
 
-## Resume point
+## Historical checkpoints
 
 Base runtime: `2396efb38789038b20c2727afe8bc58409580be9`.
 Worktree: `8837`, branch `feat/listening-profiles`.
@@ -194,6 +217,55 @@ Task 2a now saves and recovers verified immutable objects through the owner.
 Its corrected canonical check passes 633 tests, with three ignored and no warnings.
 One independent review and the focused Mac owner/filesystem gate pass.
 The evidence above records the dirty precommit scope and exact hashes.
-Task 2b correction provenance imports are next after Root confirms integration.
+Task 2b implements correction provenance imports in the isolated task worktree.
+Its verified checkpoint follows below.
 Trusted native identity, profile application, and package workflows remain unwired.
 T11 qualification continues independently against its frozen source.
+
+## Verified correction import checkpoint
+
+Frozen Task 2b source uses baseline `29a50dd` and runtime digest `6fa2f053b5b8e7d11ba10af22c710f4465595fd211559dac0d4788037aa73005`.
+The canonical check passes 675 tests, with four existing ignored tests and no warnings or errors.
+Its log SHA-256 is `1aab6636f9bf5ad39b885c302426429d32606886863921c38122279375b78878`.
+One independent main-model review approves the exact 33-file source unit without material findings.
+See the [precommit verification](../../evidence/profiles/task2b-precommit-verification-20261118.json).
+
+Text imports reconstruct reports from original source bytes before saving intent and provenance.
+FIR imports require explicit purpose and preserve rate, layout, taps, channel order, and preamp.
+The shared owner serializes import work, immutable publication, and catalog reachability.
+Save and restore use the same prospective-catalog admission.
+Legacy FIR imports acquire the owner lock or forward to the running owner.
+Relative forwarded paths resolve from the caller's working directory.
+Interrupted stages remain preserved; exclusive publication never replaces an existing object.
+
+The scoped Mac gate passes 18 overlapping test invocations and strict Core, Media, and Engine Clippy.
+Actual CLI checks import, get, validate, export, reimport, relative FIR forwarding, and restart.
+Both owner processes exit zero and are absent on fresh lookup.
+Root verifies all 331 artifacts and 1550 source files across nine exact ordered checkpoints.
+The [Mac candidate](../../evidence/profiles/macos-task2b-precommit-candidate-20261118.json) preserves dirty precommit provenance.
+Its [root verification](../../evidence/profiles/macos-task2b-precommit-root-verification-20261118.json) binds actual exits and retained bytes.
+The separate [source verification](../../evidence/profiles/macos-task2b-precommit-root-source-verification-20261118.json) checks every checkpoint's file order.
+
+The first CLI helper expected a pre-shutdown revision after restart and failed.
+Its corrected helper compares the actual shutdown receipt; both attempts remain preserved.
+An initial collector stopped at a retained socket; the corrected archive records socket metadata.
+Controlled interruption does not establish physical disk-sync failure or power-loss recovery.
+Missing-interface RED does not prove the old newline-only output failure.
+No native device opens or signal exercises occur in this gate.
+
+## Resume point
+
+The correction import commit is integrated with PR3's separately qualified engine fixes.
+One independent bounded merge review finds no remaining integration regression.
+The [combined precommit receipt](../../evidence/profiles/task2b-integrated-precommit-verification-20261118.json) records 701 passed tests and four ignored.
+The actual canonical child exits zero, without warnings or errors.
+The stronger shared report writer retains real flush and closed-consumer coverage.
+FIR forwarding remains intact, and offline FIR import uses the shared owner-lock guard.
+Both parents' test coverage remains; one byte-identical duplicate history test is consolidated.
+The first duplicate-symbol build failure and original merge inputs remain preserved.
+Earlier platform receipts keep their original source bindings.
+
+Push and resolve PR3 feedback, then merge through the PR.
+Task3a's reviewed software application source remains local in commit24e9970 on the separate profile branch.
+Integrate the qualified fixes there before the actual Mac application gate.
+Full Task3 native association, fixed/hardware transitions, Task4 packages, and desktop workflows remain incomplete.

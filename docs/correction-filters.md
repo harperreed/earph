@@ -57,6 +57,9 @@ Trailing zero taps remain part of that authored support.
 The byte ceiling is 5 MiB, including headers and optional padding.
 The importer admits at most 256 chunks and 1 MiB of optional chunk payloads.
 Optional chunks are `fact`, `JUNK`, and `PAD `.
+When present, `fact` must agree with the actual data frame count.
+FIR file admission uses these payload bounds after the shared nonblocking regular-file open.
+Ordinary media admission retains its separate container-metadata limits.
 Embedded tag containers, artwork, extensible WAV, integer WAV, and other containers require separate qualification.
 
 The importer never normalizes, broadcasts channels, changes rate, trims taps, or changes the source file.

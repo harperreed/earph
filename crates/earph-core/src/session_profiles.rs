@@ -22,7 +22,7 @@ const STALE_PROFILE: EngineError = EngineError::new(
 pub(super) struct ProfileControl {
     pub(super) references: Vec<ProfileCatalogReference>,
     records: Arc<Vec<Arc<ProfileRecord>>>,
-    pending: Option<ProfileSaveJob>,
+    pending: Option<ProfileWorkRequest>,
     pending_receipt: Option<Record>,
     terminal: Option<Record>,
     worker_request: Option<(RequestId, ProfileSaveBinding)>,
@@ -52,7 +52,45 @@ impl Session {
         self.profiles = staged.profiles;
         Ok(())
     }
+    fn require_profile_catalog(&self) -> Result<(), EngineError> {
+        if self.profiles.references.len() != self.profiles.records.len()
+            || self
+                .profiles
+                .references
+                .iter()
+                .zip(self.profiles.records.iter())
+                .any(|(reference, record)| *reference != record.reference())
+        {
+            return Err(INVALID);
+        }
+        Ok(())
+    }
+    pub fn profile_records(&self) -> Result<Arc<Vec<Arc<ProfileRecord>>>, EngineError> {
+        self.require_profile_catalog()?;
+        Ok(self.profiles.records.clone())
+    }
     pub fn profile_job(&self) -> Option<ProfileSaveJob> {
+        let job = self.profiles.pending.as_ref()?;
+        let ProfileWorkOperation::Save {
+            id,
+            revision,
+            draft,
+            graph,
+        } = &job.operation
+        else {
+            return None;
+        };
+        Some(ProfileSaveJob {
+            request_id: job.request_id.clone(),
+            binding: job.binding.clone(),
+            id: id.clone(),
+            revision: *revision,
+            draft: draft.clone(),
+            graph: graph.clone(),
+            deadline_monotonic_ns: job.deadline_monotonic_ns,
+        })
+    }
+    pub fn profile_work(&self) -> Option<ProfileWorkRequest> {
         self.profiles.pending.clone()
     }
     pub fn profile_worker_busy(&self) -> bool {
@@ -153,6 +191,7 @@ impl Session {
         command: &CommandEnvelope,
         now_ns: u64,
     ) -> Result<ReceiptStatus, EngineError> {
+        self.require_profile_catalog()?;
         if self.profile_worker_busy()
             || self.profiles.pending.is_some()
             || self.graph_job().is_some()
@@ -160,50 +199,80 @@ impl Session {
             || self.graph_inspection().prepared.is_some()
             || self.graph_inspection().service.preparing_or_candidate
             || self.local_boundary.is_some()
+            || (self.state.source == Some(SourceKind::LocalFile)
+                && self.state.playback.is_none()
+                && self.state.operation.is_some())
         {
             return Err(BUSY);
         }
         if command.session_id != self.state.session_id {
             return Err(STALE);
         }
-        let (id, draft, graph, expected) = match &command.payload {
-            Command::ProfilesCreate { id, draft, graph } => (id, draft, graph, None),
-            Command::ProfilesUpdate {
-                id,
-                draft,
-                graph,
-                expected_profile_revision,
-            } => (id, draft, graph, Some(*expected_profile_revision)),
-            _ => return Err(STATE),
-        };
-        let existing = self.profiles.records.iter().find(|r| &r.profile.id == id);
-        let revision = match (expected, existing) {
-            (None, None) if self.profiles.records.len() < profiles::MAX_PROFILES => 1,
-            (None, None) => return Err(BUDGET),
-            (None, Some(_)) => return Err(INVALID),
-            (Some(expected), Some(record)) if expected == record.profile.revision => {
-                increment(expected)?
+        let operation = if let Command::FirImport { path, purpose } = &command.payload {
+            ProfileWorkOperation::FirAsset {
+                path: path.clone(),
+                purpose: *purpose,
             }
-            _ => return Err(STALE_PROFILE),
+        } else {
+            let (id, draft, expected) = match &command.payload {
+                Command::ProfilesCreate { id, draft, .. } => (id, draft, None),
+                Command::ProfilesUpdate {
+                    id,
+                    draft,
+                    expected_profile_revision,
+                    ..
+                } => (id, draft, Some(*expected_profile_revision)),
+                Command::ProfilesImport {
+                    id,
+                    draft,
+                    expected_profile_revision,
+                    ..
+                } => (id, draft, *expected_profile_revision),
+                _ => return Err(STATE),
+            };
+            let existing = self.profiles.records.iter().find(|r| &r.profile.id == id);
+            let revision = match (expected, existing) {
+                (None, None) if self.profiles.records.len() < profiles::MAX_PROFILES => 1,
+                (None, None) => return Err(BUDGET),
+                (None, Some(_)) => return Err(INVALID),
+                (Some(expected), Some(record)) if expected == record.profile.revision => {
+                    increment(expected)?
+                }
+                _ => return Err(STALE_PROFILE),
+            };
+            draft.document(
+                id.clone(),
+                revision,
+                ProfileObjectHash::try_from("0".repeat(64))?,
+            )?;
+            if !draft.corrections.is_empty() {
+                return Err(EngineError::new(
+                    ErrorCode::CapabilityUnsupported,
+                    "the owner derives imported correction references",
+                ));
+            }
+            match &command.payload {
+                Command::ProfilesCreate { graph, .. } | Command::ProfilesUpdate { graph, .. } => {
+                    ProfileWorkOperation::Save {
+                        id: id.clone(),
+                        revision,
+                        draft: draft.clone(),
+                        graph: graph.clone(),
+                    }
+                }
+                Command::ProfilesImport { input, .. } => ProfileWorkOperation::Import {
+                    id: id.clone(),
+                    revision,
+                    draft: draft.clone(),
+                    input: input.clone(),
+                },
+                _ => return Err(STATE),
+            }
         };
-        draft.document(
-            id.clone(),
-            revision,
-            ProfileObjectHash::try_from("0".repeat(64))?,
-        )?;
-        if !draft.corrections.is_empty() {
-            return Err(EngineError::new(
-                ErrorCode::CapabilityUnsupported,
-                "correction object import is unavailable",
-            ));
-        }
-        self.profiles.pending = Some(ProfileSaveJob {
+        self.profiles.pending = Some(ProfileWorkRequest {
             request_id: command.request_id.clone(),
             binding: self.profile_binding(),
-            id: id.clone(),
-            revision,
-            draft: draft.clone(),
-            graph: graph.clone(),
+            operation,
             deadline_monotonic_ns: now_ns.checked_add(PROFILE_SAVE_DEADLINE_NS).ok_or(BUDGET)?,
         });
         self.profiles.worker_request = Some((command.request_id.clone(), self.profile_binding()));
@@ -216,6 +285,22 @@ impl Session {
         binding: &ProfileSaveBinding,
         now_ns: u64,
         result: Result<Arc<ProfileRecord>, EngineError>,
+        commit: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Result<(), EngineError> {
+        self.complete_profile_work(
+            id,
+            binding,
+            now_ns,
+            result.map(ProfileWorkOutput::Profile),
+            commit,
+        )
+    }
+    pub fn complete_profile_work(
+        &mut self,
+        id: &RequestId,
+        binding: &ProfileSaveBinding,
+        now_ns: u64,
+        result: Result<ProfileWorkOutput, EngineError>,
         commit: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Result<(), EngineError> {
         // A completion proves compiler and asset resources have retired, even after cancellation.
@@ -242,35 +327,70 @@ impl Session {
             if self.profile_binding() != *binding {
                 return Err(STALE_PROFILE);
             }
-            let record = result?;
-            record.validate()?;
-            if record.profile.as_ref()
-                != &job
-                    .draft
-                    .document(job.id.clone(), job.revision, record.profile.graph_sha256)?
-                || record.graph != job.graph
-            {
-                return Err(INVALID);
-            }
+            let output = result?;
             let mut staged = self.clone();
             staged.profiles.pending = None;
-            let records = Arc::make_mut(&mut staged.profiles.records);
-            if let Some(slot) = records.iter_mut().find(|r| r.profile.id == job.id) {
-                *slot = record.clone();
-            } else {
-                records.try_reserve_exact(1).map_err(|_| BUDGET)?;
-                records.push(record.clone());
-            }
-            records.sort_by(|a, b| a.profile.id.cmp(&b.profile.id));
-            staged.profiles.references = records.iter().map(|r| r.reference()).collect();
+            let query = match (output, &job.operation) {
+                (ProfileWorkOutput::FirAsset(reference), ProfileWorkOperation::FirAsset { .. }) => {
+                    reference.validate()?;
+                    QueryResult::FirAsset(reference)
+                }
+                (
+                    ProfileWorkOutput::Profile(record),
+                    ProfileWorkOperation::Save {
+                        id,
+                        revision,
+                        draft,
+                        graph,
+                    },
+                ) => {
+                    record.validate()?;
+                    if record.profile.as_ref()
+                        != &draft.document(id.clone(), *revision, record.profile.graph_sha256)?
+                        || &record.graph != graph
+                    {
+                        return Err(INVALID);
+                    }
+                    staged.stage_profile_record(record.clone())?;
+                    QueryResult::ProfileSaved(record)
+                }
+                (
+                    ProfileWorkOutput::Profile(record),
+                    ProfileWorkOperation::Import {
+                        id,
+                        revision,
+                        draft,
+                        input,
+                    },
+                ) => {
+                    record.validate()?;
+                    let kind = match input.as_ref() {
+                        ProfileCorrectionInput::TextReport { .. } => {
+                            profiles::ProfileCorrectionKind::TextReport
+                        }
+                        ProfileCorrectionInput::Fir { .. } => {
+                            profiles::ProfileCorrectionKind::FirManifest
+                        }
+                    };
+                    let mut expected =
+                        draft.document(id.clone(), *revision, record.profile.graph_sha256)?;
+                    expected.corrections = record.profile.corrections.clone();
+                    if expected != *record.profile
+                        || record.corrections.len() != 1
+                        || record.corrections[0].kind != kind
+                        || record.correction_preview.is_none()
+                    {
+                        return Err(INVALID);
+                    }
+                    staged.stage_profile_record(record.clone())?;
+                    QueryResult::ProfileSaved(record)
+                }
+                _ => return Err(INVALID),
+            };
             staged.state.revision = increment(staged.state.revision)?;
             staged.state.event_sequence = staged.next_session_event_sequence(false)?;
             staged.state.monotonic_ns = now_ns;
-            staged.settle_profile(
-                ReceiptStatus::Applied,
-                None,
-                Some(QueryResult::ProfileSaved(record)),
-            );
+            staged.settle_profile(ReceiptStatus::Applied, None, Some(query));
             staged.validate_profile_storage(None)?;
             staged.validate_profile_response(
                 staged.profiles.terminal.as_ref().ok_or(INVALID)?.as_ref(),
@@ -311,13 +431,34 @@ impl Session {
         }
         result
     }
+    fn stage_profile_record(&mut self, record: Arc<ProfileRecord>) -> Result<(), EngineError> {
+        let records = Arc::make_mut(&mut self.profiles.records);
+        if let Some(slot) = records
+            .iter_mut()
+            .find(|r| r.profile.id == record.profile.id)
+        {
+            *slot = record;
+        } else {
+            records.try_reserve_exact(1).map_err(|_| BUDGET)?;
+            records.push(record);
+        }
+        records.sort_by(|a, b| a.profile.id.cmp(&b.profile.id));
+        self.profiles.references = records.iter().map(|r| r.reference()).collect();
+        Ok(())
+    }
     pub(super) fn profile_query(
         &self,
         command: &Command,
     ) -> Result<Option<QueryResult>, EngineError> {
-        if self.profiles.references.len() != self.profiles.records.len() {
-            return Err(INVALID);
+        if !matches!(
+            command,
+            Command::ProfilesGet { .. }
+                | Command::ProfilesList { .. }
+                | Command::ProfilesResolve { .. }
+        ) {
+            return Ok(None);
         }
+        self.require_profile_catalog()?;
         Ok(match command {
             Command::ProfilesGet { id } => Some(QueryResult::Profile(
                 self.profiles
@@ -549,12 +690,7 @@ impl Session {
         }
         if let Some(job) = &self.profiles.pending {
             bytes = bytes
-                .checked_add(
-                    job.draft.retained_capacity_bytes()?
-                        + job.graph.graph.retained_capacity_bytes()?
-                        + size_of::<ProfileSaveJob>()
-                        + 1024,
-                )
+                .checked_add(job.retained_capacity_bytes()?)
                 .ok_or(BUDGET)?;
         }
         Ok(bytes)

@@ -9,6 +9,14 @@ use std::{
 };
 
 pub fn open(path: &Path) -> Result<File, EngineError> {
+    let mut file = open_regular(path)?;
+    let length = file.metadata().map_err(|_| INVALID)?.len();
+    preflight(&mut file, length)?;
+    file.rewind().map_err(|_| INVALID)?;
+    Ok(file)
+}
+
+pub(crate) fn open_regular(path: &Path) -> Result<File, EngineError> {
     if !std::fs::metadata(path).map_err(|_| INVALID)?.is_file() {
         return Err(INVALID);
     }
@@ -18,13 +26,11 @@ pub fn open(path: &Path) -> Result<File, EngineError> {
         rustix::fs::Mode::empty(),
     )
     .map_err(|_| INVALID)?;
-    let mut file = File::from(fd);
+    let file = File::from(fd);
     let metadata = file.metadata().map_err(|_| INVALID)?;
     if !metadata.is_file() {
         return Err(INVALID);
     }
-    preflight(&mut file, metadata.len())?;
-    file.rewind().map_err(|_| INVALID)?;
     Ok(file)
 }
 

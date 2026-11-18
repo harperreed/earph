@@ -160,3 +160,69 @@ fn maximum_stereo_decode_fits_the_declared_resolution_scratch_allowance() {
     );
     assert_eq!(correction.reference.taps_per_channel, 262144);
 }
+
+#[test]
+fn optional_fact_count_must_match_actual_data_frames() {
+    let original = wav(64, &[0.5, 0.25, 0.0, 0.0]);
+    for frames in [1_u32, 2, 3] {
+        let mut bytes = original[..36].to_vec();
+        bytes.extend(b"fact");
+        bytes.extend(4_u32.to_le_bytes());
+        bytes.extend(frames.to_le_bytes());
+        bytes.extend(&original[36..]);
+        let size = bytes.len() as u32 - 8;
+        bytes[4..8].copy_from_slice(&size.to_le_bytes());
+        if frames == 2 {
+            assert_eq!(
+                decode_fir_wav(&bytes).unwrap().reference.taps_per_channel,
+                2
+            );
+        } else {
+            assert!(
+                decode_fir_wav(&bytes).is_err(),
+                "inconsistent fact count {frames} was accepted"
+            );
+        }
+    }
+}
+
+#[test]
+fn fir_file_admission_applies_its_own_optional_payload_bound() {
+    use std::{fs, os::unix::fs::DirBuilderExt};
+    let directory = std::env::temp_dir().join(format!(
+        "earph-fir-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&directory)
+        .unwrap();
+    let original = wav(64, &[0.5, 0.25]);
+    for optional in [1024 * 1024, 1024 * 1024 + 2] {
+        let mut bytes = original[..36].to_vec();
+        bytes.extend(b"JUNK");
+        bytes.extend((optional as u32).to_le_bytes());
+        bytes.resize(bytes.len() + optional, 0);
+        bytes.extend(&original[36..]);
+        let size = bytes.len() as u32 - 8;
+        bytes[4..8].copy_from_slice(&size.to_le_bytes());
+        let path = directory.join(format!("optional-{optional}.wav"));
+        fs::write(&path, &bytes).unwrap();
+        let read = earph_media::read_fir_source(&path);
+        if optional == 1024 * 1024 {
+            let read =
+                read.expect("FIR-specific payload bound should admit exact optional maximum");
+            assert_eq!(read, bytes);
+            assert_eq!(decode_fir_wav(&read).unwrap().reference.taps_per_channel, 1);
+        } else {
+            if let Ok(read) = read {
+                assert!(decode_fir_wav(&read).is_err());
+            }
+        }
+        assert_eq!(fs::read(path).unwrap(), bytes);
+    }
+}

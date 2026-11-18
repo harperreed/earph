@@ -35,7 +35,10 @@ The importer reads one regular UTF-8 source file and leaves it unchanged.
 It never reads referenced files or downloads content.
 Reports omit the source path and file name.
 Labels, descriptions, and explicit metadata remain source content; inspect them before sharing.
-Source and semantic hashes identify bytes and normalized intent; they do not authenticate authorship.
+The source hash identifies exact source bytes.
+The semantic hash binds the source format, context, metadata, and normalized controls.
+The format selects the report's validation grammar.
+Neither hash authenticates authorship or establishes redistribution rights.
 
 ## Supported source controls
 
@@ -104,6 +107,11 @@ Source formatting, comments, and measurement headers are not reproduced.
 Reimport with the same context and metadata to compare graph intent and semantic identity.
 Source hashes normally change after export.
 If escaping expands an export beyond 64 KiB, export rejects with `RESOURCE_LIMIT`.
+The CLI writes exactly those admitted source bytes without appending a newline.
+Numeric exports retain round-trip values within the parser's 64-byte token bound.
+CamillaDSP reports require typed filters, including inactive definitions.
+Percent-prefixed block descriptions remain text; column-zero YAML directives remain unsupported.
+Use the [owner correction import workflow](listening-profile-save.md) to save verified provenance without activating output.
 
 Rust callers use `earph_media::correction_text::import_correction_text` with bytes, format, context, and metadata.
 The CLI calls that same function.

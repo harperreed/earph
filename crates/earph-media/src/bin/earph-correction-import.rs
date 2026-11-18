@@ -28,21 +28,22 @@ fn usage() -> ImportError {
 fn write(bytes: &[u8]) -> Result<(), ImportError> {
     let mut out = io::stdout().lock();
     out.write_all(bytes)
-        .and_then(|_| out.write_all(b"\n"))
+        .and_then(|_| out.flush())
         .map_err(|_| error("OUTPUT_UNAVAILABLE", "cannot write the correction result"))
 }
 fn print_report(
     report: &earph_media::correction_text::CorrectionImport,
 ) -> Result<(), ImportError> {
-    let bytes = serde_json::to_vec_pretty(report)
+    let mut bytes = serde_json::to_vec_pretty(report)
         .map_err(|_| error("INVALID_REPORT", "cannot encode correction result"))?;
+    bytes.push(b'\n');
     write(&bytes)
 }
 
 fn run() -> Result<(), ImportError> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() == 1 && args[0] == "--help" {
-        return write(USAGE.as_bytes());
+        return write(format!("{USAGE}\n").as_bytes());
     }
     if args.len() == 2 && (args[0] == "--export" || args[0] == "--validate-report") {
         let bytes = read_correction_file(&PathBuf::from(&args[1]), MAX_REPORT_BYTES)?;

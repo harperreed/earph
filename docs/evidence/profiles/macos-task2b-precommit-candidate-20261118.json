@@ -1,0 +1,359 @@
+{
+  "schema_version": 1,
+  "kind": "macos_profile_correction_import_precommit_gate",
+  "status": "pass",
+  "qualification": "scoped_silent_software_owner_cli_and_filesystem_only",
+  "source": {
+    "baseline_commit": "29a50ddf94e87369ad9f66ac3b3066615618bbeb",
+    "source_dirty": true,
+    "patch_sha256": "e52d4f9fcf814c8657d5842c2a04995ea3b5a0ad5ea83f571935d735dc39ea55",
+    "source_manifest_sha256": "e408b83bd6e884b1c6949b6fa113986634f8d0844b665afa175db99065f5529d",
+    "source_files": 1550,
+    "runtime_source_sha256": "6fa2f053b5b8e7d11ba10af22c710f4465595fd211559dac0d4788037aa73005",
+    "lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "snapshot_kind": "reviewed_uncommitted_working_tree_patch"
+  },
+  "build_provenance": {
+    "commit": "29a50ddf94e87369ad9f66ac3b3066615618bbeb",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "6fa2f053b5b8e7d11ba10af22c710f4465595fd211559dac0d4788037aa73005",
+    "target": "aarch64-apple-darwin"
+  },
+  "macos_sdk": "27.2",
+  "sdk_selection": "child-only SDKROOT from selected installed SDK",
+  "commands": [
+    {
+      "label": "core-build",
+      "exit": 0,
+      "log_sha256": "7d9ef1aca248e6f4b43234e320c8862affe0b6b896a2f9d393adc3e22ec26a4e"
+    },
+    {
+      "label": "media-build",
+      "exit": 0,
+      "log_sha256": "593d923a6b8cc116b70214cf885b4aebf4f31f3d5914a44995c0de1300d90348"
+    },
+    {
+      "label": "media-cli-build",
+      "exit": 0,
+      "log_sha256": "ead44b31b85dc5e18654fb7ff426aaebd0dced64c84354352a31ea6b72b34e51"
+    },
+    {
+      "label": "engine-build",
+      "exit": 0,
+      "log_sha256": "f0be803be04d6d09b428e35b2ce7c7c0e10ca78ff7a0a967e121d885c555496c"
+    },
+    {
+      "label": "bound-direct",
+      "exit": 0,
+      "log_sha256": "8819e43690a70f59cce5ed4d7964be70506607eb6e4b9b45df62c03800965fc7"
+    },
+    {
+      "label": "owner-cli-v2",
+      "exit": 0,
+      "log_sha256": "9b1acf7e0c80162209543297f160d3d332bb0702da6b0e9ea0d4d8969662e548"
+    },
+    {
+      "label": "targeted-clippy",
+      "exit": 0,
+      "log_sha256": "6e8cf6ebe769f8c48c40cb505ea7ff42b7d3d1c17c6219a154876581831fabf6"
+    }
+  ],
+  "tests": [
+    {
+      "label": "core-profiles",
+      "binary_sha256": "69659d92085bdfcd060f5b6a21f0b5cbbb52bf433b11adf90ce51be769c4f5b4",
+      "binary_after_sha256": "69659d92085bdfcd060f5b6a21f0b5cbbb52bf433b11adf90ce51be769c4f5b4",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "a55b0c0ba7cebf071f9981b8c3d22d001e6eda1508e6c3080c67914c0fdfb95c",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "core-profile-owner",
+      "binary_sha256": "c701b4b910731083caabe8e0f50aa4201f769c660c3798bdb356888894cb252b",
+      "binary_after_sha256": "c701b4b910731083caabe8e0f50aa4201f769c660c3798bdb356888894cb252b",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "136196c2b8c5a5d83bedce52bd3cfad8b76735a1367ba51f2eb4ab4793aca277",
+      "passed": 14,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "media-report-grammar",
+      "binary_sha256": "f3b5ab472d3ac66594ebb12eec36b46d1c14f6e5420148b763d8d9fb85b36a43",
+      "binary_after_sha256": "f3b5ab472d3ac66594ebb12eec36b46d1c14f6e5420148b763d8d9fb85b36a43",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "8bce3448f40a445921abbbd0c5b1f04eea685691691f0e4cf7ff6b6d04403be3",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "media-correction-import",
+      "binary_sha256": "a7b2517c79072a4cae14aad92120522e74adbb4c8747a10946d224e21cb3ad42",
+      "binary_after_sha256": "a7b2517c79072a4cae14aad92120522e74adbb4c8747a10946d224e21cb3ad42",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "af7e5a0fa452ccaa072572cff447d1bc6dec34e16b7f8082bac1331533da3151",
+      "passed": 24,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "media-correction-cli",
+      "binary_sha256": "1585e5615088e57e85bce2f606a9104f16653203abfe43519634f419b4d55892",
+      "binary_after_sha256": "1585e5615088e57e85bce2f606a9104f16653203abfe43519634f419b4d55892",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "efeba2811d83b48ab5bd7c02348d7d3b8dd766aeb217874a050f67608ab9539c",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "media-fir",
+      "binary_sha256": "3923db6134ba8e0b2a4a69c14c29e31fd4fcfd3bfc2764336b3beac4c283dc4a",
+      "binary_after_sha256": "3923db6134ba8e0b2a4a69c14c29e31fd4fcfd3bfc2764336b3beac4c283dc4a",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "c12098cefab2cd2d72f7b2e3b6a19686cdd0d7c253fcea32fc6368780d9b6ae6",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "media-fir-manifest",
+      "binary_sha256": "8ae59a2aed81c6627b3036e388557eb261cc03f93df046408516efa58e8d5707",
+      "binary_after_sha256": "8ae59a2aed81c6627b3036e388557eb261cc03f93df046408516efa58e8d5707",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "00da446c9f7754e9f99d87af567e262ed97783e35c3aae344cd5e4b3c55d839e",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-profile-unit",
+      "binary_sha256": "ca01d3533c0283fda78eeaa3637ebc05c105b193c72ef53f3cbfdffb07e09f19",
+      "binary_after_sha256": "ca01d3533c0283fda78eeaa3637ebc05c105b193c72ef53f3cbfdffb07e09f19",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "0f383d03055a56140bc18475b3aaa6f8103bd35f255d2bfd53c1489422a4696b",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-immutable-publication",
+      "binary_sha256": "ca01d3533c0283fda78eeaa3637ebc05c105b193c72ef53f3cbfdffb07e09f19",
+      "binary_after_sha256": "ca01d3533c0283fda78eeaa3637ebc05c105b193c72ef53f3cbfdffb07e09f19",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "1155c15587c86a3da319dd34aad9cf8332b458f7ac526176894f07ce194ab181",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-interrupted-prefix",
+      "binary_sha256": "ca01d3533c0283fda78eeaa3637ebc05c105b193c72ef53f3cbfdffb07e09f19",
+      "binary_after_sha256": "ca01d3533c0283fda78eeaa3637ebc05c105b193c72ef53f3cbfdffb07e09f19",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "131b3222263002d26a3f448b9fc914215ed4b74b9d189c40c97c4260b2535535",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-exclusive-publication",
+      "binary_sha256": "ca01d3533c0283fda78eeaa3637ebc05c105b193c72ef53f3cbfdffb07e09f19",
+      "binary_after_sha256": "ca01d3533c0283fda78eeaa3637ebc05c105b193c72ef53f3cbfdffb07e09f19",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "6652269225019b1994d9b72225183a4142fcddee99555febaf3441b5add52616",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-fir-durability",
+      "binary_sha256": "ca01d3533c0283fda78eeaa3637ebc05c105b193c72ef53f3cbfdffb07e09f19",
+      "binary_after_sha256": "ca01d3533c0283fda78eeaa3637ebc05c105b193c72ef53f3cbfdffb07e09f19",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "6048834d7d6c841e8e53044e72c989f5553b4ede2de114d62327d776f4688f7a",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-owner-profiles",
+      "binary_sha256": "c26e23966366f829fd9ce27f808d8f4f345db6fc8a0c5d4a2b93157236ea0e95",
+      "binary_after_sha256": "c26e23966366f829fd9ce27f808d8f4f345db6fc8a0c5d4a2b93157236ea0e95",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "12d86b1f7c15f5e45223b763dc063d8b40007608e39b8366943253d48cb8eaa4",
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-fir-cli",
+      "binary_sha256": "c380ff4e2d03492054a1ceeb21915afd4ada0c8bf770becbad78fd15c8b718fd",
+      "binary_after_sha256": "c380ff4e2d03492054a1ceeb21915afd4ada0c8bf770becbad78fd15c8b718fd",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "6aa75e072b0cacf202ab7e25a384852694e6bc12742b901a3b95bbe3479d03c0",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-reported-history",
+      "binary_sha256": "9634ece738d08753b8ae9d096907dda174dcd2e35501628acd9d6b80e0580417",
+      "binary_after_sha256": "9634ece738d08753b8ae9d096907dda174dcd2e35501628acd9d6b80e0580417",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "724779d5b78b9b9eea89ee99a1563231dda0b22bcab1f6c05cca9a67096ad5aa",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-history-reservation",
+      "binary_sha256": "9634ece738d08753b8ae9d096907dda174dcd2e35501628acd9d6b80e0580417",
+      "binary_after_sha256": "9634ece738d08753b8ae9d096907dda174dcd2e35501628acd9d6b80e0580417",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "45e3c49b5cf5faa836fa11f44a8bd91636f74b2c2725fbfa61e76b8a00a8b82b",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-report-writer",
+      "binary_sha256": "875c2fa952938ea04cd58ba9e13862f6242e791e6a60da557ba0ca0b048bc7a4",
+      "binary_after_sha256": "875c2fa952938ea04cd58ba9e13862f6242e791e6a60da557ba0ca0b048bc7a4",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "a1b307991f70e5f4faf34863ba1ec68c325f7af907bb3e041ca523560aeb9038",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-closed-report-consumer",
+      "binary_sha256": "ead83f7578700cf299ce836b7309fa0b79eb88ead8778a3f8853e9df70005e19",
+      "binary_after_sha256": "ead83f7578700cf299ce836b7309fa0b79eb88ead8778a3f8853e9df70005e19",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "622c88bf060f152b38dcfd95ebe17e3db161ff2c4602d9b17d19e956431e1afc",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "cli_binaries": [
+    {
+      "name": "earph-engine",
+      "before_sha256": "69ad8ca064f6ea70a11beb1f1f77091065b2a6fa88cd4b608becfceb5349ae96",
+      "after_sha256": "69ad8ca064f6ea70a11beb1f1f77091065b2a6fa88cd4b608becfceb5349ae96"
+    },
+    {
+      "name": "earph-correction-import",
+      "before_sha256": "74f218002ac9165eb559cdcfde5aecf6125ddd6fde1fd81e8ea2ba2beed234ee",
+      "after_sha256": "74f218002ac9165eb559cdcfde5aecf6125ddd6fde1fd81e8ea2ba2beed234ee"
+    }
+  ],
+  "actual_owner_cli": {
+    "status": "pass",
+    "binary_bindings": {
+      "engine_before_sha256": "69ad8ca064f6ea70a11beb1f1f77091065b2a6fa88cd4b608becfceb5349ae96",
+      "correction_before_sha256": "74f218002ac9165eb559cdcfde5aecf6125ddd6fde1fd81e8ea2ba2beed234ee",
+      "engine_after_sha256": "69ad8ca064f6ea70a11beb1f1f77091065b2a6fa88cd4b608becfceb5349ae96",
+      "correction_after_sha256": "74f218002ac9165eb559cdcfde5aecf6125ddd6fde1fd81e8ea2ba2beed234ee"
+    },
+    "owned_processes": [
+      {
+        "label": "owner-initial",
+        "code": 0,
+        "signal": null,
+        "fresh_process_lookup_absent": true,
+        "shutdown_receipt_revision": 3
+      },
+      {
+        "label": "owner-restarted",
+        "code": 0,
+        "signal": null,
+        "fresh_process_lookup_absent": true,
+        "shutdown_receipt_revision": 4
+      }
+    ],
+    "source_and_report_roundtrip": true,
+    "legacy_relative_fir_forwarding": true,
+    "restart_verified": true,
+    "native_output_opened": false,
+    "device_operations": 0,
+    "signal_exercises": 0,
+    "reported_safety_unchanged": true,
+    "private_fixed_arming_directly_observed": false
+  },
+  "source_verification_phases": [
+    "source-verification-after-apply.log",
+    "source-verification-after-bound-direct.log",
+    "source-verification-after-core-build.log",
+    "source-verification-after-engine-build.log",
+    "source-verification-after-media-build.log",
+    "source-verification-after-media-cli-build.log",
+    "source-verification-after-owner-cli-v2.log",
+    "source-verification-after-owner-cli.log",
+    "source-verification-after-targeted-clippy.log"
+  ],
+  "source_checks_per_phase": 1550,
+  "native_output_opened": false,
+  "native_device_operations": 0,
+  "signal_exercises": 0,
+  "preserved_failed_attempts": [
+    {
+      "label": "owner-cli-v1",
+      "kind": "throwaway_verifier_revision_expectation",
+      "reason": "Shutdown advances revision; the first verifier incorrectly expected the pre-shutdown value after restart.",
+      "both_owned_process_exit_codes": [
+        0,
+        0
+      ],
+      "source_changed": false,
+      "log_sha256": "b66f1eec3cfc00dc58d6362ca6ced8e0a0e3d84af12a7b3a3b60272deb683472"
+    }
+  ],
+  "scope": [
+    "Core profile reducers, exact-content retained admission, shared cancellation and retirement",
+    "Real correction text CLI, owner/request CLI, report validator/exporter and reimport",
+    "Actual DSP consumers of mono/stereo FIR and REW, AutoEq and CamillaDSP controls",
+    "Owner correction saves, stale edits, tampering, restart and missing-dependency refusal",
+    "Exclusive immutable publication, retained prefix stages, verified file synchronization and retry",
+    "Legacy FIR CLI lock refusal and relative-path owner forwarding",
+    "Declared scratch admission, whole prospective catalog and graph history allowance",
+    "One locked report writer with newline, flush and real closed-consumer errors"
+  ],
+  "limits": [
+    "Dirty precommit source, not a clean release or full macOS canonical qualification",
+    "No native device, hardware playback, acoustic, UI, application or package qualification",
+    "Controlled interruption is not an observed physical disk-sync failure or power-loss test",
+    "No new control-latency claim; bounded checkpoint callback remains synchronous",
+    "Test run counts and the extra owner CLI scenario are not additive coverage claims",
+    "Private fixed-output arming is not directly observed",
+    "The first failed owner verifier and its original logs remain retained",
+    "Retired Unix socket nodes remain preserved on the host; raw archived metadata records them",
+    "The first collector stopped at a retained socket and left a partial snapshot; both remain preserved"
+  ]
+}

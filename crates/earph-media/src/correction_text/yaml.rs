@@ -189,10 +189,7 @@ pub(super) fn parse(
     context: ImportContext,
     metadata: ImportMetadata,
 ) -> Result<CorrectionImport, ImportError> {
-    if source
-        .lines()
-        .any(|line| line.trim_start().starts_with('%'))
-    {
+    if source.lines().any(|line| line.starts_with('%')) {
         return Err(error("UNSUPPORTED_YAML", "YAML directives are unsupported"));
     }
     let mut reader = Reader {
