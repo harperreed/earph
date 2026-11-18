@@ -1,10 +1,7 @@
 // ABOUTME: Checks PEQ response, peak enclosures, finite tails, and prepared ownership.
 // ABOUTME: Uses analytical transfer functions and generated bounded signals without hardware.
-#[path = "../src/peq.rs"]
-mod peq;
-
 use earph_core::{audio::ChannelLayout, dsp_nodes::PeqFilter, graph::FiniteGraphScalar};
-use peq::{PeqDesign, PeqError};
+use earph_dsp::peq::{self, PeqDesign, PeqError};
 
 fn scalar(value: f64) -> FiniteGraphScalar {
     FiniteGraphScalar::new(value).unwrap()

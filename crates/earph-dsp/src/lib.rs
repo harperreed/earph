@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 mod compile;
 mod model;
+pub mod peq;
 mod runtime;
 pub use compile::compile;
 pub use model::*;
