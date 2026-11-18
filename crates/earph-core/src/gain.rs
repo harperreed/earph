@@ -1,4 +1,4 @@
-// ABOUTME: Applies explicit bounded software attenuation to integer PCM.
+// ABOUTME: Applies explicit bounded software attenuation to native PCM and normalized f64.
 // ABOUTME: Uses one ramp value per frame and reports measured sample peaks.
 use crate::{
     EngineError, ErrorCode,
@@ -54,6 +54,52 @@ impl GainRamp {
         }
         Ok(())
     }
+    /// Attenuates an exact interleaved span using the prepared native channel layout.
+    /// Finite samples may exceed unity; this path never clips or quantizes them.
+    /// Invalid spans leave both samples and the gain envelope unchanged.
+    pub fn process_f64(
+        &mut self,
+        samples: &mut [f64],
+        frames: usize,
+    ) -> Result<GainReport, EngineError> {
+        let channels = self.format.channels().count();
+        if frames == 0
+            || frames.checked_mul(channels) != Some(samples.len())
+            || samples.iter().any(|sample| !sample.is_finite())
+        {
+            return Err(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "invalid normalized gain span",
+            ));
+        }
+        let mut report = GainReport {
+            input_peak: 0.0,
+            output_peak: 0.0,
+            modified: false,
+        };
+        for frame in samples.chunks_exact_mut(channels) {
+            let gain = self.next_frame_gain();
+            report.modified |= gain != 1.0;
+            for sample in frame {
+                report.input_peak = report.input_peak.max(sample.abs());
+                if gain != 1.0 {
+                    *sample *= gain;
+                }
+                report.output_peak = report.output_peak.max(sample.abs());
+            }
+        }
+        Ok(report)
+    }
+    fn next_frame_gain(&mut self) -> f64 {
+        if self.remaining != 0 {
+            self.current += self.step;
+            self.remaining -= 1;
+            if self.remaining == 0 {
+                self.current = self.target;
+            }
+        }
+        self.current.clamp(0.0, 1.0)
+    }
     pub fn process(&mut self, block: &mut PcmBlock) -> Result<GainReport, EngineError> {
         if block.header().format != self.format {
             return Err(EngineError::new(
@@ -70,14 +116,7 @@ impl GainRamp {
             modified: false,
         };
         for frame in 0..block.header().frame_count as usize {
-            if self.remaining != 0 {
-                self.current += self.step;
-                self.remaining -= 1;
-                if self.remaining == 0 {
-                    self.current = self.target;
-                }
-            }
-            let gain = self.current.clamp(0.0, 1.0);
+            let gain = self.next_frame_gain();
             report.modified |= gain != 1.0;
             for channel in 0..channels {
                 let index = frame * channels + channel;
