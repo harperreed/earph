@@ -1,8 +1,8 @@
 # Earph graph compiler
 
 Compile versioned graph intent into a bounded, deterministic execution schedule.
-This crate currently implements compilation only.
-Prepared execution and session activation require separate implementations and qualification.
+This crate compiles graphs and executes prepared f64 plans offline.
+Session activation and hardware integration require separate implementations and qualification.
 
 Call `compile(&GraphDocument, &CompileContext)` before preparing processing state.
 The context declares source and output PCM formats, processing quantum, preservation policy, and admitted resource limits.
@@ -79,3 +79,60 @@ The tests compile real typed documents and serialized round trips without mocks.
 They check topology, format boundaries, deterministic scheduling, compensation, preservation, and resource rejection.
 The round-trip test retains its branch fixture and resolved plan under `target/dsp-compiler-fixtures/`.
 They do not qualify execution, real-time allocation behavior, hardware playback, or activation transactions.
+
+## Prepared execution
+
+Call `PreparedGraph::prepare(plan, epochs)` outside the processing thread.
+Preparation allocates the exact audio storage declared by `plan.resources()`.
+Each node owns one quantum output buffer.
+Delay nodes and compensated inputs own their declared interleaved delay rings.
+Processing uses scalar temporaries without additional audio scratch buffers.
+Allocation failure returns `ResourceBudgetExceeded` before activation.
+`RetainInteger` plans return `CapabilityUnsupported` from f64 preparation.
+Keep those plans on the existing integer payload path.
+
+Call `process(input, output)` with finite interleaved f64 samples.
+Input and output spans must contain the same number of whole frames.
+Output channel counts can differ through explicit matrix nodes.
+Each span can contain at most the compiled quantum, including shorter final spans.
+The returned count measures frames, not scalar samples.
+Zero-frame processing preserves the lifecycle and does not create a tail.
+Geometry errors preserve delay state, meters, and lifecycle.
+Finite headroom above full scale remains unchanged; processing never clamps samples.
+Non-finite input or any non-finite node output moves the graph to `Failed`.
+Failed calls leave the caller's output unchanged.
+Resolve `failure_node_index()` through `plan().schedule()[index].id()` for the failing node.
+Hot-path errors omit owned node IDs to avoid allocation.
+
+Lifecycle starts at `Prepared` and becomes `Running` after nonempty processing.
+Call `finish(output)` only at the final source boundary.
+Compatible source joins continue through `process` without resetting state.
+Each finish span supplies whole output frames within the compiled quantum.
+A pending tail requires positive output capacity.
+Finish writes only the returned valid prefix and preserves the remaining output suffix.
+The graph becomes `Draining` while tail frames remain, then `Finished`.
+Repeated finish calls return zero after completion.
+An empty stream finishes immediately without inventing a tail.
+Finished graphs reject further source input.
+
+`reset(new_epochs)` accepts a newer `(session, stream)` pair in lexicographic order.
+A newer session may restart its stream counter at zero.
+Reset clears buffers, rings, meters, and failure location in place.
+It returns the graph to `Prepared`, including recovery from a failed prior stream.
+`cancel()` moves permanently to `Cancelled` and retains all prepared resources.
+Cancellation cannot be reversed by reset.
+The owner must dispose of the graph outside the processing thread.
+
+`meter(node_id)` returns an observation only for meter nodes.
+`peak_abs` measures the largest absolute scalar sample since preparation or reset.
+`sample_count` counts scalar samples, including valid final tail frames.
+Meter observations never alter audio or allocate memory.
+Process, finish, reset, and cancel perform no allocation, deallocation, locks, logging, or file access.
+These methods require exclusive mutable ownership of the prepared graph.
+
+Run `cargo test --locked -p earph-dsp` for compiler, kernel, and execution tests.
+Execution tests compile real graph documents and compare actual captures with literal expected samples.
+They cover mono/stereo matrix routing, gain headroom, sum order, branch compensation, and exact tail counts.
+Split-source execution is compared with an unsplit reference without resetting the graph at joins.
+An instrumented global allocator checks success, malformed input, non-finite faults, reset, and cancellation.
+These tests qualify offline execution; they do not qualify graph activation or hardware playback.

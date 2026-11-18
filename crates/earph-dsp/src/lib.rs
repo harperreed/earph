@@ -3,5 +3,7 @@
 #![forbid(unsafe_code)]
 mod compile;
 mod model;
+mod runtime;
 pub use compile::compile;
 pub use model::*;
+pub use runtime::{GraphLifecycle, MeterObservation, PreparedGraph};
