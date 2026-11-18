@@ -5,6 +5,8 @@ mod contract;
 pub use contract::*;
 mod redaction;
 pub use redaction::redact_record;
+mod playback;
+pub use playback::*;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod native;
