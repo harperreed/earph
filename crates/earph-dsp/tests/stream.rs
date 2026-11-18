@@ -1,7 +1,5 @@
 // ABOUTME: Exercises bounded real SRC and same-rate graph stream composition.
 // ABOUTME: Checks frame authority, backpressure, finite finish, and retained lifecycle storage.
-#[path = "../src/stream.rs"]
-pub mod stream;
 use earph_core::{
     audio::{ChannelLayout, PcmFormat, PcmRepresentation},
     dsp_nodes::SrcPreset,

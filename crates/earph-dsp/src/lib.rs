@@ -7,6 +7,7 @@ mod model;
 pub mod peq;
 pub mod resample;
 mod runtime;
+pub mod stream;
 pub use compile::{compile, compile_with_assets, compile_with_input_bounds};
 pub use model::*;
 pub use runtime::{GraphLifecycle, MeterObservation, PreparedGraph};

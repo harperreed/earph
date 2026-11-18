@@ -102,7 +102,7 @@ Call `PreparedGraph::prepare(plan, epochs)` outside the processing thread.
 Preparation allocates the exact audio storage declared by `plan.resources()`.
 Each node owns one quantum output buffer.
 Delay nodes and compensated inputs own their declared interleaved delay rings.
-Processing uses scalar temporaries without additional audio scratch buffers.
+Preparation allocates filter staging and kernel scratch before processing starts.
 Allocation failure returns `ResourceBudgetExceeded` before activation.
 `RetainInteger` plans return `CapabilityUnsupported` from f64 preparation.
 Keep those plans on the existing integer payload path.
@@ -114,7 +114,8 @@ Each span can contain at most the compiled quantum, including shorter final span
 The returned count measures frames, not scalar samples.
 Zero-frame processing preserves the lifecycle and does not create a tail.
 Geometry errors preserve delay state, meters, and lifecycle.
-Finite headroom above full scale remains unchanged; processing never clamps samples.
+Finite output above full scale passes through without clamping.
+Filter plans and explicitly bounded plans reject inputs above their admitted channel peaks.
 Non-finite input or any non-finite node output moves the graph to `Failed`.
 Failed calls leave the caller's output unchanged.
 Resolve `failure_node_index()` through `plan().schedule()[index].id()` for the failing node.
@@ -152,3 +153,27 @@ They cover mono/stereo matrix routing, gain headroom, sum order, branch compensa
 Split-source execution is compared with an unsplit reference without resetting the graph at joins.
 An instrumented global allocator checks success, malformed input, non-finite faults, reset, and cancellation.
 These tests qualify offline execution; they do not qualify graph activation or hardware playback.
+
+## Streaming components
+
+`resample::SrcDesign` resolves SRC coefficients and parameter fingerprints outside processing.
+Its resource preflight allocates no storage.
+`instantiate` creates independent mutable state using the same admitted construction bound.
+The standalone `PreparedSrc::prepare` composes those operations.
+
+`stream::PreparedStream` composes prepared same-rate islands and SRC stages through fixed FIFOs.
+Its plan checks formats, input peak certificates, and complete preparation resources.
+Bounded IIR processing must occupy the final island.
+Each step reports accepted source frames, produced output frames, bounded work, and terminal state separately.
+Zero output during priming or finishing does not mean EOF.
+Compatible source packets share SRC history and one guard per stage.
+Finalization forwards every valid upstream tail and declared SRC padding frame.
+
+The caller supplies the worker's shared cancellation token.
+Cancellation checks occur between stage steps and before output publication.
+Failure preserves the caller's complete output span.
+Reset requires newer epochs; cancellation remains permanent.
+Processing and lifecycle calls retain prepared storage for off-thread retirement.
+
+These components do not yet expose SRC graph commands or a native streaming bridge.
+Native replay, timing observations, and graph admission require separate integration and qualification.
