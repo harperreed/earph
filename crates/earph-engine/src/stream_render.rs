@@ -25,6 +25,60 @@ pub struct StreamRenderConfig {
     pub budget_bytes: u64,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamRenderBridgeResources {
+    pub bridge_bytes: u64,
+    pub replay_frames: usize,
+}
+impl StreamRenderConfig {
+    /// Admit bridge geometry before compiling SRC coefficients or allocating stream storage.
+    pub fn bridge_resources(
+        self,
+        input_quantum_frames: usize,
+    ) -> Result<StreamRenderBridgeResources, EngineError> {
+        self.input_format.representation().integer_bounds()?;
+        self.native_format.representation().integer_bounds()?;
+        if !(1..=8192).contains(&input_quantum_frames)
+            || !(1..=8192).contains(&self.period_frames)
+            || self.queue_frames < self.period_frames
+        {
+            return Err(format_error());
+        }
+        let input_format = PcmFormat::new(
+            self.input_format.sample_rate_hz(),
+            self.input_format.channels(),
+            PcmRepresentation::Float64,
+        )?;
+        let output_format = PcmFormat::new(
+            self.native_format.sample_rate_hz(),
+            self.native_format.channels(),
+            PcmRepresentation::Float64,
+        )?;
+        let replay_frames = self
+            .queue_frames
+            .checked_add(self.period_frames)
+            .ok_or_else(budget_error)?;
+        let input = input_format.storage_bytes(input_quantum_frames as u64)? as u64;
+        let output = output_format.storage_bytes(self.period_frames as u64)? as u64;
+        let replay = output_format.storage_bytes(replay_frames as u64)? as u64;
+        let native = self
+            .native_format
+            .storage_bytes(self.period_frames as u64)? as u64;
+        let native = native.checked_mul(2).ok_or_else(budget_error)?;
+        let bridge_bytes = [input, output, replay, native]
+            .into_iter()
+            .try_fold(size_of::<PreparedStreamRender>() as u64, |n, v| {
+                n.checked_add(v).ok_or_else(budget_error)
+            })?;
+        if bridge_bytes > self.budget_bytes {
+            return Err(budget_error());
+        }
+        Ok(StreamRenderBridgeResources {
+            bridge_bytes,
+            replay_frames,
+        })
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StreamRenderResources {
     /// Conservative requested component bytes; excludes backend storage and allocator/RSS overhead.
     pub resident_bytes: u64,
@@ -72,36 +126,16 @@ impl PreparedStreamRender {
         plan: &StreamPlan,
         config: StreamRenderConfig,
     ) -> Result<StreamRenderResources, EngineError> {
-        config.input_format.representation().integer_bounds()?;
-        config.native_format.representation().integer_bounds()?;
         if !geometry(config.input_format, plan.input_format())
             || !geometry(config.native_format, plan.output_format())
-            || config.period_frames == 0
-            || config.period_frames > 8192
-            || config.queue_frames < config.period_frames
         {
             return Err(format_error());
         }
         let first = plan.stage_info(0).ok_or_else(format_error)?;
-        let input_frames = first.input_quantum_frames;
-        let replay_frames = config
-            .queue_frames
-            .checked_add(config.period_frames)
-            .ok_or_else(budget_error)?;
-        let input = plan.input_format().storage_bytes(input_frames as u64)? as u64;
-        let output = plan
-            .output_format()
-            .storage_bytes(config.period_frames as u64)? as u64;
-        let replay = plan.output_format().storage_bytes(replay_frames as u64)? as u64;
-        let native = config
-            .native_format
-            .storage_bytes(config.period_frames as u64)? as u64;
-        let native = native.checked_mul(2).ok_or_else(budget_error)?;
-        let bridge_bytes = [input, output, replay, native]
-            .into_iter()
-            .try_fold(size_of::<Self>() as u64, |n, v| {
-                n.checked_add(v).ok_or_else(budget_error)
-            })?;
+        let StreamRenderBridgeResources {
+            bridge_bytes,
+            replay_frames,
+        } = config.bridge_resources(first.input_quantum_frames)?;
         let resources = plan.resources();
         let resident_bytes = resources
             .resident_bytes

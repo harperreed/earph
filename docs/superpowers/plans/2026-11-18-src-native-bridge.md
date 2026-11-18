@@ -24,7 +24,7 @@ Never infer an audible source cursor through SRC.
 - [x] Verify wrapping, partial submissions, repeated holds, invalid cursors, epochs, cancellation, and reset.
 - [x] Compose real SRC output with replay and compare against uninterrupted output.
 - [x] Add shared gain and single quantization after replay selection.
-- [ ] Add unequal-rate offline file rendering through the compiled stream plan.
+- [x] Add unequal-rate offline file rendering through the compiled stream plan.
 - [ ] Integrate live preparation resources and actual worker cancellation ownership.
 - [ ] Integrate native source/output counters and terminal stream completion.
 - [ ] Test actual owner/native flows, queue joins, holds, seek, replacement, and retirement.
@@ -98,3 +98,15 @@ Use the accepted source frontier for a declared muted graph replacement.
 Report discarded held output at replacement.
 Finish the stream only after the real final source EOF.
 Start native drain only after the stream is terminal and all valid output was submitted.
+
+## Bridge admission checkpoint
+
+StreamRenderConfig now exposes allocation-free bridge geometry admission before coefficient compilation.
+The prepared wrapper uses the same implementation for its complete resource check.
+It charges input conversion, output staging, replay, both native periods, and wrapper ownership.
+Native backend storage remains separate.
+Public API tests fail before the extraction and pass with it.
+The complete canonical check passes 525 tests, with three ignored and no warnings.
+Independent main-model review approves the two-file extraction without material findings.
+The reviewer reruns five wrapper scenarios and ten real offline CLI scenarios.
+Live GraphService admission still needs this helper and actual worker cancellation ownership.

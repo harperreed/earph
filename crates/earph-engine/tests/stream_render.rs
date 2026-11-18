@@ -184,11 +184,21 @@ fn invalid_held_restart_history_blocks_further_output_until_a_true_reset() {
 #[test]
 fn resource_preflight_checks_complete_bridge_storage_and_geometry_without_allocating() {
     let plan = plan();
+    let (bridge, counts) = allocations::tracked(|| config().bridge_resources(4).unwrap());
+    assert_eq!(counts, allocations::AllocationCounts::default());
     let (required, counts) = allocations::tracked(|| {
         PreparedStreamRender::resource_requirements(&plan, config()).unwrap()
     });
     assert_eq!(counts, allocations::AllocationCounts::default());
     assert_eq!(required.replay_frames, 6);
+    assert_eq!(bridge.bridge_bytes, required.bridge_bytes);
+    assert_eq!(bridge.replay_frames, required.replay_frames);
+    for quantum in [0, 8193, usize::MAX] {
+        assert_eq!(
+            config().bridge_resources(quantum).unwrap_err().code,
+            ErrorCode::FormatUnsupported
+        );
+    }
     assert!(required.bridge_bytes >= 6 * 8 + 4 * 8 + 2 * 8 + 2 * 2 * 2);
     let mut limited = config();
     limited.budget_bytes = required.preparation_peak_bytes - 1;
