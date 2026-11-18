@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "offline_public_dsp_components_release_on_macos_arm64",
+  "source_commit": "d829e34cf38c164e877cfffce25ec3e938a57e00",
+  "source_dirty": false,
+  "runtime_source_inputs_sha256": "a79c6b765154fb00ea6ed4c96bfcf62e2c623673626a03e89552f266f132c6d4",
+  "dependency_lock_sha256": "2e643da3997d586fb606c1a6cd31322959b54ff0ab6e8785fdb8a22809bebef2",
+  "component_hashes": {
+    "crates/earph-dsp/src/peq.rs": "474080ea74d6dc7c0ce6234e1c8251406302b9bba1c257fbb9a862a7f72d8128",
+    "crates/earph-dsp/src/convolution.rs": "32c08f3b211acb4a2352aea6d1e3e5fa9aa7ceaab0c192476e940821c0bac569",
+    "crates/earph-dsp/src/resample.rs": "e8b2169b9f27e5bb3569ab714245bc6cbfa3e408c759a41ecaca961423da1fc8",
+    "crates/earph-dsp/tests/peq.rs": "d1d3f3f719f15a1c54fc5bb782519202cf106ff5ef0bcc690d0d08102a935a90",
+    "crates/earph-dsp/tests/convolution.rs": "0fc60b63ca41f90c607ade0bcf97dd676ec7c0ee66577ec228d5b9a2eab902be",
+    "crates/earph-dsp/tests/resample.rs": "412a989c8d3373cb0cb49d0340d4025097bfb589f716b7314ace353703b34343",
+    "crates/earph-dsp/src/lib.rs": "a8f4c7657b86a113848ce41593e4f0181656612421ed56b517c9e8d77a478273"
+  },
+  "snapshot_files_verified": 1463,
+  "source_manifest_verifications": 6,
+  "snapshot_archive_sha256": "6b7f9587afa603d5f6340ec3d1623545693239f628dbea7af37c38bf9765601f",
+  "snapshot_file_manifest_sha256": "b59ab9f25d09805ea5c1cd827ce11d62f33e79fa64ad3f695427cdb9a4052791",
+  "platform": {
+    "arch": "aarch64",
+    "os": "macos",
+    "macos_version": "27.2.1",
+    "xcode": "27.2",
+    "xcode_build": "27B52",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "profile": "release",
+    "rustflags": "",
+    "cargo_encoded_rustflags": ""
+  },
+  "component_tests": {
+    "command": "cargo test --release --locked -p earph-dsp --lib --test peq --test convolution --test resample",
+    "exit": 0,
+    "passed": 55,
+    "ignored": 1,
+    "per_target": {
+      "lib": 9,
+      "convolution": 17,
+      "peq": 15,
+      "resample": 14
+    },
+    "log_sha256": "bfabd1dde5b18908cdc72b1642661878b4cf421924efd650eaaf3ba9705fce91"
+  },
+  "numeric_writer": {
+    "command": "cargo test --release --locked -p earph-dsp --test resample numeric_qualification_receipts -- --ignored --exact",
+    "exit": 0,
+    "passed": 1,
+    "fixed_cases": 30,
+    "drift_traces": 10,
+    "log_sha256": "fd0a92dbfb8884f4d6f0c88162c9aa44a93964dc7e910db812d98ba9fdb59b06"
+  },
+  "peq": {
+    "maximum_response_error_db": 5.992362162032805e-11,
+    "declared_limit_db": 0.01,
+    "rows": 48,
+    "receipt_sha256": "db197ce587f3b948f6d0d9c3681249fb00def065693dc543254a5e4664079e72",
+    "csv_sha256": "5916d1e296636b59b8a0ba6a8f74cf9eb075be9d9b8296aaa281cec5c64e91a0"
+  },
+  "convolution": {
+    "maximum_absolute_error": 1.6653345369377348e-16,
+    "relative_l2_error": 2.9899572310457566e-16,
+    "tolerance_max_absolute": 1e-9,
+    "tolerance_relative_l2": 1e-10,
+    "rendered_frames": 6405,
+    "latency_frames": 256,
+    "tail_frames": 4352,
+    "history_clear_frames": 4864,
+    "measured_heap_preparation_peak_bytes": 565264,
+    "admitted_preparation_peak_bytes": 738456,
+    "receipt_sha256": "dad8410d332b58167ef58e7982a822f98c4933b9ed84dba05c0ddfd58a7f783f"
+  },
+  "resample": {
+    "groups": {
+      "responsive_other": {
+        "cases": 12,
+        "max_passband_error_db": 0.0006144307201205036,
+        "worst_sampled_stopband_db": -101.86946113828444,
+        "declared_passband_limit_db": 0.01,
+        "declared_stopband_start_lower_nyquist_fraction": 1,
+        "max_requested_preparation_peak_bytes": 1579008,
+        "max_requested_resident_bytes": 540913
+      },
+      "responsive_half": {
+        "cases": 3,
+        "max_passband_error_db": 0.22569342989413976,
+        "worst_sampled_stopband_db": -127.25320102989647,
+        "declared_passband_limit_db": 0.25,
+        "declared_stopband_start_lower_nyquist_fraction": 1.05,
+        "max_requested_preparation_peak_bytes": 1579008,
+        "max_requested_resident_bytes": 539377
+      },
+      "quality": {
+        "cases": 15,
+        "max_passband_error_db": 2.035227583311152e-9,
+        "worst_sampled_stopband_db": -115.57591114319192,
+        "declared_passband_limit_db": 0.01,
+        "declared_stopband_start_lower_nyquist_fraction": 1,
+        "max_requested_preparation_peak_bytes": 6297600,
+        "max_requested_resident_bytes": 2132209
+      }
+    },
+    "fixed_cases": 30,
+    "drift_traces": 10,
+    "output_sha256_reported_by_writer": "6dcfd37fda4834d041defa24afd3e206d014ef8e6041e1e364585382d49d2770",
+    "rendered_sample_capture_persisted": false,
+    "response_csv_sha256": "fe06088d27d3aa3cab21a35fc398489891d5bace836b41177d2ec2a59f81ba26",
+    "receipt_sha256": "12a24ee08d5a2af37dc50eed9715c32b503ba6f14cd285140a0b5cfddd60f4af",
+    "linux_output_bit_identity": false,
+    "arithmetic": "f64, IEEE nearest, gradual underflow; no fast-math"
+  },
+  "preparation_stack_inspection": {
+    "schema_version": 1,
+    "status": "partial",
+    "scope": "FIR preparation compiler frames for offline macOS ARM64 release components",
+    "source_commit": "d829e34cf38c164e877cfffce25ec3e938a57e00",
+    "source_sha256": "32c08f3b211acb4a2352aea6d1e3e5fa9aa7ceaab0c192476e940821c0bac569",
+    "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "target": "aarch64-apple-darwin",
+    "profile": "release",
+    "rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "prepared_object_bytes": 33000,
+    "declared_preparation_stack_allowance_bytes": 140192,
+    "tested_executable_prepare_frame": {
+      "saved_registers": 96,
+      "remaining_locals": 336,
+      "total": 33200,
+      "probe_steps": 8,
+      "probe_stride_bytes": 4096
+    },
+    "emitted_library_prepare_frame": {
+      "saved_registers": 96,
+      "remaining_locals": 352,
+      "total": 33216,
+      "probe_steps": 8,
+      "probe_stride_bytes": 4096
+    },
+    "known_callee_frames": {
+      "ConvolutionDesign_analyze": 304,
+      "resources": 0,
+      "gamma": 0,
+      "prepare_roots": 0,
+      "fft": 48,
+      "PreparedConvolution_drop_glue": 32,
+      "RawVec_finish_grow": 48
+    },
+    "known_rust_preparation_chain_max_bytes": 33520,
+    "layout_probe_caller_frame": {
+      "saved_registers": 64,
+      "remaining_locals": 560,
+      "total": 66160,
+      "probe_steps": 16,
+      "probe_stride_bytes": 4096
+    },
+    "layout_probe_plus_known_preparation_chain_bytes": 99680,
+    "known_chain_below_declared_allowance": true,
+    "unknown_external_stack": [
+      "Rust allocator/reallocator/deallocator runtime",
+      "Darwin bzero and memcpy implementations",
+      "panic and unwind runtimes"
+    ],
+    "full_preparation_stack_upper_bound_bytes": null,
+    "limitations": [
+      "The tested integration executable and separately emitted library differ by 16 preparation-frame bytes; both are recorded.",
+      "The known product-owned Rust preparation path and the observed probe caller fit the declared allowance.",
+      "This inspection does not bound arbitrary caller frames, allocator/runtime frames, or panic/unwind stack.",
+      "The declared allowance remains compiler/configuration dependent and is not a proof of the complete process stack.",
+      "No CPU deadline or whole-worker realtime claim.",
+      "The raw analysis page_bytes field denotes a compiler probe stride; no Darwin VM page size is inferred."
+    ],
+    "evidence": [
+      "assembly/",
+      "fir-prepare-assembly.txt",
+      "convolution-tested-prepare-disassembly.txt",
+      "convolution-prepare-symbols.txt",
+      "fir-direct-call-analysis.json",
+      "stack-probe/fir_stack_probe.s",
+      "fir-resource-layout.json"
+    ]
+  },
+  "evidence_archive_sha256": "1dda08ed709dd0f00f0771ca084ef41ae094935e9d055f7012611ea3181056f9",
+  "evidence_file_manifest_sha256": "89d71a180420664e64b92d56349769209d76eab14293e47c216b305876d6dfc0",
+  "evidence_artifacts_verified": 49,
+  "audio_devices_opened": false,
+  "hardware_signals_submitted": 0,
+  "device_settings_changes_requested": false,
+  "whole_worker_realtime": "not_qualified",
+  "cpu_deadline_qualification": "not_run",
+  "graph_integration": "not_qualified",
+  "limitations": [
+    "These are component checks, not native graph integration qualification.",
+    "SRC response measurements sample finite frequency points and drift traces; they are not a continuous-frequency proof.",
+    "Responsive half-rate declares a0.25dB passband limit and stopband starting at1.05lowerNyquist.",
+    "ARM CSV and rendered-output hashes differ from Linux; declared numeric envelopes pass.",
+    "No complete preparation-stack bound is claimed for external runtime/allocator/unwind or arbitrary caller frames.",
+    "Numeric source/test/lock/CSV bindings and transferred raw artifact hashes verify independently; SRC output hash comes from the executed writer.",
+    "Requested allocation bytes do not measure RSS or allocator-private overhead."
+  ]
+}
