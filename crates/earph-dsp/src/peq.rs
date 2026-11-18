@@ -305,6 +305,40 @@ impl PeqDesign {
             .div(Interval::point(1.0).sub(Interval::point(self.runtime_decay)))
     }
 
+    /// Bound every future output after a bounded prior history and settling interval.
+    /// The stream starts at zero state with prior input bounded by `prior_input_peak`.
+    /// After that history, input stays bounded by `future_input_peak` throughout settling and every subsequent output being bounded.
+    pub fn settled_output_bound(
+        self,
+        prior_input_peak: f64,
+        future_input_peak: f64,
+        frames: usize,
+    ) -> Result<f64, PeqError> {
+        self.peak_bound(prior_input_peak)?;
+        self.peak_bound(future_input_peak)?;
+        // Positive state recurrence: Z' <= q*Z + c*epsilon + floor.
+        // The full forced steady-state sum bounds every horizon beyond `frames`.
+        let forced = self.state_bound(future_input_peak);
+        let transient = self
+            .state_bound(prior_input_peak)
+            .mul(Interval::point(power_upper(self.runtime_decay, frames)));
+        let bound = Interval::point(1.0)
+            .add(Interval::point(ROUND))
+            .mul(
+                Interval::point(self.coefficients[0].abs())
+                    .mul(Interval::point(future_input_peak))
+                    .add(transient)
+                    .add(forced),
+            )
+            .add(Interval::point(2.0 * TINY))
+            .hi;
+        if bound.is_finite() {
+            Ok(bound)
+        } else {
+            Err(PeqError::Numerical)
+        }
+    }
+
     /// Chooses zero-input frames. This is bounded IIR truncation, never natural support.
     pub fn tail(
         self,

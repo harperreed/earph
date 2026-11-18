@@ -18,6 +18,39 @@ fn design(filter: PeqFilter, rate: u32, channels: ChannelLayout) -> PeqDesign {
 }
 
 #[test]
+fn settled_envelope_bounds_small_persistent_input_after_large_history() {
+    let design = design(peak(40.0, 0.1, -24.0), 48000, ChannelLayout::Stereo);
+    let tail = design.tail(1.0, 1.0, 1e-12).unwrap();
+    for frames in [0, 1, 257, 16384] {
+        let mut kernel = design.instantiate(tail).unwrap();
+        let mut output = [0.0; 128];
+        for _ in 0..32 {
+            kernel.process(&[1.0; 128], &mut output).unwrap();
+        }
+        let epsilon = 1e-8;
+        let bound = design.settled_output_bound(1.0, epsilon, frames).unwrap();
+        for _ in 0..frames {
+            kernel
+                .process(&[epsilon, -epsilon], &mut output[..2])
+                .unwrap();
+        }
+        for _ in 0..1024 {
+            kernel
+                .process(&[epsilon, -epsilon], &mut output[..2])
+                .unwrap();
+            assert!(output[..2].iter().all(|x| x.abs() <= bound));
+        }
+    }
+    assert!(
+        design.settled_output_bound(1.0, 1e-8, 16384).unwrap()
+            < design.settled_output_bound(1.0, 1e-8, 0).unwrap()
+    );
+    for (past, future) in [(f64::NAN, 0.0), (1.0, -1.0), (1.0, f64::INFINITY)] {
+        assert!(design.settled_output_bound(past, future, 1).is_err());
+    }
+}
+
+#[test]
 fn peaking_impulse_matches_literal_cookbook_fixture_and_reset() {
     let design = design(peak(1000.0, 1.0, 6.0), 48000, ChannelLayout::Mono);
     let tail = design.tail(1.0, 1.0, 1e-12).unwrap();
