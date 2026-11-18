@@ -4,6 +4,7 @@ use crate::{
     graph::PreparedPipeline,
     output::{self, Counters, Output},
     plan::PlanView,
+    stream_render::SourceSpan,
 };
 use earph_core::{
     EngineError, ErrorCode,
@@ -15,7 +16,7 @@ use earph_core::{
     queue::{PreparationStatus, QueueEntry},
     session::{
         BackendObservation, PlaybackObservation, PlaybackProcessingObservation, PreservationState,
-        SessionSnapshot, TransportState,
+        SessionSnapshot, StreamingReplacementBoundary, StreamingRuntimeObservation, TransportState,
     },
 };
 use earph_media::LocalFile;
@@ -38,6 +39,10 @@ const BUSY: EngineError = EngineError::new(ErrorCode::SourceBusy, "playback cont
 const ENDED: EngineError = EngineError::new(
     ErrorCode::CapabilityUnsupported,
     "source ended before reposition",
+);
+const INVALID_STREAM_COUNT: EngineError = EngineError::new(
+    ErrorCode::InternalFault,
+    "stream source count disagrees with its offered span",
 );
 #[derive(Clone)]
 pub(crate) struct Settings {
@@ -294,6 +299,7 @@ impl Track {
     fn open(
         entry: QueueEntry,
         epochs: Epochs,
+        event_epochs: Epochs,
         events: &SyncSender<Event>,
     ) -> Result<Self, EngineError> {
         match LocalFile::open(Path::new(&entry.path), epochs) {
@@ -301,7 +307,7 @@ impl Track {
                 let packet = file.next_block()?;
                 item(
                     events,
-                    epochs,
+                    event_epochs,
                     &entry.id,
                     PreparationStatus::Ready {
                         format: file.format(),
@@ -318,7 +324,7 @@ impl Track {
             Err(error) => {
                 item(
                     events,
-                    epochs,
+                    event_epochs,
                     &entry.id,
                     PreparationStatus::Failed { code: error.code },
                 )?;
@@ -358,6 +364,8 @@ struct Playback {
     phase: RenderPhase,
     pending_kind: PendingPeriodKind,
     source_stream_position: u64,
+    source_epochs: Epochs,
+    replacement_boundary: Option<Arc<StreamingReplacementBoundary>>,
     saturation_count: u64,
     graph_peak: Option<f64>,
     prequantization_peak: Option<f64>,
@@ -408,7 +416,7 @@ impl Playback {
             }
             #[cfg(all(test, target_os = "linux"))]
             tests::after_preparation_check();
-            let track = Track::open(entry.clone(), epochs, events)?;
+            let track = Track::open(entry.clone(), epochs, epochs, events)?;
             if expected.is_some_and(|format| format != track.file.format()) {
                 item(
                     events,
@@ -425,7 +433,7 @@ impl Playback {
             }
             expected = Some(track.file.format());
         }
-        let current = Track::open(entries[selected_index].clone(), epochs, events)?;
+        let current = Track::open(entries[selected_index].clone(), epochs, epochs, events)?;
         let format = current.file.format();
         let config = settings.snapshot.output.as_ref().ok_or(FAILED)?;
         if cancel.load(Ordering::Acquire) {
@@ -450,6 +458,8 @@ impl Playback {
             phase: RenderPhase::Feeding,
             pending_kind: PendingPeriodKind::Source,
             source_stream_position: 0,
+            source_epochs: epochs,
+            replacement_boundary: None,
             saturation_count: 0,
             graph_peak: None,
             prequantization_peak: None,
@@ -496,6 +506,13 @@ impl Playback {
     fn epochs(&self) -> Epochs {
         self.settings.snapshot.epochs
     }
+    fn cancelled_stream_source(&self) -> bool {
+        self.cancel.load(Ordering::Acquire)
+            && self
+                .pipeline
+                .as_ref()
+                .is_some_and(|p| p.stream_render().is_some())
+    }
     fn format(&self) -> PcmFormat {
         self.current.file.format()
     }
@@ -505,10 +522,14 @@ impl Playback {
             .map_or(Some(0), |p| p.preview().timing.latency_frames())
     }
     fn native_period(&self) -> &PcmBlock {
-        self.pipeline
-            .as_ref()
-            .and_then(|p| p.render())
-            .map_or(&self.period, |r| r.period())
+        if let Some(stream) = self.pipeline.as_ref().and_then(|p| p.stream_render()) {
+            stream.period()
+        } else {
+            self.pipeline
+                .as_ref()
+                .and_then(|p| p.render())
+                .map_or(&self.period, |r| r.period())
+        }
     }
     fn record_render(&mut self, report: crate::render::RenderReport) {
         self.input_peak = Some(report.input_peak);
@@ -527,6 +548,11 @@ impl Playback {
         mut pipeline: PreparedPipeline,
         events: &SyncSender<Event>,
     ) -> Result<(), EngineError> {
+        if self.cancelled_stream_source() {
+            // Stop supersedes queued activation. Preserve the old source until native close.
+            drop(pipeline);
+            return Ok(());
+        }
         let binding = pipeline.binding();
         if binding != &activation.previous_binding
             || self.epochs() != binding.epochs
@@ -555,7 +581,22 @@ impl Playback {
                     "installed graph generation exhausted",
                 ))?;
         pipeline.reset(activation.epochs).map_err(render_error)?;
-        self.reposition(settings, None, events, false)?;
+        if self
+            .pipeline
+            .as_ref()
+            .is_some_and(|p| p.stream_render().is_some())
+        {
+            // The accepted source frontier is exact. Streaming has no inverse audible cursor.
+            self.reposition_with_boundary(
+                settings,
+                Some(self.source_position),
+                events,
+                false,
+                true,
+            )?;
+        } else {
+            self.reposition(settings, None, events, false)?;
+        }
         self.pipeline = Some(pipeline.activate());
         self.saturation_count = 0;
         self.graph_peak = None;
@@ -588,6 +629,9 @@ impl Playback {
         settings: Settings,
         events: &SyncSender<Event>,
     ) -> Result<(), EngineError> {
+        if self.cancelled_stream_source() {
+            return Ok(());
+        }
         if self.epochs() == settings.snapshot.epochs {
             let was_muted = self.settings.snapshot.muted;
             if !was_muted && settings.snapshot.muted {
@@ -612,14 +656,18 @@ impl Playback {
             Some(self.settings.snapshot.software_gain_db)
         };
         let ramp = self.settings.snapshot.gain_ramp_frames;
-        self.gain.set_target(gain, ramp).and_then(|()| {
+        self.gain.set_target(gain, ramp)?;
+        if let Some(stream) = self.pipeline.as_mut().and_then(|p| p.stream_render_mut()) {
+            return stream.set_gain_target(gain, ramp);
+        }
+        {
             self.pipeline
                 .as_mut()
                 .and_then(|p| p.render_mut())
                 .map_or(Ok(()), |r| {
                     r.set_gain_target(gain, ramp).map_err(render_error)
                 })
-        })
+        }
     }
     fn prefetch(&mut self, events: &SyncSender<Event>) -> Result<(), EngineError> {
         if self.next.is_some() || self.phase != RenderPhase::Feeding {
@@ -644,7 +692,7 @@ impl Playback {
                     next: Some(entry.id.clone()),
                 },
             )?;
-            let next = Track::open(entry.clone(), self.epochs(), events)?;
+            let next = Track::open(entry.clone(), self.source_epochs, self.epochs(), events)?;
             if next.file.format() != self.format() {
                 item(
                     events,
@@ -665,6 +713,9 @@ impl Playback {
     }
     fn observe(&mut self) -> Result<PlaybackObservation, EngineError> {
         let progress = self.output.progress()?;
+        if let Some(stream) = self.pipeline.as_mut().and_then(|p| p.stream_render_mut()) {
+            stream.observe(progress.submitted, restart_cursor(progress)?)?;
+        }
         self.last_counters = progress;
         Ok(self.observation(progress))
     }
@@ -713,19 +764,57 @@ impl Playback {
                 .pipeline
                 .as_ref()
                 .map(|p| PlaybackProcessingObservation {
+                    streaming: p.stream_render().map(|r| {
+                        let positions = r.output_positions();
+                        StreamingRuntimeObservation {
+                            source_epochs: self.source_epochs,
+                            output_epochs: positions.epochs,
+                            source_accepted_frames: r.stream().stats().source_frames,
+                            generated_output_frames: positions.generated,
+                            submission_frontier_frames: positions.next_submission,
+                            backend_origin_frames: positions.backend_origin,
+                            retained_start_frames: positions.retained_start,
+                        }
+                    }),
+                    source_boundary: self.replacement_boundary.clone(),
                     resident_bytes: p.resources().pipeline_bytes,
-                    audio_payload_bytes: p
-                        .render()
-                        .map_or(0, |r| r.resources().audio_payload_bytes),
-                    failure_node: p.render().and_then(|r| {
-                        r.graph().failure_node_index().and_then(|index| {
-                            r.graph()
+                    audio_payload_bytes: if p.stream_render().is_some() {
+                        None
+                    } else {
+                        Some(p.render().map_or(0, |r| r.resources().audio_payload_bytes))
+                    },
+                    failure_node: p
+                        .stream_render()
+                        .and_then(|r| {
+                            let stage = r.stream().failure()?.stage?;
+                            let graph = r.stream().island(stage)?;
+                            let node = graph
                                 .plan()
                                 .schedule()
-                                .get(index)
-                                .map(|node| node.id().clone())
+                                .get(graph.failure_node_index()?)?
+                                .id();
+                            let earph_core::graph_control::GraphTiming::Streaming { stages } =
+                                &p.preview().timing
+                            else {
+                                return None;
+                            };
+                            stages
+                                .get(stage)?
+                                .original_nodes
+                                .contains(node)
+                                .then(|| node.clone())
                         })
-                    }),
+                        .or_else(|| {
+                            p.render().and_then(|r| {
+                                r.graph().failure_node_index().and_then(|index| {
+                                    r.graph()
+                                        .plan()
+                                        .schedule()
+                                        .get(index)
+                                        .map(|node| node.id().clone())
+                                })
+                            })
+                        }),
                     graph_hash: p.preview().graph_hash.clone(),
                     timing: p.preview().timing.playback_timing(),
                     saturation_count: self.saturation_count,
@@ -738,13 +827,20 @@ impl Playback {
             backend_delay_frames: counters.delay,
             consumption_basis: counters.basis,
             source_entry_id: self.current.entry.id.clone(),
-            source_position_frames: self
-                .current
-                .packet
+            source_position_frames: if self
+                .pipeline
                 .as_ref()
-                .map_or(self.source_position, |packet| {
-                    packet.header().frame_position + packet.header().frame_count
-                }),
+                .is_some_and(|p| p.stream_render().is_some())
+            {
+                self.source_position
+            } else {
+                self.current
+                    .packet
+                    .as_ref()
+                    .map_or(self.source_position, |packet| {
+                        packet.header().frame_position + packet.header().frame_count
+                    })
+            },
             audible_entry_id: audible.as_ref().map(|(id, _)| id.clone()),
             audible_source_position_frames: audible.map(|(_, position)| position),
             input_peak: self.input_peak,
@@ -760,7 +856,60 @@ impl Playback {
         events: &SyncSender<Event>,
         notify: bool,
     ) -> Result<(), EngineError> {
+        self.reposition_with_boundary(settings, position, events, notify, false)
+    }
+    fn reposition_with_boundary(
+        &mut self,
+        settings: Settings,
+        position: Option<u64>,
+        events: &SyncSender<Event>,
+        notify: bool,
+        replacement: bool,
+    ) -> Result<(), EngineError> {
+        if self.cancelled_stream_source() {
+            return Ok(());
+        }
         let counters = self.output.suspend(settings.snapshot.epochs)?;
+        if let Some(stream) = self.pipeline.as_mut().and_then(|p| p.stream_render_mut()) {
+            let restart = restart_cursor(counters)?;
+            if position.is_none() {
+                stream.hold(counters.submitted, restart, settings.snapshot.epochs)?;
+                self.settings = settings;
+                self.stream_position = 0;
+                self.pending = false;
+                self.started = false;
+                if self.phase == RenderPhase::BackendDrain {
+                    self.phase = RenderPhase::GraphTail;
+                }
+                self.set_gain()?;
+                if notify {
+                    let observation = self.observe()?;
+                    emit(
+                        events,
+                        Event::Paused {
+                            epochs: self.epochs(),
+                            observation,
+                        },
+                    )?;
+                }
+                return Ok(());
+            }
+            if replacement {
+                // Validate the old backend cursor before recording discarded held output.
+                stream.observe(counters.submitted, restart)?;
+                let output = stream.output_positions();
+                let frontier = output.backend_origin.checked_add(restart).ok_or(FAILED)?;
+                self.replacement_boundary = Some(Arc::new(StreamingReplacementBoundary {
+                    source_entry_id: self.current.entry.id.clone(),
+                    source_position_frames: self.source_position,
+                    source_epochs: self.source_epochs,
+                    discarded_output_frames: output
+                        .generated
+                        .checked_sub(frontier)
+                        .ok_or(FAILED)?,
+                }));
+            }
+        }
         let requested = if let Some(position) = position {
             (self.current.entry.clone(), position)
         } else {
@@ -788,9 +937,10 @@ impl Playback {
         let reset_graph = settings.snapshot.epochs != self.epochs();
         self.settings = settings;
         if self.current.entry.id != requested.0.id {
-            self.current = Track::open(requested.0, self.epochs(), events)?;
+            self.current = Track::open(requested.0, self.epochs(), self.epochs(), events)?;
         }
         self.current.seek(requested.1, self.epochs())?;
+        self.source_epochs = self.epochs();
         self.next = None;
         self.pending = false;
         self.period_offset = 0;
@@ -838,6 +988,23 @@ impl Playback {
         if !self.settings.playing || self.settings.snapshot.muted {
             return Ok(false);
         }
+        if self
+            .pipeline
+            .as_ref()
+            .is_some_and(|p| p.stream_render().is_some())
+        {
+            let result = self.step_streaming(events);
+            if result
+                .as_ref()
+                .is_err_and(|error| error.code == ErrorCode::OperationCancelled)
+                && self.cancel.load(Ordering::Acquire)
+            {
+                // Cancellation may arrive inside a stream call, after the entry check.
+                self.output.stop()?;
+                return Ok(true);
+            }
+            return result;
+        }
         if self.phase == RenderPhase::BackendDrain {
             if let Some(counters) = self.output.finish()? {
                 self.last_counters = counters;
@@ -869,72 +1036,8 @@ impl Playback {
             }
         }
         if !self.pending {
-            loop {
-                if self.current.packet.is_none() {
-                    match self.current.file.next_block() {
-                        Ok(Some(packet)) => {
-                            self.current.packet = Some(packet);
-                            self.current.offset = 0;
-                        }
-                        Ok(None) => {
-                            self.prefetch(events)?;
-                            if let Some(next) = self.next.take() {
-                                self.current = next;
-                                self.source_position = 0;
-                                self.spans.push(Span {
-                                    entry: self.current.entry.clone(),
-                                    start: self.source_stream_position,
-                                    source_start: 0,
-                                    end: self.source_stream_position,
-                                });
-                                let next_id = {
-                                    let mut view = self.view.lock().map_err(|_| FAILED)?;
-                                    view.active = Some(self.current.entry.id.clone());
-                                    view.reserved = view
-                                        .following(&self.current.entry.id)
-                                        .map(|entry| entry.id);
-                                    view.reserved.clone()
-                                };
-                                emit(
-                                    events,
-                                    Event::Reserved {
-                                        epochs: self.epochs(),
-                                        active: self.current.entry.id.clone(),
-                                        next: next_id,
-                                    },
-                                )?;
-                                self.prefetch(events)?;
-                                continue;
-                            }
-                            {
-                                let Ok(view) = self.view.try_lock() else {
-                                    return Ok(false);
-                                };
-                                if view.following(&self.current.entry.id).is_some() {
-                                    return Ok(false);
-                                }
-                            }
-                            self.phase = RenderPhase::GraphTail;
-                            emit(
-                                events,
-                                Event::End {
-                                    epochs: self.epochs(),
-                                },
-                            )?;
-                            return Ok(false);
-                        }
-                        Err(error) => {
-                            item(
-                                events,
-                                self.epochs(),
-                                &self.current.entry.id,
-                                PreparationStatus::Failed { code: error.code },
-                            )?;
-                            return Err(error);
-                        }
-                    }
-                }
-                break;
+            if !self.source_packet(events)? {
+                return Ok(false);
             }
             let packet = self.current.packet.as_ref().ok_or(FAILED)?;
             let count = (packet.header().frame_count as usize - self.current.offset)
@@ -1021,6 +1124,237 @@ impl Playback {
         }
         Ok(false)
     }
+    fn stream_progress(&mut self) -> Result<(), EngineError> {
+        let observation = self.observe()?;
+        if let Ok(mut latest) = self.progress.try_lock() {
+            *latest = Some((self.epochs(), observation));
+        }
+        Ok(())
+    }
+    fn stage_stream(&mut self) -> Result<(), EngineError> {
+        if self.pending {
+            return Ok(());
+        }
+        let render = self
+            .pipeline
+            .as_mut()
+            .and_then(|p| p.stream_render_mut())
+            .ok_or(FAILED)?;
+        if let Some(report) = render.stage()? {
+            self.graph_peak = Some(report.graph_peak);
+            self.prequantization_peak = Some(report.prequantization_peak);
+            self.output_peak = Some(report.output_peak);
+            self.saturation_count = self
+                .saturation_count
+                .saturating_add(report.saturation_count);
+            self.modified = true;
+            self.pending = true;
+        }
+        Ok(())
+    }
+    fn step_streaming(&mut self, events: &SyncSender<Event>) -> Result<bool, EngineError> {
+        if self.phase == RenderPhase::BackendDrain {
+            if let Some(counters) = self.output.finish()? {
+                self.pipeline
+                    .as_mut()
+                    .and_then(|p| p.stream_render_mut())
+                    .ok_or(FAILED)?
+                    .observe(counters.submitted, restart_cursor(counters)?)?;
+                self.last_counters = counters;
+                self.phase = RenderPhase::Finished;
+                return Ok(true);
+            }
+            self.output.wait()?;
+            return Ok(false);
+        }
+        self.stage_stream()?;
+        if !self.pending {
+            if self.phase == RenderPhase::Feeding && !self.source_packet(events)? {
+                return Ok(false);
+            }
+            let stream = self
+                .pipeline
+                .as_mut()
+                .and_then(|p| p.stream_render_mut())
+                .ok_or(FAILED)?;
+            if self.phase == RenderPhase::GraphTail {
+                stream.finish()?;
+            } else {
+                let packet = self.current.packet.as_ref().ok_or(FAILED)?;
+                let count = (packet.header().frame_count as usize - self.current.offset).min(
+                    stream
+                        .stream()
+                        .stage_info(0)
+                        .ok_or(FAILED)?
+                        .input_quantum_frames,
+                );
+                let before = stream.stream().stats().source_frames;
+                let result = stream.pump(Some(SourceSpan {
+                    block: packet,
+                    offset: self.current.offset,
+                    frames: count,
+                }));
+                let consumed = usize::try_from(
+                    stream
+                        .stream()
+                        .stats()
+                        .source_frames
+                        .checked_sub(before)
+                        .ok_or(INVALID_STREAM_COUNT)?,
+                )
+                .map_err(|_| INVALID_STREAM_COUNT)?;
+                if consumed > count
+                    || result
+                        .as_ref()
+                        .is_ok_and(|step| step.consumed_frames != consumed)
+                {
+                    return Err(INVALID_STREAM_COUNT);
+                }
+                let channels = self.format().channels().count();
+                let reference = -(self.format().representation().integer_bounds()?.0 as f64);
+                let mut peak = 0.0_f64;
+                for index in
+                    self.current.offset * channels..(self.current.offset + consumed) * channels
+                {
+                    peak = peak.max(
+                        (packet.integer_sample(index).ok_or(FAILED)? as f64 / reference).abs(),
+                    );
+                }
+                if consumed != 0 {
+                    self.input_peak = Some(peak);
+                }
+                self.current.offset += consumed;
+                self.source_position = self
+                    .source_position
+                    .checked_add(consumed as u64)
+                    .ok_or(FAILED)?;
+                self.source_stream_position = self
+                    .source_stream_position
+                    .checked_add(consumed as u64)
+                    .ok_or(FAILED)?;
+                if self.current.offset == packet.header().frame_count as usize {
+                    self.current.packet = None;
+                }
+                result?;
+            }
+            self.stage_stream()?;
+            if !self.pending {
+                if self
+                    .pipeline
+                    .as_ref()
+                    .and_then(|p| p.stream_render())
+                    .ok_or(FAILED)?
+                    .finished()
+                {
+                    self.phase = RenderPhase::BackendDrain;
+                }
+                self.stream_progress()?;
+                return Ok(false);
+            }
+        }
+        let render = self
+            .pipeline
+            .as_mut()
+            .and_then(|p| p.stream_render_mut())
+            .ok_or(FAILED)?;
+        let offset = render.period_offset();
+        let count = render.period().header().frame_count as usize - offset;
+        match self.output.write(render.period(), offset, count)? {
+            Some(frames) => {
+                render.accepted(frames)?;
+                self.stream_position = self
+                    .stream_position
+                    .checked_add(frames as u64)
+                    .ok_or(FAILED)?;
+                if !self.started && self.output.is_running() {
+                    emit(
+                        events,
+                        Event::Started {
+                            epochs: self.epochs(),
+                        },
+                    )?;
+                    self.started = true;
+                }
+                self.pending = frames != count;
+                self.stream_progress()?;
+            }
+            None => self.output.wait()?,
+        }
+        Ok(false)
+    }
+    fn source_packet(&mut self, events: &SyncSender<Event>) -> Result<bool, EngineError> {
+        loop {
+            if self.current.packet.is_some() {
+                return Ok(true);
+            }
+            match self.current.file.next_block() {
+                Ok(Some(packet)) => {
+                    self.current.packet = Some(packet);
+                    self.current.offset = 0;
+                }
+                Ok(None) => {
+                    self.prefetch(events)?;
+                    if let Some(next) = self.next.take() {
+                        self.current = next;
+                        self.source_position = 0;
+                        self.spans.push(Span {
+                            entry: self.current.entry.clone(),
+                            start: self.source_stream_position,
+                            source_start: 0,
+                            end: self.source_stream_position,
+                        });
+                        let next = {
+                            let mut view = self.view.lock().map_err(|_| FAILED)?;
+                            view.active = Some(self.current.entry.id.clone());
+                            view.reserved =
+                                view.following(&self.current.entry.id).map(|entry| entry.id);
+                            view.reserved.clone()
+                        };
+                        emit(
+                            events,
+                            Event::Reserved {
+                                epochs: self.epochs(),
+                                active: self.current.entry.id.clone(),
+                                next,
+                            },
+                        )?;
+                        self.prefetch(events)?;
+                    } else {
+                        let Ok(view) = self.view.try_lock() else {
+                            return Ok(false);
+                        };
+                        if view.following(&self.current.entry.id).is_some() {
+                            return Ok(false);
+                        }
+                        self.phase = RenderPhase::GraphTail;
+                        emit(
+                            events,
+                            Event::End {
+                                epochs: self.epochs(),
+                            },
+                        )?;
+                        return Ok(false);
+                    }
+                }
+                Err(error) => {
+                    item(
+                        events,
+                        self.epochs(),
+                        &self.current.entry.id,
+                        PreparationStatus::Failed { code: error.code },
+                    )?;
+                    return Err(error);
+                }
+            }
+        }
+    }
+}
+
+fn restart_cursor(counters: Counters) -> Result<u64, EngineError> {
+    counters.restart_cursor.ok_or(EngineError::new(
+        ErrorCode::CapabilityUnsupported,
+        "streaming requires a known backend restart boundary",
+    ))
 }
 
 struct SourceTerminal {
@@ -1232,6 +1566,43 @@ fn retain_source_failure(
     }
 }
 type StoppedSource = (Settings, PlaybackObservation, Option<EngineError>);
+fn action_failure(
+    playback: &mut Option<Playback>,
+    stopped: &mut Option<StoppedSource>,
+    terminal: &mut Option<SourceTerminal>,
+    mut settings: Option<Settings>,
+    error: EngineError,
+    before_control: Option<(Settings, PlaybackObservation)>,
+    events: &SyncSender<Event>,
+) {
+    if error.code == ErrorCode::OperationCancelled
+        && playback
+            .as_ref()
+            .is_some_and(Playback::cancelled_stream_source)
+    {
+        let mut current = playback.take().expect("checked live source");
+        let (context, observation) = before_control
+            .unwrap_or_else(|| (current.failure_context(None), current.failure_observation()));
+        let close_error = current.output.stop().err();
+        clear_reservation(&current.view, context.snapshot.epochs);
+        clear_reservation(&current.view, current.epochs());
+        if let Some(error) = close_error {
+            retain_source_failure(terminal, &context, error, Some(observation.clone()), events);
+        }
+        *stopped = Some((context, observation, close_error));
+        return;
+    }
+    let observation = playback.take().map(|mut current| {
+        let observation = current.failure_observation();
+        let _ = current.output.stop();
+        clear_reservation(&current.view, current.epochs());
+        settings = Some(current.failure_context(settings.take()));
+        observation
+    });
+    if let Some(settings) = settings {
+        retain_source_failure(terminal, &settings, error, observation, events);
+    }
+}
 fn stop_source(
     request: StopRequest,
     playback: &mut Option<Playback>,
@@ -1308,6 +1679,17 @@ fn run(
                 | Action::Settings(settings) => Some(settings.clone()),
                 _ => None,
             };
+            // Controls submit no audio. Retain coherent facts before a partial seek or hold.
+            let before_control = failure_settings.as_ref().and_then(|_| {
+                playback
+                    .as_ref()
+                    .filter(|p| {
+                        p.pipeline
+                            .as_ref()
+                            .is_some_and(|p| p.stream_render().is_some())
+                    })
+                    .map(|p| (p.failure_context(None), p.failure_observation()))
+            });
             let result = match action {
                 Action::ActivateGraph {
                     settings,
@@ -1429,17 +1811,15 @@ fn run(
                 }
             };
             if let Err(error) = result {
-                let mut settings = failure_settings;
-                let observation = playback.take().map(|mut current| {
-                    let observation = current.failure_observation();
-                    let _ = current.output.stop();
-                    clear_reservation(&view, current.epochs());
-                    settings = Some(current.failure_context(settings.take()));
-                    observation
-                });
-                if let Some(settings) = settings {
-                    retain_source_failure(&mut terminal, &settings, error, observation, &events);
-                }
+                action_failure(
+                    &mut playback,
+                    &mut stopped,
+                    &mut terminal,
+                    failure_settings,
+                    error,
+                    before_control,
+                    &events,
+                );
             }
         }
         if let Some(current) = &mut playback {
@@ -1880,8 +2260,28 @@ pub(crate) mod tests {
         settings: &Settings,
         observation: &PlaybackObservation,
     ) -> (Settings, GraphActivationRequest, PreparedPipeline) {
-        use earph_core::{graph::*, graph_control::*, ids::PreparedGraphId};
         use serde_json::json;
+        let port = json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":64});
+        let graph = serde_json::from_value(json!({"schema_version":1,"nodes":[
+            {"id":"in","kind":{"kind":"input"},"format":port},
+            {"id":"out","kind":{"kind":"output"},"format":port}],
+            "edges":[{"from":"in","to":"out","from_port":0,"to_port":0}],"output":"out"}))
+        .unwrap();
+        prepare_activation_graph(
+            settings,
+            observation,
+            graph,
+            Arc::new(AtomicBool::new(false)),
+        )
+    }
+    #[cfg(target_os = "linux")]
+    fn prepare_activation_graph(
+        settings: &Settings,
+        observation: &PlaybackObservation,
+        graph: earph_core::graph::GraphDocument,
+        source_cancel: Arc<AtomicBool>,
+    ) -> (Settings, GraphActivationRequest, PreparedPipeline) {
+        use earph_core::{graph::*, graph_control::*, ids::PreparedGraphId};
         let mut snapshot = settings.snapshot.clone();
         snapshot.playback = Some(observation.clone());
         let binding = GraphBinding {
@@ -1891,12 +2291,6 @@ pub(crate) mod tests {
             device_epoch: snapshot.device_epoch,
             expected_revision: snapshot.revision,
         };
-        let port = json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":64});
-        let graph = serde_json::from_value(json!({"schema_version":1,"nodes":[
-            {"id":"in","kind":{"kind":"input"},"format":port},
-            {"id":"out","kind":{"kind":"output"},"format":port}],
-            "edges":[{"from":"in","to":"out","from_port":0,"to_port":0}],"output":"out"}))
-        .unwrap();
         let request_id = RequestId::new("activate-after-native-finish").unwrap();
         let mut service = crate::graph::GraphService::spawn(None).unwrap();
         service
@@ -1914,7 +2308,7 @@ pub(crate) mod tests {
                     deadline_monotonic_ns: u64::MAX,
                 },
                 snapshot,
-                Arc::new(AtomicBool::new(false)),
+                source_cancel,
             )
             .unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -1942,11 +2336,599 @@ pub(crate) mod tests {
         (settings, activation, result.pipeline.unwrap())
     }
     #[cfg(target_os = "linux")]
+    fn streaming_playback() -> (Playback, SyncSender<Event>, Receiver<Event>) {
+        streaming_playback_frames(65)
+    }
+    #[cfg(target_os = "linux")]
+    fn streaming_playback_frames(frames: usize) -> (Playback, SyncSender<Event>, Receiver<Event>) {
+        streaming_playback_chunk(frames, 64, "responsive")
+    }
+    #[cfg(target_os = "linux")]
+    fn streaming_playback_chunk(
+        frames: usize,
+        chunk: usize,
+        preset: &str,
+    ) -> (Playback, SyncSender<Event>, Receiver<Event>) {
+        let (mut playback, events, receiver) = prepared_nonzero_frames(frames);
+        playback.settings.snapshot.software_gain_db = -48.0;
+        let graph = serde_json::from_value({
+            let port = serde_json::json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":2048});
+            let mut middle = port.clone();
+            middle["sample_rate_hz"] = serde_json::json!(44100);
+            serde_json::json!({"schema_version":1,"output":"out","nodes":[
+                {"id":"in","kind":{"kind":"input"},"format":port},
+                {"id":"down","kind":{"kind":"src","input_rate_hz":48000,"preset":preset,"chunk_frames":chunk},"format":middle},
+                {"id":"up","kind":{"kind":"src","input_rate_hz":44100,"preset":preset,"chunk_frames":chunk},"format":port},
+                {"id":"out","kind":{"kind":"output"},"format":port}],
+                "edges":[{"from":"in","to":"down","from_port":0,"to_port":0},{"from":"down","to":"up","from_port":0,"to_port":0},{"from":"up","to":"out","from_port":0,"to_port":0}]})
+        }).unwrap();
+        let observed = playback.observe().unwrap();
+        let (settings, activation, pipeline) = prepare_activation_graph(
+            &playback.settings,
+            &observed,
+            graph,
+            playback.cancel.clone(),
+        );
+        playback
+            .activate_graph(settings, activation, pipeline, &events)
+            .unwrap();
+        playback.settings.snapshot.graph_epoch = 1;
+        playback.settings.snapshot.muted = false;
+        playback.set_gain().unwrap();
+        receiver.try_iter().for_each(drop);
+        (playback, events, receiver)
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn streaming_priming_accepts_source_without_claiming_native_output_or_eof() {
+        let (mut playback, events, _receiver) = streaming_playback();
+        assert!(!playback.step(&events).unwrap());
+        let observed = playback.observe().unwrap();
+        assert_eq!(observed.source_position_frames, 64);
+        assert_eq!(observed.submitted_frames, 0);
+        assert_eq!(playback.current.offset, 64);
+        assert_eq!(playback.phase, RenderPhase::Feeding);
+        assert!(observed.audible_source_position_frames.is_none());
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn streaming_hold_retains_packet_epoch_and_history_then_true_seek_resets_both() {
+        let (mut playback, events, _receiver) = streaming_playback();
+        playback.step(&events).unwrap();
+        let source_epoch = playback.current.packet.as_ref().unwrap().header().epochs;
+        let before = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .stream()
+            .stats();
+        let mut pause = playback.settings.clone();
+        pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+        pause.snapshot.muted = true;
+        pause.playing = false;
+        playback.reposition(pause, None, &events, true).unwrap();
+        assert_eq!(
+            playback.current.packet.as_ref().unwrap().header().epochs,
+            source_epoch
+        );
+        assert_eq!(playback.current.offset, 64);
+        assert_eq!(
+            playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .stream()
+                .stats(),
+            before
+        );
+        let mut seek = playback.settings.clone();
+        seek.snapshot.epochs = seek.snapshot.epochs.next_stream().unwrap();
+        playback
+            .reposition(seek.clone(), Some(17), &events, true)
+            .unwrap();
+        assert!(playback.current.packet.is_none());
+        assert_eq!(playback.source_position, 17);
+        let render = playback.pipeline.as_ref().unwrap().stream_render().unwrap();
+        assert_eq!(render.stream().stats().source_frames, 0);
+        assert_eq!(render.output_positions().generated, 0);
+        assert_eq!(render.control_epochs(), seek.snapshot.epochs);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn streaming_running_holds_preserve_frontiers_and_resume_the_original_packet_epoch() {
+        let (mut playback, events, _receiver) = streaming_playback_frames(8193);
+        for _ in 0..64 {
+            playback.step(&events).unwrap();
+            if playback.stream_position > 0 {
+                break;
+            }
+        }
+        assert!(playback.stream_position > 0);
+        let source_epoch = playback.source_epochs;
+        let before = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .stream()
+            .stats();
+        let source_position = playback.source_position;
+        for _ in 0..2 {
+            let mut pause = playback.settings.clone();
+            pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+            pause.snapshot.muted = true;
+            playback.reposition(pause, None, &events, true).unwrap();
+            let render = playback.pipeline.as_ref().unwrap().stream_render().unwrap();
+            assert_eq!(render.stream().stats(), before);
+            assert_eq!(render.output_positions().generated, before.output_frames);
+            assert_eq!(
+                render.output_positions().retained_start,
+                render.output_positions().backend_origin
+            );
+            assert_eq!(playback.source_position, source_position);
+            assert_eq!(playback.source_epochs, source_epoch);
+            assert_eq!(
+                playback.current.packet.as_ref().unwrap().header().epochs,
+                source_epoch
+            );
+        }
+        playback.settings.snapshot.muted = false;
+        playback.set_gain().unwrap();
+        for _ in 0..8 {
+            playback.step(&events).unwrap();
+        }
+        assert!(playback.source_position > source_position);
+        let observation = playback.observe().unwrap();
+        let stream = observation.processing.unwrap().streaming.unwrap();
+        assert_eq!(stream.source_epochs, source_epoch);
+        assert_eq!(stream.output_epochs, playback.epochs());
+        assert!(stream.output_epochs.stream > stream.source_epochs.stream);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn streaming_replacement_rebinds_the_accepted_source_frontier_without_cancelling_source() {
+        let (mut playback, events, receiver) = streaming_playback_frames(8193);
+        for _ in 0..16 {
+            playback.step(&events).unwrap();
+        }
+        let accepted = playback.source_position;
+        let source_epoch = playback.source_epochs;
+        let old_hash = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .preview()
+            .graph_hash
+            .clone();
+        let source_cancel = playback.cancel.clone();
+        let mut pause = playback.settings.clone();
+        pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+        pause.snapshot.muted = true;
+        playback.reposition(pause, None, &events, true).unwrap();
+        let observed = playback.observe().unwrap();
+        let (settings, activation, pipeline) = prepare_activation(&playback.settings, &observed);
+        playback
+            .activate_graph(settings, activation, pipeline, &events)
+            .unwrap();
+        let observation = playback.observe().unwrap();
+        let processing = observation.processing.unwrap();
+        assert_ne!(processing.graph_hash, old_hash);
+        let boundary = processing.source_boundary.unwrap();
+        assert_eq!(boundary.source_position_frames, accepted);
+        assert_eq!(boundary.source_epochs, source_epoch);
+        assert!(processing.streaming.is_none());
+        assert_eq!(playback.source_position, accepted);
+        assert_eq!(playback.source_epochs, playback.epochs());
+        assert!(playback.current.packet.is_none());
+        assert!(!source_cancel.load(Ordering::Acquire));
+        receiver.try_iter().for_each(drop);
+        playback.settings.snapshot.muted = false;
+        playback.set_gain().unwrap();
+        playback.step(&events).unwrap();
+        assert!(playback.source_position > accepted);
+        assert!(!source_cancel.load(Ordering::Acquire));
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn streaming_holds_at_source_eof_and_before_native_drain_do_not_restart_finish() {
+        let (mut playback, events, _receiver) = streaming_playback();
+        for _ in 0..64 {
+            playback.step(&events).unwrap();
+            if playback.phase == RenderPhase::GraphTail {
+                break;
+            }
+        }
+        assert_eq!(playback.phase, RenderPhase::GraphTail);
+        let mut pause = playback.settings.clone();
+        pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+        pause.snapshot.muted = true;
+        playback.reposition(pause, None, &events, true).unwrap();
+        assert!(playback.current.packet.is_none());
+        playback.settings.snapshot.muted = false;
+        playback.set_gain().unwrap();
+        for _ in 0..256 {
+            playback.step(&events).unwrap();
+            if playback.phase == RenderPhase::BackendDrain {
+                break;
+            }
+        }
+        assert_eq!(playback.phase, RenderPhase::BackendDrain);
+        let before = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .stream()
+            .stats();
+        let mut pause = playback.settings.clone();
+        pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+        pause.snapshot.muted = true;
+        playback.reposition(pause, None, &events, true).unwrap();
+        assert_eq!(playback.phase, RenderPhase::GraphTail);
+        playback.settings.snapshot.muted = false;
+        playback.set_gain().unwrap();
+        for _ in 0..16 {
+            if playback.step(&events).unwrap() {
+                break;
+            }
+        }
+        assert_eq!(playback.phase, RenderPhase::Finished);
+        assert_eq!(
+            playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .stream()
+                .stats(),
+            before
+        );
+        assert_eq!(before.source_frames, 65);
+    }
+    #[cfg(target_os = "linux")]
+    fn staged_streaming_playback() -> (Playback, SyncSender<Event>, Receiver<Event>, usize) {
+        let (mut playback, events, receiver) = streaming_playback_frames(8193);
+        let mut staged = None;
+        for _ in 0..256 {
+            playback.step(&events).unwrap();
+            let render = playback
+                .pipeline
+                .as_mut()
+                .unwrap()
+                .stream_render_mut()
+                .unwrap();
+            let step = render.pump(None).unwrap();
+            if step.produced_frames >= 2 {
+                playback.stage_stream().unwrap();
+                staged = Some(playback.native_period().header().frame_count as usize);
+                break;
+            }
+        }
+        let frames = staged.expect("real SRC output never staged a splittable native period");
+        (playback, events, receiver, frames)
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn streaming_worker_continues_an_actual_partially_submitted_native_period() {
+        let (mut playback, events, _receiver, frames) = staged_streaming_playback();
+        let source_position = playback.source_position;
+        let submitted = playback.stream_position;
+        let render = playback
+            .pipeline
+            .as_mut()
+            .unwrap()
+            .stream_render_mut()
+            .unwrap();
+        let accepted = playback
+            .output
+            .write(render.period(), 0, 7.min(frames - 1))
+            .unwrap()
+            .unwrap();
+        assert!(accepted > 0 && accepted < frames);
+        render.accepted(accepted).unwrap();
+        playback.stream_position += accepted as u64;
+        assert_eq!(render.period_offset(), accepted);
+        playback.step(&events).unwrap();
+        assert_eq!(playback.source_position, source_position);
+        assert_eq!(playback.stream_position, submitted + frames as u64);
+        assert!(!playback.pending);
+        let render = playback.pipeline.as_ref().unwrap().stream_render().unwrap();
+        assert_eq!(render.period_offset(), 0);
+        assert_eq!(
+            render.output_positions().next_submission - render.output_positions().backend_origin,
+            playback.stream_position
+        );
+        assert_eq!(
+            playback.output.progress().unwrap().submitted,
+            playback.stream_position
+        );
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn streaming_stop_keeps_a_native_prefix_written_before_source_cancellation() {
+        let (mut playback, events, _receiver, frames) = staged_streaming_playback();
+        let render = playback
+            .pipeline
+            .as_mut()
+            .unwrap()
+            .stream_render_mut()
+            .unwrap();
+        let accepted = playback
+            .output
+            .write(render.period(), 0, 7.min(frames - 1))
+            .unwrap()
+            .unwrap();
+        assert!(accepted > 0 && accepted < frames);
+        let actual_native = playback.output.progress().unwrap().submitted;
+        playback.cancel.store(true, Ordering::Release);
+        render
+            .accepted(accepted)
+            .expect("an irrevocable native write must remain acknowledged after cancellation");
+        playback.stream_position += accepted as u64;
+        let positions = render.output_positions();
+        assert_eq!(
+            positions.next_submission - positions.backend_origin,
+            actual_native
+        );
+        assert_eq!(
+            render.pump(None).unwrap_err().code,
+            ErrorCode::OperationCancelled
+        );
+        assert!(playback.step(&events).unwrap());
+        assert_eq!(
+            playback.failure_observation().submitted_frames,
+            actual_native
+        );
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn queued_stream_transport_cannot_erase_native_progress_after_stop_cancels_source() {
+        for transport in 0..3 {
+            let (mut current, events, receiver, _) = staged_streaming_playback();
+            let activation = if transport == 2 {
+                let observation = current.observe().unwrap();
+                Some(prepare_activation(&current.settings, &observation))
+            } else {
+                None
+            };
+            let graph_hash = current
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .preview()
+                .graph_hash
+                .clone();
+            let native = current.output.progress().unwrap().submitted;
+            assert!(native > 0);
+            let source_epochs = current.epochs();
+            let view = current.view.clone();
+            let mut pause = current.settings.clone();
+            pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+            pause.snapshot.muted = true;
+            pause.playing = false;
+            let mut stopping = pause.clone();
+            stopping.snapshot.epochs = stopping.snapshot.epochs.next_stream().unwrap();
+            let request = StopRequest {
+                request_id: RequestId::new("cancel-queued-stream-transport").unwrap(),
+                settings: stopping,
+            };
+            current.cancel.store(true, Ordering::Release);
+            if let Some((settings, request, pipeline)) = activation {
+                current
+                    .activate_graph(settings, request, pipeline, &events)
+                    .unwrap();
+            } else {
+                let seek = (transport == 1).then_some(17);
+                current
+                    .reposition(pause.clone(), seek, &events, true)
+                    .expect(
+                        "superseded transport must retain the cancelled source until native close",
+                    );
+            }
+            assert_eq!(
+                current.pipeline.as_ref().unwrap().preview().graph_hash,
+                graph_hash
+            );
+            assert_eq!(current.epochs(), source_epochs);
+            assert_eq!(current.output.progress().unwrap().submitted, native);
+            current.apply_settings(pause, &events).unwrap();
+            assert_eq!(current.epochs(), source_epochs);
+            receiver.try_iter().for_each(drop);
+            let mut playback = Some(current);
+            let mut stopped = None;
+            let mut terminal = None;
+            stop_source(
+                request,
+                &mut playback,
+                &mut stopped,
+                &mut terminal,
+                &view,
+                &events,
+            )
+            .unwrap();
+            match receiver.recv_timeout(Duration::from_secs(1)).unwrap() {
+                Event::Stopped {
+                    observation: Some(observation),
+                    ..
+                } => assert_eq!(observation.submitted_frames, native),
+                _ => panic!("queued transport lost the actual stopped observation"),
+            }
+            assert!(playback.is_none());
+        }
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn in_flight_stream_controls_keep_coherent_progress_when_stop_cancels_after_suspend() {
+        for seek in [false, true] {
+            let (mut current, events, receiver, _) = staged_streaming_playback();
+            let view = current.view.clone();
+            let before_control =
+                Some((current.failure_context(None), current.failure_observation()));
+            let source = current.source_position;
+            let native = current.output.progress().unwrap().submitted;
+            assert!(native > 0);
+            let mut pause = current.settings.clone();
+            pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+            pause.snapshot.muted = true;
+            let counters = current.output.suspend(pause.snapshot.epochs).unwrap();
+            assert_eq!(counters.submitted, native);
+            current.cancel.store(true, Ordering::Release);
+            let error = if seek {
+                // Use the same real decoder seek and field updates that precede pipeline reset.
+                current.current.seek(17, pause.snapshot.epochs).unwrap();
+                current.settings = pause.clone();
+                current.source_epochs = pause.snapshot.epochs;
+                current.source_position = 17;
+                current.stream_position = 0;
+                current
+                    .pipeline
+                    .as_mut()
+                    .unwrap()
+                    .reset(pause.snapshot.epochs)
+                    .map_err(render_error)
+                    .unwrap_err()
+            } else {
+                current
+                    .pipeline
+                    .as_mut()
+                    .unwrap()
+                    .stream_render_mut()
+                    .unwrap()
+                    .hold(
+                        counters.submitted,
+                        counters.restart_cursor.unwrap(),
+                        pause.snapshot.epochs,
+                    )
+                    .unwrap_err()
+            };
+            assert_eq!(error.code, ErrorCode::OperationCancelled);
+            let mut playback = Some(current);
+            let mut stopped = None;
+            let mut terminal = None;
+            action_failure(
+                &mut playback,
+                &mut stopped,
+                &mut terminal,
+                Some(pause.clone()),
+                error,
+                before_control,
+                &events,
+            );
+            pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+            let stop_epochs = pause.snapshot.epochs;
+            let request = StopRequest {
+                request_id: RequestId::new("stop-in-flight-stream-hold").unwrap(),
+                settings: pause,
+            };
+            receiver.try_iter().for_each(drop);
+            stop_source(
+                request,
+                &mut playback,
+                &mut stopped,
+                &mut terminal,
+                &view,
+                &events,
+            )
+            .unwrap();
+            match receiver.recv_timeout(Duration::from_secs(1)).unwrap() {
+                Event::Stopped {
+                    observation: Some(observation),
+                    ..
+                } => {
+                    assert_eq!(observation.submitted_frames, native);
+                    assert_eq!(observation.source_position_frames, source);
+                    let streaming = observation.processing.unwrap().streaming.unwrap();
+                    assert_eq!(streaming.source_accepted_frames, source);
+                    assert!(streaming.source_epochs.stream < stop_epochs.stream);
+                }
+                _ => panic!("in-flight cancellation lost the actual native prefix"),
+            }
+            assert!(
+                view.lock().unwrap().active.is_none(),
+                "retired source left a queue reservation under its pre-control epoch"
+            );
+        }
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn cancelled_stream_pump_reconciles_the_actual_accepted_source_prefix() {
+        use std::{sync::Barrier, time::Instant};
+        let mut witnessed = false;
+        for delay in [25, 50, 100, 200, 25, 50, 100, 200] {
+            let (mut playback, events, _receiver) = streaming_playback_chunk(8193, 1024, "quality");
+            for _ in 0..31 {
+                playback.step(&events).unwrap();
+            }
+            let before = playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .stream()
+                .stats()
+                .source_frames;
+            let barrier = Arc::new(Barrier::new(2));
+            let worker_barrier = barrier.clone();
+            let cancel = playback.cancel.clone();
+            let cancelling = std::thread::spawn(move || {
+                worker_barrier.wait();
+                let start = Instant::now();
+                while start.elapsed() < Duration::from_micros(delay) {
+                    std::hint::spin_loop();
+                }
+                cancel.store(true, Ordering::Release);
+            });
+            barrier.wait();
+            let result = playback.step(&events);
+            cancelling.join().unwrap();
+            let accepted = playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .stream()
+                .stats()
+                .source_frames;
+            if result.unwrap() && accepted > before {
+                witnessed = true;
+                assert_eq!(
+                    playback.source_position, accepted,
+                    "failed pump accepted source without advancing its real packet frontier"
+                );
+                assert_eq!(
+                    playback.failure_observation().source_position_frames,
+                    accepted
+                );
+                break;
+            }
+        }
+        assert!(
+            witnessed,
+            "actual cancellation never landed after source acceptance during a library call"
+        );
+    }
+    #[cfg(target_os = "linux")]
     fn prepared_nonzero_source() -> (Playback, SyncSender<Event>, Receiver<Event>) {
+        prepared_nonzero_frames(65)
+    }
+    #[cfg(target_os = "linux")]
+    fn prepared_nonzero_frames(frames: usize) -> (Playback, SyncSender<Event>, Receiver<Event>) {
         let (worker, mut settings, _, _) = drain_proof(1);
         let mut entries = worker.view.lock().unwrap().entries.clone();
         drop(worker);
         let mut bytes = std::fs::read(&entries[0].path).unwrap();
+        bytes.resize(44 + frames * 4, 0);
+        bytes[4..8].copy_from_slice(&((36 + frames * 4) as u32).to_le_bytes());
+        bytes[40..44].copy_from_slice(&((frames * 4) as u32).to_le_bytes());
         for sample in bytes[44..].as_chunks_mut::<2>().0 {
             sample.copy_from_slice(&8192_i16.to_le_bytes());
         }

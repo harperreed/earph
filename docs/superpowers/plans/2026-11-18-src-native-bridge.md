@@ -25,10 +25,10 @@ Never infer an audible source cursor through SRC.
 - [x] Compose real SRC output with replay and compare against uninterrupted output.
 - [x] Add shared gain and single quantization after replay selection.
 - [x] Add unequal-rate offline file rendering through the compiled stream plan.
-- [ ] Integrate live preparation resources and actual worker cancellation ownership.
-- [ ] Integrate native source/output counters and terminal stream completion.
-- [ ] Test actual owner/native flows, queue joins, holds, seek, replacement, and retirement.
-- [ ] Run canonical checks and independent main-model review.
+- [x] Integrate live preparation resources and actual worker cancellation ownership.
+- [x] Integrate native source/output counters and terminal stream completion.
+- [x] Test actual owner/native flows, queue joins, holds, seek, replacement, and retirement.
+- [x] Run canonical checks and independent main-model review.
 - [ ] Freeze the runtime and run the approved platform qualification.
 
 Doctor Biz authorizes parallel implementation and hardware evidence.
@@ -154,3 +154,33 @@ The full canonical check passes 579 tests, with three ignored and no warnings.
 Independent main-model review approves the nine-file source/test unit without material findings.
 Its thirty-three service scenarios and two real owner scenarios pass independently.
 Live preparation, native holds, seek, replacement, completion, and platform qualification remain unfinished.
+
+## Live worker checkpoint
+
+GraphPrepare now constructs the real bounded stream renderer with the source's actual cancellation token.
+Prepared timing records the instantiated library delay without inventing aggregate latency.
+Candidate retirement releases ownership off-thread and never cancels the shared source.
+The worker separates accepted source frames, generated output, and committed native submissions.
+Holds preserve source history; true seek resets decoder, stream, and replay together.
+Graph replacement publishes its accepted source boundary and discarded held output.
+Native drain starts only after terminal DSP output is submitted.
+
+Independent review found cancellation windows after native writes, inside controls, and inside DSP admission.
+Acknowledgments retain irreversible native writes even after source cancellation.
+Interrupted controls preserve a coherent pre-control observation and genuine native close errors.
+Failed DSP calls reconcile the checked actual source counter within the offered span.
+Source acceptance never implies output acceptance.
+This refines the earlier successful-step-only wording because failed calls can accept a source prefix.
+
+The settled combined canonical check passes 603 tests, with three ignored and no warnings.
+Its log SHA-256 is `fc74a357635dacf2fcd6cee33d5e64666232a0851eda9afc9a4cadcbf7daca6f`.
+One independent main-model review approves all eleven source, test, and task-note files.
+Its binding SHA-256 is `26c18009bac119e2daa8ff5a3eb53c057434ab0c617166e1ad82bad139121b75`.
+Later supporting cases lack separate test-first receipts; the worker note identifies those gaps.
+Software native scenarios do not claim forced short native returns or physical output proof.
+Mac integration, CPU deadlines, and the new frozen hardware graph remain unqualified.
+
+Doctor Biz reaffirms hardware playback and evidence approval on November 18.
+Keep each frozen platform run to one short owned signal, at most -40 dB software gain, with a ramp.
+Use the already selected endpoints and preserve their settings.
+Do not use private media, microphones, fallback outputs, or changed device rates.

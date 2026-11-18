@@ -128,14 +128,39 @@ pub struct PlaybackObservation {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PlaybackProcessingObservation {
     pub resident_bytes: u64,
-    pub audio_payload_bytes: usize,
+    pub audio_payload_bytes: Option<usize>,
     pub failure_node: Option<NodeId>,
     pub graph_hash: String,
     #[serde(flatten)]
     pub timing: PlaybackTiming,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub streaming: Option<StreamingRuntimeObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_boundary: Option<Arc<StreamingReplacementBoundary>>,
     pub saturation_count: u64,
     pub graph_peak: Option<f64>,
     pub prequantization_peak: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StreamingReplacementBoundary {
+    pub source_entry_id: QueueEntryId,
+    pub source_position_frames: u64,
+    pub source_epochs: Epochs,
+    pub discarded_output_frames: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StreamingRuntimeObservation {
+    pub source_epochs: Epochs,
+    pub output_epochs: Epochs,
+    /// Frames accepted by this stream in its input rate domain.
+    pub source_accepted_frames: u64,
+    /// All following frame counters use the native output rate domain.
+    pub generated_output_frames: u64,
+    pub submission_frontier_frames: u64,
+    pub backend_origin_frames: u64,
+    pub retained_start_frames: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

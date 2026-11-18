@@ -883,9 +883,11 @@ mod tests {
         );
         let mut observation = observation;
         observation.processing = Some(PlaybackProcessingObservation {
+            streaming: None,
+            source_boundary: None,
             graph_hash: preview.graph_hash.clone(),
             resident_bytes: preview.resources.pipeline_bytes,
-            audio_payload_bytes: 0,
+            audio_payload_bytes: Some(0),
             failure_node: None,
             timing: earph_core::graph_control::PlaybackTiming::SameRate {
                 latency_frames: 0,

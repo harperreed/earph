@@ -97,7 +97,10 @@ fn partial_native_writes_and_holds_preserve_source_frontier_and_reapply_current_
     render.accepted(1).unwrap();
     assert_eq!(render.period_offset(), 1);
     let source_frontier = render.stream().stats().source_frames;
+    let generated = render.output_positions().generated;
     render.hold(1, 0, epoch(1)).unwrap();
+    assert_eq!(render.output_positions().generated, generated);
+    assert_eq!(render.output_positions().next_submission, 0);
     render
         .set_gain_target(Some(20.0 * 0.5_f64.log10()), 0)
         .unwrap();
@@ -130,6 +133,48 @@ fn partial_native_writes_and_holds_preserve_source_frontier_and_reapply_current_
     assert!(render.finished());
     assert_eq!(render.stream().stats().source_frames, 4);
     assert!(render.resources().resident_bytes <= render.resources().preparation_peak_bytes);
+}
+
+#[test]
+fn acknowledged_native_prefix_remains_committed_after_source_cancellation() {
+    use std::sync::atomic::Ordering;
+    let source = Arc::new(AtomicBool::new(false));
+    let mut render = PreparedStreamRender::prepare(plan(), config(), source.clone()).unwrap();
+    let input = block();
+    render
+        .pump(Some(SourceSpan {
+            block: &input,
+            offset: 0,
+            frames: 4,
+        }))
+        .unwrap();
+    assert_eq!(render.stage().unwrap().unwrap().frames, 2);
+    let before = render.output_positions();
+    source.store(true, Ordering::Release);
+    render.accepted(1).unwrap();
+    assert_eq!(
+        render.output_positions().next_submission,
+        before.next_submission + 1
+    );
+    assert_eq!(render.period_offset(), 1);
+    let committed = render.output_positions();
+    assert_eq!(
+        render.accepted(2).unwrap_err().code,
+        ErrorCode::AssetInvalid
+    );
+    assert_eq!(render.output_positions(), committed);
+    assert_eq!(
+        render.stage().unwrap_err().code,
+        ErrorCode::OperationCancelled
+    );
+    assert_eq!(
+        render.pump(None).unwrap_err().code,
+        ErrorCode::OperationCancelled
+    );
+    assert_eq!(
+        render.finish().unwrap_err().code,
+        ErrorCode::OperationCancelled
+    );
 }
 
 #[test]

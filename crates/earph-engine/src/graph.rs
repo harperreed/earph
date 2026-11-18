@@ -103,6 +103,7 @@ enum Mode {
         epochs: Epochs,
     },
     Float64(Box<PreparedRender>),
+    Streaming(Box<crate::stream_render::PreparedStreamRender>),
 }
 
 /// This owner never frees graph storage on the playback worker.
@@ -124,13 +125,25 @@ impl PreparedPipeline {
     pub fn render(&self) -> Option<&PreparedRender> {
         match &self.payload.as_ref().expect("owned pipeline").mode {
             Mode::Float64(render) => Some(render),
-            Mode::Integer { .. } => None,
+            Mode::Integer { .. } | Mode::Streaming(_) => None,
         }
     }
     pub fn render_mut(&mut self) -> Option<&mut PreparedRender> {
         match &mut self.payload.as_mut().expect("owned pipeline").mode {
             Mode::Float64(render) => Some(render),
-            Mode::Integer { .. } => None,
+            Mode::Integer { .. } | Mode::Streaming(_) => None,
+        }
+    }
+    pub fn stream_render(&self) -> Option<&crate::stream_render::PreparedStreamRender> {
+        match &self.payload.as_ref().expect("owned pipeline").mode {
+            Mode::Streaming(render) => Some(render),
+            Mode::Integer { .. } | Mode::Float64(_) => None,
+        }
+    }
+    pub fn stream_render_mut(&mut self) -> Option<&mut crate::stream_render::PreparedStreamRender> {
+        match &mut self.payload.as_mut().expect("owned pipeline").mode {
+            Mode::Streaming(render) => Some(render),
+            Mode::Integer { .. } | Mode::Float64(_) => None,
         }
     }
     /// Call only when the worker installs this candidate at its muted boundary.
@@ -147,6 +160,7 @@ impl PreparedPipeline {
     pub fn reset(&mut self, epochs: Epochs) -> Result<(), RenderError> {
         match &mut self.payload.as_mut().expect("owned pipeline").mode {
             Mode::Float64(render) => render.reset(epochs),
+            Mode::Streaming(render) => render.reset(epochs).map_err(Into::into),
             Mode::Integer {
                 epochs: current, ..
             } => {
@@ -167,6 +181,7 @@ impl Drop for PreparedPipeline {
         if let Mode::Float64(render) = &mut payload.mode {
             render.cancel();
         }
+        // Streaming kernels share source cancellation; retire them by off-thread ownership release.
         self.retirement
             .accounting
             .retiring
@@ -606,13 +621,6 @@ fn prepare(
         )
         .into());
     }
-    if streaming && !request.validate_only {
-        return Err(EngineError::new(
-            ErrorCode::CapabilityUnsupported,
-            "live SRC graph preparation is not installed",
-        )
-        .into());
-    }
     let processing_input = PcmFormat::new(
         source.sample_rate_hz(),
         source.channels(),
@@ -796,7 +804,7 @@ fn prepare(
             .bridge_bytes
             .checked_sub(sum(&[host_input, host_output, native_period])?)
             .ok_or(RESOURCE)?;
-        let preview = prepared_preview(
+        let mut preview = prepared_preview(
             CompiledPreview {
                 kernel_hash: plan.content_hash().into(),
                 implementation_version: plan.implementation_version().into(),
@@ -830,10 +838,55 @@ fn prepare(
             native,
         )?;
         check()?;
-        return Ok(GraphSuccess {
+        if request.validate_only {
+            return Ok(GraphSuccess {
+                preview,
+                pipeline: None,
+            });
+        }
+        let render = crate::stream_render::PreparedStreamRender::prepare(
+            plan.into_stream_plan(),
+            crate::stream_render::StreamRenderConfig {
+                input_format: source,
+                native_format: native,
+                period_frames: quantum,
+                queue_frames: output.buffer_frames as usize,
+                epochs: request.binding.epochs,
+                budget_bytes: kernel_allowance
+                    .checked_add(bridge.bridge_bytes)
+                    .ok_or(RESOURCE)?,
+            },
+            source_cancel.clone(),
+        )
+        .map_err(GraphDiagnostic::from)?;
+        if sum(&[render.resources().resident_bytes, metadata])? != pipeline_bytes
+            || render.resources().preparation_peak_bytes
+                != sum(&[resources.preparation_peak_bytes, bridge.bridge_bytes])?
+        {
+            return Err(RESOURCE.into());
+        }
+        if let earph_core::graph_control::GraphTiming::Streaming { stages } =
+            &mut Arc::make_mut(&mut preview).timing
+        {
+            for (index, stage) in Arc::make_mut(stages).iter_mut().enumerate() {
+                if let earph_core::graph_control::CompiledStreamStageKind::Src {
+                    truncated_library_output_delay_frames,
+                    ..
+                } = &mut stage.kind
+                {
+                    let actual = render.stream().src_metadata(index).ok_or(RESOURCE)?;
+                    *truncated_library_output_delay_frames =
+                        Some(u64::try_from(actual.truncated_output_delay).map_err(|_| RESOURCE)?);
+                }
+            }
+        }
+        check()?;
+        return Ok(retained_pipeline(
             preview,
-            pipeline: None,
-        });
+            request,
+            Mode::Streaming(Box::new(render)),
+            retirement,
+        ));
     }
     let plan = earph_dsp::compile_with_assets(&request.intent.graph, &context, &resolved)
         .map_err(diagnostic)?;
@@ -967,6 +1020,15 @@ fn prepare(
         }
     };
     check()?;
+    Ok(retained_pipeline(preview, request, mode, retirement))
+}
+fn retained_pipeline(
+    preview: Arc<GraphPreview>,
+    request: &GraphJobRequest,
+    mode: Mode,
+    retirement: &Arc<Retirement>,
+) -> GraphSuccess {
+    let pipeline_bytes = preview.resources.pipeline_bytes;
     let payload = Box::new(Payload {
         preview: preview.clone(),
         _intent: request.intent.clone(),
@@ -977,14 +1039,14 @@ fn prepare(
         .resident
         .fetch_add(pipeline_bytes, Ordering::AcqRel);
     retirement.accounting.owners.fetch_add(1, Ordering::AcqRel);
-    Ok(GraphSuccess {
+    GraphSuccess {
         preview,
         pipeline: Some(PreparedPipeline {
             payload: Some(payload),
             retirement: retirement.clone(),
             candidate: true,
         }),
-    })
+    }
 }
 fn prepared_preview(
     compiled: CompiledPreview,

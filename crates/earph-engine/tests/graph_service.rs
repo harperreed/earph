@@ -350,14 +350,10 @@ fn validates_real_src_roundtrip_with_per_stage_timing_and_no_runtime_owner() {
     assert!(preview.get("tail_frames").is_none());
     assert_eq!(service.resources().resident_bytes, 0);
     assert!(!service.resources().preparing_or_candidate);
-    for case in 0..4 {
+    for case in 1..4 {
         let mut job = job.clone();
         let mut state = state.clone();
         let expected = match case {
-            0 => {
-                job.validate_only = false;
-                ErrorCode::CapabilityUnsupported
-            }
             1 => {
                 state.output.as_mut().unwrap().fidelity = FidelityPolicy::StrictPreservation;
                 ErrorCode::FidelityPolicyConflict
@@ -434,6 +430,51 @@ fn coreaudio_admission_reserves_the_owned_ring_overlap_during_reopen() {
         preview.resources.aggregate_peak_bytes,
         preview.resources.pipeline_bytes + 256 + 2048 + 4 * 1024 * 1024
     );
+}
+
+#[test]
+fn prepared_src_owns_the_actual_source_token_and_retirement_does_not_cancel_it() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let mut state = snapshot();
+    state.software_gain_db = -80.0;
+    let mut job = request(&state, serde_json::json!({"kind":"bypass"}));
+    Arc::make_mut(&mut job.intent).graph =
+        Arc::new(serde_json::from_value(graph_fixtures::src_roundtrip()).unwrap());
+    let source = Arc::new(AtomicBool::new(false));
+    let mut service = GraphService::spawn(None).unwrap();
+    service
+        .submit(job.clone(), state.clone(), source.clone())
+        .unwrap();
+    let success = completion(&mut service).result.unwrap();
+    let pipeline = success.pipeline.unwrap();
+    let render = pipeline.stream_render().unwrap();
+    let value = serde_json::to_value(pipeline.preview()).unwrap();
+    assert_eq!(
+        value["stages"][1]["kind"]["truncated_library_output_delay_frames"],
+        render
+            .stream()
+            .src_metadata(1)
+            .unwrap()
+            .truncated_output_delay as u64
+    );
+    drop(pipeline);
+    retired(&service);
+    assert!(!source.load(Ordering::Acquire));
+    assert_eq!(Arc::strong_count(&source), 1);
+    service.submit(job, state, source.clone()).unwrap();
+    let mut pipeline = completion(&mut service).result.unwrap().pipeline.unwrap();
+    source.store(true, Ordering::Release);
+    assert_eq!(
+        pipeline
+            .stream_render_mut()
+            .unwrap()
+            .pump(None)
+            .unwrap_err()
+            .code,
+        ErrorCode::OperationCancelled
+    );
+    drop(pipeline);
+    retired(&service);
 }
 #[test]
 fn resolves_corrections_and_retires_frozen_filter_storage() {

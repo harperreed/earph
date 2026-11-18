@@ -1,5 +1,6 @@
 // ABOUTME: Bridges variable-rate prepared streams into bounded native integer periods.
 // ABOUTME: Preserves pre-volume history across holds and separates source acceptance from output writes.
+pub use crate::output_replay::ReplayState;
 use crate::{output_replay::OutputReplay, render::quantize};
 use earph_core::{
     EngineError, ErrorCode,
@@ -236,6 +237,9 @@ impl PreparedStreamRender {
     pub fn stream(&self) -> &PreparedStream {
         &self.stream
     }
+    pub fn output_positions(&self) -> ReplayState {
+        self.replay.state()
+    }
     pub fn control_epochs(&self) -> Epochs {
         self.control_epochs
     }
@@ -388,8 +392,9 @@ impl PreparedStreamRender {
         self.staged_report = Some(report);
         Ok(Some(report))
     }
+    /// Record an irreversible native write even when source cancellation raced with it.
     pub fn accepted(&mut self, frames: usize) -> Result<(), EngineError> {
-        self.check_live()?;
+        self.failure.map_or(Ok(()), Err)?;
         if frames > self.staged_frames - self.staged_offset {
             return Err(span_error());
         }
