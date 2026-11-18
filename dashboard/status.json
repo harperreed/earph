@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-18T07:52:12.415Z",
-  "headline": "Local playback is saved. Graph integration is next.",
-  "focus": "T10 · Integrate the reviewed compiler and prepared runtime; qualify live graph activation",
-  "summary": "Playback integration is saved in ecd7572 with scoped Linux and Mac acceptance. T08 and T09 are done at their package level. Reviewed compiler and prepared-runtime commits remain isolated; integration follows the playback PR merge. GUI, broader qualification, and release gates stay open.",
+  "updated_at": "2026-11-18T09:49:21.139Z",
+  "headline": "Saving the qualified graph activation checkpoint.",
+  "focus": "T10 · Native graph receipts verified; integration commit and PR merge remain pending",
+  "summary": "Integrated graph checks and selected Linux/Mac hardware procedures pass on the same frozen runtime. Scoped gain, delay, tail, ownership, and muted validation evidence is retained. T10 stays active until shipping; M2, full-worker real-time, DAC/acoustic, and release qualification remain incomplete.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -27,7 +27,7 @@
     },
     "M2": {
       "state": "active",
-      "detail": "Reviewed compiler and prepared-runtime commits pass their isolated checks. Integration and live graph activation remain unqualified."
+      "detail": "Scoped single-rate PCM graph activation passed selected Linux and Mac procedures. Shipping remains pending. Broader DSP-player, full-worker real-time, and release qualification remain incomplete."
     },
     "M3": {
       "state": "planned",
@@ -40,20 +40,20 @@
   },
   "checks": [
     {
-      "title": "Linux 198 · Mac 184 passed",
-      "detail": "Each final canonical run has two ignored tests. Scoped physical procedures passed separately; all 1,419 Mac input hashes matched before and after."
+      "title": "Linux 307 · Mac 289 passed",
+      "detail": "Each canonical run ignored two gated tests. The separate 11-test Mac silent SDK recheck also passes and overlaps its canonical count."
     },
     {
-      "title": "51 exact PCM cases",
-      "detail": "Private acceptance data. No source media or track metadata is published."
+      "title": "48,007 Linux graph frames",
+      "detail": "48,000 source frames plus seven tail frames were submitted and client-estimated consumed. Zero saturation; source/mixer unchanged; graph resources retired."
     },
     {
-      "title": "288,000 exact frames",
-      "detail": "Private split-track gapless capture matches its continuous reference."
+      "title": "24,003 Mac graph frames",
+      "detail": "24,000 source frames plus three tail frames were submitted. Consumption and audible position remain unknown; source and selected device snapshot stayed unchanged."
     },
     {
-      "title": "Compiler and runtime saved",
-      "detail": "13 compiler tests, two runtime unit tests, and 14 execution scenarios pass. Independent review passed; both commits remain isolated."
+      "title": "Muted transaction check passes",
+      "detail": "Mac validation returned no runtime token or revision change. Prepare/commit stayed muted, hashes matched, and zero frames were submitted. Shipping remains pending."
     }
   ],
   "verified": [
@@ -67,19 +67,19 @@
     },
     {
       "title": "Playback integration saved",
-      "detail": "Commit ecd7572 saves the reviewed local playback integration, scoped Linux/Mac acceptance, safety/drain/logging regressions, and redacted evidence. Final Linux and Mac canonical runs passed on the same frozen runtime source. T08/T09 are scoped done; M0/M1 and release gates remain incomplete."
+      "detail": "Playback integration ecd7572 and dashboard commit 9d26b6d merged in PR #1 as ced893b. Scoped Linux/Mac acceptance and safety/drain/logging regressions retain their redacted evidence. T08/T09 are scoped done; M0/M1 and release gates remain incomplete."
     },
     {
-      "title": "Real executable and worker boundaries",
+      "title": "Playback foundation CLI and worker boundaries",
       "detail": "Five independent CLI scenarios and six real-worker cases pass: exact capture, attenuation, per-item failure, pause/seek/resume, failing diagnostics, running stop, reservation protection, EOF seek, incompatible transition, and fault revocation. Controlled ALSA lifecycle tests and the separately gated native procedures retain their own evidence boundaries."
     },
     {
       "title": "Frozen platform canonical checks",
-      "detail": "Final Linux canonical checks passed 198 tests with two ignored. Final Mac checks passed 184 tests with two hardware-signal tests ignored; all 1,419 input hashes matched before and after. Formatting, strict Clippy, catalog, and provenance checks pass. Gated hardware procedures passed separately; the final Mac rerun added no signal or settings changes."
+      "detail": "The frozen graph snapshot passed Linux 307 and Mac 289 canonical tests, with two ignored on each platform. Formatting, strict Clippy, catalog, and dependency checks pass. The separate Mac silent SDK recheck passed 11 tests and overlaps canonical coverage. All 1,441 Mac archive inputs matched before and after."
     },
     {
-      "title": "Scoped live Mac engine and SDK acceptance",
-      "detail": "The adapter delivered 36,352 frames across 73 callbacks; SDK handoff passed the final payload-buffer paired-clock boundary. The engine CLI passed muted prepare, pause, seek to 12,000 with zero submitted frames, resume, and idle with 60,000 submitted frames and no error. Source and settings stayed unchanged. Client Float32 and physical Signed24 are separate; preservation is modified and DAC proof remains open."
+      "title": "Scoped native graph activation acceptance",
+      "detail": "One selected attenuated graph signal passed on each platform. Linux submitted and client-estimated consumed 48,007 frames, including seven tail frames, with zero saturation and retired resources. Mac submitted 24,003 frames, including three tail frames; consumed/audible fields remain unknown. Sources, Mac device snapshot, and Linux mixer stayed unchanged. These modified routes do not prove DAC or acoustic preservation."
     },
     {
       "title": "Safety and diagnostic regressions fixed",
@@ -91,21 +91,29 @@
     },
     {
       "title": "Reviewed compiler and prepared runtime checks",
-      "detail": "Isolated compiler commit 6a11483 passes 13 tests and its canonical check. Prepared-runtime commit 59da038 passes two unit tests and 14 execution scenarios, including allocator instrumentation. Independent review read the source and reran those checks. Both commits remain isolated; branch integration and live activation remain outside the qualified scope."
+      "detail": "Reviewed compiler/runtime changes are integrated. Focused compiler, prepared execution, allocator, and render-bridge scenarios pass; the integrated owner/CLI checkpoint has nine passing real scenarios. Platform canonical and scoped native graph procedures pass on the same frozen runtime. Full-worker real-time qualification remains partial."
+    },
+    {
+      "title": "Graph preparation and retirement lifecycle",
+      "detail": "The preparation/retirement service has 22 passing tests, with reviewed ownership/capacity fixes imported. Final Linux graph resources report zero resident bytes, no pending retirement, and no preparing/candidate state. Independent integrated-contract review found no remaining important or critical findings."
+    },
+    {
+      "title": "Integrated graph owner and CLI checkpoint",
+      "detail": "Nine real owner/CLI/native-file scenarios pass: exact delay/gain across two files with one tail, competing/unsafe/resource rejection preserving the plan, pause/seek/resume exact suffix, and real restart muted without runtime tokens. Additional muted Mac validation/prepare/commit passes with matching hashes, no token or revision change from validation, and zero submitted frames."
     }
   ],
   "active": [
     {
-      "title": "Integrate reviewed compiler and runtime",
-      "detail": "T10 is active. Compiler 6a11483 and prepared runtime 59da038 are saved and reviewed on their isolated branch. Integration follows the playback PR merge."
+      "title": "Save and ship reviewed graph integration",
+      "detail": "Native receipts are verified. T10 stays active while the integration commit and PR merge remain pending. Scoped native acceptance does not complete M2 or release qualification."
     },
     {
-      "title": "Qualify live graph activation",
-      "detail": "Prepared execution checks pass offline. Graph activation in the joined player and its safety/latency evidence remain separate work."
+      "title": "Broader DSP and real-time qualification",
+      "detail": "Full-worker real-time evidence remains partial. PEQ, convolution, resampling, profiles, and broader DSP-player workflows remain unfinished or unqualified."
     },
     {
-      "title": "Broader hardware and GUI qualification",
-      "detail": "The GUI shell and broader route qualification remain open. Mac consumed frames, backend delay, and audible position remain unknown. Linux reports client estimates and backend delay zero; independent DAC/acoustic preservation remains unverified."
+      "title": "GUI and independent physical measurement",
+      "detail": "GUI and broader route qualification stay open. Mac physical consumption and audible position remain unknown. Linux consumption is client-estimated; independent DAC and acoustic preservation are unverified."
     }
   ],
   "pending": [
@@ -114,34 +122,34 @@
       "detail": "Doctor Biz granted approval. Mac and Linux physical routes have now been exercised; each result retains its own boundary."
     },
     {
-      "title": "Exercised: Mac and Linux flows passed",
-      "detail": "Separate frozen builds passed their scoped owner-plus-CLI procedures. Linux reached idle with 48,000 submitted frames; Mac reached idle with 60,000. Sources stayed unchanged. Mac device settings and the Linux mixer stayed unchanged within their recorded checks."
+      "title": "Exercised: selected graph routes passed",
+      "detail": "One attenuated graph signal passed on each selected route. Linux submitted 48,007 frames; Mac submitted 24,003. Sources and recorded device state stayed unchanged. Mac also passed the separate zero-signal muted transaction check."
     },
     {
-      "title": "Measured: SDK boundary and client estimates",
-      "detail": "Mac SDK handoff passes at the paired-clock boundary; its consumed, delay, and audible fields remain unknown. Linux reports 48,000 client-estimated consumed frames and zero backend delay. Modified routes do not establish DAC or acoustic preservation."
+      "title": "Measured: client boundaries; DAC unknown",
+      "detail": "Linux reports client-estimated consumption, delay zero, and saturation zero. Mac submitted frames are known while consumption/audible fields remain null. These boundaries do not establish physical consumption, DAC preservation, or acoustic qualification."
     }
   ],
   "activity": [
     {
-      "title": "Playback integration committed",
-      "detail": "Commit ecd7572 saves the reviewed implementation and evidence. T08 and T09 are now done at their scoped package level. T10 integration/activation is next; no milestone or release is declared complete."
+      "title": "Native graph receipts verified on both platforms",
+      "detail": "Linux passed 48,000 source plus seven tail frames; Mac passed 24,000 source plus three tail frames. Sources and recorded device state stayed unchanged. T10 shipping remains pending."
     },
     {
-      "title": "Live dashboard checks passed",
-      "detail": "Published desktop and mobile views, filters, and milestone evidence pass real Chromium checks. The live connection is open."
+      "title": "Platform graph canonical checks passed",
+      "detail": "Linux 307 and Mac 289 tests passed, with two ignored on each. The separate 11-test Mac silent SDK recheck overlaps canonical coverage. All 1,441 Mac archive inputs matched before and after."
     },
     {
-      "title": "Final Mac native check passed",
-      "detail": "184 tests passed with two hardware-signal tests ignored. All 1,419 input hashes matched before and after. This final rerun requested no signal or settings changes."
+      "title": "Muted Mac validation transaction passed",
+      "detail": "Validation produced no runtime token or revision change. Prepared hashes matched, prepare/commit stayed muted, and submitted frames stayed zero."
     },
     {
-      "title": "Linux physical and drain acceptance passed",
-      "detail": "The final owner-plus-CLI flow and zero-PCM drain regression passed. Linux canonical checks passed 198 tests with two ignored. Actual drain confirmation passed; DAC preservation remains unverified."
+      "title": "Owner/CLI graph checkpoint and review passed",
+      "detail": "Nine real owner/CLI cases and 22 preparation/retirement tests pass. Independent integrated-contract review found no remaining important or critical findings."
     },
     {
-      "title": "Compiler and runtime commits saved separately",
-      "detail": "Reviewed commits 6a11483 and 59da038 retain 13 compiler tests, two runtime unit tests, and 14 execution scenarios. Both commits remain isolated from the playback branch."
+      "title": "Qualification limits remain explicit",
+      "detail": "This checkpoint covers bounded single-rate PCM graphs and selected routes. M2, full-worker real-time, DAC/acoustic, and release qualification remain incomplete."
     }
   ]
 }
