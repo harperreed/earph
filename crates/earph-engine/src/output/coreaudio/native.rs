@@ -77,11 +77,12 @@ impl Output for NativeOutput {
     fn is_running(&self) -> bool {
         self.native.state() == OutputState::Running
     }
-    fn observation(&self) -> BackendObservation {
+    fn observation(&self) -> Result<BackendObservation, EngineError> {
         let report = self.native.report();
         let stream = &report.observed.output_streams[0];
-        BackendObservation {
+        Ok(BackendObservation {
             backend: OutputBackend::CoreAudio,
+            audio_storage_bytes: self.native.audio_storage_bytes().map_err(error)?,
             client_format: observed(&stream.virtual_format),
             device_format: Some(observed(&stream.physical)),
             measurement_boundary: "core_audio_observed_stream_formats",
@@ -90,7 +91,7 @@ impl Output for NativeOutput {
             } else {
                 PreservationState::Unverified
             },
-        }
+        })
     }
     fn write(
         &mut self,

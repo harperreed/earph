@@ -35,3 +35,14 @@ The existing worker preserves same-rate rewind and filter position behavior.
 Streaming timing has no scalar source projection.
 The old source-rewind path rejects that timing until the parent installs the streaming playback path.
 Offline graph capture remains available through `render-graph`.
+
+`graph.validate` now compiles actual serial SRC cuts and exposes their streaming timing facts.
+Validation creates no prepared token or runtime pipeline and leaves playback unchanged.
+Live SRC `graph.prepare` remains explicitly unsupported until its native worker path is installed.
+
+Backend observations include actual Rust-owned adapter `audio_storage_bytes`.
+Graph resource inspection separates those resident bytes from `backend_audio_peak_bytes`.
+Core Audio's reopen peak includes old and replacement rings together.
+ALSA retains one packing scratch.
+These counts exclude metadata, allocator overhead, RSS, and opaque SDK or kernel storage.
+Storage affects resource admission rather than graph identity.

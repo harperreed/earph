@@ -181,6 +181,8 @@ pub enum PreservationState {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BackendObservation {
     pub backend: OutputBackend,
+    /// Actual Rust-owned adapter audio storage; excludes metadata and opaque native storage.
+    pub audio_storage_bytes: u64,
     pub client_format: ObservedStreamFormat,
     pub device_format: Option<ObservedStreamFormat>,
     pub measurement_boundary: &'static str,

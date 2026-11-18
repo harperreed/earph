@@ -58,6 +58,11 @@ pub enum SignalTransformation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 pub struct GraphResidentUsage {
+    pub backend_audio_bytes: u64,
+    /// Includes simultaneous old and replacement rings during a native reopen.
+    pub backend_audio_peak_bytes: u64,
+    /// Stream FIFOs, staging, replay, and wrapper ownership outside the named periods.
+    pub stream_bridge_bytes: u64,
     pub kernel_audio_bytes: u64,
     pub host_input_bytes: u64,
     pub host_output_bytes: u64,
@@ -354,6 +359,7 @@ impl GraphPreview {
             || !self.required_headroom_db.is_finite()
             || self.required_headroom_db < 0.0
             || self.resources.aggregate_peak_bytes > 256 * 1024 * 1024
+            || self.resources.backend_audio_peak_bytes < self.resources.backend_audio_bytes
         {
             return Err(EngineError::new(
                 ErrorCode::GraphInvalid,

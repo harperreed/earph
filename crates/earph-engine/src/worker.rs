@@ -431,7 +431,7 @@ impl Playback {
             ));
         }
         let mut output = output::open(config, format, epochs)?;
-        let backend = output.observation();
+        let backend = output.observation()?;
         let last_counters = output.progress()?;
         let period = PcmBlock::prepare(
             format,

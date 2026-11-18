@@ -1,6 +1,8 @@
 // ABOUTME: Exercises local playback through the real owner and client executables.
 // ABOUTME: Captures ALSA file-to-null output without opening physical audio devices.
 #![cfg(target_os = "linux")]
+#[path = "support/graphs.rs"]
+mod graph_fixtures;
 mod support;
 use serde_json::{Value, json};
 use std::{
@@ -637,6 +639,43 @@ fn executable_graph_rejects_competing_preparation_and_keeps_the_working_plan_on_
 }
 
 #[test]
+fn executable_validates_src_without_allocating_a_runtime_owner_or_changing_playback() {
+    let directory = directory();
+    let source = directory.join("src-validation.wav");
+    wave(&source, 0, 513);
+    let (config, capture) = configuration(&directory);
+    let host = Host::start(&config);
+    let controller = &host.controller;
+    select_output(controller, "software", "compatible_conversion");
+    consent(controller);
+    append_selected(controller, &source);
+    start(controller);
+    let before = controller.wait(|state| state["transport"] == "buffering");
+    let command = controller.document(
+        json!({"method":"graph.validate",
+        "graph":graph_fixtures::src_roundtrip(),
+        "processing":{"kind":"float64","quantization":"round_ties_away_saturate_no_dither"}}),
+        None,
+    );
+    assert_eq!(controller.send(&command)["receipt"]["status"], "accepted");
+    let reply = controller.settled(&command);
+    let preview = &reply["receipt"]["result"]["value"];
+    assert_eq!(preview["timing_kind"], "streaming");
+    assert_eq!(preview["stages"].as_array().unwrap().len(), 4);
+    assert!(preview.get("latency_frames").is_none());
+    assert!(preview.get("tail_frames").is_none());
+    let after = controller.state();
+    assert_eq!(after["revision"], before["revision"]);
+    assert_eq!(after["epochs"], before["epochs"]);
+    assert_eq!(after["playback"], before["playback"]);
+    let inspection = controller.query(json!({"method":"graph.inspect"}));
+    assert!(inspection["prepared"].is_null());
+    assert_eq!(inspection["service"]["resident_bytes"], 0);
+    assert_no_capture(&capture);
+    controller.apply(json!({"method":"owner.shutdown"}));
+}
+
+#[test]
 fn executable_paused_graph_swap_publishes_the_installed_observation() {
     let directory = directory();
     let source = directory.join("paused-graph.wav");
@@ -655,6 +694,8 @@ fn executable_paused_graph_swap_publishes_the_installed_observation() {
     for delay in [3, 7] {
         let before_epoch = controller.state()["graph_epoch"].as_u64().unwrap();
         let (_, ready) = prepare_graph(controller, delay_gain_graph(delay, 0.5));
+        assert_eq!(ready["preview"]["backend"]["audio_storage_bytes"], 384);
+        assert_eq!(ready["preview"]["resources"]["backend_audio_bytes"], 384);
         let commit = controller.document(
             json!({"method":"graph.commit",
             "token":ready["token"],"graph_hash":ready["preview"]["graph_hash"]}),

@@ -1,7 +1,7 @@
 # SRC native bridge
 
 Keep source acceptance separate from native output submission.
-Use the reviewed stream scheduler and the forthcoming serial-cut compiler.
+Use the reviewed stream scheduler and serial-cut compiler.
 Keep Session authoritative for graph activation, consent, and transport.
 
 ## Material assumptions
@@ -130,3 +130,27 @@ The combined canonical check passes 566 tests, with three ignored and no warning
 Independent main-model review approves the source-token foundation without material findings.
 It reruns thirty service tests, the actual worker identity scenario, and a real owner/client graph flow.
 GraphService stream mode and native worker integration remain unfinished.
+
+## SRC validation and storage checkpoint
+
+GraphValidate now compiles real serial SRC cuts and returns shared stage facts.
+Validation creates no runtime pipeline or prepared token.
+Actual owner tests preserve revision, epochs, playback, and empty capture.
+GraphPrepare with SRC still rejects explicitly until the native worker can consume it.
+No SRC graph can bypass the existing renderer.
+
+Native observations capture actual Rust-owned adapter audio storage.
+Admission charges that storage beside active pipelines, candidate construction, assets, metadata, and the existing source period.
+Core Audio charges two simultaneous rings during close/reopen replacement.
+ALSA charges its one retained packing scratch.
+Opaque SDK, driver, kernel, allocator overhead, and RSS remain excluded.
+Storage observations affect admission and stay outside activation identity.
+
+Stream admission uses the shared bridge preflight before coefficient construction.
+Compiler preparation peaks remain the SRC and island authority.
+Reported stream components sum to candidate pipeline storage.
+Shared preview construction preserves existing transformations, headroom checks, and same-rate values.
+The full canonical check passes 579 tests, with three ignored and no warnings.
+Independent main-model review approves the nine-file source/test unit without material findings.
+Its thirty-three service scenarios and two real owner scenarios pass independently.
+Live preparation, native holds, seek, replacement, completion, and platform qualification remain unfinished.

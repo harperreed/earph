@@ -22,7 +22,7 @@ pub(crate) trait Output {
     /// Actual Rust-owned adapter audio capacity; excludes metadata and opaque native storage.
     fn audio_storage_bytes(&self) -> Result<u64, EngineError>;
     fn is_running(&self) -> bool;
-    fn observation(&self) -> BackendObservation;
+    fn observation(&self) -> Result<BackendObservation, EngineError>;
     fn write(
         &mut self,
         block: &PcmBlock,
@@ -124,17 +124,18 @@ impl Output for earph_alsa::AlsaOutput {
     fn is_running(&self) -> bool {
         self.state() == earph_alsa::OutputState::Running
     }
-    fn observation(&self) -> BackendObservation {
+    fn observation(&self) -> Result<BackendObservation, EngineError> {
         let report = self.report();
         let format = ObservedStreamFormat::from(report.observed.format);
-        BackendObservation {
+        Ok(BackendObservation {
             backend: OutputBackend::Alsa,
+            audio_storage_bytes: self.audio_storage_bytes().map_err(error)?,
             client_format: format.clone(),
             device_format: (report.requested.route == earph_alsa::Route::DirectHardware)
                 .then_some(format),
             measurement_boundary: "alsa_client_negotiation",
             preservation: PreservationState::Unverified,
-        }
+        })
     }
     fn write(
         &mut self,

@@ -1,6 +1,8 @@
 // ABOUTME: Checks graph preparation against real captured playback facts and DSP execution.
 // ABOUTME: Exercises bounded ownership, semantic hashes, cancellation, and retirement lifetimes.
-use earph_engine::assets;
+use earph_engine::{assets, stream_render};
+#[path = "support/graphs.rs"]
+mod graph_fixtures;
 mod support;
 mod graph {
     include!("../src/graph.rs");
@@ -229,6 +231,7 @@ fn snapshot() -> SessionSnapshot {
         modified: false,
         backend: Some(BackendObservation {
             backend: OutputBackend::Alsa,
+            audio_storage_bytes: 256,
             client_format: format.into(),
             device_format: Some(format.into()),
             measurement_boundary: "native client",
@@ -313,6 +316,124 @@ fn graph_jobs_preserve_the_live_source_token_and_reject_retired_sources() {
     );
     assert!(!service.resources().preparing_or_candidate);
     assert_eq!(service.resources().resident_bytes, 0);
+}
+
+#[test]
+fn validates_real_src_roundtrip_with_per_stage_timing_and_no_runtime_owner() {
+    let mut state = snapshot();
+    state.software_gain_db = -80.0;
+    let mut job = request(&state, serde_json::json!({"kind":"bypass"}));
+    let graph = serde_json::from_value(graph_fixtures::src_roundtrip()).unwrap();
+    Arc::make_mut(&mut job.intent).graph = Arc::new(graph);
+    job.validate_only = true;
+    let mut service = GraphService::spawn(None).unwrap();
+    service
+        .submit(job.clone(), state.clone(), active_source())
+        .unwrap();
+    let success = completion(&mut service).result.unwrap();
+    assert!(success.pipeline.is_none());
+    success.preview.validate().unwrap();
+    let usage = success.preview.resources;
+    assert_eq!(
+        usage.pipeline_bytes,
+        usage.kernel_audio_bytes
+            + usage.host_input_bytes
+            + usage.host_output_bytes
+            + usage.native_period_bytes
+            + usage.metadata_bytes
+            + usage.stream_bridge_bytes
+    );
+    let preview = serde_json::to_value(success.preview).unwrap();
+    assert_eq!(preview["timing_kind"], "streaming");
+    assert_eq!(preview["stages"].as_array().unwrap().len(), 4);
+    assert!(preview.get("latency_frames").is_none());
+    assert!(preview.get("tail_frames").is_none());
+    assert_eq!(service.resources().resident_bytes, 0);
+    assert!(!service.resources().preparing_or_candidate);
+    for case in 0..4 {
+        let mut job = job.clone();
+        let mut state = state.clone();
+        let expected = match case {
+            0 => {
+                job.validate_only = false;
+                ErrorCode::CapabilityUnsupported
+            }
+            1 => {
+                state.output.as_mut().unwrap().fidelity = FidelityPolicy::StrictPreservation;
+                ErrorCode::FidelityPolicyConflict
+            }
+            2 => {
+                Arc::make_mut(&mut job.intent).processing = GraphProcessingRequest::IntegerBypass;
+                ErrorCode::FidelityPolicyConflict
+            }
+            _ => {
+                state
+                    .playback
+                    .as_mut()
+                    .unwrap()
+                    .backend
+                    .as_mut()
+                    .unwrap()
+                    .audio_storage_bytes = 256 << 20;
+                ErrorCode::ResourceBudgetExceeded
+            }
+        };
+        service.submit(job, state, active_source()).unwrap();
+        assert_eq!(
+            completion(&mut service).result.err().unwrap().code,
+            expected,
+            "case {case}"
+        );
+        assert_eq!(service.resources().resident_bytes, 0);
+        assert!(!service.resources().preparing_or_candidate);
+    }
+}
+
+#[test]
+fn captured_backend_storage_is_charged_without_changing_graph_identity() {
+    let mut previews = Vec::new();
+    for bytes in [0, 1 << 20] {
+        let mut state = snapshot();
+        state
+            .playback
+            .as_mut()
+            .unwrap()
+            .backend
+            .as_mut()
+            .unwrap()
+            .audio_storage_bytes = bytes;
+        let mut job = request(&state, serde_json::json!({"kind":"bypass"}));
+        job.validate_only = true;
+        let mut service = GraphService::spawn(None).unwrap();
+        service.submit(job, state, active_source()).unwrap();
+        let preview = completion(&mut service).result.unwrap().preview;
+        assert_eq!(preview.resources.backend_audio_bytes, bytes);
+        previews.push(preview);
+    }
+    assert_eq!(previews[0].graph_hash, previews[1].graph_hash);
+    assert_eq!(previews[0].kernel_hash, previews[1].kernel_hash);
+    assert_eq!(
+        previews[1].resources.aggregate_peak_bytes - previews[0].resources.aggregate_peak_bytes,
+        1 << 20
+    );
+}
+
+#[test]
+fn coreaudio_admission_reserves_the_owned_ring_overlap_during_reopen() {
+    let mut state = snapshot();
+    state.output.as_mut().unwrap().backend = OutputBackend::CoreAudio;
+    let backend = state.playback.as_mut().unwrap().backend.as_mut().unwrap();
+    backend.backend = OutputBackend::CoreAudio;
+    backend.audio_storage_bytes = 1024;
+    let mut job = request(&state, serde_json::json!({"kind":"bypass"}));
+    job.validate_only = true;
+    let mut service = GraphService::spawn(None).unwrap();
+    service.submit(job, state, active_source()).unwrap();
+    let preview = completion(&mut service).result.unwrap().preview;
+    assert_eq!(
+        preview.resources.aggregate_peak_bytes,
+        preview.resources.pipeline_bytes + 256 + 2048 + 4 * 1024 * 1024
+    );
 }
 #[test]
 fn resolves_corrections_and_retires_frozen_filter_storage() {
@@ -1031,7 +1152,10 @@ fn same_graph_hash_survives_existing_active_storage_and_accounts_route_period() 
         .unwrap() as u64;
     assert_eq!(
         first.resources().aggregate_peak_bytes,
-        first.resources().pipeline_bytes + route + 4 * 1024 * 1024
+        first.resources().pipeline_bytes
+            + first.resources().backend_audio_bytes
+            + route
+            + 4 * 1024 * 1024
     );
     service.submit(job, state, crate::active_source()).unwrap();
     let second = completion(&mut service).result.unwrap().pipeline.unwrap();
@@ -1040,6 +1164,7 @@ fn same_graph_hash_survives_existing_active_storage_and_accounts_route_period() 
         second.resources().aggregate_peak_bytes,
         first.resources().pipeline_bytes
             + second.resources().pipeline_bytes
+            + second.resources().backend_audio_bytes
             + route
             + 4 * 1024 * 1024
     );
