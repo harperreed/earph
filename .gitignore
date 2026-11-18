@@ -1,3 +1,5 @@
 .kata.local.toml
 /target/
 /.scratch/
+# Private audio fixtures and their archives stay local.
+/media-ignore/
