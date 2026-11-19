@@ -245,3 +245,16 @@ See `docs/evidence/desktop/t12-projection-native-linux-20261119.json` for the bo
 Root added only that evidence document and this checkpoint after the successful checks.
 Foreign profile workflows, the Start constructor, device discovery, and Output/Transport GUI remain pending.
 The normal merge retains both existing parents and the reviewed backend observation repair.
+
+## Output activity client checkpoint
+
+Root ported the reviewed output-activity producer and added matching strict client views.
+The views retain scope, boundary, origin epochs, exact counters, overflow, closure, and unsupported nulls.
+The prior decoder fails the real extended Core reply before the client correction.
+All 13 projection tests then pass, including exact maximum u64 values and missing-field rejection.
+The rebuilt owner passes 80 desktop and Rust FFI tests. The final canonical passes 906/0/5.
+Fresh Kotlin consumers retain exact capability bytes and nine profile/package terminal replays.
+Independent producer and client reviews report no material findings.
+See `docs/evidence/desktop/output-activity-client-linux-20261119.json` for exact source and evidence bindings.
+Root adds only that evidence document and this checkpoint after the checks.
+Mac compilation, measured native activity, Swift, and fresh native windows remain separate gates.

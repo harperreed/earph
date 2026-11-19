@@ -950,6 +950,7 @@ mod tests {
         let format =
             PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
         s.state.playback = Some(PlaybackObservation {
+            output_activity: None,
             processing: None,
             format,
             submitted_frames: 0,
@@ -2476,6 +2477,17 @@ mod tests {
         let c = commit(&s, "commit", &p);
         s.submit_graph(c.clone(), 21);
         let mut observation = s.state.playback.as_ref().unwrap().clone();
+        observation.output_activity = Some(OutputActivity {
+            scope: OutputActivityScope::OutputInstanceAcrossNativeReopens,
+            measurement_boundary: OutputActivityBoundary::CoreAudioSdkEntryCalls,
+            origin_epochs: s.state.epochs,
+            native_open_successes: 2,
+            sdk_write_attempts: u64::MAX,
+            accepted_frames: u64::MAX,
+            sdk_start_attempts: 1,
+            counter_overflow: true,
+            close_confirmed: false,
+        });
         observation.source_position_frames = 37;
         observation.audible_source_position_frames = Some(31);
         observation.processing = Some(PlaybackProcessingObservation {
@@ -2516,6 +2528,21 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.state.playback.as_ref(), Some(&observation));
+        let wire = serde_json::to_value(s.snapshot()).unwrap();
+        assert_eq!(
+            wire["playback"]["output_activity"]["accepted_frames"].as_u64(),
+            Some(u64::MAX)
+        );
+        let restored = Session::restore_owner(
+            s.state.zone_id.clone(),
+            OwnerId::new("activity-restart").unwrap(),
+            ControlLimits::default(),
+            serde_json::from_slice(&serde_json::to_vec(&s.checkpoint()).unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert!(restored.snapshot().playback.is_none());
+        assert!(restored.snapshot().muted);
+        assert!(!restored.snapshot().output_consented);
     }
     #[test]
     fn persistence_failure_never_publishes_applied_graph_or_unmutes() {

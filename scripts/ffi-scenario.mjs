@@ -148,6 +148,11 @@ try {
   for (const key of ['exact_association_backends', 'application', 'package']) assert(Object.hasOwn(capabilities, key), `missing integrated capability: ${key}`);
   assert.equal(capabilities.package.format, 'directory');
   assert.equal(capabilities.package.automatic_privacy_proof, false);
+  const advertisedActivity = results.capabilities.receipt.result.value.output_activity;
+  assert(advertisedActivity, 'missing output activity capability');
+  assert.equal(advertisedActivity.scope, 'output_instance_across_native_reopens');
+  assert.equal(advertisedActivity.measurement_boundary, 'core_audio_sdk_entry_calls');
+  assert.deepEqual(advertisedActivity.backends, process.platform === 'darwin' ? ['core_audio'] : []);
   const phases = [];
   const readForeign = (bytes, label) => {
     const rows = foreign([{ name: 'request', bytes }, {

@@ -788,7 +788,9 @@ impl Playback {
     }
     fn failure_observation(&self) -> PlaybackObservation {
         if let Some((_, observation)) = self.cancelled_control_observation() {
-            return observation.clone();
+            let mut observation = observation.clone();
+            self.refresh_activity(&mut observation);
+            return observation;
         }
         let mut counters = self.last_counters;
         counters.submitted = self.stream_position;
@@ -796,6 +798,9 @@ impl Playback {
         counters.restart_cursor = None;
         counters.delay = None;
         self.observation(counters)
+    }
+    fn refresh_activity(&self, observation: &mut PlaybackObservation) {
+        observation.output_activity = self.output.activity();
     }
     fn cancelled_control_observation(&self) -> Option<&(Epochs, PlaybackObservation)> {
         (self.cancel.load(Ordering::Acquire) && self.stream_position == 0)
@@ -840,6 +845,7 @@ impl Playback {
                     })
             });
         PlaybackObservation {
+            output_activity: self.output.activity(),
             processing: self
                 .pipeline
                 .as_ref()
@@ -1678,12 +1684,14 @@ fn playback_step_failure(
     terminal: &mut Option<SourceTerminal>,
     events: &SyncSender<Event>,
 ) {
-    let observation = current.failure_observation();
+    let mut observation = current.failure_observation();
     let settings = current.failure_context(None);
-    if current.cancel.load(Ordering::Acquire) {
+    let cancelled = current.cancel.load(Ordering::Acquire);
+    let _ = current.output.stop();
+    current.refresh_activity(&mut observation);
+    if cancelled {
         *stopped = Some((settings.clone(), observation.clone(), Some(error)));
     }
-    let _ = current.output.stop();
     clear_reservation(&current.view, current.epochs());
     clear_reservation(&current.view, settings.snapshot.epochs);
     retain_source_failure(terminal, &settings, error, Some(observation), events);
@@ -1704,13 +1712,14 @@ fn action_failure(
         })
     {
         let mut current = playback.take().expect("checked live source");
-        let (context, observation) = if current.cancelled_control_observation().is_some() {
+        let (context, mut observation) = if current.cancelled_control_observation().is_some() {
             (current.failure_context(None), current.failure_observation())
         } else {
             before_control
                 .unwrap_or_else(|| (current.failure_context(None), current.failure_observation()))
         };
         let close_error = current.output.stop().err();
+        current.refresh_activity(&mut observation);
         clear_reservation(&current.view, context.snapshot.epochs);
         clear_reservation(&current.view, current.epochs());
         if let Some(error) = close_error {
@@ -1720,8 +1729,9 @@ fn action_failure(
         return;
     }
     let observation = playback.take().map(|mut current| {
-        let observation = current.failure_observation();
+        let mut observation = current.failure_observation();
         let _ = current.output.stop();
+        current.refresh_activity(&mut observation);
         clear_reservation(&current.view, current.epochs());
         settings = Some(current.failure_context(settings.take()));
         observation
@@ -1739,9 +1749,10 @@ fn stop_source(
     events: &SyncSender<Event>,
 ) -> Result<(), EngineError> {
     if let Some(mut current) = playback.take() {
-        let observation = current.failure_observation();
+        let mut observation = current.failure_observation();
         let context = current.failure_context(None);
         let failure = current.output.stop().err();
+        current.refresh_activity(&mut observation);
         clear_reservation(view, context.snapshot.epochs);
         clear_reservation(view, current.epochs());
         *stopped = Some((context, observation, failure));
@@ -3596,6 +3607,244 @@ pub(crate) mod tests {
         assert_eq!(ack.graph_hash, hash);
         assert_eq!(ack.observation.submitted_frames, 0);
         assert!(playback.settings.snapshot.muted);
+    }
+    #[cfg(target_os = "linux")]
+    mod activity_tests {
+        use super::*;
+        use earph_core::session::{OutputActivity, OutputActivityBoundary, OutputActivityScope};
+
+        // Only diagnostic samples are controlled. Decoding, output, and cleanup use real ALSA null.
+        struct ControlledActivity {
+            inner: Box<dyn Output>,
+            sample: Arc<Mutex<OutputActivity>>,
+            close_failure: bool,
+            cancel_during_close: Option<Arc<AtomicBool>>,
+        }
+        impl Output for ControlledActivity {
+            fn audio_storage_bytes(&self) -> Result<u64, EngineError> {
+                self.inner.audio_storage_bytes()
+            }
+            fn is_running(&self) -> bool {
+                self.inner.is_running()
+            }
+            fn observation(&self) -> Result<BackendObservation, EngineError> {
+                self.inner.observation()
+            }
+            fn activity(&self) -> Option<OutputActivity> {
+                Some(*self.sample.lock().unwrap())
+            }
+            fn write(
+                &mut self,
+                block: &PcmBlock,
+                offset: usize,
+                frames: usize,
+            ) -> Result<Option<usize>, EngineError> {
+                self.inner.write(block, offset, frames)
+            }
+            fn progress(&mut self) -> Result<Counters, EngineError> {
+                self.inner.progress()
+            }
+            fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError> {
+                let counters = self.inner.suspend(epochs)?;
+                self.sample.lock().unwrap().native_open_successes += 1;
+                Ok(counters)
+            }
+            fn finish(&mut self) -> Result<Option<Counters>, EngineError> {
+                let result = self.inner.finish()?;
+                if result.is_some() {
+                    self.sample.lock().unwrap().close_confirmed = true;
+                }
+                Ok(result)
+            }
+            fn wait(&mut self) -> Result<(), EngineError> {
+                self.inner.wait()
+            }
+            fn stop(&mut self) -> Result<(), EngineError> {
+                self.inner.stop()?;
+                if let Some(cancel) = &self.cancel_during_close {
+                    cancel.store(true, Ordering::Release);
+                }
+                if self.close_failure {
+                    return Err(EngineError::new(
+                        ErrorCode::OutputFault,
+                        "controlled close failure",
+                    ));
+                }
+                self.sample.lock().unwrap().close_confirmed = true;
+                Ok(())
+            }
+        }
+        fn attach(
+            mut playback: Playback,
+            close_failure: bool,
+            cancel_during_close: bool,
+        ) -> (Playback, Arc<Mutex<OutputActivity>>) {
+            let sample = Arc::new(Mutex::new(OutputActivity {
+                scope: OutputActivityScope::OutputInstanceAcrossNativeReopens,
+                measurement_boundary: OutputActivityBoundary::CoreAudioSdkEntryCalls,
+                origin_epochs: playback.epochs(),
+                native_open_successes: 1,
+                sdk_write_attempts: 4,
+                accepted_frames: 29,
+                sdk_start_attempts: 1,
+                counter_overflow: false,
+                close_confirmed: false,
+            }));
+            playback.output = Box::new(ControlledActivity {
+                inner: playback.output,
+                sample: sample.clone(),
+                close_failure,
+                cancel_during_close: cancel_during_close.then(|| playback.cancel.clone()),
+            });
+            (playback, sample)
+        }
+        #[test]
+        fn cancellation_refreshes_activity_without_replacing_the_retained_source_prefix() {
+            let (current, _, _, _) = staged_streaming_playback();
+            let (mut current, sample) = attach(current, false, false);
+            let before = current.failure_observation();
+            current.control_stop_observation = Some((current.epochs(), before.clone()));
+            current.stream_position = 0;
+            current.cancel.store(true, Ordering::Release);
+            sample.lock().unwrap().native_open_successes = 2;
+            let mut expected = before;
+            expected.output_activity = Some(*sample.lock().unwrap());
+            assert_eq!(current.failure_observation(), expected);
+        }
+        #[test]
+        fn natural_completion_retains_the_closed_activity_sample() {
+            let (current, events, _receiver) = streaming_playback();
+            let (mut current, sample) = attach(current, false, false);
+            for _ in 0..1024 {
+                if current.step(&events).unwrap() {
+                    break;
+                }
+            }
+            assert_eq!(current.phase, RenderPhase::Finished);
+            let terminal = SourceTerminal::completed_from_playback(&current).unwrap();
+            let SourceTerminalOutcome::Completed(observation) = terminal.outcome else {
+                panic!("completed source required")
+            };
+            assert!(observation.output_activity.unwrap().close_confirmed);
+            assert_eq!(observation.output_activity, Some(*sample.lock().unwrap()));
+        }
+        #[test]
+        fn terminal_paths_sample_activity_after_close_and_preserve_failures() {
+            for close_failure in [false, true] {
+                for path in ["stop", "action", "step", "cancel_step", "cancel"] {
+                    let (current, events, receiver, _) = staged_streaming_playback();
+                    let (current, sample) = attach(current, close_failure, false);
+                    let before = current.failure_observation();
+                    let settings = current.failure_context(None);
+                    let view = current.view.clone();
+                    let error =
+                        EngineError::new(ErrorCode::InternalFault, "controlled source failure");
+                    let mut stopped = None;
+                    let mut terminal = None;
+                    let mut playback = Some(current);
+                    receiver.try_iter().for_each(drop);
+                    match path {
+                        "stop" => stop_source(
+                            StopRequest {
+                                request_id: RequestId::new("activity-stop").unwrap(),
+                                settings: settings.clone(),
+                            },
+                            &mut playback,
+                            &mut stopped,
+                            &mut terminal,
+                            &view,
+                            &events,
+                        )
+                        .unwrap(),
+                        "step" => playback_step_failure(
+                            playback.as_mut().unwrap(),
+                            error,
+                            &mut stopped,
+                            &mut terminal,
+                            &events,
+                        ),
+                        "cancel_step" => {
+                            playback
+                                .as_mut()
+                                .unwrap()
+                                .cancel
+                                .store(true, Ordering::Release);
+                            playback_step_failure(
+                                playback.as_mut().unwrap(),
+                                error,
+                                &mut stopped,
+                                &mut terminal,
+                                &events,
+                            );
+                        }
+                        "cancel" => {
+                            playback
+                                .as_mut()
+                                .unwrap()
+                                .cancel
+                                .store(true, Ordering::Release);
+                            action_failure(
+                                &mut playback,
+                                &mut stopped,
+                                &mut terminal,
+                                Some(settings.clone()),
+                                EngineError::new(
+                                    ErrorCode::OperationCancelled,
+                                    "controlled cancellation",
+                                ),
+                                Some((settings, before.clone())),
+                                &events,
+                            );
+                        }
+                        _ => action_failure(
+                            &mut playback,
+                            &mut stopped,
+                            &mut terminal,
+                            Some(settings),
+                            error,
+                            None,
+                            &events,
+                        ),
+                    }
+                    let observation = if let Some((_, observation, _)) = stopped {
+                        observation
+                    } else {
+                        receiver.try_iter().find_map(|event| match event {
+                            Event::Stopped { observation, .. } | Event::Failed { observation, .. } | Event::StopFailed { observation, .. } => observation,
+                            _ => None,
+                        }).unwrap_or_else(|| panic!("missing terminal observation: {path}, close_failure={close_failure}"))
+                    };
+                    let activity = observation.output_activity.unwrap();
+                    assert_eq!(activity.close_confirmed, !close_failure, "{path}");
+                    assert_eq!(activity, *sample.lock().unwrap(), "{path}");
+                    let mut expected = before;
+                    expected.output_activity = Some(activity);
+                    assert_eq!(observation, expected, "{path}");
+                }
+            }
+        }
+        #[test]
+        fn sampling_after_close_keeps_the_original_cancellation_admission_point() {
+            let (current, events, receiver, _) = staged_streaming_playback();
+            let (mut current, sample) = attach(current, false, true);
+            let mut stopped = None;
+            let mut terminal = None;
+            let error = EngineError::new(ErrorCode::InternalFault, "controlled source failure");
+            receiver.try_iter().for_each(drop);
+            assert!(!current.cancel.load(Ordering::Acquire));
+            playback_step_failure(&mut current, error, &mut stopped, &mut terminal, &events);
+            assert!(current.cancel.load(Ordering::Acquire));
+            assert!(sample.lock().unwrap().close_confirmed);
+            assert!(
+                stopped.is_none(),
+                "a cancellation arriving during close changed cache admission"
+            );
+            let event = receiver.try_iter().next().unwrap();
+            assert!(
+                matches!(event, Event::Failed { error: actual, observation: Some(observation), .. }
+                if actual == error && observation.output_activity.unwrap().close_confirmed)
+            );
+        }
     }
     // These controlled observations model a reopen boundary, not native hardware changes.
     #[cfg(target_os = "linux")]

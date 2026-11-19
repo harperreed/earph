@@ -43,6 +43,22 @@ fn command(session: &Session, request: &str, payload: Command) -> CommandEnvelop
 }
 
 #[test]
+fn output_activity_capabilities_distinguish_support_from_observation() {
+    let mut session = owner("activity-owner");
+    let request = command(&session, "activity-capabilities", Command::Capabilities);
+    let receipt = serde_json::to_value(session.submit(request)).unwrap();
+    assert_eq!(
+        receipt["result"]["value"].get("output_activity"),
+        Some(&serde_json::json!({
+            "backends": [],
+            "scope": "output_instance_across_native_reopens",
+            "measurement_boundary": "core_audio_sdk_entry_calls"
+        }))
+    );
+    assert!(session.snapshot().playback.is_none());
+}
+
+#[test]
 fn scoped_owner_requires_current_identity_only_for_mutations() {
     let mut session = owner("owner-a");
     let mut append = command(

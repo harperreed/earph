@@ -492,6 +492,7 @@ fn local_start_preparation_blocks_profile_work_until_actual_resources_arrive() {
         monotonic_ns: 1,
         kind: EngineEventKind::LocalPrepared {
             observation: PlaybackObservation {
+                output_activity: None,
                 processing: None,
                 format: PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16)
                     .unwrap(),

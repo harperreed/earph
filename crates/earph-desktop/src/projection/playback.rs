@@ -43,6 +43,36 @@ pub struct BackendObservationView {
     pub measurement_boundary: String,
     pub preservation: PreservationStateView,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputActivityScopeView {
+    OutputInstanceAcrossNativeReopens,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputActivityBoundaryView {
+    CoreAudioSdkEntryCalls,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutputActivityCapabilitiesView {
+    pub backends: Vec<OutputBackend>,
+    pub scope: OutputActivityScopeView,
+    pub measurement_boundary: OutputActivityBoundaryView,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutputActivityView {
+    pub scope: OutputActivityScopeView,
+    pub measurement_boundary: OutputActivityBoundaryView,
+    pub origin_epochs: Epochs,
+    pub native_open_successes: u64,
+    pub sdk_write_attempts: u64,
+    pub accepted_frames: u64,
+    pub sdk_start_attempts: u64,
+    pub counter_overflow: bool,
+    pub close_confirmed: bool,
+}
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlaybackObservationView {
@@ -68,6 +98,8 @@ pub struct PlaybackObservationView {
     pub modified: bool,
     #[serde(deserialize_with = "nullable")]
     pub backend: Option<BackendObservationView>,
+    #[serde(deserialize_with = "nullable")]
+    pub output_activity: Option<OutputActivityView>,
 }
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct PlaybackProcessingView {

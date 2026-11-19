@@ -83,6 +83,14 @@ fn owner_advertises_bounded_application_and_refuses_imported_device_trust() {
         ),
     );
     let profiles = &capabilities["receipt"]["result"]["value"]["profiles"];
+    assert_eq!(
+        capabilities["receipt"]["result"]["value"]["output_activity"],
+        json!({
+            "backends": if cfg!(target_os = "macos") { vec!["core_audio"] } else { vec![] },
+            "scope": "output_instance_across_native_reopens",
+            "measurement_boundary": "core_audio_sdk_entry_calls"
+        })
+    );
     assert_eq!(profiles["apply"], true);
     assert_eq!(profiles["exact_associations"], cfg!(target_os = "macos"));
     assert_eq!(

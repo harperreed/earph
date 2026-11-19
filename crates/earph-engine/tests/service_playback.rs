@@ -372,6 +372,11 @@ fn executable_pause_seek_and_resume_preserve_paused_intent_and_exact_suffix() {
     append_selected(controller, &source);
     start(controller);
     let opened = controller.wait(|state| state["transport"] == "buffering");
+    assert_eq!(
+        opened["playback"].get("output_activity"),
+        Some(&Value::Null),
+        "ALSA activity must be explicitly unavailable"
+    );
     let pause = controller.document(json!({"method":"sessions.pause"}), None);
     let receipt = controller.send(&pause);
     assert_eq!(receipt["receipt"]["status"], "accepted", "{receipt}");

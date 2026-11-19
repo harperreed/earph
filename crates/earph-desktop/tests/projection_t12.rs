@@ -274,6 +274,127 @@ fn integrated_state_and_capabilities_decode_without_dropping_new_fields() {
 }
 
 #[test]
+fn output_activity_capabilities_require_the_actual_scope_and_boundary() {
+    let bytes = query(Command::Capabilities);
+    decode_reply(bytes.clone()).expect("actual output activity capability must decode");
+    rejects_removed(&bytes, "/receipt/result/value", "output_activity");
+    for key in ["backends", "scope", "measurement_boundary"] {
+        rejects_removed(&bytes, "/receipt/result/value/output_activity", key);
+    }
+    let original: Value = serde_json::from_slice(&bytes).unwrap();
+    for key in ["scope", "measurement_boundary"] {
+        let mut invalid = original.clone();
+        invalid["receipt"]["result"]["value"]["output_activity"][key] = "invented".into();
+        assert!(decode_reply(serde_json::to_vec(&invalid).unwrap()).is_err());
+    }
+    let mut unknown = original;
+    unknown["receipt"]["result"]["value"]["output_activity"]["invented"] = true.into();
+    assert!(decode_reply(serde_json::to_vec(&unknown).unwrap()).is_err());
+}
+
+#[test]
+fn controlled_output_activity_keeps_u64_totals_and_requires_nullable_samples() {
+    let activity = OutputActivity {
+        scope: OutputActivityScope::OutputInstanceAcrossNativeReopens,
+        measurement_boundary: OutputActivityBoundary::CoreAudioSdkEntryCalls,
+        origin_epochs: Epochs {
+            session: 7,
+            stream: 9,
+        },
+        native_open_successes: u64::MAX,
+        sdk_write_attempts: u64::MAX,
+        accepted_frames: u64::MAX,
+        sdk_start_attempts: u64::MAX,
+        counter_overflow: true,
+        close_confirmed: true,
+    };
+    for sample in [Some(activity), None] {
+        let mut state = session().snapshot();
+        state.playback = Some(PlaybackObservation {
+            processing: None,
+            format: PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16)
+                .unwrap(),
+            submitted_frames: 0,
+            consumed_frames: None,
+            backend_delay_frames: None,
+            consumption_basis: "controlled Core serializer; no native measurement",
+            source_entry_id: QueueEntryId::new("activity-fixture").unwrap(),
+            source_position_frames: 0,
+            audible_entry_id: None,
+            audible_source_position_frames: None,
+            input_peak: None,
+            output_peak: None,
+            modified: false,
+            backend: None,
+            output_activity: sample,
+        });
+        let bytes = result(QueryResult::State(Box::new(state)), ReceiptStatus::Applied);
+        let decoded = decode_reply(bytes.clone()).expect("actual activity sample must decode");
+        assert_eq!(decoded.bytes(), bytes);
+        rejects_removed(&bytes, "/receipt/result/value/playback", "output_activity");
+        let earph_desktop::Reply::Receipt(receipt) = decoded else {
+            panic!("actual State receipt");
+        };
+        let projected = receipt
+            .state()
+            .unwrap()
+            .playback
+            .as_ref()
+            .unwrap()
+            .output_activity
+            .as_ref();
+        if sample.is_none() {
+            assert!(projected.is_none());
+            continue;
+        }
+        let projected = projected.unwrap();
+        assert_eq!(projected.origin_epochs, activity.origin_epochs);
+        assert_eq!(projected.native_open_successes, u64::MAX);
+        assert_eq!(projected.sdk_write_attempts, u64::MAX);
+        assert_eq!(projected.accepted_frames, u64::MAX);
+        assert_eq!(projected.sdk_start_attempts, u64::MAX);
+        assert!(projected.counter_overflow && projected.close_confirmed);
+        for key in [
+            "scope",
+            "measurement_boundary",
+            "origin_epochs",
+            "native_open_successes",
+            "sdk_write_attempts",
+            "accepted_frames",
+            "sdk_start_attempts",
+            "counter_overflow",
+            "close_confirmed",
+        ] {
+            rejects_removed(
+                &bytes,
+                "/receipt/result/value/playback/output_activity",
+                key,
+            );
+        }
+        let original: Value = serde_json::from_slice(&bytes).unwrap();
+        for pointer in [
+            "/receipt/result/value/playback/output_activity",
+            "/receipt/result/value/playback/output_activity/origin_epochs",
+        ] {
+            let mut invalid = original.clone();
+            invalid
+                .pointer_mut(pointer)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert("invented".into(), true.into());
+            assert!(decode_reply(serde_json::to_vec(&invalid).unwrap()).is_err());
+        }
+        for key in ["scope", "measurement_boundary"] {
+            let mut invalid = original.clone();
+            invalid["receipt"]["result"]["value"]["playback"]["output_activity"][key] =
+                "invented".into();
+            assert!(decode_reply(serde_json::to_vec(&invalid).unwrap()).is_err());
+        }
+    }
+}
+
+#[test]
 fn new_state_and_capability_keys_are_required_even_when_nullable() {
     let state = query(Command::State);
     for field in ["local_volume_policy", "configured_profile"] {
@@ -437,6 +558,7 @@ fn controlled_playback_observations_preserve_nulls_and_omitted_processing_fields
         output_peak: None,
         modified: false,
         backend: Some(backend(false)),
+        output_activity: None,
     });
     let bytes = result(QueryResult::State(Box::new(state)), ReceiptStatus::Applied);
     decode_reply(bytes.clone())
@@ -636,6 +758,7 @@ fn controlled_streaming_runtime_and_observed_device_format_remain_separate() {
         output_peak: Some(0.0),
         modified: true,
         backend: Some(observed),
+        output_activity: None,
     });
     let bytes = result(QueryResult::State(Box::new(state)), ReceiptStatus::Applied);
     let earph_desktop::Reply::Receipt(receipt) = decode_reply(bytes.clone()).unwrap() else {

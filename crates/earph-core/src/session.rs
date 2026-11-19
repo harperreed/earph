@@ -133,6 +133,33 @@ pub struct PlaybackObservation {
     pub output_peak: Option<f64>,
     pub modified: bool,
     pub backend: Option<BackendObservation>,
+    pub output_activity: Option<OutputActivity>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputActivityScope {
+    OutputInstanceAcrossNativeReopens,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputActivityBoundary {
+    CoreAudioSdkEntryCalls,
+}
+
+/// Runtime samples only; overflow makes all totals lower bounds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct OutputActivity {
+    pub scope: OutputActivityScope,
+    pub measurement_boundary: OutputActivityBoundary,
+    pub origin_epochs: Epochs,
+    pub native_open_successes: u64,
+    pub sdk_write_attempts: u64,
+    pub accepted_frames: u64,
+    pub sdk_start_attempts: u64,
+    pub counter_overflow: bool,
+    pub close_confirmed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -545,6 +572,15 @@ impl Session {
                             vec![SourceKind::Virtual]
                         },
                         physical_output: self.local_playback_enabled,
+                        output_activity: OutputActivityCapabilities {
+                            backends: if self.local_playback_enabled && cfg!(target_os = "macos") {
+                                vec![OutputBackend::CoreAudio]
+                            } else {
+                                vec![]
+                            },
+                            scope: OutputActivityScope::OutputInstanceAcrossNativeReopens,
+                            measurement_boundary: OutputActivityBoundary::CoreAudioSdkEntryCalls,
+                        },
                         profiles: crate::profile_control::ProfileCapabilities {
                             save: true,
                             manual_resolution: true,

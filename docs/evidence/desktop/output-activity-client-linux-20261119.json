@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "status": "pass_for_integrated_linux_activity_client_checkpoint",
+  "source": {
+    "base_commit": "66736574f4aad05bfbf2f7a9445e1723524c6b90",
+    "producer_commit": "47118d56b5662c2e8c563df55735a349926e3123",
+    "tested_source_dirty": true,
+    "files": 1761,
+    "manifest_sha256": "8887ba41d4b8d83f1bb0cd51e53e4963e570fd71bb6d2de24304be2bb67947d3",
+    "runtime_sha256": "6a585be134e679101d962d03331e00731fad66d427cabd3a72aa8ba7abfffb54",
+    "lock_sha256": "19ff958fa2db03d3c4ec6c4e5a693239cf3012385886d1d06a0ec983966f041d",
+    "client_patch_sha256": "6fa847a8b0ed3669c14497788b367e6b712d0e49f7cfd129c65a5befd1733aac",
+    "post_test_changes": "This evidence document and an append-only desktop plan checkpoint."
+  },
+  "checks": {
+    "canonical": {
+      "command": "scripts/check",
+      "exit": 0,
+      "signal": null,
+      "passed": 906,
+      "failed": 0,
+      "ignored": 5,
+      "summaries": 103,
+      "log_sha256": "b97ff0cf2b7a26c66b5ab3b52c44f16e9a4a19dbf65722e17930fd9802494562"
+    },
+    "desktop_and_rust_ffi": {"exit": 0, "passed": 80, "failed": 0, "ignored": 0},
+    "strict_projection": {"exit": 0, "passed": 13, "failed": 0, "ignored": 0},
+    "focused_counts_overlap_canonical": true,
+    "strict_clippy_exit": 0,
+    "actual_kotlin": {
+      "exit": 0,
+      "foreign_frames": 48,
+      "terminal_replays": 9,
+      "exact_cli_comparisons": 29,
+      "owner_exit_code": 0,
+      "owner_signal": null,
+      "owner_sha256": "f0c305cc4feaebf41f398f7461c8a8bcf8abe292831c0866d95662b7fb921348",
+      "library_sha256": "fa962bbd495fb06aea3a5d5360509d38ba907b7dc1e3e2e8fbf93f18773cab60",
+      "output_activity_capability_backends": [],
+      "native_output_opened": false
+    },
+    "producer_review_sha256": "b2fc571149338835baa266301a7e516084050539e3b6f9b1379523261978cb94",
+    "client_review_sha256": "1e8b72f1d2e68b86a24e01745ec1d351371a61d0468b6686476793a43e0c6919",
+    "material_review_findings": 0
+  },
+  "limits": [
+    "Controlled non-null activity samples qualify strict serialization, exact u64 counters and required fields only.",
+    "Linux ALSA activity remains unsupported and explicit null.",
+    "The macOS adapter build, actual native counters, current Swift execution and new native windows remain separate gates.",
+    "The earlier native008 result remains bound to its earlier source and executable hashes.",
+    "SDK entries do not establish OS calls, callback consumption, DAC delivery or audibility.",
+    "Successful foreign package import remains unqualified.",
+    "Raw process identities, runtime paths and transcripts remain private."
+  ],
+  "raw_private_values_included": false
+}

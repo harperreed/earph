@@ -217,6 +217,7 @@ fn snapshot() -> SessionSnapshot {
     });
     let format = PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
     state.playback = Some(PlaybackObservation {
+        output_activity: None,
         processing: None,
         format,
         submitted_frames: 0,
@@ -766,6 +767,33 @@ fn validates_real_src_roundtrip_with_per_stage_timing_and_no_runtime_owner() {
         assert_eq!(service.resources().resident_bytes, 0);
         assert!(!service.resources().preparing_or_candidate);
     }
+}
+
+#[test]
+fn changing_activity_does_not_change_prepared_graph_identity_or_resources() {
+    use earph_core::session::{OutputActivity, OutputActivityBoundary, OutputActivityScope};
+    let mut previews = Vec::new();
+    for count in [0, u64::MAX] {
+        let mut state = snapshot();
+        state.playback.as_mut().unwrap().output_activity = Some(OutputActivity {
+            scope: OutputActivityScope::OutputInstanceAcrossNativeReopens,
+            measurement_boundary: OutputActivityBoundary::CoreAudioSdkEntryCalls,
+            origin_epochs: state.epochs,
+            native_open_successes: count,
+            sdk_write_attempts: count,
+            accepted_frames: count,
+            sdk_start_attempts: count,
+            counter_overflow: count == u64::MAX,
+            close_confirmed: count != 0,
+        });
+        let job = request(&state, serde_json::json!({"kind":"bypass"}));
+        let mut service = GraphService::spawn(None).unwrap();
+        service.submit(job, state, active_source()).unwrap();
+        let prepared = completion(&mut service).result.unwrap();
+        assert!(prepared.pipeline.is_some());
+        previews.push(prepared.preview);
+    }
+    assert_eq!(previews[0], previews[1]);
 }
 
 #[test]

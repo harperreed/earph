@@ -1,5 +1,6 @@
 // ABOUTME: Owns the worker's explicit Core Audio stream and bounded prebuffer.
 // ABOUTME: Restarts only from callback boundaries and drains through the SDK clock boundary.
+use super::activity::ActivityTracker;
 use super::*;
 use earph_coreaudio::{CoreAudioOutput, OutputState, SignalPermission, WriteProgress};
 use std::{
@@ -58,6 +59,7 @@ pub(in crate::output) struct NativeOutput {
     request: OutputRequest,
     drain_deadline: Option<Instant>,
     complete: Option<Counters>,
+    activity: ActivityTracker,
     #[cfg(test)]
     start_permission: Option<SignalPermission>,
 }
@@ -90,6 +92,7 @@ impl NativeOutput {
             request,
             drain_deadline: None,
             complete: None,
+            activity: ActivityTracker::opened(epochs),
             #[cfg(test)]
             start_permission: None,
         })
@@ -113,14 +116,17 @@ impl NativeOutput {
             let permission = self.start_permission.unwrap_or(SignalPermission::Granted);
             #[cfg(not(test))]
             let permission = SignalPermission::Granted;
-            self.native
-                .start(permission)
+            self.activity
+                .start(|| self.native.start(permission))
                 .map_err(|failure| self.native_error("start", failure))?;
         }
         Ok(())
     }
 }
 impl Output for NativeOutput {
+    fn activity(&self) -> Option<earph_core::session::OutputActivity> {
+        Some(self.activity.snapshot())
+    }
     fn audio_storage_bytes(&self) -> Result<u64, EngineError> {
         self.native.audio_storage_bytes().map_err(error)
     }
@@ -142,8 +148,8 @@ impl Output for NativeOutput {
         // Start only an already acknowledged prefix. A start error must not hide this write's acceptance.
         self.start_ready(false)?;
         let result = self
-            .native
-            .write(block, offset, frames)
+            .activity
+            .write(|| self.native.write(block, offset, frames))
             .map_err(|failure| self.native_error("write", failure))?;
         match result {
             WriteProgress::Accepted { frames } => Ok(Some(frames)),
@@ -164,8 +170,10 @@ impl Output for NativeOutput {
         self.native
             .close()
             .map_err(|failure| self.native_error("suspend_close", failure))?;
+        self.activity.closed();
         self.native = CoreAudioOutput::open(self.request.clone(), epochs)
             .map_err(|failure| open_error("suspend_reopen", failure))?;
+        self.activity.reopened();
         self.drain_deadline = None;
         self.complete = None;
         Ok(progress)
@@ -192,6 +200,7 @@ impl Output for NativeOutput {
             self.native
                 .close()
                 .map_err(|failure| self.native_error("finish_close", failure))?;
+            self.activity.closed();
             self.complete = Some(progress);
             return Ok(Some(progress));
         }
@@ -211,7 +220,9 @@ impl Output for NativeOutput {
     fn stop(&mut self) -> Result<(), EngineError> {
         self.native
             .close()
-            .map_err(|failure| self.native_error("stop", failure))
+            .map_err(|failure| self.native_error("stop", failure))?;
+        self.activity.closed();
+        Ok(())
     }
 }
 
@@ -289,6 +300,10 @@ mod tests {
         }
         let accepted = output.native.progress().submitted_frames;
         assert_eq!(accepted, frames as u64 * 2);
+        let activity = output.activity().unwrap();
+        assert_eq!(activity.sdk_write_attempts, 2);
+        assert_eq!(activity.accepted_frames, accepted);
+        assert_eq!(activity.sdk_start_attempts, 0);
         block
             .set_span(Epochs::default(), 2, accepted, frames as u64)
             .unwrap();
@@ -301,7 +316,12 @@ mod tests {
         assert_eq!(progress.callback_delivered_frames, 0);
         assert_eq!(progress.callbacks_observed, 0);
         assert_eq!(output.native.state(), OutputState::Prepared);
+        let activity = output.activity().unwrap();
+        assert_eq!(activity.sdk_write_attempts, 2);
+        assert_eq!(activity.accepted_frames, accepted);
+        assert_eq!(activity.sdk_start_attempts, 1);
         output.stop().unwrap();
+        assert!(output.activity().unwrap().close_confirmed);
         drop(output);
         let after = earph_coreaudio::inspect(&device.uid).unwrap();
         assert_eq!(before.nominal_rate_hz, after.nominal_rate_hz);

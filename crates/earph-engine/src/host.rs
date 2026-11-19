@@ -814,6 +814,7 @@ mod tests {
             None
         };
         let observation = PlaybackObservation {
+            output_activity: None,
             processing: None,
             format,
             submitted_frames: 0,

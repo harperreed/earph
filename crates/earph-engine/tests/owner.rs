@@ -81,6 +81,10 @@ fn real_owner_persists_queue_and_restarts_paused_without_output() {
     assert_eq!(state["receipt"]["result"]["value"]["transport"], "paused");
     assert_eq!(state["receipt"]["result"]["value"]["muted"], true);
     assert_eq!(state["receipt"]["result"]["value"]["source"], Value::Null);
+    assert_eq!(
+        state["receipt"]["result"]["value"].get("playback"),
+        Some(&Value::Null)
+    );
     let queue: Value = serde_json::from_slice(
         &request(
             &runtime,

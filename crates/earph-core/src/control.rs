@@ -592,6 +592,13 @@ pub struct Capabilities {
     pub sources: Vec<SourceKind>,
     pub physical_output: bool,
     pub profiles: ProfileCapabilities,
+    pub output_activity: OutputActivityCapabilities,
+}
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OutputActivityCapabilities {
+    pub backends: Vec<OutputBackend>,
+    pub scope: crate::session::OutputActivityScope,
+    pub measurement_boundary: crate::session::OutputActivityBoundary,
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Receipt {

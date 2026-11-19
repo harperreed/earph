@@ -3,6 +3,7 @@
 use super::*;
 use earph_core::session::ObservedSampleRepresentation;
 use earph_coreaudio::{OutputRequest, PlaybackRoute, StreamFormat};
+mod activity;
 #[cfg(target_os = "macos")]
 mod native;
 #[cfg(target_os = "macos")]

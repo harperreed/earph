@@ -211,3 +211,7 @@ The proxy only drops or delays real owner traffic; it implements no engine behav
 
 The root `scripts/check` builds that owner and includes the desktop package.
 Use the package check for a narrower run with separate retained logs.
+
+Playback views preserve exact output-activity counters, their scope, and confirmed-close samples.
+Unsupported activity stays explicit null. These SDK diagnostics do not prove OS calls, callbacks, or audible delivery.
+See `../../docs/local-playback.md` for the owner-defined measurement boundary.

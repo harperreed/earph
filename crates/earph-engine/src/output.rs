@@ -23,6 +23,9 @@ pub(crate) trait Output {
     fn audio_storage_bytes(&self) -> Result<u64, EngineError>;
     fn is_running(&self) -> bool;
     fn observation(&self) -> Result<BackendObservation, EngineError>;
+    fn activity(&self) -> Option<earph_core::session::OutputActivity> {
+        None
+    }
     fn write(
         &mut self,
         block: &PcmBlock,

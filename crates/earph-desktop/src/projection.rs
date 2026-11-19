@@ -144,6 +144,7 @@ pub struct CapabilitiesView {
     pub physical_output: bool,
     // Share immutable capability metadata without inflating every retained receipt variant.
     pub profiles: Arc<ProfileCapabilitiesView>,
+    pub output_activity: OutputActivityCapabilitiesView,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
