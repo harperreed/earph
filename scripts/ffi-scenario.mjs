@@ -39,6 +39,56 @@ function cli(bytes, label) {
   return reply.subarray(0, reply.length - 1);
 }
 const queryState = label => JSON.parse(cli(Buffer.from(JSON.stringify(envelope({ method: 'state.get' }))), label)).receipt.result.value;
+function foreign(cases, label) {
+  const directory = path.join(output, `foreign-${label}`);
+  fs.mkdirSync(directory, { mode: 0o700 });
+  const write = (name, bytes) => fs.writeFileSync(path.join(directory, name), bytes, { flag: 'wx', mode: 0o600 });
+  const save = (name, value) => write(name, JSON.stringify(value, null, 2) + '\n');
+  const commands = path.join(directory, 'commands-private.tsv');
+  write('commands-private.tsv', cases.map(c => `${c.name}\t${c.bytes.toString('hex')}\n`).join(''));
+  let program, args, env = { ...process.env };
+  if (options.language === 'kotlin') {
+    for (const name of ['java', 'jar', 'jna', 'jna-native']) assert(options[name], `missing --${name}`);
+    const native = JSON.parse(fs.readFileSync(path.join(options['jna-native'], 'dispatcher.json')));
+    assert.equal(hash(options.jna), native.jar_sha256);
+    const dispatcher = path.resolve(options['jna-native'], native.filename);
+    assert.equal(hash(dispatcher), native.dispatcher_sha256);
+    const javaTemp = path.join(directory, 'java-tmp');
+    fs.mkdirSync(javaTemp, { mode: 0o700 });
+    program = options.java;
+    args = ['--enable-native-access=ALL-UNNAMED', '-Djna.nounpack=true', '-Djna.noclasspath=true', '-Djna.nosys=true',
+      `-Djna.boot.library.path=${path.dirname(dispatcher)}`, `-Djna.tmpdir=${javaTemp}`, `-Djava.io.tmpdir=${javaTemp}`,
+      `-Djna.library.path=${path.dirname(path.resolve(options.library))}`,
+      '-cp', `${options.jar}${path.delimiter}${options.jna}`, 'SmokeKt', runtime, commands, dispatcher];
+    save('dispatcher-private.json', { ...native, loaded_path_assertion: dispatcher });
+  } else {
+    assert(options.program, 'missing --program'); program = options.program; args = [runtime, commands];
+    env.DYLD_LIBRARY_PATH = [path.dirname(path.resolve(options.library)), env.DYLD_LIBRARY_PATH].filter(Boolean).join(':');
+  }
+  const consumer = spawnSync(program, args, { env, timeout: 30000, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
+  save('consumer-command-private.json', { program, args, pid: consumer.pid });
+  write('consumer.stdout.log', consumer.stdout ?? ''); write('consumer.stderr.log', consumer.stderr ?? '');
+  save('consumer-exit.json', { code: consumer.status, signal: consumer.signal, error: consumer.error?.message ?? null });
+  assert.equal(consumer.status, 0, 'foreign consumer failed; inspect preserved logs');
+  assert.equal(consumer.stderr, '', 'foreign consumer produced unexpected diagnostics');
+  const lines = consumer.stdout.trim().split('\n').map(line => line.split('\t'));
+  const rows = new Map(lines);
+  assert.equal(rows.size, lines.length, 'foreign consumer repeated a result name');
+  assert.equal(rows.size, cases.length + (options.language === 'kotlin' ? 5 : 4), 'foreign consumer result count differs');
+  if (options.language === 'kotlin') {
+    assert.equal(rows.get('private_dispatcher'), 'verified');
+    const native = JSON.parse(fs.readFileSync(path.join(options['jna-native'], 'dispatcher.json')));
+    assert.equal(hash(path.join(options['jna-native'], native.filename)), native.dispatcher_sha256);
+  }
+  for (const name of ['preflight_empty', 'preflight_oversized', 'path_oversized']) assert.equal(rows.get(name), '!RESOURCE_BUDGET_EXCEEDED');
+  assert.equal(rows.get('path_empty'), '!ASSET_INVALID');
+  return rows;
+}
+function replyBytes(rows, name) {
+  const hex = rows.get(name);
+  assert(hex && /^(?:[a-f0-9]{2})+$/.test(hex), `missing reply: ${name}`);
+  return Buffer.from(hex, 'hex');
+}
 const ownerFiles = ['owner.stdout.log', 'owner.stderr.log'].map(name => fs.openSync(path.join(output, name), 'wx', 0o600));
 const owner = spawn(options.engine, ['owner', '--runtime', runtime], { stdio: ['ignore', ...ownerFiles] });
 save('owner-command-private.json', { program: options.engine, args: ['owner', '--runtime', runtime], pid: owner.pid });
@@ -72,44 +122,10 @@ try {
   add('malformed', Buffer.from([0xff]));
   add('queue', envelope({ method: 'queue.get', offset: 0, limit: 16 }));
   add('after_dispose', envelope({ method: 'state.get' }));
-  const commands = path.join(output, 'commands-private.tsv');
-  write('commands-private.tsv', cases.map(c => `${c.name}\t${c.bytes.toString('hex')}\n`).join(''));
-  let program, args, env = { ...process.env };
-  if (options.language === 'kotlin') {
-    for (const name of ['java', 'jar', 'jna', 'jna-native']) assert(options[name], `missing --${name}`);
-    const native = JSON.parse(fs.readFileSync(path.join(options['jna-native'], 'dispatcher.json')));
-    assert.equal(hash(options.jna), native.jar_sha256);
-    const dispatcher = path.resolve(options['jna-native'], native.filename);
-    assert.equal(hash(dispatcher), native.dispatcher_sha256);
-    const javaTemp = path.join(output, 'java-tmp');
-    fs.mkdirSync(javaTemp, { mode: 0o700 });
-    program = options.java;
-    args = ['--enable-native-access=ALL-UNNAMED', '-Djna.nounpack=true', '-Djna.noclasspath=true', '-Djna.nosys=true',
-      `-Djna.boot.library.path=${path.dirname(dispatcher)}`, `-Djna.tmpdir=${javaTemp}`, `-Djava.io.tmpdir=${javaTemp}`,
-      `-Djna.library.path=${path.dirname(path.resolve(options.library))}`,
-      '-cp', `${options.jar}${path.delimiter}${options.jna}`, 'SmokeKt', runtime, commands, dispatcher];
-    save('dispatcher-private.json', { ...native, loaded_path_assertion: dispatcher });
-  } else {
-    assert(options.program, 'missing --program'); program = options.program; args = [runtime, commands];
-    env.DYLD_LIBRARY_PATH = [path.dirname(path.resolve(options.library)), env.DYLD_LIBRARY_PATH].filter(Boolean).join(':');
-  }
-  const consumer = spawnSync(program, args, { env, timeout: 30000, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
-  save('consumer-command-private.json', { program, args, pid: consumer.pid });
-  write('consumer.stdout.log', consumer.stdout ?? ''); write('consumer.stderr.log', consumer.stderr ?? '');
-  save('consumer-exit.json', { code: consumer.status, signal: consumer.signal, error: consumer.error?.message ?? null });
-  assert.equal(consumer.status, 0, 'foreign consumer failed; inspect preserved logs');
-  assert.equal(consumer.stderr, '', 'foreign consumer produced unexpected diagnostics');
-  const rows = new Map(consumer.stdout.trim().split('\n').map(line => line.split('\t')));
-  assert.equal(rows.size, cases.length + (options.language === 'kotlin' ? 5 : 4), 'foreign consumer result count differs');
-  if (options.language === 'kotlin') {
-    assert.equal(rows.get('private_dispatcher'), 'verified');
-    const native = JSON.parse(fs.readFileSync(path.join(options['jna-native'], 'dispatcher.json')));
-    assert.equal(hash(path.join(options['jna-native'], native.filename)), native.dispatcher_sha256);
-  }
+  const rows = foreign(cases, 'baseline');
   const results = {};
   for (const c of cases) {
-    const hex = rows.get(c.name); assert(hex && /^(?:[a-f0-9]{2})+$/.test(hex), `missing reply: ${c.name}`);
-    const actual = Buffer.from(hex, 'hex'); assert(actual.equals(cli(c.bytes, c.name)), `binding changed reply: ${c.name}`);
+    const actual = replyBytes(rows, c.name); assert(actual.equals(cli(c.bytes, c.name)), `binding changed reply: ${c.name}`);
     results[c.name] = JSON.parse(actual);
   }
   assert.equal(results.append.receipt.status, 'applied'); assert.equal(results.append.receipt.revision, 1);
@@ -125,11 +141,107 @@ try {
     assert(Object.hasOwn(initial, key) && Object.hasOwn(after, key), `missing state field: ${key}`);
     assert.deepEqual(after[key], initial[key], key);
   }
-  for (const name of ['preflight_empty', 'preflight_oversized', 'path_oversized']) assert.equal(rows.get(name), '!RESOURCE_BUDGET_EXCEEDED');
-  assert.equal(rows.get('path_empty'), '!ASSET_INVALID');
   save('literal-and-cli-results-private.json', results);
-  summary = { schema_version: 1, status: 'pass', language: options.language, actual_foreign_commands: cases.length,
-    exact_cli_comparisons: cases.length, typed_local_failures: 4, owner_survives_handle_release: true,
+  for (const key of ['local_volume_policy', 'configured_profile']) assert(Object.hasOwn(initial, key), `missing integrated state: ${key}`);
+  assert.equal(initial.configured_profile, null);
+  const capabilities = results.capabilities.receipt.result.value.profiles;
+  for (const key of ['exact_association_backends', 'application', 'package']) assert(Object.hasOwn(capabilities, key), `missing integrated capability: ${key}`);
+  assert.equal(capabilities.package.format, 'directory');
+  assert.equal(capabilities.package.automatic_privacy_proof, false);
+  const phases = [];
+  const readForeign = (bytes, label) => {
+    const rows = foreign([{ name: 'request', bytes }, {
+      name: 'after_dispose', bytes: Buffer.from(JSON.stringify(envelope({ method: 'state.get' }))),
+    }], label);
+    const after = JSON.parse(replyBytes(rows, 'after_dispose')).receipt.result.value;
+    assert.equal(after.owner_id, initial.owner_id);
+    assert.equal(after.muted, true); assert.equal(after.output, null); assert.equal(after.output_consented, false);
+    return replyBytes(rows, 'request');
+  };
+  async function phase(name, payload, query = false, status = 'applied') {
+    const state = query ? null : queryState(`${name}-fresh-state`);
+    const command = envelope(payload, state);
+    const bytes = Buffer.from(JSON.stringify(command));
+    const firstBytes = readForeign(bytes, `${name}-first`), first = JSON.parse(firstBytes);
+    assert.equal(first.receipt.request_id, command.request_id);
+    assert.equal(first.receipt.zone_id, command.zone_id);
+    assert.equal(first.receipt.session_id, command.session_id);
+    const deadline = Date.now() + 8000;
+    let polls = 0, terminalBytes, terminal;
+    do {
+      assert(Date.now() < deadline, `terminal receipt deadline exceeded: ${name}`);
+      terminalBytes = cli(bytes, `${name}-poll-${++polls}`);
+      terminal = JSON.parse(terminalBytes);
+      if (terminal.receipt.status === 'accepted') await sleep(5);
+    } while (terminal.receipt.status === 'accepted');
+    assert.equal(terminal.receipt.status, status, name);
+    // The first Accepted frame can differ from its later terminal replay.
+    if (first.receipt.status !== 'accepted') assert(firstBytes.equals(terminalBytes), `first terminal differs: ${name}`);
+    const replay = readForeign(bytes, `${name}-terminal-replay`);
+    assert(replay.equals(terminalBytes), `foreign terminal differs from CLI: ${name}`);
+    assert(replay.equals(cli(bytes, `${name}-stable-cli-replay`)), `terminal replay changed: ${name}`);
+    phases.push({ name, first_status: first.receipt.status, terminal_status: terminal.receipt.status,
+      cli_polls: polls, exact_terminal_bytes: true, request_sha256: crypto.createHash('sha256').update(bytes).digest('hex') });
+    save(`${name}-phase-private.json`, phases.at(-1));
+    return terminal.receipt.result?.value;
+  }
+  const port = { domain: 'pcm', sample_rate_hz: 48000, channels: 'stereo', precision: 'signed16', max_quantum_frames: 64 };
+  const graph = { graph: { schema_version: 1, output: 'out', nodes: [
+    { id: 'in', kind: { kind: 'input' }, format: port }, { id: 'out', kind: { kind: 'output' }, format: port },
+  ], edges: [{ from: 'in', to: 'out', from_port: 0, to_port: 0 }] }, processing: { kind: 'integer_bypass' } };
+  const draft = { name: 'Generated foreign profile', source_policy: 'local_file', fidelity: 'compatible_conversion',
+    output: { backend: 'alsa', route: 'system', device_id: 'ffi-generated-output', manual_setup: 'Generated saved intent' },
+    volume: { mode: 'software', software_cap_millidecibels: -20000, hardware_cap_millidecibels: null },
+    latency: { mode: 'balanced', max_resident_bytes: 268435456, max_preparation_bytes: 268435456, max_latency_frames: null }, corrections: [] };
+  const saved = await phase('profile-create', { method: 'profiles.create', id: 'ffi-generated', draft, graph });
+  assert.equal(saved.profile.id, 'ffi-generated'); assert.equal(saved.profile.revision, 1);
+  const reference = { id: saved.profile.id, revision: saved.profile.revision, profile_sha256: saved.profile_sha256 };
+  assert.deepEqual(await phase('profile-get', { method: 'profiles.get', id: reference.id }, true), saved);
+  const page = await phase('profile-list', { method: 'profiles.list', offset: 0, limit: 16 }, true);
+  assert.equal(page.entries.length, 1); assert.equal(page.entries[0].profile_sha256, reference.profile_sha256);
+  const resolution = await phase('profile-resolve', { method: 'profiles.resolve', manual_profile_id: reference.id, output: draft.output }, true);
+  assert.equal(resolution.status, 'selected'); assert.equal(resolution.profile.id, reference.id); assert.equal(resolution.reason, 'manual');
+  const preview = await phase('package-preview', { method: 'profiles.package_preview', profile: reference });
+  assert.equal(preview.operation, 'previewed'); assert.equal(preview.manifest.objects.length, 2);
+  const directory = path.join(output, 'generated-package');
+  const exportPayload = { method: 'profiles.export', directory, profile: reference, expected_manifest_sha256: preview.manifest_sha256,
+    export_review: 'reviewed_exact_candidate', content_review: 'reviewed_no_private_data', redistribution: 'refuse_measurement_bytes' };
+  const unreviewed = { ...exportPayload }; delete unreviewed.content_review;
+  // The parser refuses a missing explicit privacy review before any publication.
+  const refusedBytes = Buffer.from(JSON.stringify(envelope(unreviewed, queryState('export-review-state'))));
+  const refused = readForeign(refusedBytes, 'package-missing-review');
+  assert.equal(JSON.parse(refused).error.code, 'ASSET_INVALID');
+  assert(refused.equals(cli(refusedBytes, 'package-missing-review')));
+  assert(!fs.existsSync(directory), 'unreviewed export published a directory');
+  const exported = await phase('package-export', exportPayload);
+  assert.equal(exported.operation, 'exported');
+  const inspected = await phase('package-inspect', { method: 'profiles.package_inspect', directory });
+  assert.deepEqual(inspected.manifest, preview.manifest);
+  assert.equal(inspected.manifest_sha256, preview.manifest_sha256);
+  for (const object of inspected.manifest.objects) {
+    const suffix = object.kind === 'profile' ? 'profile.json' : 'graph.json';
+    assert(['profile', 'graph'].includes(object.kind), 'unexpected generated package object');
+    const name = `${object.sha256}.${suffix}`;
+    assert.equal(hash(path.join(directory, name)), object.sha256);
+    assert(fs.readFileSync(path.join(directory, name)).equals(fs.readFileSync(path.join(runtime, 'profiles', name))));
+  }
+  await phase('package-import-collision', { method: 'profiles.import_package', directory, profile: reference,
+    expected_manifest_sha256: inspected.manifest_sha256 }, false, 'rejected');
+  const missing = await phase('package-inspect-missing', { method: 'profiles.package_inspect', directory: path.join(output, 'absent-package') }, false, 'failed');
+  for (const key of ['reason', 'object', 'filesystem_state']) assert(Object.hasOwn(missing, key), `missing package failure: ${key}`);
+  const finalState = queryState('integrated-final');
+  for (const key of ['owner_id', 'muted', 'software_gain_db', 'output', 'output_consented', 'volume_policy', 'local_volume_policy', 'configured_profile', 'graph_epoch', 'shutdown_requested']) {
+    assert(Object.hasOwn(initial, key) && Object.hasOwn(finalState, key), `missing final state field: ${key}`);
+    assert.deepEqual(finalState[key], initial[key], `saved intent changed output authority: ${key}`);
+  }
+  save('integrated-phases-private.json', phases);
+  summary = { schema_version: 1, status: 'pass', language: options.language,
+    baseline_foreign_commands: cases.length, actual_foreign_commands: cases.length + phases.length * 4 + 2,
+    exact_cli_comparisons: cases.length + phases.length * 2 + 1, typed_local_failures: 4, owner_survives_handle_release: true,
+    integrated_profile_commands: phases.length, exact_terminal_replay_comparisons: phases.length,
+    integrated_foreign_frames: phases.length * 4 + 2, accepted_initial_profile_receipts: phases.filter(p => p.first_status === 'accepted').length,
+    generated_package_object_hashes_verified: inspected.manifest.objects.length,
+    missing_export_review_refused: true, successful_foreign_package_import_qualified: false,
     reported_safety_unchanged: true, native_output_opened: false, signal_exercises: 0, cancellation_qualified: false,
     subscriptions_qualified: false, private_jna_dispatcher_verified: options.language === 'kotlin',
     engine_sha256: engineHash, library_sha256: libraryHash };

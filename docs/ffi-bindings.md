@@ -108,3 +108,14 @@ Private fixed-output arming is not directly observable through that JSON snapsho
 It does not qualify desktop hosting, UI workflows, audio callbacks, or real-time performance.
 The full play/pause/seek/profile/graph and subscriber/cancellation matrices remain later T13 work.
 Run both platform gates and record their exact source and artifact bindings before claiming cross-platform qualification.
+
+The integrated scenario reads fresh State before each profile or package mutation.
+It retains the first foreign reply, including Accepted, before polling the identical envelope through the CLI.
+It then compares stable terminal replies byte-for-byte through both clients.
+Every foreign batch releases its handle and queries State through a fresh handle.
+The Kotlin checkpoint exercises profile creation, lookup, listing, manual resolution, and generated directory package export and inspection.
+It also refuses missing export review, rejects an occupied import ID, and retains a failed missing-package inspection.
+Exported object hashes and bytes match the owner's original generated objects.
+These operations leave output selection, consent, mute, gain, caps, and configured profile unchanged.
+Successful foreign package import and current Swift execution remain separate qualification work.
+See [the Kotlin checkpoint](evidence/desktop/kotlin-profile-replay-linux-20261119.json) for exact counts and limits.
