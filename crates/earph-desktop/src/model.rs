@@ -349,16 +349,21 @@ mod tests {
     }
     impl Drop for Owner {
         fn drop(&mut self) {
-            let client = self.client();
-            if let Ok(Reply::Receipt(reply)) = client.request(&query("resume-cleanup-state")) {
-                let request = Request::mutation(
-                    RequestId::new("resume-cleanup-shutdown").unwrap(),
-                    reply.state().unwrap(),
-                    Command::OwnerShutdown,
-                )
+            // Cleanup must survive failures in the projection under test.
+            let bytes = earph_engine::request(&self.runtime, query("resume-cleanup-state").bytes())
                 .unwrap();
-                client.request(&request).unwrap();
-            }
+            let reply: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            let state = &reply["receipt"]["result"]["value"];
+            let request = earph_core::control::CommandEnvelope {
+                schema_version: 1,
+                request_id: RequestId::new("resume-cleanup-shutdown").unwrap(),
+                zone_id: serde_json::from_value(state["zone_id"].clone()).unwrap(),
+                owner_id: serde_json::from_value(state["owner_id"].clone()).unwrap(),
+                session_id: serde_json::from_value(state["session_id"].clone()).unwrap(),
+                expected_revision: Some(state["revision"].as_u64().unwrap()),
+                payload: Command::OwnerShutdown,
+            };
+            earph_engine::request(&self.runtime, &serde_json::to_vec(&request).unwrap()).unwrap();
             self.serve.take().unwrap().join().unwrap().unwrap();
         }
     }

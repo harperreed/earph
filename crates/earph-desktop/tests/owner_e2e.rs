@@ -1,5 +1,5 @@
 // ABOUTME: Exercises the desktop model against a real standalone owner process.
-// ABOUTME: Uses generated queue files without preparing a source or opening output.
+// ABOUTME: Uses generated files and an explicit isolated software sink without physical playback.
 mod common;
 use common::*;
 use earph_core::{control::Command, ids::RequestId};
@@ -21,6 +21,9 @@ struct ProcessOwner {
 }
 impl ProcessOwner {
     fn start() -> Self {
+        Self::with_configuration(None)
+    }
+    fn with_configuration(configuration: Option<&std::path::Path>) -> Self {
         let executable = std::env::current_exe().unwrap();
         let binary = executable
             .parent()
@@ -35,13 +38,16 @@ impl ProcessOwner {
         fs::create_dir(&artifacts).unwrap();
         fs::set_permissions(&artifacts, fs::Permissions::from_mode(0o700)).unwrap();
         let runtime = artifacts.join("owner");
-        let child = ProcessCommand::new(&binary)
+        let mut command = ProcessCommand::new(&binary);
+        command
             .args(["owner", "--runtime"])
             .arg(&runtime)
             .stdout(File::create(artifacts.join("owner.stdout.log")).unwrap())
-            .stderr(File::create(artifacts.join("owner.stderr.log")).unwrap())
-            .spawn()
-            .unwrap();
+            .stderr(File::create(artifacts.join("owner.stderr.log")).unwrap());
+        if let Some(configuration) = configuration {
+            command.env("ALSA_CONFIG_PATH", configuration);
+        }
+        let child = command.spawn().unwrap();
         let mut owner = Self {
             child,
             runtime,
@@ -165,7 +171,18 @@ fn standalone_owner_queue_and_saved_intent_flow_remains_muted_without_any_source
         panic!("typed capabilities")
     };
     assert!(caps.profiles.save && caps.profiles.manual_resolution);
-    assert!(!caps.profiles.apply && !caps.profiles.exact_associations);
+    assert!(caps.profiles.apply);
+    assert_eq!(caps.profiles.exact_associations, cfg!(target_os = "macos"));
+    assert_eq!(
+        caps.profiles.exact_association_backends,
+        if cfg!(target_os = "macos") {
+            vec![earph_core::control::OutputBackend::CoreAudio]
+        } else {
+            vec![]
+        }
+    );
+    assert!(caps.profiles.application.fixed_requires_current_arming);
+    assert!(caps.profiles.package.new_ids_only && caps.profiles.package.requires_export_review);
     let append = Request::mutation(
         RequestId::new(unique()).unwrap(),
         &initial,
@@ -243,4 +260,330 @@ fn standalone_owner_queue_and_saved_intent_flow_remains_muted_without_any_source
     );
     fs::write(owner.artifacts.join("e2e-result.json"), serde_json::to_vec_pretty(&json!({"status":"pass","owner_pid":owner.child.id(),"runtime":owner.runtime,"fixture_bytes_unchanged":true,"source_start":false,"native_output":false,"owner_exit":0})).unwrap()).unwrap();
     println!("E2E artifacts: {}", owner.artifacts.display());
+}
+
+fn terminal(client: &mut DesktopClient, request: Request) -> earph_desktop::ReceiptView {
+    let bytes = request.bytes().to_vec();
+    let id = settle(client, request);
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while client.model().record(&id).unwrap().presentation == Presentation::Accepted {
+        assert!(Instant::now() < deadline, "exact request stayed Accepted");
+        client.reconcile(&id).unwrap();
+        loop {
+            client.poll();
+            let record = client.model().record(&id).unwrap();
+            assert_eq!(record.request.bytes(), bytes);
+            if !record.in_flight {
+                break;
+            }
+            assert!(Instant::now() < deadline, "exact request did not settle");
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+    let Some(Ok(Reply::Receipt(receipt))) = &client.model().record(&id).unwrap().outcome else {
+        panic!("actual owner receipt: {:?}", client.model().record(&id));
+    };
+    receipt.clone()
+}
+fn mutation(client: &mut DesktopClient, command: Command) -> earph_desktop::ReceiptView {
+    let state = refresh(client);
+    terminal(
+        client,
+        Request::mutation(RequestId::new(unique()).unwrap(), &state, command).unwrap(),
+    )
+}
+fn saved_reference(
+    client: &mut DesktopClient,
+) -> earph_core::profile_control::ProfileCatalogReference {
+    let receipt = mutation(client, profile_payload());
+    assert_eq!(receipt.status, earph_desktop::ReplyStatus::Applied);
+    let Some(ResultView::ProfileSaved(record)) = receipt.result else {
+        panic!("typed saved profile");
+    };
+    earph_core::profile_control::ProfileCatalogReference {
+        id: record.profile.id.clone(),
+        revision: record.profile.revision,
+        profile_sha256: record.profile_sha256,
+    }
+}
+
+#[test]
+fn standalone_owner_packages_roundtrip_through_the_actual_desktop_consumer() {
+    use earph_core::profile_control::{
+        PackageContentReview, PackageExportReview, PackageRedistribution,
+    };
+    let mut source = ProcessOwner::start();
+    let mut client = DesktopClient::attach(source.runtime.to_str().unwrap().into()).unwrap();
+    let reference = saved_reference(&mut client);
+    let before = refresh(&mut client);
+    let preview = mutation(
+        &mut client,
+        Command::ProfilesPackagePreview {
+            profile: reference.clone(),
+        },
+    );
+    assert_eq!(preview.status, earph_desktop::ReplyStatus::Applied);
+    assert!(
+        preview.revision > before.revision,
+        "package preview is an asynchronous revisioned operation"
+    );
+    let Some(ResultView::ProfilePackage(preview)) = preview.result else {
+        panic!("typed package preview");
+    };
+    assert_eq!(
+        preview.operation,
+        earph_desktop::ProfilePackageStageView::Previewed
+    );
+    assert_eq!(preview.review_sources.len(), preview.manifest.objects.len());
+    let destination = source.artifacts.join("exported");
+    let exported = mutation(
+        &mut client,
+        Command::ProfilesExport {
+            directory: destination.to_str().unwrap().into(),
+            profile: reference.clone(),
+            expected_manifest_sha256: preview.manifest_sha256,
+            export_review: PackageExportReview::ReviewedExactCandidate,
+            content_review: PackageContentReview::ReviewedNoPrivateData,
+            redistribution: PackageRedistribution::RefuseMeasurementBytes,
+        },
+    );
+    assert_eq!(exported.status, earph_desktop::ReplyStatus::Applied);
+    let inspected = mutation(
+        &mut client,
+        Command::ProfilesPackageInspect {
+            directory: destination.to_str().unwrap().into(),
+        },
+    );
+    let Some(ResultView::ProfilePackage(inspected)) = inspected.result else {
+        panic!("typed package inspection");
+    };
+    assert_eq!(inspected.manifest, preview.manifest);
+    let mut target = ProcessOwner::start();
+    let mut target_client = DesktopClient::attach(target.runtime.to_str().unwrap().into()).unwrap();
+    let initial = refresh(&mut target_client);
+    let import = Command::ProfilesImportPackage {
+        directory: destination.to_str().unwrap().into(),
+        expected_manifest_sha256: inspected.manifest_sha256,
+        profile: reference.clone(),
+    };
+    let receipt = mutation(&mut target_client, import.clone());
+    assert_eq!(receipt.status, earph_desktop::ReplyStatus::Applied);
+    let Some(ResultView::ProfileSaved(record)) = receipt.result else {
+        panic!("typed imported profile");
+    };
+    assert_eq!(record.profile_sha256, reference.profile_sha256);
+    let collision = mutation(&mut target_client, import);
+    assert_eq!(collision.status, earph_desktop::ReplyStatus::Rejected);
+    let Some(ResultView::ProfilePackageIssue(issue)) = collision.result else {
+        panic!("typed package collision issue");
+    };
+    assert_eq!(
+        issue.reason,
+        earph_desktop::ProfilePackageReasonView::IdentityCollision
+    );
+    assert_eq!(
+        issue.filesystem_state,
+        earph_desktop::PackageFilesystemStateView::Unchanged
+    );
+    let after = refresh(&mut target_client);
+    assert_eq!(after.local_volume_policy, initial.local_volume_policy);
+    assert!(
+        after.configured_profile.is_none() && after.output.is_none() && after.playback.is_none()
+    );
+    assert!(after.muted && !after.output_consented);
+    for object in &inspected.manifest.objects {
+        let name = object.file_name();
+        assert_eq!(
+            fs::read(destination.join(&name)).unwrap(),
+            fs::read(target.runtime.join("profiles").join(name)).unwrap()
+        );
+    }
+    let (_, shutdown) = client.disconnect();
+    shutdown.join().unwrap();
+    let (_, shutdown) = target_client.disconnect();
+    shutdown.join().unwrap();
+    source.stop().unwrap();
+    target.stop().unwrap();
+    println!(
+        "Package E2E artifacts: {} {}",
+        source.artifacts.display(),
+        target.artifacts.display()
+    );
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn muted_real_profile_preparation_and_application_preserve_actual_backend_observations() {
+    use earph_core::{
+        control::{CommandEnvelope, OutputBackend, OutputConfiguration, OutputRoute, SourceKind},
+        ids::{SessionId, ZoneId},
+        safety::{FidelityPolicy, VolumeMode},
+    };
+    let artifacts = PathBuf::from("/tmp").join(unique());
+    fs::create_dir(&artifacts).unwrap();
+    fs::set_permissions(&artifacts, fs::Permissions::from_mode(0o700)).unwrap();
+    let capture = artifacts.join("capture.pcm");
+    let configuration = artifacts.join("alsa.conf");
+    fs::write(&configuration, format!("pcm.null {{ type null }}\npcm.earph_capture {{ type file slave.pcm null file \"{}\" format raw }}\n", capture.display())).unwrap();
+    let fixture = artifacts.join("zero.wav");
+    let mut samples = wav();
+    samples[22..24].copy_from_slice(&2u16.to_le_bytes());
+    samples[28..32].copy_from_slice(&192000u32.to_le_bytes());
+    samples[32..34].copy_from_slice(&4u16.to_le_bytes());
+    samples[44..].fill(0);
+    fs::write(&fixture, &samples).unwrap();
+    let mut owner = ProcessOwner::with_configuration(Some(&configuration));
+    let mut client = DesktopClient::attach(owner.runtime.to_str().unwrap().into()).unwrap();
+    let reference = saved_reference(&mut client);
+    let output = OutputConfiguration {
+        backend: OutputBackend::Alsa,
+        route: OutputRoute::System,
+        endpoint: "earph_capture".into(),
+        device_id: earph_core::ids::DeviceId::new("offline").unwrap(),
+        profile_id: reference.id.clone(),
+        period_frames: 64,
+        buffer_frames: 256,
+        volume_mode: VolumeMode::Software,
+        fidelity: FidelityPolicy::CompatibleConversion,
+    };
+    assert_eq!(
+        mutation(
+            &mut client,
+            Command::OutputSelect {
+                output: output.clone()
+            }
+        )
+        .status,
+        earph_desktop::ReplyStatus::Applied
+    );
+    assert_eq!(
+        mutation(
+            &mut client,
+            Command::OutputConsent {
+                device_id: output.device_id.clone(),
+                profile_id: output.profile_id.clone()
+            }
+        )
+        .status,
+        earph_desktop::ReplyStatus::Applied
+    );
+    assert_eq!(
+        mutation(
+            &mut client,
+            Command::QueueAppend {
+                path: fixture.to_str().unwrap().into()
+            }
+        )
+        .status,
+        earph_desktop::ReplyStatus::Applied
+    );
+    let before = refresh(&mut client);
+    // Setup uses the public Core envelope because the current mutation builder cannot mint Start's Session ID.
+    let start = CommandEnvelope {
+        schema_version: 1,
+        request_id: RequestId::new(unique()).unwrap(),
+        zone_id: ZoneId::new("main").unwrap(),
+        owner_id: before.owner_id.clone(),
+        session_id: Some(SessionId::new(unique()).unwrap()),
+        expected_revision: Some(before.revision),
+        payload: Command::Start {
+            source: SourceKind::LocalFile,
+            device_id: output.device_id.clone(),
+            takeover: false,
+            seekable: true,
+        },
+    };
+    let reply = earph_desktop::decode_reply(
+        earph_engine::request(&owner.runtime, &serde_json::to_vec(&start).unwrap()).unwrap(),
+    )
+    .unwrap();
+    let Reply::Receipt(reply) = reply else {
+        panic!("actual Start receipt");
+    };
+    assert_eq!(reply.status, earph_desktop::ReplyStatus::Accepted);
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let opened = loop {
+        let state = refresh(&mut client);
+        if state.playback.as_ref().is_some_and(|p| p.backend.is_some()) {
+            break state;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "actual muted backend never opened: {:?}",
+            state.error
+        );
+        thread::sleep(Duration::from_millis(2));
+    };
+    assert!(opened.muted);
+    let backend = opened.playback.as_ref().unwrap().backend.as_ref().unwrap();
+    assert_eq!(backend.backend, OutputBackend::Alsa);
+    assert!(backend.device_identity_sha256.is_none());
+    let prepared = mutation(
+        &mut client,
+        Command::ProfilesPrepare {
+            id: reference.id.clone(),
+            expected_profile_revision: reference.revision,
+            profile_sha256: reference.profile_sha256,
+        },
+    );
+    assert_eq!(
+        prepared.status,
+        earph_desktop::ReplyStatus::Applied,
+        "{prepared:?}"
+    );
+    let Some(ResultView::GraphPrepared(prepared)) = prepared.result else {
+        panic!("actual typed prepared profile");
+    };
+    let binding = prepared.preview.profile_application.as_ref().unwrap();
+    assert_eq!(binding.profile, reference);
+    assert_eq!(binding.volume_mode, VolumeMode::Software);
+    assert_eq!(binding.fidelity, FidelityPolicy::CompatibleConversion);
+    assert_eq!(
+        binding.device_identity_sha256,
+        backend.device_identity_sha256
+    );
+    assert_eq!(
+        prepared.preview.backend.as_ref().unwrap().client_format,
+        backend.client_format
+    );
+    let applied = mutation(
+        &mut client,
+        Command::ProfilesApply {
+            id: reference.id.clone(),
+            expected_profile_revision: reference.revision,
+            profile_sha256: reference.profile_sha256,
+            token: prepared.token.clone(),
+            graph_hash: prepared.preview.graph_hash.as_str().into(),
+        },
+    );
+    assert_eq!(
+        applied.status,
+        earph_desktop::ReplyStatus::Applied,
+        "{applied:?}"
+    );
+    assert!(applied.activation_frame.is_some());
+    let state = refresh(&mut client);
+    assert_eq!(state.configured_profile.as_ref(), Some(&reference));
+    assert!(state.muted && !state.output_consented);
+    assert_eq!(state.local_volume_policy, opened.local_volume_policy);
+    assert_eq!(state.volume_policy.software_cap_db, -20.0);
+    assert_eq!(state.software_gain_db, opened.software_gain_db);
+    assert_eq!(fs::read(&fixture).unwrap(), samples);
+    match fs::metadata(&capture) {
+        Ok(metadata) => assert_eq!(
+            metadata.len(),
+            0,
+            "muted fixture unexpectedly submitted output bytes"
+        ),
+        Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::NotFound),
+    }
+    let (_, shutdown) = client.disconnect();
+    shutdown.join().unwrap();
+    owner.stop().unwrap();
+    assert_eq!(owner.child.try_wait().unwrap().unwrap().code(), Some(0));
+    println!(
+        "Muted live E2E fixtures: {}; owner artifacts: {}",
+        artifacts.display(),
+        owner.artifacts.display()
+    );
 }

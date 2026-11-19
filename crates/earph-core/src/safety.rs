@@ -100,6 +100,61 @@ impl VolumePolicy {
         software_gain_db: f64,
         hardware_readback_db: Option<f64>,
     ) -> Result<(), EngineError> {
+        self.validate_gain_constraints(
+            mode,
+            domain,
+            fidelity,
+            software_gain_db,
+            hardware_readback_db,
+        )?;
+        if mode == VolumeMode::Fixed && self.armed_for.as_ref() != Some(context) {
+            return Err(EngineError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "output volume has not satisfied its safety policy",
+            ));
+        }
+        Ok(())
+    }
+    /// Validate local PCM preparation without copying current arming into prospective intent.
+    pub fn validate_profile_preparation(
+        &self,
+        current_context: &OutputContext,
+        mode: VolumeMode,
+        fidelity: FidelityPolicy,
+        current_gain_db: f64,
+        prospective: &VolumePolicy,
+        prospective_gain_db: f64,
+    ) -> Result<(), EngineError> {
+        if mode == VolumeMode::Hardware {
+            return Err(EngineError::new(
+                ErrorCode::CapabilityUnsupported,
+                "hardware profile preparation requires actual set/readback support",
+            ));
+        }
+        self.validate_unmute(
+            current_context,
+            mode,
+            SampleDomain::Pcm,
+            fidelity,
+            current_gain_db,
+            None,
+        )?;
+        prospective.validate_gain_constraints(
+            mode,
+            SampleDomain::Pcm,
+            fidelity,
+            prospective_gain_db,
+            None,
+        )
+    }
+    pub(crate) fn validate_gain_constraints(
+        &self,
+        mode: VolumeMode,
+        domain: SampleDomain,
+        fidelity: FidelityPolicy,
+        software_gain_db: f64,
+        hardware_readback_db: Option<f64>,
+    ) -> Result<(), EngineError> {
         let blocked = EngineError::new(
             ErrorCode::SafetyPolicyBlocked,
             "output volume has not satisfied its safety policy",
@@ -142,9 +197,6 @@ impl VolumePolicy {
             VolumeMode::Fixed => {
                 if software_gain_db != 0.0 {
                     return Err(conflict);
-                }
-                if self.armed_for.as_ref() != Some(context) {
-                    return Err(blocked);
                 }
             }
         }

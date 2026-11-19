@@ -9,6 +9,7 @@ pub mod graph;
 pub mod graph_control;
 pub mod ids;
 pub mod profile_control;
+pub mod profile_packages;
 pub mod profiles;
 pub mod queue;
 pub mod safety;

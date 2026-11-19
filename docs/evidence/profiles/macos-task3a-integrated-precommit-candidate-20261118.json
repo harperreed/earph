@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "kind": "macos_task3a_integrated_muted_owner_gate",
+  "status": "pass",
+  "qualification": "bounded_debug_software_contracts_and_muted_CoreAudio_control",
+  "source": {
+    "commit": "24e997009963ffc62d6c711e9d0756b9e81b40e4",
+    "integration_parent": "c0e27b93d8f0ee875dee054d7eef7e6901df424a",
+    "source_dirty": true,
+    "profile": "debug",
+    "patch_sha256": "55dc5f9fb2f9d4bbeb9ee4cc6078b4b969caa9678f89bf8820d7f2862b626d35",
+    "source_files": 1566,
+    "source_manifest_sha256": "9d48738e7c21554842809ab44a3714c80caedbf0026057939bedea040afbf83e",
+    "runtime_source_sha256": "ca46ef4020a3f59c3ce7f92f15f8c688b7afbbec3dacc95da4aae6b9dff9f8bd",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574"
+  },
+  "build_provenance": {
+    "commit": "24e997009963ffc62d6c711e9d0756b9e81b40e4",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "ca46ef4020a3f59c3ce7f92f15f8c688b7afbbec3dacc95da4aae6b9dff9f8bd",
+    "target": "aarch64-apple-darwin"
+  },
+  "tests": [
+    {
+      "label": "core-graph-application",
+      "binary_sha256": "79efeee69a30c3c836091b34a8ad09b3cf327c4422b299f584ec455685222236",
+      "binary_after_sha256": "79efeee69a30c3c836091b34a8ad09b3cf327c4422b299f584ec455685222236",
+      "exit": 0,
+      "signal": null,
+      "error": null,
+      "log_sha256": "5770c54d3474810413836413efaeba70eecbbd4f664bbb959cd65442f2dd54e5",
+      "passed": 60,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "core-profile-intent-caps",
+      "binary_sha256": "1d15ad4ae54b23dfcf60f2d1a7c76e8c51d063ec1564216f01c638403e48f59a",
+      "binary_after_sha256": "1d15ad4ae54b23dfcf60f2d1a7c76e8c51d063ec1564216f01c638403e48f59a",
+      "exit": 0,
+      "signal": null,
+      "error": null,
+      "log_sha256": "a55b0c0ba7cebf071f9981b8c3d22d001e6eda1508e6c3080c67914c0fdfb95c",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "core-profile-owner",
+      "binary_sha256": "404b46fe60f6dddfa483dbf343b824df55ed3f71e4458e6fa5aedc1bd0d150fd",
+      "binary_after_sha256": "404b46fe60f6dddfa483dbf343b824df55ed3f71e4458e6fa5aedc1bd0d150fd",
+      "exit": 0,
+      "signal": null,
+      "error": null,
+      "log_sha256": "032a56823f204b8314575d668265aa8dd28cb659b6f2f724f007f2472aacd0be",
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-profile-owner-repaired",
+      "binary_sha256": "567b14a1bef82ccb9d9ceba28938e6797105c903cde14d81a46afd6e7476aaf6",
+      "binary_after_sha256": "567b14a1bef82ccb9d9ceba28938e6797105c903cde14d81a46afd6e7476aaf6",
+      "exit": 0,
+      "signal": null,
+      "error": null,
+      "log_sha256": "0680495f6247987c4d5d13eb85112c4625102beb5470ea1b359cd599d6067e24",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-profile-graph-service",
+      "binary_sha256": "33623dcf8e04350e4af20c49fbd0f993b0f24626b551ba1b35880e87f923aa90",
+      "binary_after_sha256": "33623dcf8e04350e4af20c49fbd0f993b0f24626b551ba1b35880e87f923aa90",
+      "exit": 0,
+      "signal": null,
+      "error": null,
+      "log_sha256": "2415f87b01c35469506643b1bb670735c788c8744e037356abdbac88d2944a91",
+      "passed": 41,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "engine_profile_coverage": {
+    "initial_engine_profile_passed_cases": [
+      "a_real_checkpoint_without_its_objects_refuses_recovery_instead_of_an_empty_catalog",
+      "actual_owner_and_request_executables_save_and_restore_the_same_intent",
+      "catalog_limit_pages_and_unverified_resolution_remain_explicit",
+      "checkpoint_failure_retires_owner_and_preserves_the_prior_catalog_for_recovery",
+      "correction_import_rejects_tampering_stale_edits_and_missing_source_recovery",
+      "corrupted_immutable_graph_refuses_update_and_restore_without_overwrite",
+      "integer_meter_intent_reports_unsupported_instead_of_saving_a_bypass",
+      "invalid_topology_and_unavailable_correction_cannot_create_catalog_entries",
+      "offline_src_validation_enforces_declared_preparation_and_latency_limits",
+      "owner_advertises_bounded_application_and_refuses_imported_device_trust",
+      "owner_imports_a_real_report_and_original_source_without_changing_playback_authority",
+      "owner_imports_real_fir_provenance_and_refuses_wrong_context_without_a_profile",
+      "real_owner_saves_updates_resolves_and_restores_without_output_authority",
+      "saved_fir_graph_requires_verified_asset_bytes_and_exact_geometry",
+      "stereo_fir_profile_renders_exact_ordered_taps_with_its_saved_preamp"
+    ],
+    "repaired_case": "real_correction_and_request_clis_roundtrip_reports_and_render_saved_controls",
+    "initial_engine_profile_exit": 101,
+    "initial_engine_profile_passed": 15,
+    "initial_engine_profile_failed": 1,
+    "repaired_case_exit": 0
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "58aa716191b0b1ef5398e46e4ff190b150fda094badd054587075db792757109",
+      "fresh_sha256": "58aa716191b0b1ef5398e46e4ff190b150fda094badd054587075db792757109"
+    },
+    {
+      "name": "earph-coreaudio",
+      "sha256": "7c417280b3f0e22c124e92354aa0a8983891439a7fb4111132a751326c579765",
+      "fresh_sha256": "7c417280b3f0e22c124e92354aa0a8983891439a7fb4111132a751326c579765"
+    },
+    {
+      "name": "earph-harness",
+      "sha256": "10374a86d0057ea62b86fe6ea47b0fcbf9a601acf44a7b503ed963d79ed8e5d8",
+      "fresh_sha256": "10374a86d0057ea62b86fe6ea47b0fcbf9a601acf44a7b503ed963d79ed8e5d8"
+    },
+    {
+      "name": "earph-correction-import",
+      "sha256": "1dab8a61f766660d75cc493a774b5ca95343dabaad466f27559de13dd90edb70",
+      "fresh_sha256": "1dab8a61f766660d75cc493a774b5ca95343dabaad466f27559de13dd90edb70"
+    }
+  ],
+  "source_verification_phases": [
+    {
+      "order": 1,
+      "file": "source-after-setup.log",
+      "sha256": "5ea7fc1a35499d9b072a038c0b9e310309f2bf789c32be9f318116397967acd1",
+      "source_files": 1566,
+      "completed_mtime_ms": 1795042085916.2942
+    },
+    {
+      "order": 2,
+      "file": "source-after-core-build.log",
+      "sha256": "5ea7fc1a35499d9b072a038c0b9e310309f2bf789c32be9f318116397967acd1",
+      "source_files": 1566,
+      "completed_mtime_ms": 1795042091824.4343
+    },
+    {
+      "order": 3,
+      "file": "source-after-engine-build.log",
+      "sha256": "5ea7fc1a35499d9b072a038c0b9e310309f2bf789c32be9f318116397967acd1",
+      "source_files": 1566,
+      "completed_mtime_ms": 1795042099416.9844
+    },
+    {
+      "order": 4,
+      "file": "source-after-products-build.log",
+      "sha256": "5ea7fc1a35499d9b072a038c0b9e310309f2bf789c32be9f318116397967acd1",
+      "source_files": 1566,
+      "completed_mtime_ms": 1795042103144.7366
+    },
+    {
+      "order": 5,
+      "file": "source-after-scoped-contracts.log",
+      "sha256": "5ea7fc1a35499d9b072a038c0b9e310309f2bf789c32be9f318116397967acd1",
+      "source_files": 1566,
+      "completed_mtime_ms": 1795042129341.1477
+    },
+    {
+      "order": 6,
+      "file": "source-after-correction-cli-build.log",
+      "sha256": "5ea7fc1a35499d9b072a038c0b9e310309f2bf789c32be9f318116397967acd1",
+      "source_files": 1566,
+      "completed_mtime_ms": 1795042345104.8525
+    },
+    {
+      "order": 7,
+      "file": "source-after-repaired-contracts.log",
+      "sha256": "5ea7fc1a35499d9b072a038c0b9e310309f2bf789c32be9f318116397967acd1",
+      "source_files": 1566,
+      "completed_mtime_ms": 1795042346709.6733
+    },
+    {
+      "order": 8,
+      "file": "source-after-muted-owner.log",
+      "sha256": "5ea7fc1a35499d9b072a038c0b9e310309f2bf789c32be9f318116397967acd1",
+      "source_files": 1566,
+      "completed_mtime_ms": 1795042356239.8784
+    },
+    {
+      "order": 9,
+      "file": "source-after-scoped-clippy.log",
+      "sha256": "5ea7fc1a35499d9b072a038c0b9e310309f2bf789c32be9f318116397967acd1",
+      "source_files": 1566,
+      "completed_mtime_ms": 1795042436843.7454
+    },
+    {
+      "order": 10,
+      "file": "source-after-muted-owner-v2.log",
+      "sha256": "5ea7fc1a35499d9b072a038c0b9e310309f2bf789c32be9f318116397967acd1",
+      "source_files": 1566,
+      "completed_mtime_ms": 1795042495346.2024
+    }
+  ],
+  "source_checks_per_phase": 1566,
+  "actual_owners": [
+    {
+      "label": "owner-initial",
+      "code": 0,
+      "signal": null,
+      "fresh_absence": true
+    },
+    {
+      "label": "owner-selected-restart",
+      "code": 0,
+      "signal": null,
+      "fresh_absence": true
+    },
+    {
+      "label": "owner-restarted",
+      "code": 0,
+      "signal": null,
+      "fresh_absence": true
+    }
+  ],
+  "observed_native_submitted_frames": 0,
+  "write_observations": 19,
+  "every_observed_state_muted": true,
+  "profile_a": {
+    "local_cap_db": -40,
+    "effective_cap_db": -50,
+    "gain_db": -50
+  },
+  "profile_b": {
+    "local_cap_db": -40,
+    "effective_cap_db": -40,
+    "gain_db": -50
+  },
+  "stopped_update": {
+    "consent_before": true,
+    "consent_after": false,
+    "selected_after": null,
+    "persisted_selected_after": null,
+    "recovered_selected_after": null
+  },
+  "settings_unchanged": true,
+  "native_owner_unmute_requests": 0,
+  "callbacks_observed": null,
+  "private_fixed_arming_observed": null,
+  "physical_consumption_frames": null,
+  "strict_clippy_exit": 0,
+  "backend_fault_records": 0,
+  "preserved_failed_attempts": [
+    {
+      "kind": "missing_actual_cli_build_prerequisite",
+      "wrapper_exit": 1,
+      "suite_exit": 101,
+      "passed_cases": 15,
+      "failed_cases": 1,
+      "repaired_exact_case_exit": 0
+    },
+    {
+      "kind": "recording_helper_expected_zero_for_correct_rejection",
+      "wrapper_exit": 1,
+      "actual_rejected_cli_exit": 1,
+      "owner_exit": 0,
+      "fresh_absence": true,
+      "zero_write_observations": 10,
+      "settings_unchanged": true
+    }
+  ],
+  "limits": [
+    "Dirty precommit debug snapshot; not clean release or full Mac canonical qualification.",
+    "The original Engine profiles invocation passed15 cases and failed1 missing CLI prerequisite; only that exact case was rerun.",
+    "Private arming and owner callback counters are unavailable on the wire.",
+    "Muted control evidence does not qualify emitted profile PCM, DAC, acoustic, fixed/hardware, fidelity transitions, native associations, or full Task3."
+  ]
+}

@@ -358,6 +358,15 @@ enum PendingPeriodKind {
     Source,
     Tail,
 }
+struct QueueReservation {
+    view: Arc<Mutex<PlanView>>,
+    epochs: Epochs,
+}
+impl Drop for QueueReservation {
+    fn drop(&mut self) {
+        clear_reservation(&self.view, self.epochs);
+    }
+}
 struct Playback {
     pipeline: Option<PreparedPipeline>,
     installed_graph_epoch: u64,
@@ -392,6 +401,8 @@ struct Playback {
     output_peak: Option<f64>,
     modified: bool,
     progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
+    // This last field retires the exact reservation after the output and source resources.
+    reservation: QueueReservation,
 }
 impl Playback {
     fn prepare(
@@ -503,6 +514,10 @@ impl Playback {
             sequence: 0,
             started: false,
             cancel,
+            reservation: QueueReservation {
+                view: view.clone(),
+                epochs,
+            },
             view,
             input_peak: None,
             output_peak: None,
@@ -639,6 +654,12 @@ impl Playback {
         } else {
             self.reposition(settings, None, events, false)?;
         }
+        if pipeline.preview().backend.as_ref() != Some(&self.backend) {
+            return Err(EngineError::new(
+                ErrorCode::StaleSession,
+                "reopened backend differs from prepared graph",
+            ));
+        }
         self.pipeline = Some(pipeline.activate());
         self.saturation_count = 0;
         self.graph_peak = None;
@@ -724,6 +745,7 @@ impl Playback {
             };
             view.active = Some(self.current.entry.id.clone());
             view.epochs = Some(self.epochs());
+            self.reservation.epochs = self.epochs();
             let next = view.following(&self.current.entry.id);
             view.reserved = next.as_ref().map(|entry| entry.id.clone());
             next
@@ -935,6 +957,7 @@ impl Playback {
             self.remember_control_observation();
         }
         let counters = self.output.suspend(settings.snapshot.epochs)?;
+        self.backend = self.output.observation()?;
         if let Some(stream) = self.pipeline.as_mut().and_then(|p| p.stream_render_mut()) {
             let restart = restart_cursor(counters)?;
             if position.is_none() {
@@ -2414,6 +2437,7 @@ pub(crate) mod tests {
         service
             .submit(
                 GraphJobRequest {
+                    profile_application: None,
                     request_id: request_id.clone(),
                     binding: binding.clone(),
                     intent: Arc::new(GraphIntent {
@@ -2709,6 +2733,196 @@ pub(crate) mod tests {
             before
         );
         assert_eq!(before.source_frames, 65);
+    }
+    #[cfg(target_os = "linux")]
+    fn resumed_tail_playback() -> (Playback, SyncSender<Event>, Receiver<Event>) {
+        let (mut playback, events, receiver) = streaming_playback();
+        for _ in 0..64 {
+            playback.step(&events).unwrap();
+            if playback.phase == RenderPhase::GraphTail {
+                break;
+            }
+        }
+        assert_eq!(playback.phase, RenderPhase::GraphTail);
+        let source = playback.source_position;
+        assert_eq!(source, 65);
+        let origin = playback.epochs();
+        let mut pause = playback.settings.clone();
+        pause.snapshot.epochs = origin.next_stream().unwrap();
+        pause.snapshot.muted = true;
+        pause.playing = false;
+        playback.reposition(pause, None, &events, true).unwrap();
+        playback.settings.snapshot.muted = false;
+        playback.settings.playing = true;
+        playback.set_gain().unwrap();
+        let generated = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .stream()
+            .stats()
+            .output_frames;
+        for _ in 0..256 {
+            playback.step(&events).unwrap();
+            if playback.stream_position > 0
+                && playback
+                    .pipeline
+                    .as_ref()
+                    .unwrap()
+                    .stream_render()
+                    .unwrap()
+                    .stream()
+                    .stats()
+                    .output_frames
+                    > generated
+            {
+                break;
+            }
+        }
+        assert_ne!(playback.epochs(), origin);
+        assert_eq!(playback.source_position, source);
+        assert!(
+            playback.stream_position > 0,
+            "no resumed tail reached the real output"
+        );
+        assert_eq!(
+            playback.failure_observation().submitted_frames,
+            playback.output.progress().unwrap().submitted
+        );
+        let view = playback.view.lock().unwrap();
+        assert!(view.active.is_some());
+        assert_eq!(
+            view.validate_edit(&earph_core::control::Command::QueueRemove {
+                id: playback.current.entry.id.clone(),
+            })
+            .unwrap_err()
+            .code,
+            ErrorCode::SourceBusy
+        );
+        drop(view);
+        receiver.try_iter().for_each(drop);
+        (playback, events, receiver)
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn stopped_resumed_graph_tail_releases_its_original_queue_reservation() {
+        let (current, events, receiver) = resumed_tail_playback();
+        let before = current.failure_observation();
+        let view = current.view.clone();
+        let entry = current.current.entry.id.clone();
+        let mut settings = current.settings.clone();
+        settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
+        current.cancel.store(true, Ordering::Release);
+        let mut playback = Some(current);
+        let mut stopped = None;
+        let mut terminal = None;
+        stop_source(
+            StopRequest {
+                request_id: RequestId::new("tail-stop").unwrap(),
+                settings,
+            },
+            &mut playback,
+            &mut stopped,
+            &mut terminal,
+            &view,
+            &events,
+        )
+        .unwrap();
+        let event = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            matches!(event, Event::Stopped { observation: Some(observation), .. }
+            if observation == before)
+        );
+        assert!(playback.is_none());
+        let view = view.lock().unwrap();
+        assert!(view.active.is_none());
+        assert!(view.reserved.is_none());
+        view.validate_edit(&earph_core::control::Command::QueueRemove { id: entry })
+            .unwrap();
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn completed_resumed_graph_tail_releases_its_original_queue_reservation() {
+        let (mut current, events, _receiver) = resumed_tail_playback();
+        let view = current.view.clone();
+        let entry = current.current.entry.id.clone();
+        let mut completed = false;
+        for _ in 0..256 {
+            if current.step(&events).unwrap() {
+                completed = true;
+                break;
+            }
+        }
+        assert!(completed);
+        assert_eq!(current.phase, RenderPhase::Finished);
+        assert!(current.failure_observation().submitted_frames > 0);
+        drop(current);
+        let view = view.lock().unwrap();
+        assert!(view.active.is_none());
+        assert!(view.reserved.is_none());
+        view.validate_edit(&earph_core::control::Command::QueueRemove { id: entry })
+            .unwrap();
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn failed_resumed_graph_tail_releases_its_original_queue_reservation() {
+        let (mut current, events, receiver) = resumed_tail_playback();
+        let view = current.view.clone();
+        let entry = current.current.entry.id.clone();
+        let before = current.failure_observation();
+        current.output.stop().unwrap();
+        let error = current.step(&events).unwrap_err();
+        assert_eq!(error.code, ErrorCode::OutputFault);
+        let mut stopped = None;
+        let mut terminal = None;
+        playback_step_failure(&mut current, error, &mut stopped, &mut terminal, &events);
+        assert!(terminal.is_some());
+        let event = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            matches!(event, Event::Failed { observation: Some(observation), error: actual, .. }
+            if observation.submitted_frames == before.submitted_frames && actual == error)
+        );
+        drop(current);
+        let view = view.lock().unwrap();
+        assert!(view.active.is_none());
+        assert!(view.reserved.is_none());
+        view.validate_edit(&earph_core::control::Command::QueueRemove { id: entry })
+            .unwrap();
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn retired_resumed_graph_tail_cannot_release_a_newer_source_reservation() {
+        let (current, events, _receiver) = resumed_tail_playback();
+        let view = current.view.clone();
+        let mut settings = current.settings.clone();
+        settings.snapshot.epochs = settings.snapshot.epochs.next_session().unwrap();
+        settings.snapshot.session_id = Some(SessionId::new("replacement-source").unwrap());
+        settings.snapshot.muted = true;
+        settings.playing = false;
+        let replacement_epochs = settings.snapshot.epochs;
+        let entries = view.lock().unwrap().entries.clone();
+        let replacement = Playback::prepare(
+            settings,
+            entries,
+            Arc::new(AtomicBool::new(false)),
+            view.clone(),
+            Arc::new(Mutex::new(None)),
+            &events,
+        )
+        .unwrap();
+        drop(current);
+        {
+            let view = view.lock().unwrap();
+            assert_eq!(view.epochs, Some(replacement_epochs));
+            assert!(
+                view.active.is_some(),
+                "an old source released the replacement's reservation"
+            );
+        }
+        drop(replacement);
+        assert!(view.lock().unwrap().active.is_none());
     }
     #[cfg(target_os = "linux")]
     fn staged_streaming_playback() -> (Playback, SyncSender<Event>, Receiver<Event>, usize) {
@@ -3298,6 +3512,303 @@ pub(crate) mod tests {
         )
         .unwrap();
         (playback, events, receiver)
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn backend_observation_after_suspend_refreshes_real_paused_facts() {
+        for position in [None, Some(17)] {
+            let (mut playback, events, receiver) = prepared_nonzero_source();
+            let actual = playback.output.observation().unwrap();
+            playback.backend.measurement_boundary = "stale cached test boundary";
+            let mut pause = playback.settings.clone();
+            pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+            pause.snapshot.transport = TransportState::Paused;
+            pause.snapshot.muted = true;
+            pause.playing = false;
+            receiver.try_iter().for_each(drop);
+            playback
+                .reposition(pause.clone(), position, &events, true)
+                .unwrap();
+            let observation = receiver
+                .try_iter()
+                .find_map(|event| match event {
+                    Event::Paused {
+                        epochs,
+                        observation,
+                    } => {
+                        assert_eq!(epochs, pause.snapshot.epochs);
+                        Some(observation)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!(observation.backend.as_ref(), Some(&actual));
+            assert_eq!(observation.source_position_frames, position.unwrap_or(0));
+            assert_eq!(observation.submitted_frames, 0);
+            assert!(playback.settings.snapshot.muted);
+        }
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn backend_observation_after_suspend_refreshes_real_stream_hold_facts() {
+        let (mut playback, events, receiver) = streaming_playback();
+        let actual = playback.output.observation().unwrap();
+        playback.backend.measurement_boundary = "stale stream test boundary";
+        let mut pause = playback.settings.clone();
+        pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+        pause.snapshot.transport = TransportState::Paused;
+        pause.snapshot.muted = true;
+        pause.playing = false;
+        receiver.try_iter().for_each(drop);
+        playback.reposition(pause, None, &events, true).unwrap();
+        let observation = receiver
+            .try_iter()
+            .find_map(|event| match event {
+                Event::Paused { observation, .. } => Some(observation),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(observation.backend.as_ref(), Some(&actual));
+        assert_eq!(observation.submitted_frames, 0);
+        assert!(playback.settings.snapshot.muted);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn backend_observation_after_suspend_refreshes_real_activation_facts() {
+        let (mut playback, events, receiver) = prepared_nonzero_source();
+        let observed = playback.observe().unwrap();
+        let actual = observed.backend.clone();
+        let (settings, activation, pipeline) = prepare_activation(&playback.settings, &observed);
+        let hash = pipeline.preview().graph_hash.clone();
+        playback.backend.measurement_boundary = "stale activation test boundary";
+        receiver.try_iter().for_each(drop);
+        playback
+            .activate_graph(settings, activation, pipeline, &events)
+            .unwrap();
+        let ack = receiver
+            .try_iter()
+            .find_map(|event| match event {
+                Event::GraphActivated(ack) => Some(ack),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(ack.observation.backend, actual);
+        assert_eq!(ack.graph_hash, hash);
+        assert_eq!(ack.observation.submitted_frames, 0);
+        assert!(playback.settings.snapshot.muted);
+    }
+    // These controlled observations model a reopen boundary, not native hardware changes.
+    #[cfg(target_os = "linux")]
+    struct PostSuspendObservation {
+        inner: Box<dyn Output>,
+        failure: Option<EngineError>,
+        suspended: bool,
+        stopped: Arc<AtomicBool>,
+    }
+    #[cfg(target_os = "linux")]
+    impl Output for PostSuspendObservation {
+        fn audio_storage_bytes(&self) -> Result<u64, EngineError> {
+            self.inner.audio_storage_bytes()
+        }
+        fn is_running(&self) -> bool {
+            self.inner.is_running()
+        }
+        fn observation(&self) -> Result<BackendObservation, EngineError> {
+            let mut observation = self.inner.observation()?;
+            if self.suspended {
+                if let Some(error) = self.failure {
+                    return Err(error);
+                }
+                observation.measurement_boundary = "controlled post-suspend observation";
+            }
+            Ok(observation)
+        }
+        fn write(
+            &mut self,
+            block: &PcmBlock,
+            offset: usize,
+            frames: usize,
+        ) -> Result<Option<usize>, EngineError> {
+            self.inner.write(block, offset, frames)
+        }
+        fn progress(&mut self) -> Result<Counters, EngineError> {
+            self.inner.progress()
+        }
+        fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError> {
+            let counters = self.inner.suspend(epochs)?;
+            self.suspended = true;
+            Ok(counters)
+        }
+        fn finish(&mut self) -> Result<Option<Counters>, EngineError> {
+            self.inner.finish()
+        }
+        fn wait(&mut self) -> Result<(), EngineError> {
+            self.inner.wait()
+        }
+        fn stop(&mut self) -> Result<(), EngineError> {
+            self.inner.stop()?;
+            self.stopped.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+    #[cfg(target_os = "linux")]
+    fn controlled_post_suspend_observation(
+        mut playback: Playback,
+        failure: Option<EngineError>,
+    ) -> (Playback, Arc<AtomicBool>) {
+        let stopped = Arc::new(AtomicBool::new(false));
+        playback.output = Box::new(PostSuspendObservation {
+            inner: playback.output,
+            failure,
+            suspended: false,
+            stopped: stopped.clone(),
+        });
+        (playback, stopped)
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn backend_observation_after_suspend_refuses_changed_prepared_facts() {
+        post_suspend_activation_failure(None, ErrorCode::StaleSession);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn backend_observation_after_suspend_failure_closes_without_success_ack() {
+        post_suspend_activation_failure(
+            Some(EngineError::new(
+                ErrorCode::OutputFault,
+                "controlled post-suspend observation failure",
+            )),
+            ErrorCode::OutputFault,
+        );
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn backend_observation_after_suspend_cancel_keeps_source_origin_and_newer_reservation() {
+        let (current, events, receiver, _) = staged_streaming_playback();
+        let before = current.failure_observation();
+        let origin = current.settings.snapshot.epochs;
+        let view = current.view.clone();
+        let mut pause = current.settings.clone();
+        pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+        pause.snapshot.muted = true;
+        pause.playing = false;
+        let error = EngineError::new(
+            ErrorCode::OperationCancelled,
+            "controlled post-suspend cancellation",
+        );
+        let (mut current, closed) = controlled_post_suspend_observation(current, Some(error));
+        receiver.try_iter().for_each(drop);
+        let error = current
+            .reposition(pause.clone(), None, &events, true)
+            .unwrap_err();
+        assert!(
+            receiver.try_iter().next().is_none(),
+            "failed refresh emitted Paused"
+        );
+        current.cancel.store(true, Ordering::Release);
+        let mut next = current.settings.clone();
+        next.snapshot.epochs = next.snapshot.epochs.next_session().unwrap();
+        next.snapshot.session_id = Some(SessionId::new("newer-refresh-source").unwrap());
+        next.snapshot.muted = true;
+        next.playing = false;
+        let next_epochs = next.snapshot.epochs;
+        let entries = view.lock().unwrap().entries.clone();
+        let replacement = Playback::prepare(
+            next,
+            entries,
+            Arc::new(AtomicBool::new(false)),
+            view.clone(),
+            Arc::new(Mutex::new(None)),
+            &events,
+        )
+        .unwrap();
+        receiver.try_iter().for_each(drop);
+        let mut playback = Some(current);
+        let mut stopped = None;
+        let mut terminal = None;
+        action_failure(
+            &mut playback,
+            &mut stopped,
+            &mut terminal,
+            Some(pause),
+            error,
+            None,
+            &events,
+        );
+        let (settings, observation, failure) = stopped.unwrap();
+        assert_eq!(settings.snapshot.epochs, origin);
+        assert_eq!(observation, before);
+        assert_eq!(failure, None);
+        assert!(closed.load(Ordering::Acquire));
+        assert!(terminal.is_none());
+        assert!(receiver.try_iter().next().is_none());
+        assert_eq!(view.lock().unwrap().epochs, Some(next_epochs));
+        assert!(view.lock().unwrap().active.is_some());
+        drop(replacement);
+        assert!(view.lock().unwrap().active.is_none());
+    }
+    #[cfg(target_os = "linux")]
+    fn post_suspend_activation_failure(failure: Option<EngineError>, expected: ErrorCode) {
+        let (mut playback, events, receiver) = prepared_nonzero_source();
+        let observed = playback.observe().unwrap();
+        let (settings, activation, pipeline) = prepare_activation(&playback.settings, &observed);
+        let preview = pipeline.preview().clone();
+        let view = playback.view.clone();
+        let (mut playback, closed) = controlled_post_suspend_observation(playback, failure);
+        receiver.try_iter().for_each(drop);
+        let error = playback
+            .activate_graph(settings.clone(), activation, pipeline, &events)
+            .unwrap_err();
+        assert_eq!(error.code, expected);
+        assert_eq!(playback.installed_graph_epoch, 0);
+        let mut playback = Some(playback);
+        let mut stopped = None;
+        let mut terminal = None;
+        action_failure(
+            &mut playback,
+            &mut stopped,
+            &mut terminal,
+            Some(settings.clone()),
+            error,
+            None,
+            &events,
+        );
+        assert!(playback.is_none());
+        assert!(
+            closed.load(Ordering::Acquire),
+            "the real output was not stopped"
+        );
+        assert!(view.lock().unwrap().active.is_none());
+        assert!(view.lock().unwrap().reserved.is_none());
+        let failures: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(
+            failures.len(),
+            1,
+            "failed activation emitted another acknowledgment"
+        );
+        match &failures[0] {
+            Event::Failed {
+                epochs,
+                error,
+                token: Some(token),
+                ..
+            } => {
+                assert_eq!(*epochs, settings.snapshot.epochs);
+                assert_eq!(error.code, expected);
+                assert_eq!(token.origin_epochs, settings.snapshot.epochs);
+            }
+            _ => panic!("failed refresh lost its terminal failure"),
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while Arc::strong_count(&preview) > 1 && std::time::Instant::now() < deadline {
+            thread::yield_now();
+        }
+        assert_eq!(
+            Arc::strong_count(&preview),
+            1,
+            "incoming graph did not retire"
+        );
+        assert!(terminal.is_some());
     }
     #[test]
     #[cfg(target_os = "linux")]

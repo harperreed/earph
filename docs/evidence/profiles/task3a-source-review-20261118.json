@@ -1,0 +1,76 @@
+{
+  "reviewer": "/root/profile_macos_gate",
+  "independent": true,
+  "model": "session-main-model",
+  "mode": "same-review-read-only-reconciliation",
+  "verdict": "approve-bounded-source",
+  "prior_receipt_sha256": "b33eb77bd8d5e2cc87f826b1ca824601b0051950afc4bb5beca658550fb72c4b",
+  "scope": {
+    "base_commit": "296b4c5fa5e7040e2484048f67c801f0f1b1d91a",
+    "source_dirty": true,
+    "profile": "debug",
+    "changed_files": 19,
+    "source_files": 1554,
+    "patch_sha256": "118f7a8004adbaaacb03efeb4d5f71162acf43d17fdf565074d26f95c5b66c69",
+    "source_manifest_sha256": "ec1a7ebee6a4f1521605c809dffad209077649e96669c02b098c0bf03bf3ffa5",
+    "changed_manifest_sha256": "d5e781cf8943a6f802b88530e99a0cc98f54b23da04298ae72622731b257c4e3",
+    "candidate_bindings_sha256": "d87e39d29393ca435448b42647de3b2dd4e4a32ef2b98eb66ba7077a5cf40bc8",
+    "runtime": "aa7f847ce23299cb6499cbc1f71886a814b450d0e94cea2821c91b63aa49972f",
+    "lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574"
+  },
+  "delta_from_v1": {
+    "files": [
+      "crates/earph-core/src/session_graph.rs",
+      "crates/earph-engine/tests/service_playback.rs"
+    ],
+    "test_only": true,
+    "unchanged_source_files": 1552,
+    "proof_sha256": "fb85208be60f808fc235a37de51a51418151dbac8fa29095d423880966ce5666"
+  },
+  "resolved_findings": [
+    {
+      "id": "stopped-update-consent-coverage",
+      "status": "resolved",
+      "reason": "Both existing scenarios now grant actual current consent and require true immediately before update. Core verifies staged/live revocation and cleared checkpoint selection. The real owner verifies live revocation, reads the actual persisted checkpoint, and restarts again to consume its cleared selected state.",
+      "coverage_red": {
+        "core_exit": 101,
+        "engine_exit": 101,
+        "classification": "old fixture false-consent precondition failure; not production regression or mutation proof"
+      },
+      "green": {
+        "core_exit": 0,
+        "engine_exit": 0
+      },
+      "actual_receipts_sha256": "f16efdb5fbbf7e69e5b6723c91bc4b018698254aa58f327bcbae2a1f6821cb01"
+    }
+  ],
+  "remaining_findings": [],
+  "verified": {
+    "canonical": {
+      "counts": {
+        "passed": 696,
+        "failed": 0,
+        "ignored": 4
+      },
+      "exit": 0,
+      "compiler_warnings": false,
+      "log_sha256": "3725cfe7853f9b1f61c1adb7a4c39168cf4b7e343534033f1727c413285287df"
+    },
+    "all_candidate_source_log_runtime_and_capture_bindings_match": true,
+    "tests_rerun_during_review": false,
+    "production_edited_during_review": false,
+    "panels_spawned": 0
+  },
+  "limits": [
+    "Only the bounded Task3a software/current-output/current-consent/matching-fidelity slice is reviewed.",
+    "No full canonical rerun, source edit, hardware/device operation, or Mac gate ran during review.",
+    "The common owner-lock/fork correction and e49 Worker/DSP integration remain Root-owned dependencies.",
+    "Actual capture evidence is the ALSA client boundary; physical/DAC/acoustic behavior is unqualified.",
+    "A Mac gate must use a later exact integrated source freeze after review reconciliation."
+  ],
+  "dependencies": [
+    "Root must integrate the separately qualified OwnerLock correction and e49 fixes before the Mac gate.",
+    "Mac testing remains held until Root supplies an exact integrated source freeze.",
+    "This approval does not complete full Task3 or qualify physical output."
+  ]
+}

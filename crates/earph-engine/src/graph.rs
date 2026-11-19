@@ -11,7 +11,7 @@ use earph_core::{
         GraphResidentUsage, GraphTransition, SignalTransformation,
     },
     ids::{Epochs, RequestId},
-    safety::{FidelityPolicy, OutputContext, SampleDomain},
+    safety::{FidelityPolicy, OutputContext, SampleDomain, VolumeMode},
     session::{ObservedStreamFormat, SessionSnapshot},
 };
 use earph_dsp::{CompileContext, CompiledPlan, GraphBudget, GraphError, ProcessingPolicy};
@@ -32,7 +32,7 @@ const LIMIT: u64 = 256 * 1024 * 1024;
 // Covers bounded compiler maps, canonical serialization, hashes, and preview construction.
 const PREPARATION_SCRATCH: u64 = 4 * 1024 * 1024;
 // Covers 128 compiled/runtime nodes, 256 inputs, IDs, and preview transformations.
-const METADATA_ALLOWANCE: u64 = 2 * 1024 * 1024;
+const METADATA_ALLOWANCE: u64 = earph_core::graph_control::GRAPH_PREVIEW_RETENTION_BYTES as u64;
 const BUSY: EngineError = EngineError::new(
     ErrorCode::SourceBusy,
     "graph preparation or retirement owns the candidate slot",
@@ -492,6 +492,11 @@ fn retire(retired: Retired, accounting: &Accounting) {
     accounting.retiring.fetch_sub(1, Ordering::AcqRel);
 }
 
+enum PreparationPurpose<'a> {
+    CurrentOutput,
+    MutedProfileApplication(&'a SessionSnapshot),
+}
+
 fn prepare(
     request: &GraphJobRequest,
     snapshot: &SessionSnapshot,
@@ -528,6 +533,67 @@ fn prepare(
     {
         return Err(STALE.into());
     }
+    let purpose = if request.profile_application.is_some() {
+        PreparationPurpose::MutedProfileApplication(snapshot)
+    } else {
+        PreparationPurpose::CurrentOutput
+    };
+    let prospective;
+    let snapshot = if let Some(application) = &request.profile_application {
+        application.validate().map_err(GraphDiagnostic::from)?;
+        if snapshot.source != Some(application.source) {
+            return Err(STALE.into());
+        }
+        if snapshot
+            .playback
+            .as_ref()
+            .and_then(|p| p.backend.as_ref())
+            .is_none()
+        {
+            return Err(EngineError::new(
+                ErrorCode::DeviceUnavailable,
+                "profile preparation requires an observed open backend",
+            )
+            .into());
+        }
+        if snapshot.output.as_ref().is_none_or(|o| {
+            o.volume_mode != application.volume_mode || o.fidelity != application.fidelity
+        }) || application.device_identity_sha256
+            != snapshot
+                .playback
+                .as_ref()
+                .and_then(|p| p.backend.as_ref())
+                .and_then(|b| {
+                    (b.backend == earph_core::control::OutputBackend::CoreAudio)
+                        .then_some(b.device_identity_sha256)
+                        .flatten()
+                })
+            || application.software_gain_db
+                != snapshot
+                    .software_gain_db
+                    .min(application.effective_policy.software_cap_db())
+        {
+            return Err(STALE.into());
+        }
+        if application.volume_mode == VolumeMode::Fixed
+            && (snapshot.software_gain_db != 0.0 || snapshot.gain_ramp_frames != 0)
+        {
+            return Err(EngineError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "fixed profile preparation requires current unity gain and zero ramp",
+            )
+            .into());
+        }
+        prospective = {
+            let mut state = snapshot.clone();
+            state.volume_policy = application.effective_policy.clone();
+            state.software_gain_db = application.software_gain_db;
+            state
+        };
+        &prospective
+    } else {
+        snapshot
+    };
     request
         .intent
         .graph
@@ -574,9 +640,8 @@ fn prepare(
         )
         .into());
     }
-    snapshot
-        .volume_policy
-        .validate_unmute(
+    match purpose {
+        PreparationPurpose::CurrentOutput => snapshot.volume_policy.validate_unmute(
             &OutputContext {
                 device_id: output.device_id.clone(),
                 profile_id: output.profile_id.clone(),
@@ -586,8 +651,22 @@ fn prepare(
             output.fidelity,
             snapshot.software_gain_db,
             None,
-        )
-        .map_err(GraphDiagnostic::from)?;
+        ),
+        PreparationPurpose::MutedProfileApplication(current) => {
+            current.volume_policy.validate_profile_preparation(
+                &OutputContext {
+                    device_id: output.device_id.clone(),
+                    profile_id: output.profile_id.clone(),
+                },
+                output.volume_mode,
+                output.fidelity,
+                current.software_gain_db,
+                &snapshot.volume_policy,
+                snapshot.software_gain_db,
+            )
+        }
+    }
+    .map_err(GraphDiagnostic::from)?;
     let quantum = output.period_frames as usize;
     let float = matches!(
         request.intent.processing,
@@ -730,7 +809,23 @@ fn prepare(
         if streaming { 0 } else { PREPARATION_SCRATCH },
         asset_scratch,
     ])?;
-    let kernel_allowance = LIMIT.checked_sub(fixed).ok_or(RESOURCE)?;
+    let preparation_limit = request
+        .profile_application
+        .as_ref()
+        .map_or(LIMIT, |a| LIMIT.min(a.latency.max_preparation_bytes));
+    let resident_limit = request
+        .profile_application
+        .as_ref()
+        .map_or(LIMIT, |a| LIMIT.min(a.latency.max_resident_bytes));
+    let steady_fixed = sum(&[
+        backend_audio_bytes,
+        existing_route_bytes,
+        metadata,
+        bridge_bytes,
+    ])?;
+    let preparation_allowance = preparation_limit.checked_sub(fixed).ok_or(RESOURCE)?;
+    let resident_allowance = resident_limit.checked_sub(steady_fixed).ok_or(RESOURCE)?;
+    let kernel_allowance = preparation_allowance.min(resident_allowance);
     let resolved = asset_admission
         .resolve(asset_store, kernel_allowance, || {
             check().map_err(|e| e.error())
@@ -748,6 +843,11 @@ fn prepare(
         },
         budget: GraphBudget {
             max_buffer_bytes: kernel_allowance,
+            max_latency_frames: request
+                .profile_application
+                .as_ref()
+                .and_then(|a| a.latency.max_latency_frames)
+                .unwrap_or(u64::MAX),
             ..GraphBudget::default()
         },
     };
@@ -758,7 +858,7 @@ fn prepare(
             &resolved,
             earph_dsp::stream::StreamBudget {
                 max_resident_bytes: kernel_allowance,
-                max_preparation_bytes: kernel_allowance,
+                max_preparation_bytes: preparation_allowance,
                 ..earph_dsp::stream::StreamBudget::default()
             },
         )
@@ -767,6 +867,11 @@ fn prepare(
         let resources = plan.resources();
         let aggregate_peak_bytes = sum(&[fixed, resources.preparation_peak_bytes])?;
         let pipeline_bytes = sum(&[metadata, bridge.bridge_bytes, resources.resident_bytes])?;
+        if aggregate_peak_bytes > preparation_limit
+            || sum(&[steady_fixed, resources.resident_bytes])? > resident_limit
+        {
+            return Err(RESOURCE.into());
+        }
         let bridge_remainder = bridge
             .bridge_bytes
             .checked_sub(sum(&[host_input, host_output, native_period])?)
@@ -902,7 +1007,9 @@ fn prepare(
         profile_retention,
         plan.preparation_scratch_bytes(),
     ])?;
-    if aggregate_peak_bytes > LIMIT {
+    if aggregate_peak_bytes > preparation_limit
+        || sum(&[backend_audio_bytes, existing_route_bytes, pipeline_bytes])? > resident_limit
+    {
         return Err(RESOURCE.into());
     }
     let preview = prepared_preview(
@@ -1048,6 +1155,7 @@ fn prepared_preview(
         });
     }
     let preview = Arc::new(GraphPreview {
+        profile_application: request.profile_application.clone(),
         backend: playback.backend.clone(),
         graph_hash: activation_hash(
             &compiled.kernel_hash,
@@ -1151,6 +1259,7 @@ fn activation_hash(
     #[derive(serde::Serialize)]
     struct BackendIdentity<'a> {
         backend: &'a earph_core::control::OutputBackend,
+        device_identity_sha256: &'a Option<earph_core::profiles::ProfileObjectHash>,
         client_format: &'a ObservedStreamFormat,
         device_format: &'a Option<ObservedStreamFormat>,
         measurement_boundary: &'static str,
@@ -1163,6 +1272,7 @@ fn activation_hash(
         .and_then(|p| p.backend.as_ref())
         .map(|b| BackendIdentity {
             backend: &b.backend,
+            device_identity_sha256: &b.device_identity_sha256,
             client_format: &b.client_format,
             device_format: &b.device_format,
             measurement_boundary: b.measurement_boundary,
@@ -1194,6 +1304,10 @@ fn activation_hash(
             "graph activation hash serialization failed",
         ))
     })?;
+    if let Some(application) = &request.profile_application {
+        serde_json::to_writer(&mut writer, &("earph-profile-activation/1", application))
+            .map_err(|_| GraphDiagnostic::from(RESOURCE))?;
+    }
     Ok(writer
         .0
         .finalize()

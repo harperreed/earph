@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "Local Linux merge checkpoint for Owner packages and reviewed PR3 round2 corrections",
+  "source": {
+    "package_parent": "7377b9bd6e9fb5ff76b29fa3e1ee9d2e9fb83a2d",
+    "round2_parent": "2d10d01909d37c5fb0922116fd46593e453e69b9",
+    "reviewed_staged_tree": "b5de71d6098fd7add65f058dd8d052bfdc419c27",
+    "dirty_precommit": true,
+    "files": 1580,
+    "manifest_sha256": "cec814cd8a2c957535da1d390d3c04e97b6a12769461b095105fa9d19740abf5",
+    "source_bindings_sha256": "d7cdd2d05b8b9fcbb69f4d04cb3979dc9e9e4351176714264dea2659121d45e6",
+    "package_parent_delta_sha256": "486f4784cccff210c16b001d3c7d834093e63a7bbf5ce5455beca95bef5352cb",
+    "round2_parent_delta_sha256": "ed63357ba72119c768ebd1f75ce86ea5a07cf4a3044e175333fd9625f6d25d81",
+    "manual_resolution_delta_sha256": "ab2bf6b98488f610f8683388d4773e623e09e31e79bd416daed8feaee4841298",
+    "resolutions": [
+      "Preserve additive Core package lifecycle and dispatch-failure tests.",
+      "Preserve original package bytes and shared FIR admission with early UTF-8 forwarding refusal.",
+      "Preserve reference-bound prepared FIR access with short runtime fixture roots.",
+      "Preserve Linux invalid-filename coverage and portable absent-argument refusal."
+    ],
+    "runtime_source_change_after_review": false,
+    "post_review_documentation": [
+      "docs/evidence/profiles/owner-package-round2-integration-precommit-20261118.json",
+      "docs/superpowers/plans/2026-11-18-listening-profiles.md"
+    ]
+  },
+  "runtime": {
+    "commit": "7377b9bd6e9fb5ff76b29fa3e1ee9d2e9fb83a2d",
+    "source_dirty": true,
+    "source_inputs_sha256": "8d3e5bbfe19e92154451b24075a41eb1ca42c44e5025d0fec20857000397161c",
+    "independent_source_digest_matches": true,
+    "provenance_sha256": "b03a97af571d98366c322aacb2f49a3a62c3e85c4b70f1ea0c977dded4e4e9e2",
+    "dependency_lock_sha256": "c71c1719cc616146274253131e2ea99d21046dcb100c05581591a379b15ed87c",
+    "executable_manifest_sha256": "eb12d7bf68ce741fe3fdcbe6236e866b5967877b7e76c9d8b76383a0c11ee3fd",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "target": "x86_64-unknown-linux-gnu",
+    "executables": {
+      "earph-engine": "62879f431f39963d6e6c91fdee936ab070d8ab56518f9395a3906fb394d2b67d",
+      "earph-harness": "dfea766c8d10a43cb56060647bd0bdd3796503e287f4026a8cce4b0f296bbb61",
+      "earph-correction-import": "c31290bd2d8595e287f169350f6f9fd42fc99a29b0ff447e0026cb954d1d7a8c"
+    }
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "child_exit_code": 0,
+    "passed": 783,
+    "failed": 0,
+    "ignored": 4,
+    "log_sha256": "b1d899494fec44c5adcbd4b0087cc72bdf419b11440214ec2abe1502a6ea6e35",
+    "includes": ["formatting", "strict workspace all-target Clippy", "workspace tests", "catalog validation", "dependency validation"],
+    "compiler_warnings_or_errors": []
+  },
+  "scoped": {
+    "passed": 327,
+    "failed": 0,
+    "ignored": 0,
+    "overlaps_canonical": true,
+    "core": {
+      "child_exit_code": 0,
+      "passed": 42,
+      "log_sha256": "6ffb350934eb9ed3abecd91f96dfadec3dba2bda1d4e5a4d074ae872b4186ebd"
+    },
+    "media": {
+      "child_exit_code": 0,
+      "passed": 41,
+      "log_sha256": "77fa86412e2cd4b5f3dd9cc04706ce5e3bc9cb6d0238bbf76fb2bd300ddb374c"
+    },
+    "engine": {
+      "child_exit_code": 0,
+      "passed": 244,
+      "log_sha256": "708463e6b038d7fff1e11e2e09fc4f94ff9917809550135ce24fe2b0ae665fc5"
+    },
+    "actual_cli_build_exit_code": 0,
+    "format_check_exit_code": 0,
+    "observed_contracts": [
+      "Real owner/request executable package roundtrip and restart.",
+      "Real correction producers and consumers with original-byte reconstruction.",
+      "Package bank admission and storage-error classification.",
+      "Native file-to-null playback, retirement, forwarding, and CLI delivery failures."
+    ]
+  },
+  "evidence_history": {
+    "corrected_evidence_sha256": "a39959c4c3b253aa209bab54d19be1e5e1928239af9d9d81c7510a097d2c8b0f",
+    "corrected_evidence_bindings_sha256": "756002662d3c29ebc8cf2129dcc46b5d72030084d36ae7e94f1373988fbad4f8",
+    "corrected_results_table_sha256": "45804cfe79bd1bc0fae16d8b31b41c610943d2a81147d073680be5cb74dbc436",
+    "original_evidence_sha256": "2f4f01f81adf3698660e1b3522138c90284e1b38e849c357e270b30d29511b67",
+    "original_evidence_bindings_sha256": "d2781a114b651a053fd1cb36b9b745c4e8d7e30adebfe2dbe839830f4ba1af27",
+    "original_results_table_sha256": "3befe59da72ff69283e2471c6da31f5ce4ff1b3dd61e2490b590296823819084",
+    "original_zero_count_receipt_preserved": true,
+    "correction": "Read numeric Cargo columns 4/6/8 instead of labels 5/7/9. Preserve original logs, exits, source, runtime, and receipts."
+  },
+  "review": {
+    "kind": "one_independent_main_model_coupling_review",
+    "decision": "approve_bounded_coupling",
+    "receipt_sha256": "c9a715d1bccc8fe6a1b7319bbd54baafe7920c4002f263e16350246c29d167a2",
+    "evidence_sha256": "91d3b8eb9f7878d151cb8fa12fbba88deaca4c6a8da644583d658164df79146e",
+    "source_records_verified": 1580,
+    "bound_artifact_entries_verified": 42,
+    "open_material_findings": 0
+  },
+  "checkpoint": {
+    "local_only": true,
+    "normal_merge_commit_by_root_pending": true,
+    "suite_rerun_after_documentation": false,
+    "combined_macos_qualification": false,
+    "physical_output_qualification": false,
+    "full_task4_complete": false,
+    "t12_complete": false,
+    "public_release": false
+  },
+  "limits": [
+    "This receipt and the appended plan checkpoint follow the reviewed dirty Linux source snapshot.",
+    "Historical package and round2 receipts retain their original source and platform scope.",
+    "Combined Mac, current-source physical output, clean release, full Task4, completed T12, and release qualification remain pending.",
+    "Exact-byte export still needs explicit content and redistribution review; known-content checks do not prove arbitrary-byte privacy.",
+    "No suite rerun, runtime source change, commit, push, deletion, Mac, or hardware action follows this documentation checkpoint."
+  ]
+}

@@ -130,6 +130,58 @@ fn direct_fir_import_cannot_write_beside_a_locked_owner() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
+fn non_utf8_fir_paths_keep_direct_import_and_explain_the_owner_wire_limit() {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+    let runtime = support::runtime();
+    fs::create_dir(&runtime).unwrap();
+    fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
+    let source = runtime.join(OsString::from_vec(b"owned-\xff.wav".to_vec()));
+    let original = wave();
+    fs::write(&source, &original).unwrap();
+    let first = import(&runtime, &source);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let expected: Value = serde_json::from_slice(&first.stdout).unwrap();
+    let owner = earph_engine::EngineOwner::bind(&runtime).unwrap();
+    let forwarded = import(&runtime, &source);
+    drop(owner);
+    assert_eq!(forwarded.status.code(), Some(3));
+    let error: Value = serde_json::from_slice(&forwarded.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "ASSET_INVALID");
+    assert_eq!(
+        error["error"]["message"],
+        "owner FIR forwarding requires UTF-8 paths"
+    );
+    assert_eq!(fs::read(&source).unwrap(), original);
+    let direct_retry = import(&runtime, &source);
+    assert!(direct_retry.status.success());
+    let retried: Value = serde_json::from_slice(&direct_retry.stdout).unwrap();
+    assert_eq!(retried["asset"], expected["asset"]);
+}
+
+#[test]
+fn owner_fir_forwarding_rejects_non_utf8_arguments_before_source_io() {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+    let runtime = support::runtime();
+    let owner = earph_engine::EngineOwner::bind(&runtime).unwrap();
+    let source = runtime.join(OsString::from_vec(b"absent-\xff.wav".to_vec()));
+    let output = import(&runtime, &source);
+    assert_eq!(output.status.code(), Some(3));
+    let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "ASSET_INVALID");
+    assert_eq!(
+        error["error"]["message"],
+        "owner FIR forwarding requires UTF-8 paths"
+    );
+    assert!(!runtime.join("assets").exists());
+    drop(owner);
+}
+
+#[test]
 fn existing_fir_cli_forwards_to_the_running_owner() {
     use serde_json::json;
     let runtime = support::runtime();
@@ -168,4 +220,41 @@ fn existing_fir_cli_forwards_to_the_running_owner() {
     .unwrap();
     assert_eq!(reply["receipt"]["status"], "applied");
     host.join().unwrap();
+}
+
+#[test]
+fn fir_cli_preserves_source_busy_when_the_locked_owner_has_no_endpoint() {
+    let runtime = support::runtime();
+    fs::create_dir(&runtime).unwrap();
+    fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
+    let source = runtime.join("authored.wav");
+    fs::write(&source, wave()).unwrap();
+    let lock = std::fs::OpenOptions::new()
+        .write(true)
+        .read(true)
+        .create_new(true)
+        .open(runtime.join("owner.lock"))
+        .unwrap();
+    fs::set_permissions(
+        runtime.join("owner.lock"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    lock.try_lock().unwrap();
+    let output = import(&runtime, &source);
+    assert_eq!(output.status.code(), Some(3));
+    let report: Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(report["error"]["code"], "SOURCE_BUSY");
+    assert!(!runtime.join("assets").exists());
+    assert_eq!(fs::read(&source).unwrap(), wave());
+    let endpoint = runtime.join("endpoint.json");
+    fs::write(&endpoint, b"{}").unwrap();
+    fs::set_permissions(&endpoint, fs::Permissions::from_mode(0o644)).unwrap();
+    let denied = import(&runtime, &source);
+    let denied: Value = serde_json::from_slice(&denied.stderr).unwrap();
+    assert_eq!(denied["error"]["code"], "AUTH_DENIED");
+    fs::set_permissions(&endpoint, fs::Permissions::from_mode(0o600)).unwrap();
+    let invalid = import(&runtime, &source);
+    let invalid: Value = serde_json::from_slice(&invalid.stderr).unwrap();
+    assert_eq!(invalid["error"]["code"], "ASSET_INVALID");
 }

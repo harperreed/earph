@@ -199,6 +199,7 @@ fn snapshot() -> SessionSnapshot {
         ControlLimits::default(),
     )
     .snapshot();
+    state.source = Some(earph_core::control::SourceKind::LocalFile);
     state.session_id = Some(SessionId::new("session").unwrap());
     state.output_id = Some(DeviceId::new("device").unwrap());
     state.software_gain_db = -12.0;
@@ -230,6 +231,7 @@ fn snapshot() -> SessionSnapshot {
         output_peak: None,
         modified: false,
         backend: Some(BackendObservation {
+            device_identity_sha256: None,
             backend: OutputBackend::Alsa,
             audio_storage_bytes: 256,
             client_format: format.into(),
@@ -292,6 +294,7 @@ fn request(state: &SessionSnapshot, effect: serde_json::Value) -> GraphJobReques
         "edges":[{"from":"in","to":"effect","from_port":0,"to_port":0},{"from":"effect","to":"out","from_port":0,"to_port":0}],"output":"out"
     })).unwrap();
     GraphJobRequest {
+        profile_application: None,
         request_id: RequestId::new("job").unwrap(),
         binding: GraphBinding {
             owner_id: state.owner_id.clone().unwrap(),
@@ -332,6 +335,345 @@ fn retired(service: &GraphService) {
         );
         thread::yield_now();
     }
+}
+
+fn with_profile(mut request: GraphJobRequest) -> GraphJobRequest {
+    use earph_core::{profile_control::*, profiles::*, safety::VolumePolicy};
+    let hash = ProfileObjectHash::try_from("c".repeat(64)).unwrap();
+    request.profile_application = Some(Arc::new(ProfileApplicationBinding {
+        volume_mode: earph_core::safety::VolumeMode::Software,
+        fidelity: earph_core::safety::FidelityPolicy::CompatibleConversion,
+        device_identity_sha256: None,
+        profile: ProfileCatalogReference {
+            id: ProfileId::new("headphones").unwrap(),
+            revision: 1,
+            profile_sha256: hash,
+        },
+        graph_sha256: hash,
+        source: earph_core::control::SourceKind::LocalFile,
+        effective_policy: VolumePolicy::new(-20.0, None).unwrap(),
+        software_gain_db: -20.0,
+        latency: ProfileLatencyIntent {
+            mode: ProfileLatencyMode::Balanced,
+            max_resident_bytes: 256 << 20,
+            max_preparation_bytes: 256 << 20,
+            max_latency_frames: None,
+        },
+    }));
+    request
+}
+
+fn fixed_profile_request() -> (GraphJobRequest, SessionSnapshot) {
+    use earph_core::safety::{OutputContext, VolumeMode, VolumePolicy};
+    let mut state = snapshot();
+    let output = state.output.as_mut().unwrap();
+    output.volume_mode = VolumeMode::Fixed;
+    state.software_gain_db = 0.0;
+    state.gain_ramp_frames = 0;
+    state.volume_policy.arm_fixed(OutputContext {
+        device_id: output.device_id.clone(),
+        profile_id: output.profile_id.clone(),
+    });
+    let mut job = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
+    let application = Arc::make_mut(job.profile_application.as_mut().unwrap());
+    application.volume_mode = VolumeMode::Fixed;
+    application.software_gain_db = 0.0;
+    application.effective_policy = VolumePolicy::default();
+    (job, state)
+}
+#[test]
+fn fixed_profile_compiles_prospective_unarmed_policy_without_relaxing_ordinary_graph_authorization()
+{
+    use earph_core::{ErrorCode, safety::*};
+    let mut service = GraphService::spawn(None).unwrap();
+    let (job, state) = fixed_profile_request();
+    service
+        .submit(job.clone(), state.clone(), active_source())
+        .unwrap();
+    let prepared = completion(&mut service).result.unwrap();
+    let application = prepared.preview.profile_application.as_ref().unwrap();
+    assert_eq!(application.volume_mode, VolumeMode::Fixed);
+    assert!(
+        application
+            .effective_policy
+            .validate_unmute(
+                &OutputContext {
+                    device_id: state.output.as_ref().unwrap().device_id.clone(),
+                    profile_id: application.profile.id.clone()
+                },
+                VolumeMode::Fixed,
+                SampleDomain::Pcm,
+                application.fidelity,
+                0.0,
+                None
+            )
+            .is_err()
+    );
+    drop(prepared);
+    retired(&service);
+    for purpose in ["ordinary", "profile"] {
+        let (mut job, mut state) = fixed_profile_request();
+        state.volume_policy.disarm();
+        if purpose == "ordinary" {
+            job.profile_application = None;
+        }
+        service.submit(job, state, active_source()).unwrap();
+        assert_eq!(
+            completion(&mut service).result.err().unwrap().code,
+            ErrorCode::SafetyPolicyBlocked,
+            "{purpose}"
+        );
+        retired(&service);
+    }
+}
+#[test]
+fn fixed_profile_service_refuses_mode_policy_ramp_headroom_and_cancelled_source() {
+    use earph_core::{ErrorCode, safety::*};
+    for (condition, expected) in [
+        ("consent", ErrorCode::SafetyPolicyBlocked),
+        ("ramp", ErrorCode::SafetyPolicyBlocked),
+        ("cap", ErrorCode::SafetyPolicyBlocked),
+        ("hardware", ErrorCode::SafetyPolicyBlocked),
+        ("mode", ErrorCode::StaleSession),
+        ("fidelity", ErrorCode::StaleSession),
+        ("headroom", ErrorCode::SafetyPolicyBlocked),
+        ("cancel", ErrorCode::OperationCancelled),
+    ] {
+        let (mut job, mut state) = fixed_profile_request();
+        let cancel = active_source();
+        match condition {
+            "consent" => state.output_consented = false,
+            "ramp" => state.gain_ramp_frames = 64,
+            "cap" => {
+                Arc::make_mut(job.profile_application.as_mut().unwrap()).effective_policy =
+                    VolumePolicy::new(-20.0, None).unwrap()
+            }
+            "hardware" => {
+                Arc::make_mut(job.profile_application.as_mut().unwrap()).effective_policy =
+                    VolumePolicy::new(0.0, Some(-30.0)).unwrap()
+            }
+            "mode" => {
+                Arc::make_mut(job.profile_application.as_mut().unwrap()).volume_mode =
+                    VolumeMode::Software
+            }
+            "fidelity" => {
+                Arc::make_mut(job.profile_application.as_mut().unwrap()).fidelity =
+                    FidelityPolicy::ExpertOverride
+            }
+            "headroom" => {
+                job.intent =
+                    request(&state, serde_json::json!({"kind":"gain","gain_linear":2.0})).intent
+            }
+            "cancel" => cancel.store(true, std::sync::atomic::Ordering::Release),
+            _ => unreachable!(),
+        }
+        let mut service = GraphService::spawn(None).unwrap();
+        if condition == "cancel" {
+            assert_eq!(
+                service.submit(job, state, cancel).err().unwrap().code,
+                expected
+            );
+            assert!(service.try_completion().is_none());
+            continue;
+        }
+        service.submit(job, state, cancel).unwrap();
+        assert_eq!(
+            completion(&mut service).result.err().unwrap().code,
+            expected,
+            "{condition}"
+        );
+        retired(&service);
+    }
+}
+
+#[test]
+fn profile_hashes_bind_supported_mode_and_fidelity_with_the_same_kernel() {
+    use earph_core::safety::*;
+    let mut service = GraphService::spawn(None).unwrap();
+    let mut hashes = vec![];
+    let mut kernels = vec![];
+    for (mode, fidelity) in [
+        (VolumeMode::Software, FidelityPolicy::CompatibleConversion),
+        (VolumeMode::Fixed, FidelityPolicy::CompatibleConversion),
+        (VolumeMode::Fixed, FidelityPolicy::ExpertOverride),
+    ] {
+        let (mut job, mut state) = fixed_profile_request();
+        state.output.as_mut().unwrap().volume_mode = mode;
+        state.output.as_mut().unwrap().fidelity = fidelity;
+        let application = Arc::make_mut(job.profile_application.as_mut().unwrap());
+        application.volume_mode = mode;
+        application.fidelity = fidelity;
+        job.validate_only = true;
+        service.submit(job, state, active_source()).unwrap();
+        let result = completion(&mut service).result.unwrap();
+        hashes.push(result.preview.graph_hash.clone());
+        kernels.push(result.preview.kernel_hash.clone());
+        graph::wait_for_validation_publication(&service);
+    }
+    assert!(kernels.windows(2).all(|pair| pair[0] == pair[1]));
+    assert_ne!(hashes[0], hashes[1]);
+    assert_ne!(hashes[1], hashes[2]);
+}
+
+#[test]
+fn profile_preparation_semantic_hash_binds_immutable_revision_and_caps() {
+    let state = snapshot();
+    let base = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
+    let mut service = GraphService::spawn(None).unwrap();
+    let mut hashes = vec![];
+    for (revision, cap) in [(1, -20.0), (2, -20.0), (2, -30.0)] {
+        let mut job = base.clone();
+        job.validate_only = true;
+        let application = Arc::make_mut(job.profile_application.as_mut().unwrap());
+        application.profile.revision = revision;
+        application.effective_policy = earph_core::safety::VolumePolicy::new(cap, None).unwrap();
+        application.software_gain_db = cap;
+        service.submit(job, state.clone(), active_source()).unwrap();
+        let prepared = completion(&mut service).result.unwrap();
+        hashes.push(prepared.preview.graph_hash.clone());
+        assert!(prepared.pipeline.is_none());
+        graph::wait_for_validation_publication(&service);
+    }
+    assert_ne!(
+        hashes[0], hashes[1],
+        "same kernel must not erase the selected saved revision"
+    );
+    assert_ne!(hashes[1], hashes[2]);
+}
+
+#[test]
+fn profile_preparation_rejects_substituted_native_identity() {
+    let mut state = snapshot();
+    state.output.as_mut().unwrap().backend = earph_core::control::OutputBackend::CoreAudio;
+    let backend = state.playback.as_mut().unwrap().backend.as_mut().unwrap();
+    backend.backend = earph_core::control::OutputBackend::CoreAudio;
+    backend.device_identity_sha256 = Some("1".repeat(64).try_into().unwrap());
+    let mut job = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
+    Arc::make_mut(job.profile_application.as_mut().unwrap()).device_identity_sha256 =
+        Some("2".repeat(64).try_into().unwrap());
+    let mut service = GraphService::spawn(None).unwrap();
+    service.submit(job, state, active_source()).unwrap();
+    assert_eq!(
+        completion(&mut service).result.err().unwrap().code,
+        earph_core::ErrorCode::StaleSession
+    );
+}
+
+#[test]
+fn profile_semantic_hash_tracks_observed_native_identity_without_hardware_claims() {
+    let mut service = GraphService::spawn(None).unwrap();
+    let mut hashes = vec![];
+    for n in [1, 2] {
+        let mut state = snapshot();
+        state.output.as_mut().unwrap().backend = earph_core::control::OutputBackend::CoreAudio;
+        let identity = Some(format!("{n:064x}").try_into().unwrap());
+        let backend = state.playback.as_mut().unwrap().backend.as_mut().unwrap();
+        backend.backend = earph_core::control::OutputBackend::CoreAudio;
+        backend.device_identity_sha256 = identity;
+        let mut job = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
+        job.validate_only = true;
+        Arc::make_mut(job.profile_application.as_mut().unwrap()).device_identity_sha256 = identity;
+        service.submit(job, state, active_source()).unwrap();
+        let result = completion(&mut service).result.unwrap();
+        hashes.push(result.preview.graph_hash.clone());
+        assert!(result.pipeline.is_none());
+        graph::wait_for_validation_publication(&service);
+    }
+    assert_ne!(hashes[0], hashes[1]);
+}
+
+#[test]
+fn live_profile_preparation_enforces_declared_memory_limits() {
+    let state = snapshot();
+    for (resident, preparation) in [(1, 256 << 20), (1, 1)] {
+        let mut job = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
+        let application = Arc::make_mut(job.profile_application.as_mut().unwrap());
+        application.latency.max_resident_bytes = resident;
+        application.latency.max_preparation_bytes = preparation;
+        let mut service = GraphService::spawn(None).unwrap();
+        service.submit(job, state.clone(), active_source()).unwrap();
+        let error = completion(&mut service)
+            .result
+            .err()
+            .expect("declared limits must admit the actual pipeline");
+        assert_eq!(error.code, ErrorCode::ResourceBudgetExceeded);
+        retired(&service);
+    }
+}
+
+#[test]
+fn live_profile_limits_admit_the_exact_known_resident_and_preparation_boundary() {
+    let state = snapshot();
+    let base = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
+    let mut service = GraphService::spawn(None).unwrap();
+    service
+        .submit(base.clone(), state.clone(), active_source())
+        .unwrap();
+    let prepared = completion(&mut service).result.unwrap();
+    let usage = prepared.preview.resources;
+    let resident = usage.pipeline_bytes + usage.backend_audio_bytes + 256;
+    drop(prepared);
+    retired(&service);
+    for (resident_limit, preparation_limit, pass) in [
+        (resident, usage.aggregate_peak_bytes, true),
+        (resident - 1, usage.aggregate_peak_bytes, false),
+        (resident, usage.aggregate_peak_bytes - 1, false),
+    ] {
+        let mut job = base.clone();
+        let application = Arc::make_mut(job.profile_application.as_mut().unwrap());
+        application.latency.max_resident_bytes = resident_limit;
+        application.latency.max_preparation_bytes = preparation_limit;
+        service.submit(job, state.clone(), active_source()).unwrap();
+        let result = completion(&mut service).result;
+        if pass {
+            drop(result.unwrap());
+        } else {
+            assert_eq!(
+                result.err().unwrap().code,
+                ErrorCode::ResourceBudgetExceeded
+            );
+        }
+        retired(&service);
+    }
+}
+
+#[test]
+fn live_profile_src_cannot_claim_a_finite_aggregate_latency_ceiling() {
+    let mut state = snapshot();
+    state.software_gain_db = -48.0;
+    let mut job = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
+    Arc::make_mut(job.profile_application.as_mut().unwrap()).software_gain_db = -48.0;
+    Arc::make_mut(&mut job.intent).graph =
+        Arc::new(serde_json::from_value(graph_fixtures::src_roundtrip()).unwrap());
+    Arc::make_mut(job.profile_application.as_mut().unwrap())
+        .latency
+        .max_latency_frames = Some(1024);
+    let mut service = GraphService::spawn(None).unwrap();
+    service.submit(job, state, active_source()).unwrap();
+    let error = completion(&mut service)
+        .result
+        .err()
+        .expect("finite aggregate latency remains unqualified");
+    assert_eq!(error.code, ErrorCode::CapabilityUnsupported);
+    retired(&service);
+}
+
+#[test]
+fn profile_preparation_cannot_substitute_backend_facts_for_an_actual_local_source() {
+    let mut state = snapshot();
+    state.source = None;
+    let job = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
+    let mut service = GraphService::spawn(None).unwrap();
+    service.submit(job, state, active_source()).unwrap();
+    assert_eq!(
+        completion(&mut service)
+            .result
+            .err()
+            .expect("an open backend alone is not a local source")
+            .code,
+        ErrorCode::StaleSession
+    );
+    retired(&service);
 }
 
 #[test]

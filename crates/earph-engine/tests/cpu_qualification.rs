@@ -35,6 +35,7 @@ mod allocations;
 
 type Result<T> = std::result::Result<T, String>;
 const RATE: u64 = 48000;
+const MAX_STREAM_SCHEDULER_STEPS: usize = 4096;
 const MAX_ARTIFACT_BYTES: u64 = 128 << 20;
 const CSV_HEADER: &str =
     "index,duration_ns,pump_calls,source_accepted_frames,generated_frames,submitted_frames\n";
@@ -476,7 +477,7 @@ impl Producer {
             }
             Renderer::Stream(render) => {
                 let target = self.submitted + self.case.quantum as u64;
-                for _ in 0..4096 {
+                for _ in 0..MAX_STREAM_SCHEDULER_STEPS {
                     if let Some(report) = render.stage().map_err(|e| e.to_string())? {
                         let offset = render.period_offset();
                         let count =
@@ -947,6 +948,13 @@ fn validate_receipt(directory: &Path) -> Result<Receipt> {
             {
                 return Err("same-rate CSV frame contract changed".into());
             }
+            if matches!(
+                case.workload,
+                Workload::ResponsiveRoundtripCorrection | Workload::QualityRoundtripCorrection
+            ) && numbers[2] > MAX_STREAM_SCHEDULER_STEPS as u64
+            {
+                return Err("streaming CSV scheduler budget exceeded".into());
+            }
             samples.push(Sample {
                 duration_ns: numbers[1],
                 pump_calls: numbers[2],
@@ -1105,6 +1113,48 @@ fn receipt_consumer_rejects_impossible_same_rate_rows_even_when_totals_balance()
             "impossible same-rate CSV column {column} passed validation"
         );
     }
+}
+
+#[test]
+fn receipt_consumer_rejects_stream_pumps_above_the_producers_scheduler_budget() {
+    let directory = test_directory();
+    let mut receipt = produce(&directory, RunConfig::smoke()).unwrap();
+    validate_receipt(&directory).unwrap();
+    let index = receipt
+        .cases
+        .iter()
+        .position(|case| {
+            matches!(
+                case.workload,
+                Workload::ResponsiveRoundtripCorrection | Workload::QualityRoundtripCorrection
+            )
+        })
+        .unwrap();
+    let path = directory.join(&receipt.cases[index].csv.path);
+    let original = fs::read_to_string(&path).unwrap();
+    fs::write(directory.join("before-pump-mutation.csv"), &original).unwrap();
+    fs::write(
+        directory.join("before-pump-mutation.json"),
+        serde_json::to_vec(&receipt).unwrap(),
+    )
+    .unwrap();
+    let mut lines: Vec<_> = original.lines().map(str::to_owned).collect();
+    let mut row: Vec<_> = lines[1].split(',').map(str::to_owned).collect();
+    row[2] = "4097".into();
+    lines[1] = row.join(",");
+    let csv = format!("{}\n", lines.join("\n"));
+    receipt.cases[index].csv.bytes = csv.len() as u64;
+    receipt.cases[index].csv.sha256 = hash(csv.as_bytes());
+    fs::write(path, csv).unwrap();
+    fs::write(
+        directory.join("cpu-qualification.json"),
+        serde_json::to_vec(&receipt).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        validate_receipt(&directory).unwrap_err(),
+        "streaming CSV scheduler budget exceeded"
+    );
 }
 
 #[test]

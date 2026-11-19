@@ -190,3 +190,58 @@ All six earlier failed attempts remain retained.
 See `docs/evidence/desktop/native-connect-queue-linux-20261119.json` for bounded evidence.
 Mac windows, output and transport controls, profile workflows, and full desktop parity remain pending.
 The dispatch original notice and Apple SDK distribution review remain open release limits.
+
+## Strict T12 client integration
+
+Root approved Unit 1 from `target/desktop-next-contract/round-01/contract.md` and its source map.
+The foundation is `b58549bb94c1c86416a5d05e922cd16aebaa0fbb`, with T12 `e2c2f5d` merged in progress.
+Root owns metadata, the merge, foreign/native harnesses, and the test-only model cleanup correction.
+The projection unit owns strict view types, its consumer tests, this checkpoint, and the narrow README update.
+Client, dispatcher, model, and GUI production behavior remain unchanged.
+The Start constructor and Output/Safety/Transport GUI are not released in this unit.
+
+State now projects independent local caps and nullable configured profile references.
+Capabilities project application restrictions, exact association backends, and directory package limits.
+Playback, backend, graph, profile, association, package, and FIR results use typed immutable views.
+The decoder retains exact raw replies and required nullable-key presence.
+Only explicitly omitted processing observations may be absent.
+Unknown or malformed fields remain protocol failures, without an older-shape fallback.
+The owner remains the sole source of policy and native identity authority.
+
+Focused tests use actual Core serializers and actual owner/LocalClient replies.
+Generated package objects round-trip through real owner processes without applying output authority.
+Actual FIR imports provide non-null correction previews and owner-computed references.
+The muted live case opens only an isolated ALSA file/null route with generated zero PCM.
+It prepares and applies a real saved profile without unmute or submitted output bytes.
+Controlled identity and streaming serializer fixtures establish client structure, not native qualification.
+Foreign driver extensions and platform qualification remain Root-owned.
+
+The first strict projection RED and all later attempts remain in `target/desktop-projection/round-01`.
+One package attempt incorrectly used the old standalone binary before rebuilding it.
+Its failed GUI owner startup attempts remain preserved; their numeric exits were not observed.
+A later exact cleanup gate found those identified PIDs already absent and sent no requests or signals.
+The actual merged owner E2E then exposed the expected outdated unavailable-application assertion.
+The assertion now follows the committed capability contract.
+
+Root integrated the separately reviewed backend observation repair after its independent review passed.
+Its patch hash is `69924456e9be6e0ff21db13be84ee2e2b75be9e15782912a2e8ace0981d0e229`.
+Root releases one final canonical after focused checks and source freeze.
+That final source must include the producer repair and Root's test-only cleanup correction.
+Do not add earlier standalone GUI and profile counts to claim combined qualification.
+Root assigns one independent review of the final combined changes.
+
+## Integrated projection and native checkpoint
+
+The final integrated canonical passes 896 tests, with zero failures and five ignored.
+The desktop package passes 69 tests. Rust FFI passes nine tests. These counts overlap canonical.
+One independent review approves the strict projection and Root's test cleanup without material findings.
+The eighth native run binds the rebuilt owner and unchanged GUI to the complete frozen source.
+Connect, queue revisions zero through five, Mute revision six, themes, and separate shutdown confirmation pass.
+Both GUI instances and consumers exit zero. Fresh checks find all original process identities absent.
+The owner's numeric exit stays unknown because the GUI owns its child handle.
+Root and the reviewer inspected both private Light and Dark captures.
+All earlier attempts, original fixtures, metadata, and raw native evidence remain retained.
+See `docs/evidence/desktop/t12-projection-native-linux-20261119.json` for the bounded result.
+Root added only that evidence document and this checkpoint after the successful checks.
+Foreign profile workflows, the Start constructor, device discovery, and Output/Transport GUI remain pending.
+The normal merge retains both existing parents and the reviewed backend observation repair.

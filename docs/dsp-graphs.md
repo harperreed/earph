@@ -85,6 +85,10 @@ One declared quantization rounds ties away and saturates into the native integer
 No dither or hidden attenuation is inserted.
 The ledger also records SDK conversions, including the existing Core Audio Float32 route.
 Native client and physical format observations retain their separate meanings.
+After suspend succeeds, the Worker refreshes backend facts from the output adapter.
+Pause and seek publish those current facts; prepared previews retain their captured facts.
+Activation refuses changed backend facts with `stale_session` before installing or acknowledging the prepared graph.
+Observation failures use the existing source failure and output cleanup path.
 
 `integer_bypass` requires an unchanged integer graph and keeps the existing integer path.
 Strict preservation refuses processing nodes even when their parameters resemble an identity.
@@ -136,9 +140,10 @@ If terminal counters exhaust, proved completion still closes the source muted an
 Counters never wrap.
 A fresh owner resets only an exhausted persisted revision and restores intent without granting output consent.
 
-Activation, pause, seek, and mute rebuffering reset graph history.
-They discard the old tail at an explicit discontinuity.
-They do not reconstruct filter history or establish physical pause continuity.
+Same-rate structural rebuffering resets graph history and discards the old tail at an explicit discontinuity.
+Streaming pause and mute holds preserve DSP history and replay.
+A true seek resets streaming history instead of reconstructing earlier filter state.
+These controls do not establish physical pause continuity.
 Allocation-free tests cover conversion, kernels, gain, quantization, finish, reset, and cancellation.
 The whole playback worker still allocates, locks, decodes, and performs I/O.
 

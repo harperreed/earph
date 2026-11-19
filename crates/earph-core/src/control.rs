@@ -122,6 +122,27 @@ pub enum Command {
         manual_profile_id: Option<ProfileId>,
         output: ProfileOutputSelector,
     },
+    #[serde(rename = "profiles.prepare")]
+    ProfilesPrepare {
+        id: ProfileId,
+        expected_profile_revision: u64,
+        profile_sha256: crate::profiles::ProfileObjectHash,
+    },
+    #[serde(rename = "profiles.apply")]
+    ProfilesApply {
+        id: ProfileId,
+        expected_profile_revision: u64,
+        profile_sha256: crate::profiles::ProfileObjectHash,
+        token: PreparedGraphId,
+        graph_hash: String,
+    },
+    #[serde(rename = "profiles.bind")]
+    ProfilesBind {
+        id: ProfileId,
+        expected_profile_revision: u64,
+        profile_sha256: crate::profiles::ProfileObjectHash,
+        expected_device_epoch: u64,
+    },
     #[serde(rename = "profiles.create")]
     ProfilesCreate {
         id: ProfileId,
@@ -141,6 +162,25 @@ pub enum Command {
         expected_profile_revision: Option<u64>,
         draft: Arc<ProfileDraft>,
         input: Arc<ProfileCorrectionInput>,
+    },
+    #[serde(rename = "profiles.package_inspect")]
+    ProfilesPackageInspect { directory: String },
+    #[serde(rename = "profiles.package_preview")]
+    ProfilesPackagePreview { profile: ProfileCatalogReference },
+    #[serde(rename = "profiles.import_package")]
+    ProfilesImportPackage {
+        directory: String,
+        expected_manifest_sha256: crate::profiles::ProfileObjectHash,
+        profile: ProfileCatalogReference,
+    },
+    #[serde(rename = "profiles.export")]
+    ProfilesExport {
+        directory: String,
+        profile: ProfileCatalogReference,
+        expected_manifest_sha256: crate::profiles::ProfileObjectHash,
+        export_review: PackageExportReview,
+        content_review: PackageContentReview,
+        redistribution: PackageRedistribution,
     },
     #[serde(rename = "assets.import_fir")]
     FirImport {
@@ -217,6 +257,24 @@ pub enum Command {
     Unsupported,
 }
 impl Command {
+    pub fn is_package(&self) -> bool {
+        matches!(
+            self,
+            Self::ProfilesPackageInspect { .. }
+                | Self::ProfilesPackagePreview { .. }
+                | Self::ProfilesImportPackage { .. }
+                | Self::ProfilesExport { .. }
+        )
+    }
+    pub fn prepares_graph(&self) -> bool {
+        matches!(
+            self,
+            Self::GraphPrepare { .. } | Self::GraphValidate { .. } | Self::ProfilesPrepare { .. }
+        )
+    }
+    pub fn activates_graph(&self) -> bool {
+        matches!(self, Self::GraphCommit { .. } | Self::ProfilesApply { .. })
+    }
     pub fn is_profile_save(&self) -> bool {
         matches!(
             self,
@@ -224,13 +282,22 @@ impl Command {
                 | Self::ProfilesUpdate { .. }
                 | Self::ProfilesImport { .. }
                 | Self::FirImport { .. }
+                | Self::ProfilesPackageInspect { .. }
+                | Self::ProfilesPackagePreview { .. }
+                | Self::ProfilesImportPackage { .. }
+                | Self::ProfilesExport { .. }
         )
     }
     pub fn is_profile(&self) -> bool {
         self.is_profile_save()
             || matches!(
                 self,
-                Self::ProfilesList { .. } | Self::ProfilesGet { .. } | Self::ProfilesResolve { .. }
+                Self::ProfilesList { .. }
+                    | Self::ProfilesGet { .. }
+                    | Self::ProfilesResolve { .. }
+                    | Self::ProfilesPrepare { .. }
+                    | Self::ProfilesApply { .. }
+                    | Self::ProfilesBind { .. }
             )
     }
     pub fn is_query(&self) -> bool {
@@ -277,13 +344,34 @@ impl CommandEnvelope {
         }
         let mut bytes = size_of::<Self>() + 128 + ids.iter().sum::<usize>();
         let id = match &self.payload {
+            Command::ProfilesPackageInspect { directory } => {
+                validate_package_path(directory)?;
+                bytes = bytes.checked_add(directory.capacity()).ok_or(BUDGET)?;
+                None
+            }
+            Command::ProfilesPackagePreview { profile } => {
+                validate_catalog(std::slice::from_ref(profile), 1)?;
+                Some(&profile.id)
+            }
+            Command::ProfilesImportPackage {
+                directory, profile, ..
+            }
+            | Command::ProfilesExport {
+                directory, profile, ..
+            } => {
+                validate_package_path(directory)?;
+                validate_catalog(std::slice::from_ref(profile), 1)?;
+                bytes = bytes.checked_add(directory.capacity()).ok_or(BUDGET)?;
+                Some(&profile.id)
+            }
             Command::ProfilesImport {
                 id, draft, input, ..
             } => {
                 draft.validate_storage()?;
+                let input_bytes = input.retained_capacity_bytes()?;
                 bytes = bytes
                     .checked_add(draft.retained_capacity_bytes()?)
-                    .and_then(|n| n.checked_add(input.retained_capacity_bytes().ok()?))
+                    .and_then(|n| n.checked_add(input_bytes))
                     .ok_or(BUDGET)?;
                 Some(id)
             }
@@ -308,7 +396,25 @@ impl CommandEnvelope {
                     .ok_or(BUDGET)?;
                 Some(id)
             }
-            Command::ProfilesGet { id } => Some(id),
+            Command::ProfilesGet { id }
+            | Command::ProfilesPrepare { id, .. }
+            | Command::ProfilesBind { id, .. } => Some(id),
+            Command::ProfilesApply {
+                id,
+                token,
+                graph_hash,
+                ..
+            } => {
+                if token.capacity_bytes() > 128 || graph_hash.capacity() > GRAPH_HASH_STORAGE_BYTES
+                {
+                    return Err(BUDGET);
+                }
+                bytes = bytes
+                    .checked_add(token.capacity_bytes())
+                    .and_then(|n| n.checked_add(graph_hash.capacity()))
+                    .ok_or(BUDGET)?;
+                Some(id)
+            }
             Command::ProfilesResolve {
                 manual_profile_id,
                 output,
@@ -337,7 +443,8 @@ impl CommandEnvelope {
     }
     pub fn validate(&self) -> Result<(), EngineError> {
         self.validate_storage()?;
-        if let Command::GraphCommit { graph_hash, .. } = &self.payload
+        if let Command::GraphCommit { graph_hash, .. } | Command::ProfilesApply { graph_hash, .. } =
+            &self.payload
             && !valid_graph_hash(graph_hash)
         {
             return Err(EngineError::new(
@@ -474,6 +581,9 @@ pub enum QueryResult {
     Profile(Arc<ProfileRecord>),
     Profiles(ProfilePage),
     ProfileResolution(ProfileResolution),
+    ProfileBound(crate::profiles::ProfileAssociation),
+    ProfilePackage(Arc<ProfilePackageResult>),
+    ProfilePackageIssue(ProfilePackageIssue),
     FirAsset(crate::dsp_nodes::FirAssetReference),
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]

@@ -2,13 +2,23 @@
 // ABOUTME: Retains exact reply bytes and requires nullable fields to be present.
 use earph_core::{
     ErrorCode,
-    control::{OutputConfiguration, SourceKind},
+    control::{OutputBackend, OutputConfiguration, SourceKind},
+    dsp_nodes::FirAssetReference,
     ids::*,
+    profile_control::ProfileCatalogReference,
+    profiles::ProfileAssociation,
     queue::QueueEntry,
 };
 use serde::{Deserialize, Deserializer};
-use serde_json::Value;
 use std::sync::Arc;
+mod graph;
+mod packages;
+mod playback;
+mod profiles;
+pub use graph::*;
+pub use packages::*;
+pub use playback::*;
+pub use profiles::*;
 
 fn nullable<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,
@@ -96,13 +106,16 @@ pub struct StateView {
     pub output: Option<OutputConfiguration>,
     pub output_consented: bool,
     pub volume_policy: VolumePolicyView,
+    pub local_volume_policy: VolumePolicyView,
+    #[serde(deserialize_with = "nullable")]
+    pub configured_profile: Option<ProfileCatalogReference>,
     pub gain_ramp_frames: u32,
     #[serde(deserialize_with = "nullable")]
     pub active_entry_id: Option<QueueEntryId>,
     #[serde(deserialize_with = "nullable")]
     pub reserved_next_entry_id: Option<QueueEntryId>,
     #[serde(deserialize_with = "nullable")]
-    pub playback: Option<Value>,
+    pub playback: Option<PlaybackObservationView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -111,9 +124,12 @@ pub struct ProfileCapabilitiesView {
     pub save: bool,
     pub manual_resolution: bool,
     pub exact_associations: bool,
+    pub exact_association_backends: Vec<OutputBackend>,
     pub apply: bool,
+    pub application: ProfileApplicationCapabilitiesView,
     pub correction_import: bool,
     pub packages: bool,
+    pub package: ProfilePackageCapabilitiesView,
     pub max_profiles: usize,
     pub max_page: usize,
     pub max_profile_bytes: usize,
@@ -126,7 +142,8 @@ pub struct CapabilitiesView {
     pub schema_version: u32,
     pub sources: Vec<SourceKind>,
     pub physical_output: bool,
-    pub profiles: ProfileCapabilitiesView,
+    // Share immutable capability metadata without inflating every retained receipt variant.
+    pub profiles: Arc<ProfileCapabilitiesView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -150,14 +167,18 @@ pub enum ResultView {
     State(Arc<StateView>),
     Capabilities(CapabilitiesView),
     Queue(QueueView),
-    GraphPreview(Value),
-    GraphPrepared(Value),
-    GraphInspection(Value),
-    GraphDiagnostic(Value),
-    ProfileSaved(Value),
-    Profile(Value),
-    Profiles(Value),
-    ProfileResolution(Value),
+    GraphPreview(Arc<GraphPreviewView>),
+    GraphPrepared(GraphPreparedView),
+    GraphInspection(Arc<GraphInspectionView>),
+    GraphDiagnostic(Arc<GraphDiagnosticView>),
+    ProfileSaved(Arc<ProfileRecordView>),
+    Profile(Arc<ProfileRecordView>),
+    Profiles(Arc<ProfilePageView>),
+    ProfileResolution(ProfileResolutionView),
+    ProfileBound(Arc<ProfileAssociation>),
+    ProfilePackage(Arc<ProfilePackageResultView>),
+    ProfilePackageIssue(Arc<ProfilePackageIssueView>),
+    FirAsset(Arc<FirAssetReference>),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -237,23 +258,24 @@ pub fn decode_reply(bytes: Vec<u8>) -> Result<Reply, ProjectionError> {
         (Some(mut receipt), None) => {
             if let Some(result) = &receipt.result {
                 let valid = match result {
-                    ResultView::Capabilities(value) => value.schema_version == 1,
+                    ResultView::Capabilities(value) => {
+                        value.schema_version == 1 && value.profiles.package.schema_version == 1
+                    }
                     ResultView::State(value) => {
                         receipt.status == ReplyStatus::Applied
                             && value.zone_id == receipt.zone_id
                             && value.revision == receipt.revision
                             && value.epochs == receipt.epochs
-                            && value.playback.as_ref().is_none_or(Value::is_object)
                     }
-                    ResultView::Queue(_) => true,
-                    ResultView::GraphPreview(value)
-                    | ResultView::GraphPrepared(value)
-                    | ResultView::GraphInspection(value)
-                    | ResultView::GraphDiagnostic(value)
-                    | ResultView::ProfileSaved(value)
-                    | ResultView::Profile(value)
-                    | ResultView::Profiles(value)
-                    | ResultView::ProfileResolution(value) => value.is_object(),
+                    ResultView::ProfileSaved(value) | ResultView::Profile(value) => {
+                        value.profile.schema_version == 1 && value.graph.graph.schema_version == 1
+                    }
+                    ResultView::GraphInspection(value) => value
+                        .configured
+                        .as_ref()
+                        .is_none_or(|intent| intent.graph.schema_version == 1),
+                    ResultView::ProfilePackage(value) => value.manifest.schema_version == 1,
+                    _ => true,
                 };
                 if !valid {
                     return Err(invalid("unsupported result schema or body"));

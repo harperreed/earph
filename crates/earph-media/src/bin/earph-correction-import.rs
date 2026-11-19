@@ -7,12 +7,7 @@ use earph_media::correction_text::{
     MAX_REPORT_BYTES, export_correction_text, import_correction_text, read_correction_file,
     read_correction_report,
 };
-use std::{
-    collections::BTreeSet,
-    io::{self, Write},
-    path::PathBuf,
-    process::ExitCode,
-};
+use std::{collections::BTreeSet, io, path::PathBuf, process::ExitCode};
 
 const USAGE: &str = "usage: earph-correction-import --format rew|autoeq|camilladsp --rate HZ --channels mono|stereo --quantum FRAMES [metadata options] [--] FILE\n       earph-correction-import --validate-report REPORT.json\n       earph-correction-import --export REPORT.json\nmetadata options: --model --provider --target --parameter-set --revision --license VALUE";
 fn error(code: &'static str, message: &'static str) -> ImportError {
@@ -27,8 +22,7 @@ fn usage() -> ImportError {
 }
 fn write(bytes: &[u8]) -> Result<(), ImportError> {
     let mut out = io::stdout().lock();
-    out.write_all(bytes)
-        .and_then(|_| out.flush())
+    earph_media::cli_io::write_bytes(&mut out, bytes)
         .map_err(|_| error("OUTPUT_UNAVAILABLE", "cannot write the correction result"))
 }
 fn print_report(
@@ -120,10 +114,21 @@ fn run() -> Result<(), ImportError> {
     print_report(&report)
 }
 fn main() -> ExitCode {
-    match run() {
+    let result = earph_media::cli_io::initialize_process()
+        .map_err(|_| {
+            error(
+                "OUTPUT_UNAVAILABLE",
+                "cannot initialize CLI file-limit handling",
+            )
+        })
+        .and_then(|_| run());
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{}", serde_json::json!({"error":error}));
+            let _ = earph_media::cli_io::write_json_line(
+                &serde_json::json!({"error":error}),
+                &mut io::stderr().lock(),
+            );
             ExitCode::from(2)
         }
     }

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "status": "pass_for_local_code_checkpoint",
+  "scope": "muted fixed-profile preparation using current output authority",
+  "source": {
+    "base_commit": "01f39957ffdd4c45c6b62decc7dfe1e7cd9c29c4",
+    "tested_tree": "544d2f8265e5d3a0c477a69d17eeefc35283e378",
+    "tested_source_dirty": true,
+    "files": 1585,
+    "manifest_sha256": "35f612a3d99e8f421e9bc984207b14640411ff56dd6c498cac1029d02a188afe",
+    "runtime_sha256": "d0d881566ff774a0de22eb7361bcd4c703a75746a8d50f552f5cbbc7a2c2e4f4",
+    "lock_sha256": "c71c1719cc616146274253131e2ea99d21046dcb100c05581591a379b15ed87c"
+  },
+  "environment": {
+    "os": "linux",
+    "architecture": "x86_64",
+    "rust": "1.98.1",
+    "profile": "debug"
+  },
+  "checks": {
+    "canonical": {
+      "command": "scripts/check",
+      "exit": 0,
+      "passed": 807,
+      "failed": 0,
+      "ignored": 5,
+      "log_sha256": "9485f3dcf17985465b1342c75f7ab1d9282e8879dac689c84636f420cb4d6d54"
+    },
+    "scoped": {
+      "exit": 0,
+      "passed": 373,
+      "failed": 0,
+      "ignored": 1,
+      "overlaps_canonical": true,
+      "log_sha256": "31a28fd5e1638f74dc3d2f5732a2b8e03b2c5e90527c20236abaaf805c9f4482"
+    },
+    "owner_e2e": {
+      "route": "owned ALSA file-to-null",
+      "unity_integer_samples": "exact",
+      "processed_fixed_samples": "expected",
+      "physical_output": false
+    }
+  },
+  "review": {
+    "independent_reviewers": 1,
+    "material_findings": 0,
+    "receipt_sha256": "602163d51da7143e0c325aa9e683e007bd6f867349f2f65db854a93a5cd4b934"
+  },
+  "limits": [
+    "Current consent, matching fixed arming, unity, zero ramp and independent caps remain mandatory.",
+    "Application stays muted and revokes consent and arming; target output requires fresh authorization.",
+    "Restart preserves the lower safe gain without consent, arming, backend proof or prepared tokens.",
+    "Physical fixed output, native fixed qualification and combined Mac evidence remain pending.",
+    "Hardware volume, readback, DSD, migration, full T12 and release remain unqualified.",
+    "Scoped counts overlap canonical coverage. The ignored subprocess helper runs through its parent."
+  ],
+  "raw_device_values_included": false
+}

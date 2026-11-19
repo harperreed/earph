@@ -8,8 +8,7 @@ use std::{
 };
 
 static RESTART_REQUIRED: AtomicBool = AtomicBool::new(false);
-static DIAGNOSTICS: std::sync::OnceLock<Option<std::sync::mpsc::SyncSender<FaultDiagnostic>>> =
-    std::sync::OnceLock::new();
+static DIAGNOSTICS: FaultReporter = FaultReporter::new();
 fn error(error: earph_coreaudio::CoreAudioError) -> EngineError {
     if error.code == ErrorCode::OutputFault && error.os_status.is_some() {
         RESTART_REQUIRED.store(true, Ordering::Release);
@@ -21,7 +20,7 @@ fn report_fault(
     error: Option<earph_coreaudio::CoreAudioError>,
     progress: Option<earph_coreaudio::OutputProgress>,
 ) {
-    if let Some(Some(sender)) = DIAGNOSTICS.get() {
+    if let Some(sender) = DIAGNOSTICS.get() {
         // Bounded, best-effort diagnostics never delay native close or terminal publication.
         // The original native error and first-fault latch remain authoritative if this queue fills.
         let _ = sender.try_send(FaultDiagnostic {
@@ -75,8 +74,8 @@ impl NativeOutput {
             ));
         }
         if DIAGNOSTICS
-            .get_or_init(|| spawn_fault_reporter(std::io::stderr()).ok())
-            .is_none()
+            .get_or_start(|| spawn_fault_reporter(std::io::stderr()))
+            .is_err()
         {
             return Err(EngineError::new(
                 ErrorCode::OutputFault,
@@ -129,20 +128,10 @@ impl Output for NativeOutput {
         self.native.state() == OutputState::Running
     }
     fn observation(&self) -> Result<BackendObservation, EngineError> {
-        let report = self.native.report();
-        let stream = &report.observed.output_streams[0];
-        Ok(BackendObservation {
-            backend: OutputBackend::CoreAudio,
-            audio_storage_bytes: self.native.audio_storage_bytes().map_err(error)?,
-            client_format: observed(&stream.virtual_format),
-            device_format: Some(observed(&stream.physical)),
-            measurement_boundary: "core_audio_observed_stream_formats",
-            preservation: if report.requested.route == PlaybackRoute::Float32Compatibility {
-                PreservationState::Modified
-            } else {
-                PreservationState::Unverified
-            },
-        })
+        backend_observation(
+            self.native.report(),
+            self.native.audio_storage_bytes().map_err(error)?,
+        )
     }
     fn write(
         &mut self,
@@ -244,6 +233,7 @@ mod tests {
     };
 
     #[test]
+    #[ignore = "requires a real interleaved float32 output; run the explicit Mac native gate"]
     fn denied_prebuffer_start_never_hides_an_accepted_native_prefix() {
         let device = earph_coreaudio::devices()
             .unwrap()

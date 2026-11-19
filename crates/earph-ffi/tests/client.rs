@@ -341,3 +341,94 @@ fn accepted_profile_work_is_not_relabelled_as_terminal_by_the_binding() {
         assert_eq!(before[key], after[key], "{key}");
     }
 }
+
+#[test]
+fn integrated_owner_fields_and_package_failures_cross_the_same_byte_boundary() {
+    let owner = Owner::start();
+    let client = owner.client();
+    let state = roundtrip(
+        &owner,
+        &client,
+        envelope("t12-state", None, json!({"method":"state.get"})),
+    );
+    let state = &state["receipt"]["result"]["value"];
+    for field in ["local_volume_policy", "configured_profile"] {
+        assert!(
+            state.as_object().unwrap().contains_key(field),
+            "missing {field}"
+        );
+    }
+    assert!(state["configured_profile"].is_null());
+    assert!(
+        state["local_volume_policy"]
+            .as_object()
+            .unwrap()
+            .contains_key("hardware_cap_db")
+    );
+    let caps = roundtrip(
+        &owner,
+        &client,
+        envelope(
+            "t12-capabilities",
+            None,
+            json!({"method":"capabilities.get"}),
+        ),
+    );
+    let profiles = &caps["receipt"]["result"]["value"]["profiles"];
+    for field in ["exact_association_backends", "application", "package"] {
+        assert!(
+            profiles.as_object().unwrap().contains_key(field),
+            "missing {field}"
+        );
+    }
+    assert_eq!(
+        profiles["application"]["volume_modes"],
+        json!(["software", "fixed"])
+    );
+    assert_eq!(
+        profiles["application"]["fixed_requires_current_arming"],
+        true
+    );
+    assert_eq!(profiles["package"]["format"], "directory");
+    assert_eq!(profiles["package"]["automatic_privacy_proof"], false);
+    let command = envelope(
+        "t12-inspect-missing",
+        Some(state),
+        json!({"method":"profiles.package_inspect", "directory": owner.runtime.join("absent-package")}),
+    );
+    let first: Value = serde_json::from_slice(&client.request(command.clone()).unwrap()).unwrap();
+    assert_eq!(first["receipt"]["status"], "accepted");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let terminal = loop {
+        let bytes = client.request(command.clone()).unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        if value["receipt"]["status"] != "accepted" {
+            break bytes;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "package inspection never settled"
+        );
+        thread::sleep(Duration::from_millis(1));
+    };
+    assert_eq!(terminal, request(&owner.runtime, &command).unwrap());
+    assert_eq!(terminal, client.request(command).unwrap());
+    let terminal: Value = serde_json::from_slice(&terminal).unwrap();
+    assert_eq!(terminal["receipt"]["status"], "failed");
+    assert_eq!(
+        terminal["receipt"]["result"]["kind"],
+        "profile_package_issue"
+    );
+    let issue = &terminal["receipt"]["result"]["value"];
+    for field in ["reason", "object", "filesystem_state"] {
+        assert!(
+            issue.as_object().unwrap().contains_key(field),
+            "missing package issue {field}"
+        );
+    }
+    let after = owner.state();
+    assert_eq!(after["output"], state["output"]);
+    assert_eq!(after["configured_profile"], state["configured_profile"]);
+    assert_eq!(after["muted"], true);
+    assert_eq!(after["output_consented"], false);
+}

@@ -15,6 +15,7 @@ fn format(rate: u32, representation: PcmRepresentation) -> PcmFormat {
 }
 fn preview() -> GraphPreview {
     GraphPreview {
+        profile_application: None,
         backend: None,
         graph_hash: "a".repeat(64),
         kernel_hash: "b".repeat(64),

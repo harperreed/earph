@@ -7,7 +7,7 @@ use crate::{
     graph_control::*,
     ids::{increment, *},
     queue::{LocalQueue, QueueSnapshot},
-    safety::{FidelityPolicy, OutputContext, SampleDomain, VolumePolicy},
+    safety::{FidelityPolicy, OutputContext, SampleDomain, VolumeMode, VolumePolicy},
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::VecDeque, sync::Arc};
@@ -18,6 +18,8 @@ use graph::GraphControl;
 #[path = "session_profiles.rs"]
 mod profiles;
 use profiles::ProfileControl;
+#[path = "session_associations.rs"]
+mod associations;
 
 // A fresh owner needs room for consent, preparation, activation, and transport acknowledgements.
 const RESTART_REVISION_HEADROOM: u64 = 64;
@@ -107,6 +109,8 @@ pub struct SessionSnapshot {
     pub output: Option<OutputConfiguration>,
     pub output_consented: bool,
     pub volume_policy: VolumePolicy,
+    pub local_volume_policy: VolumePolicy,
+    pub configured_profile: Option<crate::profile_control::ProfileCatalogReference>,
     pub gain_ramp_frames: u32,
     pub active_entry_id: Option<QueueEntryId>,
     pub reserved_next_entry_id: Option<QueueEntryId>,
@@ -212,6 +216,7 @@ pub enum PreservationState {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BackendObservation {
     pub backend: OutputBackend,
+    pub device_identity_sha256: Option<crate::profiles::ProfileObjectHash>,
     /// Actual Rust-owned adapter audio storage; excludes metadata and opaque native storage.
     pub audio_storage_bytes: u64,
     pub client_format: ObservedStreamFormat,
@@ -297,11 +302,17 @@ pub struct SessionCheckpoint {
     #[serde(default)]
     pub volume_policy: VolumePolicy,
     #[serde(default)]
+    pub local_volume_policy: Option<VolumePolicy>,
+    #[serde(default)]
+    pub configured_profile: Option<crate::profile_control::ProfileCatalogReference>,
+    #[serde(default)]
     pub output: Option<OutputConfiguration>,
     #[serde(default)]
     pub graph_intent: Option<Arc<GraphIntent>>,
     #[serde(default)]
     pub profile_catalog: Vec<crate::profile_control::ProfileCatalogReference>,
+    #[serde(default)]
+    pub profile_associations: Vec<crate::profiles::ProfileAssociation>,
 }
 
 #[derive(Clone)]
@@ -347,6 +358,8 @@ impl Session {
                 output: None,
                 output_consented: false,
                 volume_policy: VolumePolicy::default(),
+                local_volume_policy: VolumePolicy::default(),
+                configured_profile: None,
                 gain_ramp_frames: 0,
                 active_entry_id: None,
                 reserved_next_entry_id: None,
@@ -396,6 +409,9 @@ impl Session {
                 "unsupported checkpoint version",
             ));
         }
+        if checkpoint.configured_profile.is_some() && checkpoint.local_volume_policy.is_none() {
+            return Err(crate::profile_control::INVALID);
+        }
         let mut session = Self::new_owner(zone_id, owner_id, limits);
         session.queue = LocalQueue::restore(checkpoint.queue)?;
         crate::profile_control::validate_catalog(
@@ -403,6 +419,8 @@ impl Session {
             checkpoint.profile_catalog.capacity(),
         )?;
         session.profiles.references = checkpoint.profile_catalog;
+        session.profiles.associations = checkpoint.profile_associations;
+        session.validate_profile_associations(false)?;
         // Terminal observations can exhaust an owner after its last persisted command.
         session.state.revision = if checkpoint
             .revision
@@ -421,8 +439,33 @@ impl Session {
             intent.graph.validate_structure()?;
             session.graph.configured = Some(intent);
         }
+        session.state.local_volume_policy = checkpoint
+            .local_volume_policy
+            .unwrap_or_else(|| checkpoint.volume_policy.clone());
+        session.state.local_volume_policy.disarm();
+        session.state.configured_profile = checkpoint.configured_profile;
         session.state.volume_policy = checkpoint.volume_policy;
         session.state.volume_policy.disarm();
+        let persisted = crate::profiles::ProfileVolumeIntent {
+            mode: VolumeMode::Software,
+            software_cap_db: session.state.volume_policy.software_cap_db(),
+            hardware_cap_db: session.state.volume_policy.hardware_cap_db(),
+        };
+        if persisted.effective_policy(&session.state.local_volume_policy)?
+            != session.state.volume_policy
+            || session.state.configured_profile.is_none()
+                && session.state.volume_policy != session.state.local_volume_policy
+        {
+            return Err(crate::profile_control::INVALID);
+        }
+        if let Some(reference) = &session.state.configured_profile {
+            crate::profile_control::validate_catalog(std::slice::from_ref(reference), 1)?;
+            if !session.profiles.references.contains(reference)
+                || session.graph.configured.is_none()
+            {
+                return Err(crate::profile_control::INVALID);
+            }
+        }
         session.state.software_gain_db =
             (-40.0_f64).min(session.state.volume_policy.software_cap_db());
         session.state.transport = TransportState::Paused;
@@ -438,9 +481,12 @@ impl Session {
             revision: self.state.revision,
             queue: self.queue.snapshot(),
             volume_policy: self.state.volume_policy.clone(),
+            local_volume_policy: Some(self.state.local_volume_policy.clone()),
+            configured_profile: self.state.configured_profile.clone(),
             output: self.state.output.clone(),
             graph_intent: self.graph.configured.clone(),
             profile_catalog: self.profiles.references.clone(),
+            profile_associations: self.profiles.associations.clone(),
         }
     }
     pub fn shutdown_requested(&self) -> bool {
@@ -502,10 +548,30 @@ impl Session {
                         profiles: crate::profile_control::ProfileCapabilities {
                             save: true,
                             manual_resolution: true,
-                            exact_associations: false,
-                            apply: false,
+                            exact_associations: self.local_playback_enabled
+                                && cfg!(target_os = "macos"),
+                            exact_association_backends: if self.local_playback_enabled
+                                && cfg!(target_os = "macos")
+                            {
+                                vec![OutputBackend::CoreAudio]
+                            } else {
+                                vec![]
+                            },
+                            apply: self.local_playback_enabled,
+                            application: crate::profile_control::ProfileApplicationCapabilities {
+                                volume_modes: vec![VolumeMode::Software, VolumeMode::Fixed],
+                                fixed_requires_current_arming: true,
+                                fixed_requires_unity_gain: true,
+                                fixed_requires_zero_gain_ramp: true,
+                                requires_current_output: true,
+                                requires_output_consent: true,
+                                requires_matching_fidelity: true,
+                                live_selected_profile_update: false,
+                                finite_aggregate_src_latency: false,
+                            },
                             correction_import: true,
-                            packages: false,
+                            packages: true,
+                            package: crate::profile_control::ProfilePackageCapabilities::default(),
                             max_profiles: crate::profiles::MAX_PROFILES,
                             max_page: crate::profile_control::MAX_PROFILE_PAGE,
                             max_profile_bytes: crate::profiles::MAX_PROFILE_BYTES,
@@ -517,6 +583,23 @@ impl Session {
                     }
                     _ => self.profile_query(&c.payload).ok().flatten(),
                 }
+            } else if c.payload.is_package() && error.is_some() {
+                Some(QueryResult::ProfilePackageIssue(
+                    crate::profile_control::ProfilePackageIssue {
+                        reason: if error
+                            .is_some_and(|e| e.message == "profile package ID already exists")
+                        {
+                            crate::profile_control::ProfilePackageReason::IdentityCollision
+                        } else if error.is_some_and(|e| e.code == ErrorCode::ResourceBudgetExceeded)
+                        {
+                            crate::profile_control::ProfilePackageReason::ResourceLimit
+                        } else {
+                            crate::profile_control::ProfilePackageReason::InvalidObject
+                        },
+                        object: None,
+                        filesystem_state: crate::profile_control::PackageFilesystemState::Unchanged,
+                    },
+                ))
             } else {
                 None
             },
@@ -638,10 +721,7 @@ impl Session {
                     return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
                 }
                 let persisted = if staged.state.revision != self.state.revision
-                    || matches!(
-                        command.payload,
-                        Command::GraphPrepare { .. } | Command::GraphValidate { .. }
-                    )
+                    || command.payload.prepares_graph()
                     || command.payload.is_profile_save()
                 {
                     commit(&staged)
@@ -750,6 +830,17 @@ impl Session {
             ));
         }
         self.validate_graph_control(&command.payload)?;
+        if matches!(command.payload, Command::ProfilesApply { .. })
+            && (command.session_id.is_none() || command.session_id != self.state.session_id)
+        {
+            return Err(STALE);
+        }
+        if matches!(command.payload, Command::ProfilesBind { .. }) {
+            return self.apply_profile_bind(command, now_ns);
+        }
+        if matches!(command.payload, Command::ProfilesPrepare { .. }) {
+            return self.apply_profile_prepare(command, now_ns);
+        }
         if command.payload.is_profile_save() {
             return self.apply_profile_save(command, now_ns);
         }
@@ -759,6 +850,7 @@ impl Session {
                 Command::GraphPrepare { .. }
                     | Command::GraphValidate { .. }
                     | Command::GraphCommit { .. }
+                    | Command::ProfilesApply { .. }
                     | Command::Start { .. }
                     | Command::Resume
                     | Command::Seek { .. }
@@ -769,12 +861,7 @@ impl Session {
                 "profile save owns the preparation slot",
             ));
         }
-        if matches!(
-            command.payload,
-            Command::GraphPrepare { .. }
-                | Command::GraphValidate { .. }
-                | Command::GraphCommit { .. }
-        ) {
+        if command.payload.prepares_graph() || command.payload.activates_graph() {
             return self.apply_graph_command(command, now_ns);
         }
         self.validate_live_queue_edit(&command.payload)?;
@@ -806,6 +893,8 @@ impl Session {
                 next.output_id = Some(output.device_id.clone());
                 next.device_epoch = increment(next.device_epoch)?;
                 next.output = Some(output.clone());
+                next.configured_profile = None;
+                next.volume_policy = next.local_volume_policy.clone();
                 next.playback = None;
                 next.audible_position_frames = None;
                 next.decoded_position_frames = 0;
@@ -849,10 +938,18 @@ impl Session {
                 software_millidecibels,
                 hardware_millidecibels,
             } => {
-                next.volume_policy = VolumePolicy::new(
+                next.local_volume_policy = VolumePolicy::new(
                     f64::from(*software_millidecibels) / 1000.0,
                     hardware_millidecibels.map(|value| f64::from(value) / 1000.0),
                 )?;
+                next.volume_policy = if let Some(reference) = &next.configured_profile {
+                    self.profile_record(reference)?
+                        .profile
+                        .volume
+                        .effective_policy(&next.local_volume_policy)?
+                } else {
+                    next.local_volume_policy.clone()
+                };
                 next.software_gain_db = next
                     .software_gain_db
                     .min(next.volume_policy.software_cap_db());

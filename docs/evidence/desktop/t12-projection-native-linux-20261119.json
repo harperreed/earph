@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "status": "pass_for_strict_projection_and_native_connect_queue_checkpoint",
+  "source": {
+    "foundation": "b58549bb94c1c86416a5d05e922cd16aebaa0fbb",
+    "merge_head": "e2c2f5d5b37606c095542c87c633ca45c8ef4424",
+    "tested_source_dirty": true,
+    "files": 1758,
+    "manifest_sha256": "103ad393bcc5f946a9687ba7bdcfe761ad5925eb30d0c2048979b8c913d86641",
+    "projection_patch_sha256": "41aa90d48f172bea1b5125acad53ace684f9835b58c7e8197690f9d38748bc3c",
+    "dependency_lock_sha256": "19ff958fa2db03d3c4ec6c4e5a693239cf3012385886d1d06a0ec983966f041d",
+    "owner_executable_sha256": "67770dbfc84a5c7e55fa28994a7f578c071fd898a128c3b9d6bbd9237a33e984",
+    "desktop_executable_sha256": "ecfdcddc72c233478fa2b5507f3cf2ce8312f3f1dbccd852623544ccc88eb19d",
+    "post_test_changes": "This evidence document and an append-only plan checkpoint."
+  },
+  "checks": {
+    "canonical": {
+      "command": "scripts/check",
+      "exit": 0,
+      "passed": 896,
+      "failed": 0,
+      "ignored": 5,
+      "log_sha256": "7fc4f07a62c3ffde30fa10b385820f1604de755af978673ce710b080fb019345"
+    },
+    "desktop_package": {"exit": 0, "passed": 69, "failed": 0, "ignored": 0},
+    "rust_ffi_package": {"exit": 0, "passed": 9, "failed": 0, "ignored": 0},
+    "package_counts_overlap_canonical": true,
+    "compiler_diagnostics": [],
+    "native_product": {
+      "wrapper_exit": 0,
+      "gui_and_consumer_exits": [0, 0, 0, 0],
+      "confirmed_shutdown_invoked": true,
+      "owner_exit_code": null,
+      "fresh_original_process_identities_absent": 44,
+      "remaining_owned_processes": 0,
+      "source_binaries_tools_unchanged": true,
+      "fixtures_unchanged": true,
+      "queue_revisions": [0, 1, 2, 3, 4, 5],
+      "mute_revision": 6,
+      "expected_display_readiness_probe_exit": 1,
+      "subsequent_display_readiness_probe_exit": 0,
+      "output_selected": false,
+      "source_started": false,
+      "unmute_invoked": false
+    }
+  },
+  "evidence": {
+    "projection_review_sha256": "e997f2337de45d7855aaa0c120e78be9aa16e937267dea2aee490c44b7681b2b",
+    "native_review_sha256": "eca6767f68cb2c3457023adceaab96a867d98c83fd0aa69edd82a58f954b2719",
+    "native_binding_sha256": "e04685c02576365b4aacc7b40a410787a108c662ae96b0cbfc523afe1309f299",
+    "native_harness_sha256": "aa9d4e7dccf0a1cfc41ce98811e1fb43bfe4e0d8f050876227bca673a208999b",
+    "native_run_manifest_sha256": "a247f64266517936ab85b55c44f5ee1f94909da081162bfa6d2c2e66de543070",
+    "native_run_files": 197,
+    "light_png_sha256": "1509e5028d6ee6d73a3b88a6fc35e811f98a99ec0fca3a73b80e5e8a4467f8b2",
+    "dark_png_sha256": "144354e1f6e5f2be15ee71a521f946ad75e1979f05b94ca363fa61766b2fd7db",
+    "material_review_findings": 0
+  },
+  "limits": [
+    "The GUI owns its engine child. The native harness cannot observe that child's numeric exit.",
+    "Light and Dark own-window PNGs establish visible controls and opacity, without compositor alpha or measured contrast claims.",
+    "Controlled native identity and streaming fixtures qualify serialization only.",
+    "The real muted profile test uses generated zero PCM with an isolated ALSA file/null route.",
+    "Foreign Swift/Kotlin profile workflows, Mac windows, output controls and transport remain separate work.",
+    "The dispatch original notice and Apple SDK distribution reviews remain open release limits.",
+    "Raw process identities, device values, runtime paths, native trees and screenshots stay private."
+  ],
+  "raw_private_values_included": false
+}

@@ -199,7 +199,14 @@ The checker builds the real standalone owner, then runs formatting, strict Clipp
 The E2E finds the real owner beside the Cargo profile's test directory.
 It fails visibly if that binary is absent.
 Test owners, local transport proxies, generated WAV bytes, and all runtime files stay retained.
-The desktop package scenarios never select output or start a source.
+The Connect/Queue scenarios never select output or start a source.
+The strict projection E2E uses generated zero PCM and an isolated ALSA file/null configuration.
+It observes real muted profile preparation and application without unmute or physical output.
+Other projection scenarios exercise actual saved profiles, correction imports, packages, and typed failures.
+The decoder requires the integrated owner's complete nullable fields and retains exact raw reply bytes.
+Its typed observations keep requested output, prepared bindings, actual backend formats, and unknown values separate.
+These API checks do not add output, transport, profile, or signal-path controls to the current window.
+Foreign-platform and native-window qualification retain their separate evidence gates.
 The proxy only drops or delays real owner traffic; it implements no engine behavior.
 
 The root `scripts/check` builds that owner and includes the desktop package.

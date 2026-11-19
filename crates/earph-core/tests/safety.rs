@@ -14,6 +14,151 @@ fn context(device: &str, profile: &str) -> OutputContext {
 }
 
 #[test]
+fn prospective_fixed_policy_never_acquires_current_or_target_arming() {
+    let selected = context("dac", "current");
+    let target = context("dac", "target");
+    let mut current = VolumePolicy::default();
+    let prospective = VolumePolicy::default();
+    assert_eq!(
+        current
+            .validate_profile_preparation(
+                &selected,
+                VolumeMode::Fixed,
+                FidelityPolicy::CompatibleConversion,
+                0.0,
+                &prospective,
+                0.0
+            )
+            .unwrap_err()
+            .code,
+        ErrorCode::SafetyPolicyBlocked
+    );
+    current.arm_fixed(selected.clone());
+    let before = current.clone();
+    current
+        .validate_profile_preparation(
+            &selected,
+            VolumeMode::Fixed,
+            FidelityPolicy::CompatibleConversion,
+            0.0,
+            &prospective,
+            0.0,
+        )
+        .unwrap();
+    assert_eq!(current, before);
+    for ctx in [&selected, &target] {
+        assert_eq!(
+            prospective
+                .validate_unmute(
+                    ctx,
+                    VolumeMode::Fixed,
+                    SampleDomain::Pcm,
+                    FidelityPolicy::CompatibleConversion,
+                    0.0,
+                    None
+                )
+                .unwrap_err()
+                .code,
+            ErrorCode::SafetyPolicyBlocked
+        );
+    }
+    for (gain, policy) in [
+        (0.0, VolumePolicy::new(-20.0, None).unwrap()),
+        (0.0, VolumePolicy::new(0.0, Some(-30.0)).unwrap()),
+        (-40.0, VolumePolicy::default()),
+        (f64::NAN, VolumePolicy::default()),
+    ] {
+        assert!(
+            current
+                .validate_profile_preparation(
+                    &selected,
+                    VolumeMode::Fixed,
+                    FidelityPolicy::CompatibleConversion,
+                    0.0,
+                    &policy,
+                    gain
+                )
+                .is_err()
+        );
+    }
+}
+#[test]
+fn ordinary_unmute_preserves_constraint_error_priority_before_fixed_arming() {
+    for (mode, domain, gain, software_cap, hardware_cap, readback, expected) in [
+        (
+            VolumeMode::Fixed,
+            SampleDomain::Pcm,
+            -40.0,
+            0.0,
+            None,
+            None,
+            ErrorCode::FidelityPolicyConflict,
+        ),
+        (
+            VolumeMode::Fixed,
+            SampleDomain::Pcm,
+            -40.0,
+            -60.0,
+            None,
+            None,
+            ErrorCode::SafetyPolicyBlocked,
+        ),
+        (
+            VolumeMode::Fixed,
+            SampleDomain::Pcm,
+            0.0,
+            0.0,
+            None,
+            Some(f64::NAN),
+            ErrorCode::SafetyPolicyBlocked,
+        ),
+        (
+            VolumeMode::Software,
+            SampleDomain::Dsd,
+            -40.0,
+            0.0,
+            None,
+            None,
+            ErrorCode::FidelityPolicyConflict,
+        ),
+        (
+            VolumeMode::Hardware,
+            SampleDomain::Pcm,
+            -40.0,
+            0.0,
+            Some(-10.0),
+            None,
+            ErrorCode::SafetyPolicyBlocked,
+        ),
+        (
+            VolumeMode::Hardware,
+            SampleDomain::Pcm,
+            -40.0,
+            0.0,
+            Some(-10.0),
+            Some(-20.0),
+            ErrorCode::FidelityPolicyConflict,
+        ),
+    ] {
+        let policy = VolumePolicy::new(software_cap, hardware_cap).unwrap();
+        assert_eq!(
+            policy
+                .validate_unmute(
+                    &context("dac", "profile"),
+                    mode,
+                    domain,
+                    FidelityPolicy::CompatibleConversion,
+                    gain,
+                    readback
+                )
+                .unwrap_err()
+                .code,
+            expected
+        );
+    }
+}
+
+#[test]
 fn fixed_output_requires_current_context_and_loses_arming_on_restore() {
     let mut policy = VolumePolicy::default();
     let selected = context("dac-a", "profile-a");
