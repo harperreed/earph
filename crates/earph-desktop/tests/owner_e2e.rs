@@ -54,7 +54,10 @@ impl ProcessOwner {
             artifacts,
         };
         let deadline = Instant::now() + Duration::from_secs(8);
-        while !owner.runtime.join("endpoint.json").exists() {
+        while !fs::read(owner.artifacts.join("owner.stdout.log")).is_ok_and(|bytes| {
+            serde_json::from_slice::<serde_json::Value>(&bytes)
+                .is_ok_and(|value| value["status"] == "owner")
+        }) {
             assert!(
                 owner.child.try_wait().unwrap().is_none(),
                 "actual owner exited at startup"
@@ -305,6 +308,210 @@ fn saved_reference(
         revision: record.profile.revision,
         profile_sha256: record.profile_sha256,
     }
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn standalone_discovery_reads_owned_hints_with_exact_replay_and_no_playback_changes() {
+    use earph_core::{control::OutputBackend, devices::DeviceReadBoundary};
+    use earph_desktop::{DeviceObservationView, ReplyStatus};
+    let fixtures = PathBuf::from("/tmp").join(unique());
+    fs::create_dir(&fixtures).unwrap();
+    fs::set_permissions(&fixtures, fs::Permissions::from_mode(0o700)).unwrap();
+    let configuration = fixtures.join("discovery-alsa.conf");
+    let configuration_bytes = b"ctl.hw { @args [ CARD ] @args.CARD { type string } type hw card $CARD }\npcm.null { type null hint { show on description \"Owned duplicate label\" } }\npcm.owned_other { type null hint { show on description \"Owned duplicate label\" } }\n";
+    fs::write(&configuration, configuration_bytes).unwrap();
+    let mut owner = ProcessOwner::with_configuration(Some(&configuration));
+    let mut client = DesktopClient::attach(owner.runtime.to_str().unwrap().into()).unwrap();
+    let before = refresh(&mut client);
+    let caps = terminal(&mut client, query(Command::Capabilities));
+    let Some(ResultView::Capabilities(caps)) = caps.result else {
+        panic!("typed capabilities");
+    };
+    assert_eq!(caps.devices.backends, vec![OutputBackend::Alsa]);
+    assert_eq!(caps.devices.methods, ["devices.list", "devices.inspect"]);
+    assert!(caps.devices.asynchronous_replay);
+    let mut retained = vec![];
+    for (index, payload) in [
+        Command::DevicesList {
+            backend: OutputBackend::Alsa,
+        },
+        Command::DevicesInspect {
+            backend: OutputBackend::Alsa,
+            endpoint: "null".into(),
+        },
+        Command::DevicesInspect {
+            backend: OutputBackend::Alsa,
+            endpoint: "not-an-advertised-hint".into(),
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let request = query(payload);
+        let exact = request.bytes().to_vec();
+        let id = settle(&mut client, request.clone());
+        let record = client.model().record(&id).unwrap();
+        assert_eq!(record.presentation, Presentation::Accepted);
+        let Some(Ok(Reply::Receipt(accepted))) = &record.outcome else {
+            panic!("accepted receipt");
+        };
+        assert!(accepted.result.is_none());
+        fs::write(
+            owner
+                .artifacts
+                .join(format!("discovery-{index}-request.json")),
+            &exact,
+        )
+        .unwrap();
+        fs::write(
+            owner
+                .artifacts
+                .join(format!("discovery-{index}-accepted.json")),
+            record.outcome.as_ref().unwrap().as_ref().unwrap().bytes(),
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while client.model().record(&id).unwrap().presentation == Presentation::Accepted {
+            client.reconcile(&id).unwrap();
+            while client.model().record(&id).unwrap().in_flight {
+                client.poll();
+                assert!(
+                    Instant::now() < deadline,
+                    "actual helper discovery stayed pending"
+                );
+                thread::sleep(Duration::from_millis(1));
+            }
+            assert_eq!(client.model().record(&id).unwrap().request.bytes(), exact);
+        }
+        let record = client.model().record(&id).unwrap();
+        let Some(Ok(Reply::Receipt(receipt))) = &record.outcome else {
+            panic!("actual terminal receipt: {record:?}");
+        };
+        assert_eq!(receipt.status, ReplyStatus::Applied);
+        assert_eq!(receipt.revision, before.revision);
+        assert_eq!(receipt.epochs, before.epochs);
+        let Some(ResultView::Devices(result)) = &receipt.result else {
+            panic!("typed discovery result");
+        };
+        assert_eq!(Some(&result.owner_id), before.owner_id.as_ref());
+        assert_eq!(result.backend, OutputBackend::Alsa);
+        assert_eq!(result.read_boundary, DeviceReadBoundary::AlsaPcmHints);
+        match (&result.observation, index) {
+            (
+                DeviceObservationView::List {
+                    devices,
+                    complete,
+                    failures,
+                },
+                0,
+            ) => {
+                assert!(*complete && failures.is_empty());
+                for endpoint in ["null", "owned_other"] {
+                    let device = devices
+                        .iter()
+                        .find(|device| device.endpoint == endpoint)
+                        .expect("explicit owned hint");
+                    let selection = device.selection.as_ref().unwrap();
+                    assert_eq!(selection.backend, OutputBackend::Alsa);
+                    assert_eq!(selection.endpoint, endpoint);
+                }
+                let null = devices
+                    .iter()
+                    .find(|device| device.endpoint == "null")
+                    .unwrap();
+                let other = devices
+                    .iter()
+                    .find(|device| device.endpoint == "owned_other")
+                    .unwrap();
+                assert_eq!(null.description, other.description);
+            }
+            (
+                DeviceObservationView::Inspection {
+                    endpoint,
+                    advertisement,
+                    current_properties,
+                    complete,
+                    failures,
+                },
+                1 | 2,
+            ) => {
+                assert!(*complete && failures.is_empty());
+                assert_eq!(
+                    endpoint,
+                    if index == 1 {
+                        "null"
+                    } else {
+                        "not-an-advertised-hint"
+                    }
+                );
+                assert_eq!(advertisement.is_some(), index == 1);
+                assert!(
+                    current_properties.is_none(),
+                    "ALSA hint cannot establish current properties"
+                );
+            }
+            observation => panic!("wrong native observation: {observation:?}"),
+        }
+        let terminal_bytes = record
+            .outcome
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .bytes()
+            .to_vec();
+        let replay = OwnerClient::attach(owner.runtime.to_str().unwrap().into())
+            .unwrap()
+            .request(&request)
+            .unwrap();
+        let record = client.model().record(&id).unwrap();
+        assert_eq!(record.request.bytes(), exact);
+        assert_eq!(replay.bytes(), terminal_bytes);
+        assert_eq!(
+            earph_engine::request(&owner.runtime, &exact).unwrap(),
+            terminal_bytes
+        );
+        fs::write(
+            owner
+                .artifacts
+                .join(format!("discovery-{index}-terminal.json")),
+            &terminal_bytes,
+        )
+        .unwrap();
+        retained.push(id.as_str().to_owned());
+    }
+    let after = refresh(&mut client);
+    assert_eq!(after.owner_id, before.owner_id);
+    assert_eq!(after.session_id, before.session_id);
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.epochs, before.epochs);
+    assert_eq!(after.device_epoch, before.device_epoch);
+    assert_eq!(after.graph_epoch, before.graph_epoch);
+    assert_eq!(after.transport, before.transport);
+    assert_eq!(after.source, before.source);
+    assert_eq!(after.output, before.output);
+    assert_eq!(after.playback, before.playback);
+    assert_eq!(after.software_gain_db, before.software_gain_db);
+    assert_eq!(after.local_volume_policy, before.local_volume_policy);
+    assert_eq!(after.volume_policy, before.volume_policy);
+    assert!(after.muted && !after.output_consented);
+    assert_eq!(fs::read(&configuration).unwrap(), configuration_bytes);
+    let (_, shutdown) = client.disconnect();
+    shutdown.join().unwrap();
+    owner.stop().unwrap();
+    assert_eq!(owner.child.try_wait().unwrap().unwrap().code(), Some(0));
+    assert!(
+        fs::read(owner.artifacts.join("owner.stderr.log"))
+            .unwrap()
+            .is_empty()
+    );
+    fs::write(owner.artifacts.join("discovery-e2e-result.json"), serde_json::to_vec_pretty(&json!({"status":"pass","owner_pid":owner.child.id(),"runtime":owner.runtime,"fixture":configuration,"retained_requests":retained,"accepted_then_terminal":true,"exact_terminal_replay":true,"unknown_properties_preserved":true,"playback_state_unchanged":true,"source_start":false,"native_output":false,"owner_exit":0})).unwrap()).unwrap();
+    println!(
+        "Discovery E2E fixtures: {}; owner artifacts: {}",
+        fixtures.display(),
+        owner.artifacts.display()
+    );
 }
 
 #[test]

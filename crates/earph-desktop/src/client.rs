@@ -1,6 +1,8 @@
 // ABOUTME: Builds immutable shared command envelopes and calls the actual LocalClient.
 // ABOUTME: Preserves owner receipts, local errors, and exact reconciliation bytes.
-use crate::{ProjectionError, Reply, ReplyStatus, ResultView, StateView, decode_reply};
+use crate::{
+    DeviceObservationView, ProjectionError, Reply, ReplyStatus, ResultView, StateView, decode_reply,
+};
 use earph_core::{
     control::{Command, CommandEnvelope},
     ids::{RequestId, SessionId, ZoneId},
@@ -152,19 +154,52 @@ impl OwnerClient {
             let identity_matches = receipt.request_id == envelope.request_id
                 && receipt.zone_id == envelope.zone_id
                 && receipt.session_id == envelope.session_id;
-            let result_matches = receipt.status != ReplyStatus::Applied
-                || match (&envelope.payload, &receipt.result) {
-                    (Command::State, Some(ResultView::State(_)))
-                    | (Command::Capabilities, Some(ResultView::Capabilities(_)))
-                    | (Command::QueueGet { .. }, Some(ResultView::Queue(_)))
-                    | (Command::GraphInspect { .. }, Some(ResultView::GraphInspection(_)))
-                    | (Command::ProfilesList { .. }, Some(ResultView::Profiles(_)))
-                    | (Command::ProfilesGet { .. }, Some(ResultView::Profile(_)))
-                    | (Command::ProfilesResolve { .. }, Some(ResultView::ProfileResolution(_))) => {
-                        true
-                    }
-                    (command, _) => !command.is_query(),
-                };
+            let result_matches = match (&envelope.payload, &receipt.result) {
+                (
+                    Command::DevicesList { backend } | Command::DevicesInspect { backend, .. },
+                    Some(ResultView::Devices(value)),
+                ) => {
+                    value.backend == *backend
+                        && match (&envelope.payload, &value.observation) {
+                            (Command::DevicesList { .. }, DeviceObservationView::List { .. }) => {
+                                receipt.status == ReplyStatus::Applied
+                            }
+                            (
+                                Command::DevicesInspect { endpoint, .. },
+                                DeviceObservationView::Inspection {
+                                    endpoint: observed, ..
+                                },
+                            ) => receipt.status == ReplyStatus::Applied && endpoint == observed,
+                            (_, DeviceObservationView::Failed { .. }) => matches!(
+                                receipt.status,
+                                ReplyStatus::Failed | ReplyStatus::Cancelled
+                            ),
+                            _ => false,
+                        }
+                }
+                (Command::DevicesList { .. } | Command::DevicesInspect { .. }, _) => {
+                    receipt.status != ReplyStatus::Applied && receipt.result.is_none()
+                }
+                _ => {
+                    receipt.status != ReplyStatus::Applied
+                        || match (&envelope.payload, &receipt.result) {
+                            (Command::State, Some(ResultView::State(_)))
+                            | (Command::Capabilities, Some(ResultView::Capabilities(_)))
+                            | (Command::QueueGet { .. }, Some(ResultView::Queue(_)))
+                            | (
+                                Command::GraphInspect { .. },
+                                Some(ResultView::GraphInspection(_)),
+                            )
+                            | (Command::ProfilesList { .. }, Some(ResultView::Profiles(_)))
+                            | (Command::ProfilesGet { .. }, Some(ResultView::Profile(_)))
+                            | (
+                                Command::ProfilesResolve { .. },
+                                Some(ResultView::ProfileResolution(_)),
+                            ) => true,
+                            (command, _) => !command.is_query(),
+                        }
+                }
+            };
             if !identity_matches || !result_matches {
                 return Err(DeliveryFailure::Protocol(ProjectionError {
                     detail: "receipt identity or query result does not match the request",

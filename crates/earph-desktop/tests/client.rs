@@ -5,6 +5,307 @@ use common::*;
 use earph_core::{ErrorCode, control::Command, ids::RequestId};
 use earph_desktop::{Lane, Reply, ReplyStatus, Request};
 
+fn discovery_receipts(
+    request: &Request,
+    observation: earph_core::devices::DeviceObservation,
+) -> (Vec<u8>, Vec<u8>) {
+    use earph_core::{
+        control::{ControlLimits, OutputBackend, ReceiptStatus},
+        ids::{OwnerId, ZoneId},
+        session::Session,
+    };
+    let mut owner = Session::new_owner(
+        ZoneId::new("main").unwrap(),
+        OwnerId::new("controlled-owner").unwrap(),
+        ControlLimits::default(),
+    );
+    owner.enable_device_discovery(OutputBackend::Alsa);
+    let accepted = owner.submit(request.envelope().clone());
+    assert_eq!(accepted.status, ReceiptStatus::Accepted);
+    owner
+        .complete_device_query(&owner.device_query_job().unwrap(), u64::MAX, observation)
+        .unwrap();
+    let receipt = owner.submit(request.envelope().clone());
+    assert_eq!(owner.submit(request.envelope().clone()), receipt);
+    (
+        serde_json::to_vec(&serde_json::json!({"receipt":accepted})).unwrap(),
+        serde_json::to_vec(&serde_json::json!({"receipt":receipt})).unwrap(),
+    )
+}
+
+// This controlled peer tests wire corruption, not native discovery behavior.
+fn request_with_reply(
+    request: &Request,
+    bytes: Vec<u8>,
+) -> Result<Reply, earph_desktop::DeliveryFailure> {
+    use std::{
+        fs,
+        io::{Read, Write},
+        os::unix::{fs::PermissionsExt, net::UnixListener},
+        path::PathBuf,
+        thread,
+        time::{Duration, Instant},
+    };
+    let runtime = PathBuf::from("/tmp").join(unique());
+    fs::create_dir(&runtime).unwrap();
+    fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(runtime.join("o-reply.sock")).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    fs::set_permissions(
+        runtime.join("o-reply.sock"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    fs::write(
+        runtime.join("endpoint.json"),
+        br#"{"schema_version":1,"socket":"o-reply.sock"}"#,
+    )
+    .unwrap();
+    fs::set_permissions(
+        runtime.join("endpoint.json"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    let exact = request.bytes().to_vec();
+    let peer = thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "controlled receipt peer received no request"
+                    );
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Err(error) => panic!("controlled receipt peer: {error}"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut header = [0; 4];
+        stream.read_exact(&mut header).unwrap();
+        assert_eq!(u32::from_be_bytes(header) as usize, exact.len());
+        let mut received = vec![0; exact.len()];
+        stream.read_exact(&mut received).unwrap();
+        assert_eq!(received, exact);
+        stream
+            .write_all(&(bytes.len() as u32).to_be_bytes())
+            .unwrap();
+        stream.write_all(&bytes).unwrap();
+    });
+    let result = earph_desktop::OwnerClient::attach(runtime.to_str().unwrap().into())
+        .unwrap()
+        .request(request);
+    peer.join().unwrap();
+    result
+}
+
+#[test]
+fn discovery_queries_require_the_matching_typed_terminal_result() {
+    use earph_core::{control::OutputBackend, devices::DeviceObservation};
+    use earph_desktop::DeliveryFailure;
+    use serde_json::{Value, json};
+    for (payload, observation) in [
+        (
+            Command::DevicesList {
+                backend: OutputBackend::Alsa,
+            },
+            DeviceObservation::List {
+                devices: vec![],
+                complete: true,
+                failures: vec![],
+            },
+        ),
+        (
+            Command::DevicesInspect {
+                backend: OutputBackend::Alsa,
+                endpoint: "null".into(),
+            },
+            DeviceObservation::Inspection {
+                endpoint: "null".into(),
+                advertisement: None,
+                current_properties: None,
+                complete: true,
+                failures: vec![],
+            },
+        ),
+    ] {
+        let request = query(payload);
+        let (accepted, bytes) = discovery_receipts(&request, observation);
+        let Reply::Receipt(pending) = request_with_reply(&request, accepted.clone()).unwrap()
+        else {
+            panic!("accepted receipt");
+        };
+        assert_eq!(pending.status, ReplyStatus::Accepted);
+        assert!(pending.result.is_none());
+        assert_eq!(
+            request_with_reply(&request, bytes.clone())
+                .expect("actual discovery result must match")
+                .bytes(),
+            bytes
+        );
+        let original: Value = serde_json::from_slice(&bytes).unwrap();
+        let is_inspection = matches!(request.envelope().payload, Command::DevicesInspect { .. });
+        for (pointer, replacement) in [
+            ("/receipt/result/value/backend", json!("core_audio")),
+            (
+                "/receipt/result/value/observation",
+                if is_inspection {
+                    json!({"kind":"list","devices":[],"complete":true,"failures":[]})
+                } else {
+                    json!({"kind":"inspection","endpoint":"null","advertisement":null,"current_properties":null,"complete":true,"failures":[]})
+                },
+            ),
+            (
+                "/receipt/result",
+                json!({"kind":"queue","value":{"entries":[],"selected":null,"offset":0,"total":0}}),
+            ),
+            ("/receipt/result", Value::Null),
+            ("/receipt/status", json!("accepted")),
+            ("/receipt/status", json!("failed")),
+            ("/receipt/request_id", json!("wrong-request")),
+            ("/receipt/zone_id", json!("wrong-zone")),
+            ("/receipt/session_id", json!("wrong-session")),
+        ] {
+            let mut corrupt = original.clone();
+            *corrupt.pointer_mut(pointer).unwrap() = replacement;
+            let raw = serde_json::to_vec(&corrupt).unwrap();
+            let Err(DeliveryFailure::Protocol(error)) = request_with_reply(&request, raw.clone())
+            else {
+                panic!("wrong result admitted: {pointer}");
+            };
+            assert_eq!(&*error.bytes, raw);
+        }
+        if is_inspection {
+            let mut corrupt = original;
+            corrupt["receipt"]["result"]["value"]["observation"]["endpoint"] = json!("other");
+            let raw = serde_json::to_vec(&corrupt).unwrap();
+            let Err(DeliveryFailure::Protocol(error)) = request_with_reply(&request, raw.clone())
+            else {
+                panic!("inspection endpoint changed");
+            };
+            assert_eq!(&*error.bytes, raw);
+        }
+    }
+}
+
+#[test]
+fn discovery_failure_receipts_keep_typed_errors_and_validate_the_requested_backend() {
+    use earph_core::{
+        control::OutputBackend,
+        devices::{DeviceObservation, DeviceQueryError},
+    };
+    for payload in [
+        Command::DevicesList {
+            backend: OutputBackend::Alsa,
+        },
+        Command::DevicesInspect {
+            backend: OutputBackend::Alsa,
+            endpoint: "null".into(),
+        },
+    ] {
+        let request = query(payload);
+        for code in [ErrorCode::DeviceUnavailable, ErrorCode::OperationCancelled] {
+            let (_, bytes) = discovery_receipts(
+                &request,
+                DeviceObservation::Failed {
+                    error: DeviceQueryError {
+                        code,
+                        message: "controlled native failure".into(),
+                        native_status: None,
+                        native_object_id: None,
+                    },
+                    cleanup_confirmed: true,
+                },
+            );
+            let Reply::Receipt(receipt) = request_with_reply(&request, bytes.clone()).unwrap()
+            else {
+                panic!("terminal failure");
+            };
+            assert_eq!(
+                receipt.status,
+                if code == ErrorCode::OperationCancelled {
+                    ReplyStatus::Cancelled
+                } else {
+                    ReplyStatus::Failed
+                }
+            );
+            assert_eq!(receipt.error.unwrap().code, code);
+            assert!(matches!(
+                receipt.result,
+                Some(earph_desktop::ResultView::Devices(_))
+            ));
+            let original: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            for (pointer, replacement) in [
+                (
+                    "/receipt/result/value/backend",
+                    serde_json::json!("core_audio"),
+                ),
+                (
+                    "/receipt/result",
+                    serde_json::json!({"kind":"queue","value":{"entries":[],"selected":null,"offset":0,"total":0}}),
+                ),
+            ] {
+                let mut corrupt = original.clone();
+                *corrupt.pointer_mut(pointer).unwrap() = replacement;
+                let raw = serde_json::to_vec(&corrupt).unwrap();
+                let Err(earph_desktop::DeliveryFailure::Protocol(error)) =
+                    request_with_reply(&request, raw.clone())
+                else {
+                    panic!("wrong failure result admitted: {pointer}");
+                };
+                assert_eq!(&*error.bytes, raw);
+            }
+        }
+    }
+}
+
+#[test]
+fn embedded_owner_advertises_empty_discovery_and_retains_capability_rejection() {
+    use earph_core::control::OutputBackend;
+    let owner = Owner::start();
+    let client = owner.client();
+    let before = owner.state();
+    let Reply::Receipt(caps) = client.request(&query(Command::Capabilities)).unwrap() else {
+        panic!("caps");
+    };
+    let Some(earph_desktop::ResultView::Capabilities(caps)) = caps.result else {
+        panic!("typed caps");
+    };
+    assert!(caps.devices.backends.is_empty());
+    for command in [
+        Command::DevicesList {
+            backend: OutputBackend::Alsa,
+        },
+        Command::DevicesInspect {
+            backend: OutputBackend::Alsa,
+            endpoint: "null".into(),
+        },
+    ] {
+        let request = query(command);
+        let reply = client.request(&request).unwrap();
+        assert_eq!(reply.bytes(), client.request(&request).unwrap().bytes());
+        let Reply::Receipt(receipt) = reply else {
+            panic!("rejected receipt");
+        };
+        assert_eq!(receipt.status, ReplyStatus::Rejected);
+        assert_eq!(
+            receipt.error.unwrap().code,
+            ErrorCode::CapabilityUnsupported
+        );
+        assert!(receipt.result.is_none());
+    }
+    assert_eq!(owner.state().revision, before.revision);
+    assert_eq!(owner.state().epochs, before.epochs);
+    assert!(owner.state().muted && !owner.state().output_consented);
+}
+
 #[test]
 fn request_builders_capture_targets_and_replay_the_identical_owner_envelope() {
     let owner = Owner::start();

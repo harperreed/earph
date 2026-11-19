@@ -19,6 +19,10 @@ const USAGE: &str = "usage: earph-engine <owner|request> --runtime ABSOLUTE_PRIV
 
 fn execute() -> Result<u8, EngineError> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.len() == 1 && args[0] == "device-query-helper" {
+        earph_engine::run_device_query_helper(&mut io::stdin().lock(), &mut io::stdout().lock())?;
+        return Ok(0);
+    }
     if args.first().is_some_and(|arg| arg == "render-graph") {
         if args.len() == 2 && args[1] == "--help" {
             earph_media::cli_io::write_bytes(
@@ -63,6 +67,15 @@ fn execute() -> Result<u8, EngineError> {
     let bytes = if args[0] == "owner" {
         match EngineOwner::bind(&runtime) {
             Ok(owner) => {
+                let executable = std::env::current_exe().map_err(|_| {
+                    EngineError::new(
+                        ErrorCode::DeviceUnavailable,
+                        "cannot resolve the production device helper",
+                    )
+                })?;
+                let owner = owner.with_device_discovery(
+                    earph_engine::DeviceDiscoveryHelper::from_executable(&executable)?,
+                );
                 earph_engine::offline_render::write_json_report(
                     &serde_json::json!({"status":"owner", "owner_id":owner.snapshot().owner_id}),
                     &mut io::stdout().lock(),

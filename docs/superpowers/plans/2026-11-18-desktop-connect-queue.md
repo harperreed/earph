@@ -285,3 +285,20 @@ Root's single bounded review finds no material issue.
 See `docs/evidence/desktop/signal-path-linux-20261119.json` for the bounded result.
 Root adds only this checkpoint and that evidence document after the checks.
 Actual native windows, Mac view behavior, Output/Transport controls, and full desktop parity remain pending.
+
+## Owner discovery client checkpoint
+
+Root ported the reviewed device-discovery producer from `fecf403` into the desktop branch.
+The strict client now consumes required device capabilities, inventories, inspections, partial results, and typed failures.
+Every nullable discovery field remains required; exact counters and raw rejected bytes remain intact.
+The client binds terminal query results to the requested backend, result kind, status, and exact inspection endpoint.
+It adds no native client, device cache, output identity proof, or owner policy.
+
+Actual Core serializers cover valid and malformed documents.
+Standalone ALSA tests cover explicit hints, missing hints, Accepted polling, and exact terminal replay.
+The process fixture waits for actual CLI readiness after helper verification.
+The final canonical passes 931 tests, with zero failures and five ignored.
+The desktop package passes 83 tests; strict Clippy and the independent client review pass.
+See `docs/evidence/desktop/device-discovery-client-linux-20261119.json` for exact bindings and limits.
+Root adds only this checkpoint and that evidence document after the checks.
+GUI discovery, native Mac acquisition, foreign discovery scenarios, and full desktop parity remain pending.

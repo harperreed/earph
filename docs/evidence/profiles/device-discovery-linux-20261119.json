@@ -1,0 +1,45 @@
+{
+  "scope": "owner device-discovery producer on Linux",
+  "date_utc": "2026-11-19",
+  "base_commit": "47118d56b5662c2e8c563df55735a349926e3123",
+  "tested_source": {
+    "files": 1599,
+    "manifest_sha256": "051688a07f5e2fd95bddb959ed336c0d51a2dd3d7ad391815f2bdc5bb7ba66b2",
+    "runtime_sha256": "8d4f1d6080e1b10a0ca9305d051b49e1bce8427d2da68b0dcb3dc165ab78b2e6",
+    "patch_sha256": "6468fe2d781d2cb4e3c9007634b064aeaa25c28bc76bc7ec8ffc445de3fa58c7",
+    "unchanged_after_check": true,
+    "post_check_addition": "this evidence document"
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "signal": null,
+    "passed": 834,
+    "failed": 0,
+    "ignored": 5,
+    "summaries": 88,
+    "stdout_sha256": "a39cbf4c03e53509a9a38ae8e3535cb80b7b86bd2571dd5e8274ed487f50b070",
+    "stderr_sha256": "dde3beb9053d738b05202633c457efae136367fbf4d8e88f7af00180c962c6eb"
+  },
+  "review": {
+    "independent": true,
+    "findings": 0,
+    "receipt_sha256": "67849feb31a11843765a86557204da804ef21df947b61277c121ae60f7754e92"
+  },
+  "qualified": [
+    "actual owned ALSA hint queries through standalone CLI and owner IPC",
+    "Core receipt pinning, bounded results, exact replay and typed failures",
+    "owned helper supervision and responsive control during controlled waits"
+  ],
+  "limits": {
+    "original_attempt": "incomplete; actual exit and cause unknown; excluded from passing evidence",
+    "controlled_process_fixtures_are_native_evidence": false,
+    "playback_descriptor_inheritance_qualified": false,
+    "mac_acquisition_compiled": false,
+    "strict_clients_integrated": false,
+    "physical_output_opened": false,
+    "signal_attempts": 0,
+    "total_sdk_rss_or_absolute_termination_bound": false,
+    "whole_product_release": false
+  }
+}

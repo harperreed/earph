@@ -33,10 +33,12 @@ pub(crate) fn serve(
     listener: UnixListener,
     directory: PathBuf,
     token: String,
+    device_helper: Option<crate::DeviceDiscoveryHelper>,
 ) -> Result<(), EngineError> {
     let server = ipc::Server::spawn(listener)?;
     let mut graphs = GraphJobs::spawn(directory.clone())?;
     let mut profiles = crate::profiles::ProfileJobs::spawn(directory.clone());
+    let mut devices = crate::devices::DeviceJobs::spawn(device_helper)?;
     // Worker pipelines must retire before the preparation service shuts down.
     let mut worker = Worker::spawn();
     let mut terminal_acknowledgement = None;
@@ -103,8 +105,12 @@ pub(crate) fn serve(
         {
             terminal_acknowledgement = None;
         }
+        devices.poll(&mut session, monotonic(&clock));
         if session.shutdown_requested() {
-            return Ok(());
+            devices.cancel();
+            if devices.is_idle() {
+                return Ok(());
+            }
         }
         let progress = worker
             .progress
@@ -143,6 +149,12 @@ pub(crate) fn serve(
                     directory::paths,
                     |staged| {
                         actual_check?;
+                        if matches!(
+                            command.payload,
+                            Command::DevicesList { .. } | Command::DevicesInspect { .. }
+                        ) {
+                            return devices.submit(staged);
+                        }
                         if command.payload.is_profile_save() {
                             return profiles.submit(staged);
                         }
@@ -265,7 +277,10 @@ pub(crate) fn serve(
                     return Err(error);
                 }
                 if session.shutdown_requested() {
-                    return Ok(());
+                    devices.cancel();
+                    if devices.is_idle() {
+                        return Ok(());
+                    }
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}

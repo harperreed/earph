@@ -109,6 +109,13 @@ pub enum Command {
     Capabilities,
     #[serde(rename = "state.get")]
     State,
+    #[serde(rename = "devices.list")]
+    DevicesList { backend: OutputBackend },
+    #[serde(rename = "devices.inspect")]
+    DevicesInspect {
+        backend: OutputBackend,
+        endpoint: String,
+    },
     #[serde(rename = "queue.get")]
     QueueGet { offset: usize, limit: usize },
     #[serde(rename = "graph.inspect")]
@@ -304,6 +311,8 @@ impl Command {
         matches!(
             self,
             Self::Capabilities
+                | Self::DevicesList { .. }
+                | Self::DevicesInspect { .. }
                 | Self::State
                 | Self::QueueGet { .. }
                 | Self::GraphInspect { .. }
@@ -475,6 +484,9 @@ impl CommandEnvelope {
         if let Command::OutputSelect { output } = &self.payload {
             output.validate()?;
         }
+        if let Command::DevicesInspect { endpoint, .. } = &self.payload {
+            crate::devices::validate_endpoint(endpoint)?;
+        }
         self.validate_retained_storage()
     }
     pub(crate) fn validate_retained_storage(&self) -> Result<(), EngineError> {
@@ -482,6 +494,9 @@ impl CommandEnvelope {
             self.profile_capacity_bytes()?;
         }
         match &self.payload {
+            Command::DevicesInspect { endpoint, .. } if endpoint.capacity() > 4096 => {
+                Err(crate::devices::DEVICE_BUDGET)
+            }
             Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } => {
                 graph.validate_storage()
             }
@@ -570,6 +585,7 @@ pub enum ReceiptStatus {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum QueryResult {
+    Devices(Arc<crate::devices::DeviceQueryResult>),
     State(Box<crate::session::SessionSnapshot>),
     Capabilities(Capabilities),
     Queue(crate::queue::QueuePage),
@@ -588,6 +604,7 @@ pub enum QueryResult {
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Capabilities {
+    pub devices: Arc<crate::devices::DeviceCapabilities>,
     pub schema_version: u32,
     pub sources: Vec<SourceKind>,
     pub physical_output: bool,

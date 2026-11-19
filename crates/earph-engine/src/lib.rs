@@ -2,7 +2,9 @@
 // ABOUTME: Persists validated queue state before publishing command success.
 #![forbid(unsafe_code)]
 pub mod assets;
+mod devices;
 mod directory;
+pub use devices::{DeviceDiscoveryHelper, run_helper as run_device_query_helper};
 mod graph;
 mod host;
 mod ipc;
@@ -52,9 +54,18 @@ pub struct EngineOwner {
     runtime: PathBuf,
     token: String,
     session: Session,
+    device_helper: Option<DeviceDiscoveryHelper>,
 }
 
 impl EngineOwner {
+    /// Enables discovery only when this host explicitly supplies the production engine helper.
+    pub fn with_device_discovery(mut self, helper: DeviceDiscoveryHelper) -> Self {
+        if let Some(backend) = helper.backend() {
+            self.session.enable_device_discovery(backend);
+            self.device_helper = Some(helper);
+        }
+        self
+    }
     pub fn snapshot(&self) -> earph_core::session::SessionSnapshot {
         self.session.snapshot()
     }
@@ -118,6 +129,7 @@ impl EngineOwner {
             runtime,
             token,
             session,
+            device_helper: None,
         })
     }
 
@@ -128,9 +140,10 @@ impl EngineOwner {
             runtime,
             token,
             session,
+            device_helper,
         } = self;
         let _owner_lock = _lock;
-        host::serve(session, listener, runtime, token)
+        host::serve(session, listener, runtime, token, device_helper)
     }
 }
 

@@ -11,10 +11,12 @@ use earph_core::{
 };
 use serde::{Deserialize, Deserializer};
 use std::sync::Arc;
+mod devices;
 mod graph;
 mod packages;
 mod playback;
 mod profiles;
+pub use devices::*;
 pub use graph::*;
 pub use packages::*;
 pub use playback::*;
@@ -145,6 +147,7 @@ pub struct CapabilitiesView {
     // Share immutable capability metadata without inflating every retained receipt variant.
     pub profiles: Arc<ProfileCapabilitiesView>,
     pub output_activity: OutputActivityCapabilitiesView,
+    pub devices: Arc<DeviceCapabilitiesView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -168,6 +171,7 @@ pub enum ResultView {
     State(Arc<StateView>),
     Capabilities(CapabilitiesView),
     Queue(QueueView),
+    Devices(Arc<DeviceQueryResultView>),
     GraphPreview(Arc<GraphPreviewView>),
     GraphPrepared(GraphPreparedView),
     GraphInspection(Arc<GraphInspectionView>),

@@ -20,6 +20,9 @@ mod profiles;
 use profiles::ProfileControl;
 #[path = "session_associations.rs"]
 mod associations;
+#[path = "session_devices.rs"]
+mod devices;
+use devices::DeviceControl;
 
 // A fresh owner needs room for consent, preparation, activation, and transport acknowledgements.
 const RESTART_REVISION_HEADROOM: u64 = 64;
@@ -355,6 +358,7 @@ pub struct Session {
     local_boundary: Option<LocalBoundary>,
     graph: GraphControl,
     profiles: ProfileControl,
+    devices: DeviceControl,
 }
 impl Session {
     pub fn new(zone_id: ZoneId, limits: ControlLimits) -> Self {
@@ -402,6 +406,7 @@ impl Session {
             local_boundary: None,
             graph: GraphControl::default(),
             profiles: ProfileControl::default(),
+            devices: DeviceControl::default(),
         }
     }
     pub fn new_owner(zone_id: ZoneId, owner_id: OwnerId, limits: ControlLimits) -> Self {
@@ -563,6 +568,7 @@ impl Session {
                         self.queue.page(offset, limit).ok().map(QueryResult::Queue)
                     }
                     Command::Capabilities => Some(QueryResult::Capabilities(Capabilities {
+                        devices: Arc::new(self.device_capabilities()),
                         schema_version: 1,
                         sources: if self.local_playback_enabled {
                             vec![SourceKind::LocalFile]
@@ -715,6 +721,9 @@ impl Session {
     ) -> Receipt {
         self.expire_graph_work(now_ns);
         self.expire_profile_work(now_ns);
+        if let Some(record) = self.device_receipt(&command.request_id) {
+            return self.replay_graph_record(&command, record);
+        }
         if let Some(record) = self.profile_receipt(&command.request_id) {
             return self.replay_graph_record(&command, record);
         }
@@ -759,7 +768,10 @@ impl Session {
                 let persisted = if staged.state.revision != self.state.revision
                     || command.payload.prepares_graph()
                     || command.payload.is_profile_save()
-                {
+                    || matches!(
+                        command.payload,
+                        Command::DevicesList { .. } | Command::DevicesInspect { .. }
+                    ) {
                     commit(&staged)
                 } else {
                     Ok(())
@@ -793,6 +805,7 @@ impl Session {
         let record = Arc::new((command, receipt.clone()));
         self.retain_graph_record(record.clone());
         self.retain_profile_receipt(record.clone());
+        self.retain_device_record(record.clone());
         if receipt.status == ReceiptStatus::Accepted
             && self.state.operation.as_ref() == Some(&record.0.request_id)
         {
@@ -829,6 +842,8 @@ impl Session {
                 | Command::Mute { .. }
                 | Command::State
                 | Command::Capabilities
+                | Command::DevicesList { .. }
+                | Command::DevicesInspect { .. }
                 | Command::QueueGet { .. }
                 | Command::GraphInspect { .. }
                 | Command::QueueAppend { .. }
@@ -851,6 +866,12 @@ impl Session {
             return Err(STALE);
         }
         if command.payload.is_query() {
+            if matches!(
+                command.payload,
+                Command::DevicesList { .. } | Command::DevicesInspect { .. }
+            ) {
+                return self.admit_device_query(command);
+            }
             self.profile_query(&command.payload)?;
             if let Command::QueueGet { offset, limit } = command.payload {
                 self.queue.page(offset, limit)?;

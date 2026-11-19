@@ -95,6 +95,36 @@ fn discovery_and_silent_open_report_only_the_observed_evidence() {
 }
 
 #[test]
+fn discovery_refuses_oversize_hint_text_and_entry_counts() {
+    for many in [false, true] {
+        let (directory, _, _) = setup();
+        let config = directory.join("bounded-hints.conf");
+        let text = if many {
+            (0..257).map(|i| format!("pcm.hint{i:03} {{ type null hint {{ show on description \"Device {i}\" }} }}\n")).collect::<String>()
+        } else {
+            format!(
+                "pcm.null {{ type null hint {{ show on description \"{}\" }} }}\n",
+                "x".repeat(4097)
+            )
+        };
+        let control = "ctl.hw { @args [ CARD ] @args.CARD { type string } type hw card $CARD }\n";
+        std::fs::write(&config, format!("{control}{text}")).unwrap();
+        let output = run(&config, &["devices"]);
+        assert!(
+            !output.status.success(),
+            "oversize discovery passed, many={many}"
+        );
+        assert_eq!(
+            document(&output)["error"]["code"],
+            "RESOURCE_BUDGET_EXCEEDED",
+            "many={many}: {} / {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
 fn a_hw_alias_cannot_masquerade_as_a_direct_hardware_stream() {
     let (directory, config, mut request) = setup();
     request["device"] = "hw:0,0".into();

@@ -445,18 +445,36 @@ impl Drop for Hints {
         }
     }
 }
-unsafe fn hint_field(hint: *const c_void, key: &CStr) -> Option<String> {
+unsafe fn hint_field(hint: *const c_void, key: &CStr) -> Result<Option<String>, AlsaError> {
     // SAFETY: The hint remains live in its owned list and key is a C string.
     let pointer = unsafe { sys::snd_device_name_get_hint(hint, key.as_ptr()) };
     if pointer.is_null() {
-        return None;
+        return Ok(None);
     }
     // SAFETY: ALSA returns a malloc-owned C string; copy it before freeing it once.
-    let result = unsafe { text(pointer) };
+    let result = (|| {
+        let maximum = earph_core::devices::MAX_DEVICE_TEXT_BYTES;
+        let mut length = 0;
+        // SAFETY: ALSA owns a NUL-terminated allocation. Stop at its terminator or the admitted bound.
+        while unsafe { *pointer.add(length) } != 0 {
+            if length == maximum {
+                return Err(AlsaError::new(
+                    ErrorCode::ResourceBudgetExceeded,
+                    "ALSA hint text exceeds discovery limit",
+                ));
+            }
+            length += 1;
+        }
+        // SAFETY: The bounded scan established that these bytes belong to the live allocation.
+        let bytes = unsafe { std::slice::from_raw_parts(pointer.cast::<u8>(), length) };
+        let value = std::str::from_utf8(bytes)
+            .map_err(|_| AlsaError::new(ErrorCode::AssetInvalid, "ALSA hint is not UTF-8"))?;
+        Ok(value.to_owned())
+    })();
     unsafe {
         libc::free(pointer.cast());
     }
-    Some(result)
+    result.map(Some)
 }
 pub fn devices() -> Result<Vec<DeviceHint>, AlsaError> {
     let mut pointer = ptr::null_mut();
@@ -478,16 +496,22 @@ pub fn devices() -> Result<Vec<DeviceHint>, AlsaError> {
         if hint.is_null() {
             break;
         }
+        if index == earph_core::devices::MAX_DEVICES {
+            return Err(AlsaError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "ALSA hint count exceeds discovery limit",
+            ));
+        }
         index += 1;
         // SAFETY: Each queried hint belongs to the live list; fields are copied and freed separately.
         unsafe {
-            if hint_field(hint, c"IOID").as_deref() == Some("Input") {
+            if hint_field(hint, c"IOID")?.as_deref() == Some("Input") {
                 continue;
             }
-            if let Some(device) = hint_field(hint, c"NAME") {
+            if let Some(device) = hint_field(hint, c"NAME")? {
                 result.push(DeviceHint {
                     device,
-                    description: hint_field(hint, c"DESC"),
+                    description: hint_field(hint, c"DESC")?,
                     evidence_level: "advertised",
                 });
             }
