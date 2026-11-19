@@ -124,8 +124,9 @@ fn write_fault_diagnostic(
     let record = serde_json::json!({"backend_fault": {
         "backend":"core_audio", "operation":operation, "error":error, "progress":progress,
     }});
-    serde_json::to_writer(&mut *writer, &record).map_err(std::io::Error::other)?;
-    writer.write_all(b"\n")
+    let mut bytes = serde_json::to_vec(&record).map_err(std::io::Error::other)?;
+    bytes.push(b'\n');
+    writer.write_all(&bytes)
 }
 
 #[cfg(test)]
@@ -423,5 +424,57 @@ mod tests {
         let (mut writer, peer) = std::os::unix::net::UnixStream::pair().unwrap();
         drop(peer);
         assert!(write_fault_diagnostic(&mut writer, "open", Some(error), None).is_err());
+    }
+
+    #[test]
+    fn native_fault_diagnostic_keeps_stderr_records_separate() {
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "output::coreaudio::tests::native_fault_diagnostic_stderr_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .output()
+            .unwrap();
+        assert!(child.status.success(), "{child:?}");
+        let records: Vec<serde_json::Value> = child
+            .stderr
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                serde_json::from_slice(line).expect("stderr record must remain complete JSON")
+            })
+            .collect();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0]["backend_fault"]["operation"], "open");
+        assert_eq!(records[1]["other_writer"], true);
+    }
+
+    #[test]
+    #[ignore = "Runs only in the parent's isolated stderr subprocess"]
+    fn native_fault_diagnostic_stderr_child() {
+        use std::io::{self, Write};
+        struct InterleavedStderr {
+            wrote: bool,
+        }
+        impl Write for InterleavedStderr {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                let count = io::stderr().write(bytes)?;
+                // Schedule a real competing writer after the producer's first write.
+                if !self.wrote {
+                    self.wrote = true;
+                    std::thread::spawn(|| io::stderr().write_all(b"{\"other_writer\":true}\n"))
+                        .join()
+                        .unwrap()?;
+                }
+                Ok(count)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                io::stderr().flush()
+            }
+        }
+        write_fault_diagnostic(&mut InterleavedStderr { wrote: false }, "open", None, None)
+            .unwrap();
     }
 }
