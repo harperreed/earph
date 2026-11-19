@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "status": "pass_for_local_code_checkpoint",
+  "scope": "observed Core Audio identity, bounded local associations, and identity-bound software profile application",
+  "source": {
+    "base_commit": "d449f93eb0aed26ce0332dcbc2d43232162dc19e",
+    "merge_parent": "98244f0d913204917fe1b66e3b974f4e6c99d801",
+    "tested_tree": "c5ccf3cc9925d66f6829a2e86b685f58797a67d7",
+    "tested_source_dirty": true,
+    "files": 1583,
+    "manifest_sha256": "ea33ab76ee434342f844c7c989f04807557e072f1f693037b45b9f6d20e99ed8",
+    "runtime_sha256": "357608e9d54ce44178f30d27e8fe3fe0be6abfdec4e3a4cd7eb6e905f723804c",
+    "lock_sha256": "c71c1719cc616146274253131e2ea99d21046dcb100c05581591a379b15ed87c"
+  },
+  "environment": {
+    "os": "linux",
+    "architecture": "x86_64",
+    "rust": "1.98.1",
+    "profile": "debug"
+  },
+  "checks": {
+    "canonical": {
+      "command": "scripts/check",
+      "exit": 0,
+      "passed": 796,
+      "failed": 0,
+      "ignored": 5,
+      "log_sha256": "db434509fa8e121c455f711fdc2026d11329ee660b65dc2e83cf14cb76a3daf2"
+    },
+    "scoped": {
+      "exit": 0,
+      "passed": 357,
+      "failed": 0,
+      "ignored": 1,
+      "overlaps_canonical": true,
+      "log_sha256": "a7faadd70b3b343c2d710887c2f6a88680eb8d3fee5abffa4a2a1b7728ecf3a5"
+    }
+  },
+  "review": {
+    "independent_reviewers": 1,
+    "material_findings": 0,
+    "receipt_sha256": "1f098140c40f4ad9488cf893b9bdec9fed2352fe246f395adc5322309a87d9ec"
+  },
+  "limits": [
+    "Positive native owner E2E and Mac qualification remain pending.",
+    "Core Audio snapshot fixtures establish model contracts, not physical identity qualification.",
+    "ALSA exact binding, fixed/hardware profile modes, full T12/AC-35 and release remain unqualified.",
+    "The extra ignored subprocess helper is explicitly run by its parent. Scoped counts overlap canonical coverage."
+  ],
+  "raw_device_values_included": false
+}

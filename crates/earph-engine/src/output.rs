@@ -129,6 +129,7 @@ impl Output for earph_alsa::AlsaOutput {
         let format = ObservedStreamFormat::from(report.observed.format);
         Ok(BackendObservation {
             backend: OutputBackend::Alsa,
+            device_identity_sha256: None,
             audio_storage_bytes: self.audio_storage_bytes().map_err(error)?,
             client_format: format.clone(),
             device_format: (report.requested.route == earph_alsa::Route::DirectHardware)

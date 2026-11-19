@@ -550,6 +550,16 @@ fn prepare(
             .output
             .as_ref()
             .is_none_or(|o| o.volume_mode != earph_core::safety::VolumeMode::Software)
+            || application.device_identity_sha256
+                != snapshot
+                    .playback
+                    .as_ref()
+                    .and_then(|p| p.backend.as_ref())
+                    .and_then(|b| {
+                        (b.backend == earph_core::control::OutputBackend::CoreAudio)
+                            .then_some(b.device_identity_sha256)
+                            .flatten()
+                    })
             || application.software_gain_db
                 != snapshot
                     .software_gain_db
@@ -1219,6 +1229,7 @@ fn activation_hash(
     #[derive(serde::Serialize)]
     struct BackendIdentity<'a> {
         backend: &'a earph_core::control::OutputBackend,
+        device_identity_sha256: &'a Option<earph_core::profiles::ProfileObjectHash>,
         client_format: &'a ObservedStreamFormat,
         device_format: &'a Option<ObservedStreamFormat>,
         measurement_boundary: &'static str,
@@ -1231,6 +1242,7 @@ fn activation_hash(
         .and_then(|p| p.backend.as_ref())
         .map(|b| BackendIdentity {
             backend: &b.backend,
+            device_identity_sha256: &b.device_identity_sha256,
             client_format: &b.client_format,
             device_format: &b.device_format,
             measurement_boundary: b.measurement_boundary,

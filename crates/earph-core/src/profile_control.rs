@@ -113,6 +113,7 @@ pub struct ProfileCatalogReference {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ProfileApplicationBinding {
     pub profile: ProfileCatalogReference,
+    pub device_identity_sha256: Option<ProfileObjectHash>,
     pub graph_sha256: ProfileObjectHash,
     pub source: crate::control::SourceKind,
     pub effective_policy: crate::safety::VolumePolicy,
@@ -453,6 +454,7 @@ pub struct ProfileCapabilities {
     pub save: bool,
     pub manual_resolution: bool,
     pub exact_associations: bool,
+    pub exact_association_backends: Vec<crate::control::OutputBackend>,
     pub apply: bool,
     pub application: ProfileApplicationCapabilities,
     pub correction_import: bool,

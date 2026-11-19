@@ -524,6 +524,9 @@ fn forbidden_text(text: &str) -> bool {
             "session_checkpoint",
             "persistent_uid",
             "device_uid",
+            "device_identity_sha256",
+            "verified_identity_sha256",
+            "profile_associations",
             "client_secret",
         ]
         .iter()
@@ -705,6 +708,22 @@ fn package_failure(operation: &ProfilePackageOperation, error: EngineError) -> P
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn local_device_identity_fields_cannot_enter_an_exact_byte_package() {
+        for key in [
+            "device_identity_sha256",
+            "verified_identity_sha256",
+            "profile_associations",
+        ] {
+            assert!(
+                forbidden(&serde_json::json!({"metadata":{(key):"a".repeat(64)}}).to_string()),
+                "{key}"
+            );
+        }
+        assert!(forbidden(
+            r#"{"metadata":{"device\u005fidentity_sha256":"test digest"}}"#
+        ));
+    }
     #[test]
     fn known_private_content_cannot_hide_behind_json_escapes() {
         assert!(forbidden(

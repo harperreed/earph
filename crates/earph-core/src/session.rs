@@ -18,6 +18,8 @@ use graph::GraphControl;
 #[path = "session_profiles.rs"]
 mod profiles;
 use profiles::ProfileControl;
+#[path = "session_associations.rs"]
+mod associations;
 
 // A fresh owner needs room for consent, preparation, activation, and transport acknowledgements.
 const RESTART_REVISION_HEADROOM: u64 = 64;
@@ -214,6 +216,7 @@ pub enum PreservationState {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BackendObservation {
     pub backend: OutputBackend,
+    pub device_identity_sha256: Option<crate::profiles::ProfileObjectHash>,
     /// Actual Rust-owned adapter audio storage; excludes metadata and opaque native storage.
     pub audio_storage_bytes: u64,
     pub client_format: ObservedStreamFormat,
@@ -308,6 +311,8 @@ pub struct SessionCheckpoint {
     pub graph_intent: Option<Arc<GraphIntent>>,
     #[serde(default)]
     pub profile_catalog: Vec<crate::profile_control::ProfileCatalogReference>,
+    #[serde(default)]
+    pub profile_associations: Vec<crate::profiles::ProfileAssociation>,
 }
 
 #[derive(Clone)]
@@ -414,6 +419,8 @@ impl Session {
             checkpoint.profile_catalog.capacity(),
         )?;
         session.profiles.references = checkpoint.profile_catalog;
+        session.profiles.associations = checkpoint.profile_associations;
+        session.validate_profile_associations(false)?;
         // Terminal observations can exhaust an owner after its last persisted command.
         session.state.revision = if checkpoint
             .revision
@@ -479,6 +486,7 @@ impl Session {
             output: self.state.output.clone(),
             graph_intent: self.graph.configured.clone(),
             profile_catalog: self.profiles.references.clone(),
+            profile_associations: self.profiles.associations.clone(),
         }
     }
     pub fn shutdown_requested(&self) -> bool {
@@ -540,7 +548,15 @@ impl Session {
                         profiles: crate::profile_control::ProfileCapabilities {
                             save: true,
                             manual_resolution: true,
-                            exact_associations: false,
+                            exact_associations: self.local_playback_enabled
+                                && cfg!(target_os = "macos"),
+                            exact_association_backends: if self.local_playback_enabled
+                                && cfg!(target_os = "macos")
+                            {
+                                vec![OutputBackend::CoreAudio]
+                            } else {
+                                vec![]
+                            },
                             apply: self.local_playback_enabled,
                             application: crate::profile_control::ProfileApplicationCapabilities {
                                 volume_modes: vec![VolumeMode::Software],
@@ -817,10 +833,7 @@ impl Session {
             return Err(STALE);
         }
         if matches!(command.payload, Command::ProfilesBind { .. }) {
-            return Err(EngineError::new(
-                ErrorCode::CapabilityUnsupported,
-                "verified native device association is unavailable",
-            ));
+            return self.apply_profile_bind(command, now_ns);
         }
         if matches!(command.payload, Command::ProfilesPrepare { .. }) {
             return self.apply_profile_prepare(command, now_ns);

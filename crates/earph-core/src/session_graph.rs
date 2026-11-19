@@ -763,9 +763,15 @@ impl Session {
             return Err(error);
         }
         if let Some(application) = &activation.request.prepared.preview.profile_application {
+            let observed_identity = observation.backend.as_ref().and_then(|backend| {
+                (backend.backend == OutputBackend::CoreAudio)
+                    .then_some(backend.device_identity_sha256)
+                    .flatten()
+            });
             let valid = self
                 .profile_application_binding(&application.profile, false)
-                .is_ok_and(|current| current == *application);
+                .is_ok_and(|current| current == *application)
+                && observed_identity == application.device_identity_sha256;
             if !valid {
                 let error = EngineError::new(
                     ErrorCode::StaleRevision,
@@ -907,6 +913,8 @@ impl Session {
 mod tests {
     use super::*;
     use crate::{audio::ChannelLayout, graph::*, safety::VolumeMode};
+
+    include!("session_profile_associations_tests.rs");
 
     fn fixture() -> Session {
         let mut s = Session::new_owner(
@@ -1066,6 +1074,7 @@ mod tests {
         let format = s.state.playback.as_ref().unwrap().format;
         s.state.playback.as_mut().unwrap().backend = Some(BackendObservation {
             backend: OutputBackend::Alsa,
+            device_identity_sha256: None,
             audio_storage_bytes: 256,
             client_format: format.into(),
             device_format: Some(format.into()),

@@ -231,6 +231,7 @@ fn snapshot() -> SessionSnapshot {
         output_peak: None,
         modified: false,
         backend: Some(BackendObservation {
+            device_identity_sha256: None,
             backend: OutputBackend::Alsa,
             audio_storage_bytes: 256,
             client_format: format.into(),
@@ -340,6 +341,7 @@ fn with_profile(mut request: GraphJobRequest) -> GraphJobRequest {
     use earph_core::{profile_control::*, profiles::*, safety::VolumePolicy};
     let hash = ProfileObjectHash::try_from("c".repeat(64)).unwrap();
     request.profile_application = Some(Arc::new(ProfileApplicationBinding {
+        device_identity_sha256: None,
         profile: ProfileCatalogReference {
             id: ProfileId::new("headphones").unwrap(),
             revision: 1,
@@ -383,6 +385,47 @@ fn profile_preparation_semantic_hash_binds_immutable_revision_and_caps() {
         "same kernel must not erase the selected saved revision"
     );
     assert_ne!(hashes[1], hashes[2]);
+}
+
+#[test]
+fn profile_preparation_rejects_substituted_native_identity() {
+    let mut state = snapshot();
+    state.output.as_mut().unwrap().backend = earph_core::control::OutputBackend::CoreAudio;
+    let backend = state.playback.as_mut().unwrap().backend.as_mut().unwrap();
+    backend.backend = earph_core::control::OutputBackend::CoreAudio;
+    backend.device_identity_sha256 = Some("1".repeat(64).try_into().unwrap());
+    let mut job = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
+    Arc::make_mut(job.profile_application.as_mut().unwrap()).device_identity_sha256 =
+        Some("2".repeat(64).try_into().unwrap());
+    let mut service = GraphService::spawn(None).unwrap();
+    service.submit(job, state, active_source()).unwrap();
+    assert_eq!(
+        completion(&mut service).result.err().unwrap().code,
+        earph_core::ErrorCode::StaleSession
+    );
+}
+
+#[test]
+fn profile_semantic_hash_tracks_observed_native_identity_without_hardware_claims() {
+    let mut service = GraphService::spawn(None).unwrap();
+    let mut hashes = vec![];
+    for n in [1, 2] {
+        let mut state = snapshot();
+        state.output.as_mut().unwrap().backend = earph_core::control::OutputBackend::CoreAudio;
+        let identity = Some(format!("{n:064x}").try_into().unwrap());
+        let backend = state.playback.as_mut().unwrap().backend.as_mut().unwrap();
+        backend.backend = earph_core::control::OutputBackend::CoreAudio;
+        backend.device_identity_sha256 = identity;
+        let mut job = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
+        job.validate_only = true;
+        Arc::make_mut(job.profile_application.as_mut().unwrap()).device_identity_sha256 = identity;
+        service.submit(job, state, active_source()).unwrap();
+        let result = completion(&mut service).result.unwrap();
+        hashes.push(result.preview.graph_hash.clone());
+        assert!(result.pipeline.is_none());
+        graph::wait_for_validation_publication(&service);
+    }
+    assert_ne!(hashes[0], hashes[1]);
 }
 
 #[test]

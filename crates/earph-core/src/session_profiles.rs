@@ -21,6 +21,7 @@ const STALE_PROFILE: EngineError = EngineError::new(
 #[derive(Clone, Default)]
 pub(super) struct ProfileControl {
     pub(super) references: Vec<ProfileCatalogReference>,
+    pub(super) associations: Vec<profiles::ProfileAssociation>,
     records: Arc<Vec<Arc<ProfileRecord>>>,
     pending: Option<ProfileWorkRequest>,
     pending_receipt: Option<Record>,
@@ -81,6 +82,7 @@ impl Session {
             .effective_policy(&self.state.local_volume_policy)?;
         Ok(Arc::new(ProfileApplicationBinding {
             profile: reference.clone(),
+            device_identity_sha256: self.profile_native_identity(),
             graph_sha256: profile.graph_sha256,
             source: SourceKind::LocalFile,
             software_gain_db: self
@@ -158,6 +160,7 @@ impl Session {
         }
         let mut staged = self.clone();
         staged.profiles.records = Arc::new(records);
+        staged.validate_profile_associations(true)?;
         if let Some(reference) = &staged.state.configured_profile {
             let record = staged.profile_record(reference)?;
             let output = staged.state.output.as_ref().ok_or(INVALID)?;
@@ -711,6 +714,13 @@ impl Session {
         result
     }
     fn stage_profile_record(&mut self, record: Arc<ProfileRecord>) -> Result<(), EngineError> {
+        if self.profiles.records.iter().any(|prior| {
+            prior.profile.id == record.profile.id && prior.profile.output != record.profile.output
+        }) {
+            self.profiles
+                .associations
+                .retain(|a| a.profile_id != record.profile.id);
+        }
         if self
             .state
             .configured_profile
@@ -751,11 +761,13 @@ impl Session {
             Command::ProfilesGet { .. }
                 | Command::ProfilesList { .. }
                 | Command::ProfilesResolve { .. }
+                | Command::ProfilesBind { .. }
         ) {
             return Ok(None);
         }
         self.require_profile_catalog()?;
         Ok(match command {
+            Command::ProfilesBind { id, .. } => self.profile_bound_result(id),
             Command::ProfilesGet { id } => Some(QueryResult::Profile(
                 self.profiles
                     .records
@@ -801,13 +813,22 @@ impl Session {
                     .collect();
                 Some(QueryResult::ProfileResolution(profiles::resolve_profile(
                     &documents,
-                    &[],
+                    &self.profiles.associations,
                     manual_profile_id.as_ref(),
                     Some(&ProfileDeviceContext {
                         backend: output.backend,
                         route: output.route,
                         device_id: output.device_id.clone(),
-                        verified_identity_sha256: None,
+                        verified_identity_sha256: self.observed_profile_device().ok().and_then(
+                            |_| {
+                                let selected = self.state.output.as_ref()?;
+                                (selected.backend == output.backend
+                                    && selected.route == output.route
+                                    && selected.device_id == output.device_id)
+                                    .then(|| self.profile_native_identity())
+                                    .flatten()
+                            },
+                        ),
                     }),
                 )?))
             }
@@ -912,6 +933,7 @@ impl Session {
     }
     fn profile_storage_capacity(&self) -> Result<usize, EngineError> {
         if self.profiles.references.is_empty()
+            && self.profiles.associations.capacity() == 0
             && self.profiles.records.is_empty()
             && self.profiles.pending.is_none()
             && self.profiles.pending_receipt.is_none()
@@ -922,8 +944,17 @@ impl Session {
             return Ok(0);
         }
         let mut bytes = size_of::<ProfileControl>()
+            + self.profiles.associations.capacity() * size_of::<profiles::ProfileAssociation>()
             + self.profiles.references.capacity() * size_of::<ProfileCatalogReference>()
             + self.profiles.records.capacity() * size_of::<Arc<ProfileRecord>>();
+        for association in &self.profiles.associations {
+            bytes = bytes
+                .checked_add(
+                    association.retained_capacity_bytes()?
+                        - size_of::<profiles::ProfileAssociation>(),
+                )
+                .ok_or(BUDGET)?;
+        }
         bytes = bytes
             .checked_add(self.graph_profile_metadata_bytes()?)
             .ok_or(BUDGET)?;
@@ -957,6 +988,9 @@ impl Session {
                     .checked_add(record.0.profile_capacity_bytes()?)
                     .ok_or(BUDGET)?;
                 let result = match &record.1.result {
+                    Some(QueryResult::ProfileBound(association)) => {
+                        association.retained_capacity_bytes()?
+                    }
                     Some(QueryResult::GraphPrepared(prepared)) => size_of::<GraphPrepared>()
                         .checked_add(prepared.token.capacity_bytes())
                         .and_then(|n| {

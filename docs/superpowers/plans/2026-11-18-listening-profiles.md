@@ -472,3 +472,34 @@ Only this appended checkpoint and its public receipt change after the reviewed s
 No runtime source change or suite rerun occurs in this documentation checkpoint.
 Root performs any later normal merge commit after verifying the final staged tree.
 Combined Mac, physical output, clean release, full Task4, completed T12, and release qualification remain pending.
+
+### Approved observed-device association unit
+
+Root approves the continuation contract `2c8d4b810a3c204dfb55053dc414b06028492c042f53d9911ac3fbb6cb6cf485`.
+Its source base is local merge checkpoint `d449f93eb0aed26ce0332dcbc2d43232162dc19e` in worktree `7ba8`.
+The uncommitted merge adds reviewed diagnostic prerequisite `98244f0d913204917fe1b66e3b974f4e6c99d801`.
+Only its two known files enter that prerequisite merge.
+
+Implement Core Audio native identity publication, bounded persisted associations, existing resolver wiring, and typed receipts/capabilities.
+Bind observed identity to the existing profile candidate/hash and persisted activation acknowledgment.
+Keep one owner, checkpoint, candidate store, and activation authority.
+Retain current consent, fixed arming, lower gain, independent caps, and exact-byte package privacy.
+ALSA associations remain unsupported without a stable native identity producer.
+Do not implement fixed-purpose preparation, hardware volume, or device/fidelity migration in this unit.
+
+Use TDD with retained RED/GREEN logs and actual numeric exits.
+After the final source freeze, run scoped checks and one canonical verification.
+Root assigns one independent main-model review before any normal local commit.
+The positive native owner E2E needs a later Root-released Mac gate.
+This local unit makes no new Mac, physical-output, full T12/AC-35, or release qualification claim.
+
+### Observed association local checkpoint
+
+Root accepts one independent review of the frozen observed-association unit.
+Canonical exits zero: 796 passed, zero failed, five ignored, with no compiler diagnostics.
+Scoped checks pass 357 tests and overlap canonical coverage.
+The added ignored stderr helper runs explicitly through its parent.
+The [local receipt](../../evidence/profiles/observed-associations-linux-precommit-20261119.json) binds the exact tested dirty tree and runtime.
+Only this checkpoint and its public-safe receipt change after that verification.
+Positive native owner E2E and combined Mac qualification remain pending.
+ALSA stable identity, fixed/hardware application, full T12/AC-35 and release remain unqualified.

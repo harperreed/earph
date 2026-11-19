@@ -581,6 +581,7 @@ pub enum QueryResult {
     Profile(Arc<ProfileRecord>),
     Profiles(ProfilePage),
     ProfileResolution(ProfileResolution),
+    ProfileBound(crate::profiles::ProfileAssociation),
     ProfilePackage(Arc<ProfilePackageResult>),
     ProfilePackageIssue(ProfilePackageIssue),
     FirAsset(crate::dsp_nodes::FirAssetReference),

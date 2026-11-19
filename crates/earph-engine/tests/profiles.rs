@@ -84,7 +84,15 @@ fn owner_advertises_bounded_application_and_refuses_imported_device_trust() {
     );
     let profiles = &capabilities["receipt"]["result"]["value"]["profiles"];
     assert_eq!(profiles["apply"], true);
-    assert_eq!(profiles["exact_associations"], false);
+    assert_eq!(profiles["exact_associations"], cfg!(target_os = "macos"));
+    assert_eq!(
+        profiles["exact_association_backends"],
+        if cfg!(target_os = "macos") {
+            json!(["core_audio"])
+        } else {
+            json!([])
+        }
+    );
     assert_eq!(
         profiles["application"],
         json!({"volume_modes":["software"],"requires_current_output":true,
@@ -98,7 +106,7 @@ fn owner_advertises_bounded_application_and_refuses_imported_device_trust() {
         "expected_profile_revision":1,"profile_sha256":"c".repeat(64),"expected_device_epoch":0}),
     );
     let denied = call(&runtime, &bind);
-    assert_eq!(denied["receipt"]["error"]["code"], "CAPABILITY_UNSUPPORTED");
+    assert_eq!(denied["receipt"]["error"]["code"], "STALE_SESSION");
     let mut imported_trust = bind;
     imported_trust["payload"]["device_identity_sha256"] = json!("d".repeat(64));
     assert_eq!(

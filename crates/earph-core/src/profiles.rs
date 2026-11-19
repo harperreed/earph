@@ -198,6 +198,17 @@ pub struct ProfileAssociation {
     pub device_identity_sha256: ProfileObjectHash,
     pub profile_id: ProfileId,
 }
+impl ProfileAssociation {
+    pub fn retained_capacity_bytes(&self) -> Result<usize, EngineError> {
+        let bytes = size_of::<Self>()
+            .checked_add(self.profile_id.capacity_bytes())
+            .ok_or(BUDGET)?;
+        if bytes > MAX_PROFILE_ASSOCIATION_BYTES {
+            return Err(BUDGET);
+        }
+        Ok(bytes)
+    }
+}
 
 /// The owner supplies actual device evidence. Imported profile data cannot deserialize this context.
 #[derive(Debug, Clone)]
@@ -266,13 +277,7 @@ pub fn resolve_profile(
         }
     }
     for association in associations {
-        if size_of::<ProfileAssociation>()
-            .checked_add(association.profile_id.capacity_bytes())
-            .ok_or(BUDGET)?
-            > MAX_PROFILE_ASSOCIATION_BYTES
-        {
-            return Err(BUDGET);
-        }
+        association.retained_capacity_bytes()?;
         let profile = profiles
             .iter()
             .find(|p| p.id == association.profile_id)

@@ -23,7 +23,7 @@ Use the current Session ID during playback.
 | `profiles.resolve` | `manual_profile_id`, `output` | A manual choice or an explicit selection requirement |
 | `profiles.prepare` | `id`, `expected_profile_revision`, `profile_sha256` | A short-lived shared graph candidate |
 | `profiles.apply` | `id`, `expected_profile_revision`, `profile_sha256`, `token`, `graph_hash` | A muted activation acknowledgment |
-| `profiles.bind` | `id`, `expected_profile_revision`, `profile_sha256`, `expected_device_epoch` | `CAPABILITY_UNSUPPORTED` until native identity is available |
+| `profiles.bind` | `id`, `expected_profile_revision`, `profile_sha256`, `expected_device_epoch` | A persisted local association for a currently observed native device |
 
 The draft contains `name`, `source_policy`, `fidelity`, `output`, `volume`, `latency`, and `corrections`.
 Its output selector contains backend, route, device ID, and an optional manual setup label.
@@ -31,6 +31,15 @@ Its volume fields use integer `software_cap_millidecibels` and optional `hardwar
 The owner converts these caps into the saved document's dB values.
 The graph payload uses `GraphIntent`: `graph` and `processing`.
 The owner computes hashes from the exact immutable bytes it stores.
+`profiles.bind` requires the current open local session and a matching saved selector, revision, hash, and device epoch.
+The owner observes native identity; clients cannot submit a trusted device digest or UID.
+Core Audio supports this identity path; ALSA exact binding remains unsupported until a stable native identity producer exists.
+`capabilities.get` reports `exact_association_backends` as implementation availability, rather than hardware qualification.
+An association never selects output, applies a profile, grants consent, arms fixed output, unmutes, or raises gain.
+The checkpoint retains at most 64 associations, with 512 retained bytes allowed per association.
+Two setups bound to one DAC require manual profile selection.
+Restart and Stop require fresh opened-backend evidence before an exact match can resolve.
+Packages exclude local associations and device identity, including known identity fields in correction metadata.
 Owner command paths use UTF-8 strings, including forwarded FIR imports.
 The direct Rust asset helper retains its native `Path` contract.
 Clients do not supply graph hashes beside graph payloads.
@@ -87,6 +96,8 @@ A different live output returns `SOURCE_BUSY`; Stop and select the output explic
 Use the exact immutable profile reference returned by `profiles.get` or the save receipt.
 Preparation first returns `accepted`; replay the identical envelope for its `GraphPrepared` result.
 That result's `preview.profile_application` binds the profile revision/hash, graph object hash, effective caps, gain, and limits.
+It also binds the optional native identity from the actual opened backend.
+Apply rejects changed identity; the acknowledgment must report the same identity before persistence and publication.
 It shares the existing graph candidate slot, five-second preparation deadline, and 30-second token lifetime.
 A profile token cannot be consumed by `graph.commit`, or an ordinary token by `profiles.apply`.
 Changes to Session revision, device/source epochs, profile reference, effective caps, or gain invalidate preparation.

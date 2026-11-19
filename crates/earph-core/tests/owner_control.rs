@@ -286,6 +286,7 @@ fn queue_query_bounds_worst_case_escaped_paths() {
         local_volume_policy: None,
         configured_profile: None,
         profile_catalog: vec![],
+        profile_associations: vec![],
         graph_intent: None,
         volume_policy: Default::default(),
         output: None,

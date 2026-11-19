@@ -52,6 +52,50 @@ fn observed(format: &StreamFormat) -> ObservedStreamFormat {
     }
 }
 
+fn backend_observation(
+    report: &earph_coreaudio::OutputReport,
+    audio_storage_bytes: u64,
+) -> Result<BackendObservation, EngineError> {
+    use sha2::{Digest, Sha256};
+    let uid = &report.observed.uid;
+    if uid.is_empty() || uid.len() > 1024 || !report.observed.alive {
+        return Err(EngineError::new(
+            ErrorCode::DeviceUnavailable,
+            "opened Core Audio device has no bounded native identity",
+        ));
+    }
+    let mut hash = Sha256::new();
+    hash.update(b"earph-native-device/core-audio/1\0");
+    hash.update((uid.len() as u64).to_le_bytes());
+    hash.update(uid.as_bytes());
+    let digest: String = hash
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let stream = report
+        .observed
+        .output_streams
+        .first()
+        .ok_or(EngineError::new(
+            ErrorCode::DeviceUnavailable,
+            "opened Core Audio device has no observed output stream",
+        ))?;
+    Ok(BackendObservation {
+        backend: OutputBackend::CoreAudio,
+        device_identity_sha256: Some(digest.try_into()?),
+        audio_storage_bytes,
+        client_format: observed(&stream.virtual_format),
+        device_format: Some(observed(&stream.physical)),
+        measurement_boundary: "core_audio_observed_stream_formats",
+        preservation: if report.requested.route == PlaybackRoute::Float32Compatibility {
+            PreservationState::Modified
+        } else {
+            PreservationState::Unverified
+        },
+    })
+}
+
 const FAULT_DIAGNOSTICS: usize = 32;
 struct FaultReporter {
     sender: std::sync::OnceLock<std::sync::mpsc::SyncSender<FaultDiagnostic>>,
@@ -124,8 +168,9 @@ fn write_fault_diagnostic(
     let record = serde_json::json!({"backend_fault": {
         "backend":"core_audio", "operation":operation, "error":error, "progress":progress,
     }});
-    serde_json::to_writer(&mut *writer, &record).map_err(std::io::Error::other)?;
-    writer.write_all(b"\n")
+    let mut bytes = serde_json::to_vec(&record).map_err(std::io::Error::other)?;
+    bytes.push(b'\n');
+    writer.write_all(&bytes)
 }
 
 #[cfg(test)]
@@ -237,6 +282,58 @@ mod tests {
     }
     fn format() -> PcmFormat {
         PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed24).unwrap()
+    }
+    #[test]
+    fn opened_report_identity_uses_observed_uid_and_rejects_unbounded_identity() {
+        let stream = serde_json::json!({"sample_rate_hz":48000.0,"format_id":u32::from_be_bytes(*b"lpcm"),"format_flags":12,"bytes_per_packet":6,"frames_per_packet":1,"bytes_per_frame":6,"channels_per_frame":2,"bits_per_channel":24});
+        // A typed snapshot is model input, not a native-device qualification receipt.
+        let observed: earph_coreaudio::DeviceSnapshot = serde_json::from_value(serde_json::json!({
+            "object_id":42,"uid":"observed-test-uid","name":"Test device","alive":true,
+            "nominal_rate_hz":48000.0,"nominal_rate_settable":false,"buffer_frames":512,
+            "buffer_frame_range":{"minimum":64.0,"maximum":1024.0},"hog_owner_pid":null,"hog_mode_settable":null,
+            "output_streams":[{"object_id":43,"physical":stream,"virtual_format":stream,"physical_settable":false,"virtual_settable":false,"available_physical":[],"available_virtual":[]}]
+        })).unwrap();
+        let mut report = earph_coreaudio::OutputReport {
+            requested: request(&config(), format()).unwrap(),
+            observed,
+            evidence_level: "registered_not_started",
+            payload_preservation: "unverified",
+            downstream_transformations: "unknown",
+        };
+        let first = backend_observation(&report, 256).unwrap();
+        assert_eq!(
+            first.device_identity_sha256.unwrap().as_str(),
+            "2623c24c4ddc8f681bd127f754e73154f3d8b6f7571cfe09f65d0a360f890165"
+        );
+        let serialized = serde_json::to_value(&first).unwrap();
+        assert!(serialized.get("uid").is_none());
+        assert_eq!(
+            serialized["device_identity_sha256"],
+            "2623c24c4ddc8f681bd127f754e73154f3d8b6f7571cfe09f65d0a360f890165"
+        );
+        report.requested.device_uid = "another-requested-uid".into();
+        report.observed.name = "Another display name".into();
+        report.observed.nominal_rate_hz = 96000.0;
+        assert_eq!(
+            backend_observation(&report, 512)
+                .unwrap()
+                .device_identity_sha256,
+            first.device_identity_sha256
+        );
+        report.observed.uid = "another-observed-uid".into();
+        assert_ne!(
+            backend_observation(&report, 512)
+                .unwrap()
+                .device_identity_sha256,
+            first.device_identity_sha256
+        );
+        for invalid in [String::new(), "x".repeat(1025)] {
+            report.observed.uid = invalid;
+            assert_eq!(
+                backend_observation(&report, 512).unwrap_err().code,
+                ErrorCode::DeviceUnavailable
+            );
+        }
     }
     #[test]
     fn explicit_uid_and_buffer_bounds_reach_the_native_request_without_a_default_route() {
@@ -423,5 +520,57 @@ mod tests {
         let (mut writer, peer) = std::os::unix::net::UnixStream::pair().unwrap();
         drop(peer);
         assert!(write_fault_diagnostic(&mut writer, "open", Some(error), None).is_err());
+    }
+
+    #[test]
+    fn native_fault_diagnostic_keeps_stderr_records_separate() {
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "output::coreaudio::tests::native_fault_diagnostic_stderr_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .output()
+            .unwrap();
+        assert!(child.status.success(), "{child:?}");
+        let records: Vec<serde_json::Value> = child
+            .stderr
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                serde_json::from_slice(line).expect("stderr record must remain complete JSON")
+            })
+            .collect();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0]["backend_fault"]["operation"], "open");
+        assert_eq!(records[1]["other_writer"], true);
+    }
+
+    #[test]
+    #[ignore = "Runs only in the parent's isolated stderr subprocess"]
+    fn native_fault_diagnostic_stderr_child() {
+        use std::io::{self, Write};
+        struct InterleavedStderr {
+            wrote: bool,
+        }
+        impl Write for InterleavedStderr {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                let count = io::stderr().write(bytes)?;
+                // Schedule a real competing writer after the producer's first write.
+                if !self.wrote {
+                    self.wrote = true;
+                    std::thread::spawn(|| io::stderr().write_all(b"{\"other_writer\":true}\n"))
+                        .join()
+                        .unwrap()?;
+                }
+                Ok(count)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                io::stderr().flush()
+            }
+        }
+        write_fault_diagnostic(&mut InterleavedStderr { wrote: false }, "open", None, None)
+            .unwrap();
     }
 }

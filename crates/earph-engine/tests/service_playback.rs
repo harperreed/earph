@@ -632,6 +632,27 @@ fn executable_profile_application_stays_muted_and_renders_exact_saved_intent() {
     append_selected(controller, &source);
     start(controller);
     controller.wait(|s| s["transport"] == "buffering");
+    let opened = controller.state();
+    assert!(opened["playback"]["backend"]["device_identity_sha256"].is_null());
+    let bind = controller.document(
+        json!({"method":"profiles.bind","id":"headphones","expected_profile_revision":1,
+        "profile_sha256":saved["profile_sha256"],"expected_device_epoch":opened["device_epoch"]}),
+        None,
+    );
+    let refused = controller.send(&bind);
+    assert_eq!(
+        refused["receipt"]["error"]["code"],
+        "CAPABILITY_UNSUPPORTED"
+    );
+    assert_eq!(controller.state()["output_consented"], true);
+    assert_eq!(
+        controller.state()["software_gain_db"],
+        opened["software_gain_db"]
+    );
+    assert_eq!(
+        controller.query(json!({"method":"capabilities.get"}))["profiles"]["exact_association_backends"],
+        json!([])
+    );
     let prepare = controller.document(json!({"method":"profiles.prepare","id":"headphones","expected_profile_revision":1,"profile_sha256":saved["profile_sha256"]}), None);
     assert_eq!(controller.send(&prepare)["receipt"]["status"], "accepted");
     let prepared_receipt = controller.settled(&prepare);
