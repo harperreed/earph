@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# ABOUTME: Qualifies the desktop model and real owner-process E2E without opening output.
+# ABOUTME: Uses the shared workspace lock and retains every local check artifact.
+set -euo pipefail
+package_root=$(cd "$(dirname "$0")/.." && pwd)
+repo_root=$(cd "$package_root/../.." && pwd)
+artifact_root=${1:?usage: crates/earph-desktop/scripts/check NEW_ABSOLUTE_ARTIFACT_DIRECTORY}
+case "$artifact_root" in /*) ;; *) printf 'error: artifact directory must be absolute\n' >&2; exit 2;; esac
+if test -e "$artifact_root"; then printf 'error: preserve the existing directory and choose a new artifact path\n' >&2; exit 2; fi
+mkdir -p "$artifact_root/tmp" "$artifact_root/build"
+export TMPDIR="$artifact_root/tmp"
+export CARGO_TARGET_DIR="$artifact_root/build"
+cargo build --manifest-path "$repo_root/Cargo.toml" --locked -p earph-engine --bin earph-engine > "$artifact_root/owner-build.log" 2>&1
+cargo fmt --manifest-path "$package_root/Cargo.toml" -- --check > "$artifact_root/format.log" 2>&1
+cargo clippy --manifest-path "$repo_root/Cargo.toml" --locked -p earph-desktop --all-targets -- -D warnings > "$artifact_root/clippy.log" 2>&1
+cargo test --manifest-path "$repo_root/Cargo.toml" --locked -p earph-desktop -- --nocapture > "$artifact_root/tests.log" 2>&1
+printf 'Desktop client/model checks passed. Retained logs: %s\n' "$artifact_root"

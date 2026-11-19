@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "Attach-only desktop client, bounded dispatcher, and presentation model",
+  "source": {
+    "base_commit": "043025bdb61bf8c0ba3e4314efbc9aef54817000",
+    "dirty_precommit": true,
+    "original_files": 19,
+    "original_manifest_sha256": "9e5f23b59c4e86b7c81968a5120aca9cbde2eafd9006324ca9422218f1a91f5f",
+    "corrected_two_file_record_sha256": "7572b95eb8e6959303ebacb5d4dcd5f674ff5c90be7109d1b0ba69f431d66e69",
+    "source_mismatches": 0
+  },
+  "package_check": {
+    "passed": 22,
+    "failed": 0,
+    "ignored": 0,
+    "child_exit_code": 0,
+    "clippy_exit_code": 0,
+    "format_exit_code": 0,
+    "log_sha256": "a3c106c74ce20c7686073ba06b6bec4040fd4f4cd1ca38f826bb294eb5c8cf6c"
+  },
+  "review": {
+    "status": "approved_same_review_reconciliation",
+    "material_findings": 0,
+    "receipt_sha256": "977d144a30683eba6d0b91e3d35af2a3c9166db09dcfd50a85c348401ee87687"
+  },
+  "regression": {
+    "kind": "Reconstructed old coalescing predicate against actual owner",
+    "red_exit_code": 101,
+    "red_log_sha256": "2053d5b4a5b8330596b8962a60853ac0bbd5c24261dc9c27c8d572a688888748"
+  },
+  "limitations": [
+    "No GUI, native dialogs, package installation, or new macOS desktop qualification.",
+    "Playback, graph, and profile result bodies remain opaque.",
+    "The isolated package is not yet a shared workspace member.",
+    "The base workspace canonical651/4 does not qualify newer integrated source.",
+    "The package-local lock remains ignored; Root will preserve the authoritative shared resolution.",
+    "Post-gate edits update only documentation and this receipt."
+  ]
+}
