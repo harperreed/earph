@@ -1,0 +1,3 @@
+# ABOUTME: Keeps the temporary package-local resolution outside lasting workspace inputs.
+# ABOUTME: Preserves the local lock while Root owns shared dependency integration.
+/Cargo.lock

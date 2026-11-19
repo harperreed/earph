@@ -1,0 +1,19 @@
+# ABOUTME: Defines the attach-only desktop client and bounded presentation model.
+# ABOUTME: Temporarily isolates local checks until Root integrates the shared workspace.
+[package]
+name = "earph-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+
+# Root removes this temporary package root during shared-workspace integration.
+[workspace]
+resolver = "3"
+
+[dependencies]
+earph-core = { version = "=0.1.0", path = "../earph-core" }
+earph-engine = { version = "=0.1.0", path = "../earph-engine" }
+earph-ffi = { version = "=0.1.0", path = "../earph-ffi" }
+serde = { version = "=1.0.229", features = ["derive", "rc"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
