@@ -1,5 +1,6 @@
 // ABOUTME: Coordinates bounded native workflows using actual owner snapshots and receipts.
 // ABOUTME: Fences queue pages and captured edits without repairing stale targets.
+use super::profile_files::{CorrectionPreview, CorrectionPreviewRequest, CorrectionWorker};
 use super::{HostStatus, host::OwnerHost, request_id};
 use crate::{
     CapabilitiesView, DeliveryFailure, DesktopClient, DeviceQueryResultView, DispatchError,
@@ -48,6 +49,19 @@ pub enum UiIntent {
         basis: Arc<StateView>,
         command: Command,
     },
+    PreviewCorrection {
+        basis: Arc<StateView>,
+        request: CorrectionPreviewRequest,
+    },
+    InvalidateCorrection,
+    ReviewCorrection {
+        owner: OwnerId,
+        reference: earph_core::profile_control::ProfileCatalogReference,
+    },
+    ReviewFirAsset {
+        owner: OwnerId,
+        asset: earph_core::dsp_nodes::FirAssetReference,
+    },
     DiscardPreparedGraph,
     Mute,
     Stop,
@@ -82,6 +96,17 @@ fn same_context(a: &StateView, b: &StateView) -> bool {
         && a.graph_epoch == b.graph_epoch
         && a.active_entry_id == b.active_entry_id
 }
+fn same_review_context(a: &StateView, b: &StateView) -> bool {
+    a.owner_id == b.owner_id
+        && a.zone_id == b.zone_id
+        && a.session_id == b.session_id
+        && a.epochs == b.epochs
+        && a.output == b.output
+        && a.device_epoch == b.device_epoch
+        && a.graph_epoch == b.graph_epoch
+        && a.active_entry_id == b.active_entry_id
+        && a.source == b.source
+}
 pub(super) struct ObservedProfile<T> {
     pub basis: Arc<StateView>,
     pub request_ids: Vec<RequestId>,
@@ -97,6 +122,18 @@ pub(super) struct ProfileViews {
     pub preview: Option<ObservedProfile<Arc<GraphPreviewView>>>,
     pub prepared: Option<ObservedProfile<GraphPreparedView>>,
     pub diagnostic: Option<(RequestId, Arc<GraphDiagnosticView>)>,
+    pub fir_asset: Option<ObservedProfile<Arc<earph_core::dsp_nodes::FirAssetReference>>>,
+}
+struct LocalCorrection {
+    basis: Arc<StateView>,
+    draft_epoch: u64,
+    worker: CorrectionWorker,
+    canceled: bool,
+}
+struct CapturedCorrection {
+    basis: Arc<StateView>,
+    draft_epoch: u64,
+    value: CorrectionPreview,
 }
 struct ProfileRead {
     basis: Arc<StateView>,
@@ -106,6 +143,11 @@ struct ProfileRead {
     ids: Vec<RequestId>,
 }
 enum Task {
+    LocalPreview {
+        basis: Arc<StateView>,
+        request: CorrectionPreviewRequest,
+        draft_epoch: u64,
+    },
     Before,
     Capabilities,
     Page(usize),
@@ -138,7 +180,10 @@ impl Task {
     fn edits_foreground(&self) -> bool {
         matches!(
             self,
-            Self::Preflight { .. } | Self::Mutation { .. } | Self::Discovery { .. }
+            Self::Preflight { .. }
+                | Self::Mutation { .. }
+                | Self::Discovery { .. }
+                | Self::LocalPreview { .. }
         ) || match self {
             Self::ProfileBefore { foreground, .. } => *foreground,
             Self::ProfileResult(read) | Self::ProfileAfter { read, .. } => read.foreground,
@@ -177,6 +222,14 @@ pub struct GuiController {
     runtime: Option<String>,
     pub(super) profiles: ProfileViews,
     draft_epoch: u64,
+    local_correction: Option<LocalCorrection>,
+    local_preview: Option<CapturedCorrection>,
+    local_status: String,
+    correction_review: Option<(
+        Arc<StateView>,
+        earph_core::profile_control::ProfileCatalogReference,
+    )>,
+    fir_review: Option<(Arc<StateView>, earph_core::dsp_nodes::FirAssetReference)>,
 }
 impl Default for GuiController {
     fn default() -> Self {
@@ -216,12 +269,182 @@ impl GuiController {
             runtime: None,
             profiles: ProfileViews::default(),
             draft_epoch: 0,
+            local_correction: None,
+            local_preview: None,
+            local_status: "No local correction worker".into(),
+            correction_review: None,
+            fir_review: None,
         }
     }
     pub fn state(&self) -> Option<&StateView> {
         self.model()
             .latest_state()
             .map(|observed| observed.state.as_ref())
+    }
+    pub fn correction_preview(&self) -> Option<&CorrectionPreview> {
+        self.local_preview.as_ref().map(|capture| &capture.value)
+    }
+    pub fn correction_preview_current(&self) -> bool {
+        self.local_preview.as_ref().is_some_and(|capture| {
+            capture.draft_epoch == self.draft_epoch
+                && self
+                    .state()
+                    .is_some_and(|state| same_context(&capture.basis, state))
+        })
+    }
+    pub fn local_correction_pending(&self) -> bool {
+        self.local_correction.is_some()
+            || matches!(self.waiting_edit, Some(Task::LocalPreview { .. }))
+    }
+    pub fn local_correction_status(&self) -> &str {
+        &self.local_status
+    }
+    pub fn fir_asset(&self) -> Option<&earph_core::dsp_nodes::FirAssetReference> {
+        self.profiles.fir_asset.as_ref().map(|a| a.value.as_ref())
+    }
+    pub fn correction_reviewed(
+        &self,
+        reference: &earph_core::profile_control::ProfileCatalogReference,
+    ) -> bool {
+        self.correction_review
+            .as_ref()
+            .is_some_and(|(basis, saved)| {
+                self.state()
+                    .is_some_and(|state| same_review_context(basis, state))
+                    && saved == reference
+            })
+    }
+    pub fn fir_asset_reviewed(&self) -> bool {
+        self.fir_review.as_ref().is_some_and(|(basis, asset)| {
+            self.state()
+                .is_some_and(|state| same_review_context(basis, state))
+                && self.fir_asset() == Some(asset)
+        })
+    }
+    pub fn profile_review_available(
+        &self,
+        reference: &earph_core::profile_control::ProfileCatalogReference,
+    ) -> bool {
+        self.profile_record().is_some_and(|record| {
+            record.profile.id == reference.id
+                && record.profile.revision == reference.revision
+                && record.profile_sha256 == reference.profile_sha256
+                && (record.corrections.is_empty() || self.correction_reviewed(reference))
+        })
+    }
+    fn invalidate_correction(&mut self) {
+        self.local_preview = None;
+        self.correction_review = None;
+        self.fir_review = None;
+        if self.waiting_edit.as_ref().is_some_and(correction_unsent) {
+            if matches!(self.waiting_edit, Some(Task::LocalPreview { .. })) {
+                self.local_status = "Correction preview canceled before worker start".into();
+            }
+            self.waiting_edit = None;
+        }
+        if let Some((_, task)) = self.pending.as_mut()
+            && correction_unsent(task)
+        {
+            *task = Task::Before;
+        }
+        if let Some(local) = self.local_correction.as_mut() {
+            local.worker.cancel();
+            local.canceled = true;
+            self.local_status = "Correction preview cancellation requested; worker retiring".into();
+        }
+    }
+    fn start_local(&mut self, task: Task) -> Result<(), String> {
+        let Task::LocalPreview {
+            basis,
+            request,
+            draft_epoch,
+        } = task
+        else {
+            return Err("Missing local correction capture".into());
+        };
+        if self.local_correction.is_some()
+            || draft_epoch != self.draft_epoch
+            || self.state().is_none_or(|s| !same_context(&basis, s))
+        {
+            return Err(
+                "Correction capture changed before preview; review and submit again".into(),
+            );
+        }
+        self.local_correction = Some(LocalCorrection {
+            basis,
+            draft_epoch,
+            worker: CorrectionWorker::start(request)?,
+            canceled: false,
+        });
+        self.local_status = "Reading and parsing correction source; worker running".into();
+        Ok(())
+    }
+    fn poll_local(&mut self) {
+        let Some(result) = self
+            .local_correction
+            .as_mut()
+            .and_then(|local| local.worker.poll())
+        else {
+            return;
+        };
+        let local = self.local_correction.take().unwrap();
+        if local.canceled
+            || local.draft_epoch != self.draft_epoch
+            || !self.connected()
+            || self.state().is_none_or(|s| !same_context(&local.basis, s))
+        {
+            self.local_status = "Correction preview discarded; worker retired".into();
+            return;
+        }
+        self.local_status = "Correction preview worker retired".into();
+        match result {
+            Ok(preview) => {
+                self.local_preview = Some(CapturedCorrection {
+                    basis: local.basis,
+                    draft_epoch: local.draft_epoch,
+                    value: preview,
+                });
+            }
+            Err(error) => self.error = Some(error),
+        }
+    }
+    fn validate_correction_action(
+        &self,
+        basis: &StateView,
+        command: &Command,
+    ) -> Result<(), String> {
+        if !matches!(
+            command,
+            Command::ProfilesImport { .. } | Command::FirImport { .. }
+        ) {
+            return Ok(());
+        }
+        if !self.correction_preview_current()
+            || self.state().is_none_or(|state| !same_context(basis, state))
+        {
+            return Err(
+                "Correction preview context or draft changed; preview again before import".into(),
+            );
+        }
+        let preview = self
+            .correction_preview()
+            .ok_or("Preview the correction source before import")?;
+        let matches = match (command, preview) {
+            (Command::ProfilesImport { input, .. }, preview) => input.as_ref() == &preview.input(),
+            (
+                Command::FirImport { path, purpose },
+                CorrectionPreview::Fir {
+                    path: selected,
+                    manifest,
+                },
+            ) => path == selected && *purpose == manifest.asset.purpose,
+            _ => false,
+        };
+        if matches {
+            Ok(())
+        } else {
+            Err("Correction command differs from the exact previewed input".into())
+        }
     }
     pub fn queue(&self) -> Option<&QueueView> {
         self.queue.as_ref()
@@ -246,9 +469,63 @@ impl GuiController {
             && self
                 .prepared_graph()
                 .zip(self.state())
-                .is_some_and(|(prepared, state)| prepared_matches_state(prepared, state))
+                .is_some_and(|(prepared, state)| {
+                    prepared_matches_state(prepared, state)
+                        && prepared
+                            .preview
+                            .profile_application
+                            .as_ref()
+                            .is_none_or(|application| {
+                                self.profile_review_available(&application.profile)
+                            })
+                })
     }
     fn validate_prepared_action(&self, state: &StateView, command: &Command) -> Result<(), String> {
+        if let Command::GraphPrepare { graph, .. } = command
+            && let Some(record) = self.profile_record().filter(|record| {
+                !record.corrections.is_empty() && record.graph.graph.as_ref() == graph.as_ref()
+            })
+            && !self.correction_reviewed(&earph_core::profile_control::ProfileCatalogReference {
+                id: record.profile.id.clone(),
+                revision: record.profile.revision,
+                profile_sha256: record.profile_sha256,
+            })
+        {
+            return Err("Review the actual owner-returned correction before Prepare".into());
+        }
+        let profile = match command {
+            Command::ProfilesPrepare {
+                id,
+                expected_profile_revision,
+                profile_sha256,
+            }
+            | Command::ProfilesApply {
+                id,
+                expected_profile_revision,
+                profile_sha256,
+                ..
+            } => Some(earph_core::profile_control::ProfileCatalogReference {
+                id: id.clone(),
+                revision: *expected_profile_revision,
+                profile_sha256: *profile_sha256,
+            }),
+            _ => None,
+        };
+        if let Some(reference) = profile {
+            let record = self
+                .profile_record()
+                .filter(|r| {
+                    r.profile.id == reference.id
+                        && r.profile.revision == reference.revision
+                        && r.profile_sha256 == reference.profile_sha256
+                })
+                .ok_or("Observe the exact saved profile before Prepare or Apply")?;
+            if !record.corrections.is_empty() && !self.correction_reviewed(&reference) {
+                return Err(
+                    "Review the actual owner-returned correction before Prepare or Apply".into(),
+                );
+            }
+        }
         let (token, hash) = match command {
             Command::GraphCommit { token, graph_hash }
             | Command::ProfilesApply {
@@ -294,6 +571,20 @@ impl GuiController {
         receipt: &crate::ReceiptView,
         draft_epoch: u64,
     ) -> Result<(), String> {
+        let captured = self
+            .model()
+            .record(id)
+            .ok_or("Profile action request identity unavailable")?;
+        let envelope = captured.request.envelope();
+        if captured.owner_changed
+            || self.state().is_none_or(|state| {
+                state.owner_id != envelope.owner_id || state.zone_id != envelope.zone_id
+            })
+        {
+            return Err(
+                "Profile action owner or zone changed; its exact receipt remains in history".into(),
+            );
+        }
         if matches!(
             command,
             Command::GraphCommit { .. } | Command::ProfilesApply { .. }
@@ -387,7 +678,16 @@ impl GuiController {
                 self.profiles.catalog = Some(observed!((*value).clone()))
             }
             ResultView::Profile(value) | ResultView::ProfileSaved(value) => {
+                if self.profiles.record.as_ref().is_none_or(|old| {
+                    old.basis.owner_id != basis.owner_id || old.value.as_ref() != value.as_ref()
+                }) {
+                    self.correction_review = None;
+                }
                 self.profiles.record = Some(observed!(value))
+            }
+            ResultView::FirAsset(value) => {
+                self.fir_review = None;
+                self.profiles.fir_asset = Some(observed!(value));
             }
             ResultView::ProfileResolution(value) => {
                 self.profiles.resolution = Some(observed!(value))
@@ -409,7 +709,8 @@ impl GuiController {
         self.queue_stale
     }
     pub fn queue_edit_pending(&self) -> bool {
-        self.waiting_edit.is_some()
+        self.local_correction.is_some()
+            || self.waiting_edit.is_some()
             || self
                 .pending
                 .as_ref()
@@ -467,7 +768,8 @@ impl GuiController {
         self.client.is_some()
     }
     pub fn busy(&self) -> bool {
-        self.pending.is_some()
+        self.local_correction.is_some()
+            || self.pending.is_some()
             || self.waiting_edit.is_some()
             || self.cleanup.is_some()
             || self.host.launching()
@@ -491,6 +793,7 @@ impl GuiController {
         self.closing
             && self.client.is_none()
             && self.cleanup.is_none()
+            && self.local_correction.is_none()
             && !self.host.launching()
             && (!self.wait_for_child || !self.host.has_child())
     }
@@ -546,6 +849,7 @@ impl GuiController {
                 Ok(())
             }
             UiIntent::DiscardPreparedGraph => {
+                self.invalidate_correction();
                 self.profiles.prepared = None;
                 self.draft_epoch = self
                     .draft_epoch
@@ -553,8 +857,72 @@ impl GuiController {
                     .ok_or("Graph draft generation exhausted")?;
                 Ok(())
             }
+            UiIntent::InvalidateCorrection => {
+                self.invalidate_correction();
+                self.profiles.prepared = None;
+                self.draft_epoch = self
+                    .draft_epoch
+                    .checked_add(1)
+                    .ok_or("Draft generation exhausted")?;
+                Ok(())
+            }
+            UiIntent::PreviewCorrection { basis, request } => {
+                if !self.control_edit_available() {
+                    return Err("A foreground action is waiting, pending, or uncertain".into());
+                }
+                self.invalidate_correction();
+                let task = Task::LocalPreview {
+                    basis,
+                    request,
+                    draft_epoch: self.draft_epoch,
+                };
+                if self.pending.is_some() {
+                    self.local_status =
+                        "Correction preview captured; waiting for foreground slot".into();
+                    self.waiting_edit = Some(task);
+                    Ok(())
+                } else {
+                    self.start_local(task)
+                }
+            }
+            UiIntent::ReviewCorrection { owner, reference } => {
+                let observed = self
+                    .profiles
+                    .record
+                    .as_ref()
+                    .ok_or("Get the actual imported profile before review")?;
+                if self.state().and_then(|s| s.owner_id.as_ref()) != Some(&owner)
+                    || observed.basis.owner_id.as_ref() != Some(&owner)
+                    || observed.value.profile.id != reference.id
+                    || observed.value.profile.revision != reference.revision
+                    || observed.value.profile_sha256 != reference.profile_sha256
+                    || observed.value.corrections.is_empty()
+                {
+                    return Err(
+                        "Actual correction owner or saved facts changed; review again".into(),
+                    );
+                }
+                self.correction_review = Some((
+                    Arc::new(self.state().ok_or("Owner state unavailable")?.clone()),
+                    reference,
+                ));
+                Ok(())
+            }
+            UiIntent::ReviewFirAsset { owner, asset } => {
+                if self.state().and_then(|s| s.owner_id.as_ref()) != Some(&owner)
+                    || self.fir_asset() != Some(&asset)
+                {
+                    return Err("Actual verified FIR owner or asset changed; review again".into());
+                }
+                self.fir_review = Some((
+                    Arc::new(self.state().ok_or("Owner state unavailable")?.clone()),
+                    asset,
+                ));
+                Ok(())
+            }
             UiIntent::ProfileAction { basis, command } => {
                 validate_profile_command(&command)?;
+                self.validate_correction_action(&basis, &command)?;
                 if !self.control_edit_available() {
                     return Err("A foreground action is waiting, pending, or uncertain".into());
                 }
@@ -682,6 +1050,7 @@ impl GuiController {
             UiIntent::Stop => self.safety_command(Command::Stop),
             UiIntent::Reconcile(id) => self.reconcile(&id),
             UiIntent::ShutdownAndQuit => {
+                self.invalidate_correction();
                 self.waiting_edit = None;
                 if self.shutdown.is_some() {
                     return Err("Shutdown already has an outstanding receipt".into());
@@ -748,6 +1117,7 @@ impl GuiController {
         }
     }
     fn cancel_unsent(&mut self) {
+        self.invalidate_correction();
         self.waiting_edit = None;
         if let Some((_, task)) = self.pending.as_mut()
             && matches!(task, Task::Preflight { .. } | Task::ProfileBefore { .. })
@@ -874,6 +1244,7 @@ impl GuiController {
         Ok(())
     }
     fn disconnect(&mut self, close: bool) {
+        self.invalidate_correction();
         self.closing |= close;
         self.shutdown = None;
         if !close {
@@ -899,6 +1270,7 @@ impl GuiController {
         }
     }
     pub fn tick(&mut self, now: Instant) {
+        self.poll_local();
         if let Some(runtime) = self.host.poll()
             && !self.closing
             && let Err(e) = self.attach(runtime)
@@ -924,6 +1296,7 @@ impl GuiController {
         }
         if let Some(observed) = self.model().latest_state().map(|o| o.state.clone()) {
             if previous_owner != observed.owner_id {
+                self.invalidate_correction();
                 self.capabilities = None;
                 self.discovery = None;
                 self.inspection = None;
@@ -1071,8 +1444,14 @@ impl GuiController {
             self.refresh = true;
         }
         self.poll_accepted(now);
-        if self.client.is_some() && self.pending.is_none() {
+        if self.client.is_some() && self.pending.is_none() && self.local_correction.is_none() {
             if let Some(task) = self.waiting_edit.take() {
+                if matches!(task, Task::LocalPreview { .. }) {
+                    if let Err(error) = self.start_local(task) {
+                        self.error = Some(error);
+                    }
+                    return;
+                }
                 let command = match &task {
                     Task::Discovery { command, .. } => command.clone(),
                     _ => Command::State,
@@ -1224,6 +1603,9 @@ impl GuiController {
         command: &Command,
     ) -> Result<(), String> {
         match task {
+            Task::LocalPreview { .. } => {
+                Err("Local correction preview cannot consume an owner receipt".into())
+            }
             Task::Before => {
                 let Some(ResultView::State(state)) = receipt.result else {
                     return Err("State result unavailable".into());
@@ -1339,6 +1721,9 @@ impl GuiController {
                             .into(),
                     );
                 }
+                if is_profile_mutation(&command) && draft_epoch != self.draft_epoch {
+                    return Err("Draft changed before submission; review and submit again".into());
+                }
                 if self.model().records().iter().any(|r| {
                     !r.owner_changed
                         && !r.request.envelope().payload.is_query()
@@ -1347,6 +1732,7 @@ impl GuiController {
                     return Err("A sent action became uncertain; reconcile its exact request before another edit".into());
                 }
                 if is_profile_mutation(&command) {
+                    self.validate_correction_action(&state, &command)?;
                     self.validate_prepared_action(&state, &command)?;
                 }
                 let request = match session {
@@ -1365,7 +1751,10 @@ impl GuiController {
                     self.queue_stale = true;
                     let observe = if matches!(
                         command,
-                        Command::ProfilesCreate { .. } | Command::ProfilesUpdate { .. }
+                        Command::ProfilesCreate { .. }
+                            | Command::ProfilesUpdate { .. }
+                            | Command::ProfilesImport { .. }
+                            | Command::FirImport { .. }
                     ) {
                         Command::ProfilesList {
                             offset: 0,
@@ -1501,6 +1890,7 @@ impl Drop for GuiController {
         if let Some(join) = self.cleanup.take() {
             let _ = join.join();
         }
+        self.local_correction.take();
     }
 }
 fn validate_runtime(runtime: &str) -> Result<(), String> {
@@ -1533,10 +1923,22 @@ fn is_transport_operation(command: &Command) -> bool {
         Command::Start { .. } | Command::Resume | Command::Pause | Command::Seek { .. }
     )
 }
+fn correction_unsent(task: &Task) -> bool {
+    matches!(
+        task,
+        Task::LocalPreview { .. }
+            | Task::Preflight {
+                command: Command::ProfilesImport { .. } | Command::FirImport { .. },
+                ..
+            }
+    )
+}
 fn is_profile_mutation(command: &Command) -> bool {
     matches!(
         command,
         Command::ProfilesCreate { .. }
+            | Command::ProfilesImport { .. }
+            | Command::FirImport { .. }
             | Command::ProfilesUpdate { .. }
             | Command::ProfilesPrepare { .. }
             | Command::ProfilesApply { .. }
@@ -1570,6 +1972,24 @@ fn validate_profile_result(command: &Command, result: &ResultView) -> Result<(),
             &record.profile.id == id
                 && record.profile.revision == 1
                 && saved_matches_draft(record, draft, graph)
+        }
+        (
+            Command::ProfilesImport {
+                id,
+                expected_profile_revision,
+                draft,
+                input,
+            },
+            ResultView::ProfileSaved(record),
+        ) => {
+            &record.profile.id == id
+                && expected_profile_revision.unwrap_or(0).checked_add(1)
+                    == Some(record.profile.revision)
+                && saved_profile_policy_matches(record, draft)
+                && imported_matches_input(record, input)
+        }
+        (Command::FirImport { purpose, .. }, ResultView::FirAsset(asset)) => {
+            asset.purpose == *purpose && asset.validate().is_ok()
         }
         (
             Command::ProfilesUpdate {
@@ -1638,9 +2058,16 @@ fn saved_matches_draft(
     draft: &earph_core::profile_control::ProfileDraft,
     graph: &earph_core::graph_control::GraphIntent,
 ) -> bool {
-    let profile = &record.profile;
     record.graph.as_ref() == graph
-        && profile.name == draft.name
+        && record.profile.corrections == draft.corrections
+        && saved_profile_policy_matches(record, draft)
+}
+fn saved_profile_policy_matches(
+    record: &ProfileRecordView,
+    draft: &earph_core::profile_control::ProfileDraft,
+) -> bool {
+    let profile = &record.profile;
+    profile.name == draft.name
         && profile.source_policy == draft.source_policy
         && profile.fidelity == draft.fidelity
         && profile.output.backend == draft.output.backend
@@ -1659,7 +2086,95 @@ fn saved_matches_draft(
         && profile.latency.max_resident_bytes == draft.latency.max_resident_bytes
         && profile.latency.max_preparation_bytes == draft.latency.max_preparation_bytes
         && profile.latency.max_latency_frames == draft.latency.max_latency_frames
-        && profile.corrections == draft.corrections
+}
+fn imported_matches_input(
+    record: &ProfileRecordView,
+    input: &earph_core::profile_control::ProfileCorrectionInput,
+) -> bool {
+    use earph_core::profile_control::ProfileCorrectionInput;
+    if record.corrections.len() != 1
+        || record.profile.corrections.len() != 1
+        || record.correction_preview.is_none()
+        || record.graph.processing
+            != (earph_core::graph::GraphProcessingRequest::Float64 {
+                quantization: earph_core::graph::QuantizationPolicy::RoundTiesAwaySaturateNoDither,
+            })
+    {
+        return false;
+    }
+    let object = &record.corrections[0];
+    let digest: String = {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(object.document_json.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    };
+    if object.object_sha256.as_str() != digest
+        || record.profile.corrections[0].object_sha256 != object.object_sha256
+        || record.profile.corrections[0].kind != object.kind
+    {
+        return false;
+    }
+    match input {
+        ProfileCorrectionInput::TextReport { report_json, .. } => {
+            let expected =
+                earph_media::correction_text::read_correction_report(report_json.as_bytes());
+            let actual = earph_media::correction_text::read_correction_report(
+                object.document_json.as_bytes(),
+            );
+            match (expected, actual) {
+                (Ok(expected), Ok(actual)) => {
+                    object.kind == earph_core::profiles::ProfileCorrectionKind::TextReport
+                        && expected == actual
+                        && record.graph.graph.as_ref() == &actual.graph
+                        && correction_preview_matches(record, actual.context, actual.preamp_db)
+                }
+                _ => false,
+            }
+        }
+        ProfileCorrectionInput::Fir {
+            purpose,
+            context,
+            metadata_json,
+            preamp_db,
+            ..
+        } => {
+            let actual = earph_media::read_fir_manifest(object.document_json.as_bytes());
+            actual.is_ok_and(|manifest| {
+                object.kind == earph_core::profiles::ProfileCorrectionKind::FirManifest
+                    && manifest.asset.purpose == *purpose
+                    && manifest.context.sample_rate_hz == context.sample_rate_hz
+                    && manifest.context.channels == context.channels
+                    && manifest.context.quantum_frames == context.quantum_frames
+                    && manifest.preamp_db == *preamp_db
+                    && correction_preview_matches(
+                        record,
+                        manifest.context,
+                        manifest.preamp_db.get(),
+                    )
+                    && serde_json::from_str::<earph_media::correction_text::ImportMetadata>(
+                        metadata_json,
+                    )
+                    .is_ok_and(|metadata| metadata == manifest.metadata)
+                    && manifest
+                        .graph()
+                        .is_ok_and(|graph| record.graph.graph.as_ref() == &graph)
+            })
+        }
+    }
+}
+fn correction_preview_matches(
+    record: &ProfileRecordView,
+    context: earph_media::correction_text::ImportContext,
+    preamp: f64,
+) -> bool {
+    record.correction_preview.as_ref().is_some_and(|preview| {
+        preview.context.sample_rate_hz == context.sample_rate_hz
+            && preview.context.channels == context.channels
+            && preview.context.quantum_frames == context.quantum_frames
+            && preview.preamp_db.get() == preamp
+    })
 }
 fn preview_matches_state(preview: &GraphPreviewView, state: &StateView) -> bool {
     let binding = &preview.binding;
@@ -1682,6 +2197,66 @@ fn preview_matches_state(preview: &GraphPreviewView, state: &StateView) -> bool 
 mod tests {
     use super::*;
     use crate::OwnerClient;
+
+    fn correction_state() -> Arc<StateView> {
+        let session = earph_core::session::Session::new_owner(
+            ZoneId::new("main").unwrap(),
+            OwnerId::new("owned-correction-context").unwrap(),
+            earph_core::control::ControlLimits::default(),
+        );
+        Arc::new(serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap())
+    }
+    #[test]
+    fn correction_input_changes_cancel_only_their_unsent_work_and_preserve_a_waiting_queue_edit() {
+        let basis = correction_state();
+        let queue = Command::QueueAppend {
+            path: "/owned-queued-source.wav".into(),
+        };
+        let mut gui = GuiController::new();
+        gui.waiting_edit = Some(Task::Preflight {
+            basis: basis.clone(),
+            command: queue.clone(),
+            session: None,
+            draft_epoch: 0,
+        });
+        gui.handle(UiIntent::InvalidateCorrection);
+        assert_eq!(gui.waiting_queue_edit(), Some(&queue));
+        let request = CorrectionPreviewRequest {
+            source: super::super::CorrectionSource::Text {
+                text: "owned pending source".into(),
+                format: earph_media::correction_text::CorrectionFormat::AutoEq,
+            },
+            context: earph_media::correction_text::ImportContext {
+                sample_rate_hz: 48000,
+                channels: earph_core::audio::ChannelLayout::Stereo,
+                quantum_frames: 256,
+            },
+            metadata: Default::default(),
+            fir_preamp: None,
+        };
+        gui.waiting_edit = Some(Task::LocalPreview {
+            basis,
+            request,
+            draft_epoch: gui.draft_epoch,
+        });
+        assert!(gui.local_correction_pending());
+        gui.handle(UiIntent::InvalidateCorrection);
+        assert!(!gui.local_correction_pending());
+        assert!(!gui.queue_edit_pending());
+        assert!(
+            gui.local_correction_status()
+                .contains("before worker start")
+        );
+    }
+    #[test]
+    fn actual_correction_review_ignores_only_control_revision_and_refuses_changed_source_facts() {
+        let state = correction_state();
+        let mut changed = (*state).clone();
+        changed.revision += 1;
+        assert!(same_review_context(&state, &changed));
+        changed.epochs.stream += 1;
+        assert!(!same_review_context(&state, &changed));
+    }
 
     #[test]
     fn actual_core_partial_inventory_keeps_unselectable_endpoint_and_failures_visible() {

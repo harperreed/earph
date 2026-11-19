@@ -1,6 +1,8 @@
 // ABOUTME: Edits plain saved listening intent and presents exact catalog and resolution facts.
 // ABOUTME: Keeps local drafts and selected saved references separate from owner application.
-use super::{GuiApp, UiIntent, app::field, dsp, graph_editor::GraphIntentEditor, output::number};
+use super::{
+    GuiApp, UiIntent, app::field, correction, dsp, graph_editor::GraphIntentEditor, output::number,
+};
 use crate::ProfileRecordView;
 use earph_core::{
     control::{Command, OutputBackend, OutputRoute},
@@ -14,6 +16,7 @@ use earph_core::{
 use eframe::egui;
 use std::sync::Arc;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Draft {
     id: String,
     name: String,
@@ -61,6 +64,9 @@ impl Default for Draft {
     }
 }
 impl Draft {
+    pub(super) fn graph_review_required(&self) -> Option<&ProfileCatalogReference> {
+        self.loaded.as_ref().filter(|_| self.corrected)
+    }
     fn selector(&self) -> Result<ProfileOutputSelector, String> {
         Ok(ProfileOutputSelector {
             backend: self.backend.ok_or("Choose an explicit profile backend")?,
@@ -72,10 +78,12 @@ impl Draft {
     fn document(&self) -> Result<ProfileDraft, String> {
         if self.corrected {
             return Err(
-                "This saved profile contains corrections; correction editing is not released"
-                    .into(),
+                "This saved profile contains corrections; use explicit correction import".into(),
             );
         }
+        self.correction_document()
+    }
+    pub(super) fn correction_document(&self) -> Result<ProfileDraft, String> {
         Ok(ProfileDraft {
             name: self.name.clone(),
             source_policy: ProfileSourcePolicy::LocalFile,
@@ -102,6 +110,20 @@ impl Draft {
             },
             corrections: Vec::new(),
         })
+    }
+    pub(super) fn import_target(&self, update: bool) -> Result<(ProfileId, Option<u64>), String> {
+        let id = ProfileId::new(&self.id).map_err(|e| e.to_string())?;
+        if !update {
+            return Ok((id, None));
+        }
+        let reference = self
+            .selected
+            .as_ref()
+            .filter(|r| self.loaded.as_ref() == Some(r) && r.id == id)
+            .ok_or(
+                "Load the exact selected revision and retain its ID before importing an update",
+            )?;
+        Ok((id, Some(reference.revision)))
     }
     fn load(&mut self, record: &ProfileRecordView) -> Result<(), String> {
         let profile = &record.profile;
@@ -174,6 +196,8 @@ pub(super) fn selected_record(app: &GuiApp) -> Option<&ProfileRecordView> {
     })
 }
 pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
+    let mut before = app.profiles.clone();
+    before.error = None;
     ui.heading("Profiles / DSP");
     let owner = app.controller.state().and_then(|s| s.owner_id.clone());
     if !app.controller.attached() || app.profiles.observed_owner != owner {
@@ -204,10 +228,39 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
     let mut discard_prepared = false;
     if let Some(catalog) = &app.controller.profiles.catalog {
         ui.label(format!(
-            "Catalog owner: {:?}; observed revision {}; page requests {:?}",
-            catalog.basis.owner_id, catalog.basis.revision, catalog.request_ids
+            "Catalog owner: {}; observed revision {}; page requests {}",
+            catalog
+                .basis
+                .owner_id
+                .as_ref()
+                .map(OwnerId::as_str)
+                .unwrap_or("none"),
+            catalog.basis.revision,
+            catalog
+                .request_ids
+                .iter()
+                .map(|id| id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
-        ui.label(format!("Profile worker: {:?}", catalog.value.operation));
+        let operation = &catalog.value.operation;
+        ui.label(format!(
+            "Profile worker: {}; request {}; deadline {} ns",
+            operation
+                .stage
+                .as_ref()
+                .map(|stage| format!("{stage:?}"))
+                .unwrap_or_else(|| "idle".into()),
+            operation
+                .request_id
+                .as_ref()
+                .map(|id| id.as_str())
+                .unwrap_or("none"),
+            operation
+                .deadline_monotonic_ns
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "unavailable".into())
+        ));
         for entry in &catalog.value.entries {
             let reference = ProfileCatalogReference {
                 id: entry.id.clone(),
@@ -239,9 +292,15 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
         app.controller.handle(UiIntent::DiscardPreparedGraph);
     }
     let selected = app.profiles.selected.clone();
-    ui.label(format!(
-        "Selected saved reference (local choice): {selected:?}"
-    ));
+    ui.label(match &selected {
+        Some(reference) => format!(
+            "Selected saved reference (local choice): {} · revision {} · {}",
+            reference.id.as_str(),
+            reference.revision,
+            reference.profile_sha256.as_str()
+        ),
+        None => "Selected saved reference (local choice): none".into(),
+    });
     ui.horizontal_wrapped(|ui| {
         if ui
             .add_enabled(
@@ -283,12 +342,22 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
     });
     if let Some(observed) = &app.controller.profiles.record {
         ui.label(format!(
-            "Observed saved profile: {} revision {} hash {}; captured owner {:?}; requests {:?}",
+            "Observed saved profile: {} revision {} hash {}; captured owner {}; requests {}",
             observed.value.profile.id.as_str(),
             observed.value.profile.revision,
             observed.value.profile_sha256.as_str(),
-            observed.basis.owner_id,
-            observed.request_ids
+            observed
+                .basis
+                .owner_id
+                .as_ref()
+                .map(OwnerId::as_str)
+                .unwrap_or("none"),
+            observed
+                .request_ids
+                .iter()
+                .map(|id| id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
         saved_facts(ui, &observed.value);
     }
@@ -406,7 +475,7 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
         20,
     );
     if draft.corrected {
-        ui.label("Correction intent is retained. Updating corrected profiles awaits the correction workflow.");
+        ui.label("Correction intent is retained. Use correction import to replace the loaded corrected revision.");
     }
     let plain = !draft.corrected;
     ui.horizontal_wrapped(|ui| {
@@ -484,7 +553,12 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
             resolution.value
         ));
     }
-    ui.label("Correction import: unavailable in this desktop unit");
+    let mut after = app.profiles.clone();
+    after.error = None;
+    if before != after {
+        app.controller.handle(UiIntent::InvalidateCorrection);
+    }
+    correction::show(ui, app);
     ui.label("Packages and associations: unavailable in this desktop unit");
     if let Some(command) = command {
         action(app, command);
@@ -500,18 +574,49 @@ fn saved_facts(ui: &mut egui::Ui, record: &ProfileRecordView) {
         "Saved source/fidelity: {:?}; {:?}",
         profile.source_policy, profile.fidelity
     ));
-    ui.label(format!("Saved output selector: {:?}", profile.output));
-    ui.label(format!("Saved volume intent: {:?}", profile.volume));
-    ui.label(format!("Saved latency intent: {:?}", profile.latency));
+    ui.label(format!(
+        "Saved output selector: {}; {:?}; configured device {}; manual setup {}",
+        match profile.output.backend {
+            OutputBackend::Alsa => "ALSA",
+            OutputBackend::CoreAudio => "Core Audio",
+        },
+        profile.output.route,
+        profile.output.device_id.as_str(),
+        profile.output.manual_setup.as_deref().unwrap_or("none")
+    ));
+    ui.label(format!(
+        "Saved volume intent: {:?}; software cap {:?} dB; hardware cap {}",
+        profile.volume.mode,
+        profile.volume.software_cap_db,
+        profile
+            .volume
+            .hardware_cap_db
+            .map(|db| format!("{db:?} dB"))
+            .unwrap_or_else(|| "not set".into())
+    ));
+    ui.label(format!("Saved latency intent: {:?}; resident limit {} bytes; preparation limit {} bytes; frame limit {}",
+        profile.latency.mode, profile.latency.max_resident_bytes, profile.latency.max_preparation_bytes,
+        profile.latency.max_latency_frames.map(|value| value.to_string()).unwrap_or_else(|| "not specified".into())));
     ui.collapsing("Saved graph intent (read-only)", |ui| {
         ui.label(
             serde_json::to_string_pretty(&record.graph).expect("typed saved graph serialization"),
         );
     });
     ui.label(format!(
-        "Saved corrections: {:?}; offline preview {:?}",
-        record.corrections, record.correction_preview
+        "Saved corrections: {}; offline preview {}",
+        record.corrections.len(),
+        if record.correction_preview.is_some() {
+            "available"
+        } else {
+            "unavailable"
+        }
     ));
+    ui.collapsing("Saved correction details", |ui| {
+        ui.label(format!(
+            "Corrections: {:?}; offline preview {:?}",
+            record.corrections, record.correction_preview
+        ));
+    });
 }
 
 #[cfg(test)]
@@ -690,6 +795,11 @@ mod tests {
             .filter_map(|(_, n)| n.label().or_else(|| n.value()))
             .collect();
         assert!(labels.contains(&"Saved authored name: Owned read-only profile"));
+        assert!(labels.contains(&"Saved output selector: ALSA; System; configured device configured-only; manual setup none"));
+        assert!(labels.contains(
+            &"Saved volume intent: Software; software cap -20.0 dB; hardware cap not set"
+        ));
+        assert!(labels.contains(&"Saved latency intent: Balanced; resident limit 268435456 bytes; preparation limit 268435456 bytes; frame limit not specified"));
         assert!(
             labels
                 .iter()

@@ -2,10 +2,12 @@
 // ABOUTME: Keeps view workflows and child lifecycle separate from engine policy.
 mod app;
 mod connect;
+mod correction;
 mod dsp;
 mod graph_editor;
 mod host;
 mod output;
+mod profile_files;
 mod profiles;
 mod queue;
 mod receipts;
@@ -15,6 +17,9 @@ mod transport;
 mod workflow;
 pub use app::{GuiApp, run};
 pub use host::HostStatus;
+pub use profile_files::{
+    CorrectionPreview, CorrectionPreviewRequest, CorrectionSource, CorrectionWorker,
+};
 pub use workflow::{GuiController, Receipt, UiIntent};
 
 use earph_core::ids::RequestId;

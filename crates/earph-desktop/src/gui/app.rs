@@ -1,8 +1,8 @@
 // ABOUTME: Renders the native Earph controller with opaque local Light and Dark choices.
 // ABOUTME: Owns local drafts while the workflow retains actual owner observations.
 use super::{
-    GuiController, UiIntent, connect, graph_editor::GraphIntentEditor, output, profiles, queue,
-    receipts, signal_path, status, transport,
+    GuiController, UiIntent, connect, correction, graph_editor::GraphIntentEditor, output,
+    profiles, queue, receipts, signal_path, status, transport,
 };
 use eframe::egui;
 use std::{
@@ -27,6 +27,7 @@ pub struct GuiApp {
     pub(super) output: output::Draft,
     pub(super) transport: transport::Draft,
     pub(super) profiles: profiles::Draft,
+    pub(super) correction: correction::Draft,
     pub(super) graph: GraphIntentEditor,
     view: View,
     dark: bool,
@@ -50,6 +51,7 @@ impl GuiApp {
             output: output::Draft::default(),
             transport: transport::Draft::default(),
             profiles: profiles::Draft::default(),
+            correction: correction::Draft::default(),
             graph: GraphIntentEditor::default(),
             view: View::Connect,
             dark: true,

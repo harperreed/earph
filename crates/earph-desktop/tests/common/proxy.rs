@@ -42,6 +42,9 @@ impl Proxy {
     pub fn drop_first_profile_save(owner: PathBuf) -> Self {
         Self::start(owner, Some("profiles.create"), false)
     }
+    pub fn drop_first_correction_import(owner: PathBuf) -> Self {
+        Self::start(owner, Some("profiles.import_correction"), false)
+    }
     pub fn drop_first_graph_prepare(owner: PathBuf) -> Self {
         Self::start(owner, Some("graph.prepare"), false)
     }

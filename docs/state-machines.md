@@ -235,6 +235,9 @@ Local drafts grant no output authority.
 | Graph draft | One canonical intent owns structured edits and accepted raw text. | Pending or invalid raw edits block saving and activation. |
 | Prepared graph | Controller binds token kind, hash, owner, source, expiry, and draft generation. | Reconciled preparation remains historical; expiry or explicit Mute precedes another Prepare. |
 | Profile refresh | Capture the owner and zone, then fence the actual read with fresh Before and After observations. | Accept newer revisions from that owner; reject owner replacement or changes during the read. |
+| Correction preview | One joinable local worker binds input, metadata, draft generation and owner context. | Cancel late adoption after edits, safety actions, owner replacement or close. |
+| Correction review | Actual saved documents and owner-verified FIR assets require explicit local review. | Advisory path previews grant no import identity; reconstruction creates new source bytes. |
+| FIR insertion | The canonical graph accepts one explicitly reviewed compatible asset. | Preserve existing nodes and processing intent; never apply or add hidden gain. |
 
 Fixed arming has no State readback.
 Discovery properties do not prove an opened output or physical presentation.

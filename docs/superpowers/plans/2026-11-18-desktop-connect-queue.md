@@ -366,3 +366,34 @@ Profile summaries still expose raw debug text; polish remains required before fi
 Correction U3 is frozen and independently reviewed in its isolated worktree, with 37 scoped tests passing.
 Its integrated checks and native qualification remain pending.
 Packages, diagnostics, networks, Mac windows, and full GUI parity remain incomplete.
+
+## Native correction checkpoint
+
+The controller previews REW, AutoEq, CamillaDSP and FIR inputs through the shared media parser and decoder.
+Context, metadata, preamp and source bytes stay bound to the captured preview.
+Edits invalidate the preview before import.
+Actual saved correction and verified FIR results require explicit local review.
+Reconstruction creates a new source and profile revision while preserving graph intent, metadata and preamp.
+FIR path preview remains advisory because the owner rereads its path during import.
+One reviewed asset can add one convolution node to the canonical local graph.
+Insertion never applies processing or changes output authority.
+
+The full Linux check passes 1011 tests, with zero failures and five existing skips.
+The desktop package passes 160 tests; formatting, strict Clippy and the independent review pass.
+The actual native gate passes 105 actions and 37 independent owner queries.
+Both controllers and consumers exit zero; the owner is freshly absent.
+Its numeric exit remains unknown because the controller owns its child handle.
+All inputs, source, products, tools and private configuration remain unchanged during qualification.
+No output is selected, no source starts, and the capture contains zero bytes.
+Root inspected both opaque Light and Dark windows.
+See [the correction receipt](../../evidence/desktop/native-correction-linux-20261119.json).
+
+The first native attempt expected Applied for an idle Stop without a session.
+The earlier admission guard correctly rejects that request before mutation.
+The repaired harness proves the exact refusal and unchanged safe-idle state.
+It also preserves matching reply text before checking terminal status.
+Both attempts remain retained; the first attempt's missing error bytes remain missing.
+
+Profile summaries now show plain intent values and canonical hashes.
+The saved correction detail disclosure still contains debug text and needs polish before release.
+Packages, diagnostics, networks, Mac windows and full GUI parity remain incomplete.

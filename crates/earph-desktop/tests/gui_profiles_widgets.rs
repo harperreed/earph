@@ -90,7 +90,8 @@ fn profile_editor_exposes_labeled_draft_and_separate_owner_actions_without_attac
         );
     }
     for label in [
-        "Correction import: unavailable in this desktop unit",
+        "Selected saved reference (local choice): none",
+        "Correction source and provenance",
         "Packages and associations: unavailable in this desktop unit",
         "Accept raw edits",
         "Reconciled preparations remain receipt history. Use a fresh explicit Prepare before activation. The owner may retain its earlier candidate until expiry or a context change.",

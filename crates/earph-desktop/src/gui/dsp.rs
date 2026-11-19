@@ -24,8 +24,14 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
     if !canonical {
         ui.label("Accept or restore the raw graph JSON before saving, validating, preparing, or activating a candidate.");
     }
-    let source =
-        enabled && canonical && app.controller.state().is_some_and(|s| s.playback.is_some());
+    let correction_reviewed = app
+        .profiles
+        .graph_review_required()
+        .is_none_or(|reference| app.controller.profile_review_available(reference));
+    let source = enabled
+        && canonical
+        && correction_reviewed
+        && app.controller.state().is_some_and(|s| s.playback.is_some());
     let mut command = None;
     ui.horizontal_wrapped(|ui| {
         if ui
@@ -58,10 +64,20 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
     ui.label("Live validation requires an actual opened source. Saving plain intent uses the owner's offline compiler.");
     let selected = profiles::selected_record(app)
         .map(|r| (r.profile.id.clone(), r.profile.revision, r.profile_sha256));
+    let reviewed = profiles::selected_record(app).is_some_and(|record| {
+        app.controller.profile_review_available(
+            &earph_core::profile_control::ProfileCatalogReference {
+                id: record.profile.id.clone(),
+                revision: record.profile.revision,
+                profile_sha256: record.profile_sha256,
+            },
+        )
+    });
     if ui
         .add_enabled(
             source
                 && selected.is_some()
+                && reviewed
                 && app
                     .controller
                     .capabilities()

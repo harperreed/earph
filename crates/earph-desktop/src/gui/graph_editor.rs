@@ -32,6 +32,38 @@ impl GraphIntentEditor {
         self.intent = intent;
         self.error = None;
     }
+    pub(super) fn add_fir(
+        &mut self,
+        asset: earph_core::dsp_nodes::FirAssetReference,
+    ) -> Result<(), String> {
+        if self.has_pending_raw_edits() {
+            return Err("Accept or restore raw graph edits before adding a verified asset".into());
+        }
+        let order = chain_order(&self.intent.graph).ok_or(
+            "Adding an asset requires one serial graph; edit arbitrary topology explicitly in JSON",
+        )?;
+        let predecessor = self.intent.graph.nodes[order[order.len() - 2]].format;
+        if predecessor.sample_rate_hz != asset.sample_rate_hz
+            || predecessor.channels != asset.channels
+        {
+            return Err("Verified FIR rate/layout differs from this graph; no resampling or broadcasting is available".into());
+        }
+        if self.intent.graph.nodes.len() >= MAX_GRAPH_NODES {
+            return Err("Graph node limit reached".into());
+        }
+        let mut candidate = self.intent.clone();
+        edit_chain(
+            &mut candidate,
+            &order,
+            ChainAction::Add(NodeKind::Convolution { asset }),
+        );
+        candidate
+            .graph
+            .validate_structure()
+            .map_err(|e| e.to_string())?;
+        self.load(candidate);
+        Ok(())
+    }
     pub(super) fn show(&mut self, ui: &mut egui::Ui) -> bool {
         let before = self.intent.clone();
         ui.label("Local graph draft. Saving and live owner validation are separate actions.");
@@ -88,7 +120,7 @@ impl GraphIntentEditor {
                         }
                     }
                 });
-                ui.label("Convolution: use JSON with an existing FirAssetReference. This editor cannot import or verify asset bytes.");
+                ui.label("Convolution: verify and review an asset in Correction source, then add it explicitly. Existing references remain editable in JSON.");
                 ui.label("Sum uses one input here. Use JSON for multiple inputs and explicit ports.");
                 ui.label("Changing nodes does not adjust processing precision or other port formats. Owner validation checks compatibility.");
                 if let Some(action) = action {
@@ -612,6 +644,52 @@ fn kind_name(kind: &NodeKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn verified_fir_insertion_checks_its_actual_predecessor_and_preserves_the_draft_on_failure() {
+        let mut editor = super::GraphIntentEditor::default();
+        let mut intent = editor.intent().clone();
+        let input = std::sync::Arc::make_mut(&mut intent.graph)
+            .nodes
+            .iter_mut()
+            .find(|n| matches!(n.kind, earph_core::graph::NodeKind::Input))
+            .unwrap();
+        input.format.sample_rate_hz = 44100;
+        editor.load(intent.clone());
+        let asset = earph_core::dsp_nodes::FirAssetReference {
+            sha256: earph_core::dsp_nodes::FirSha256::new("a".repeat(64)).unwrap(),
+            sample_rate_hz: 48000,
+            channels: earph_core::audio::ChannelLayout::Stereo,
+            taps_per_channel: 1,
+            purpose: earph_core::dsp_nodes::FirPurpose::Correction,
+        };
+        assert!(
+            editor.add_fir(asset).is_err(),
+            "mismatched predecessor must not acquire a convolution node"
+        );
+        assert_eq!(editor.intent(), &intent);
+    }
+    #[test]
+    fn verified_fir_insertion_uses_the_canonical_chain_and_keeps_processing_explicit() {
+        let mut editor = GraphIntentEditor::default();
+        let processing = editor.intent().processing;
+        let asset = earph_core::dsp_nodes::FirAssetReference {
+            sha256: earph_core::dsp_nodes::FirSha256::new("b".repeat(64)).unwrap(),
+            sample_rate_hz: 48000,
+            channels: ChannelLayout::Stereo,
+            taps_per_channel: 1,
+            purpose: earph_core::dsp_nodes::FirPurpose::Correction,
+        };
+        editor.add_fir(asset.clone()).unwrap();
+        let consumed: GraphIntent = serde_json::from_str(&editor.raw).unwrap();
+        assert_eq!(&consumed, editor.intent());
+        assert_eq!(consumed.processing, processing);
+        assert_eq!(consumed.graph.nodes.len(), 3);
+        assert!(consumed.graph.nodes.iter().any(|node| node.kind
+            == NodeKind::Convolution {
+                asset: asset.clone()
+            }));
+        assert_eq!(consumed.graph.edges.len(), 2);
+    }
     use super::*;
     use serde_json::json;
 
