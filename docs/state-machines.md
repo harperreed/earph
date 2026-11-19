@@ -217,3 +217,21 @@ Both immutable profile objects and FIR retries synchronize the verified regular 
 These tests prove successful application synchronization, without simulating power loss or an actual disk-sync failure.
 See [saved profile commands](listening-profile-save.md) and [the profile checkpoint](superpowers/plans/2026-11-18-listening-profiles.md).
 Correction provenance imports, verified device associations, atomic application, and packages remain separate work.
+
+## Native desktop control lifecycles
+
+The desktop keeps one client, presentation model, foreground task, and captured waiting action.
+Local drafts grant no output authority.
+
+| Lifecycle | Owner and progression | Recovery rule |
+| --- | --- | --- |
+| Captured action | Controller: draft, waiting, fresh preflight, sent, Accepted, terminal or uncertain. | Refuse stale context; preserve exact bytes and request identity. |
+| Emergency action | Independent Mute and Stop slots preempt unsent ordinary intent. | Preserve sent receipts and actual owner settlement. |
+| Muted transport | Accepted Start, Resume, or playing-intent Seek may outlive foreground occupancy. | Keep polling the pinned exact request without claiming playback. |
+| Observation | Adopt a complete fenced snapshot before retiring its successful internal receipt. | Retain latest observation and provenance; keep failures and uncertainty visible. |
+| Discovery | Bind each native query to its observed owner. | Invalidate inventory and block old-owner reconciliation after replacement. |
+| Receipt disclosure | Request identity owns persistent headers and exact-body scopes. | Disable reconciliation during delivery instead of removing the control. |
+
+Fixed arming has no State readback.
+Discovery properties do not prove an opened output or physical presentation.
+See the [desktop checkpoint](superpowers/plans/2026-11-18-desktop-connect-queue.md) for exact evidence and remaining limits.

@@ -1,6 +1,7 @@
 // ABOUTME: Hosts the real engine in owned test resources without starting any source.
 // ABOUTME: Preserves runtime files and explicitly shuts down only the test-owned owner.
 #![allow(dead_code)]
+pub mod process;
 pub mod proxy;
 pub mod widgets;
 use earph_core::{

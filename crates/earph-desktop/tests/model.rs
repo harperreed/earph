@@ -26,6 +26,53 @@ fn settle(client: &mut DesktopClient, id: &RequestId) {
 }
 
 #[test]
+fn retiring_successful_observations_preserves_state_and_other_receipts() {
+    let owner = Owner::start();
+    let mut client = DesktopClient::attach(owner.runtime.to_str().unwrap().to_owned()).unwrap();
+    let read = query(Command::State);
+    let id = read.envelope().request_id.clone();
+    client.submit(read).unwrap();
+    assert!(!client.retire_observation(&id));
+    settle(&mut client, &id);
+    assert!(client.retire_observation(&id));
+    assert!(client.model().record(&id).is_none());
+    assert_eq!(client.model().latest_state().unwrap().request_id, id);
+    assert!(!client.retire_observation(&id));
+    let mutation = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &owner.state(),
+        Command::QueueAppend {
+            path: "/owned-kept.wav".into(),
+        },
+    )
+    .unwrap();
+    let mutation_id = mutation.envelope().request_id.clone();
+    client.submit(mutation).unwrap();
+    settle(&mut client, &mutation_id);
+    assert!(!client.retire_observation(&mutation_id));
+    assert_eq!(
+        client.model().record(&mutation_id).unwrap().presentation,
+        Presentation::Applied
+    );
+    let failed = Request::query(
+        RequestId::new(unique()).unwrap(),
+        earph_core::ids::ZoneId::new("another-zone").unwrap(),
+        Command::State,
+    )
+    .unwrap();
+    let failed_id = failed.envelope().request_id.clone();
+    client.submit(failed).unwrap();
+    settle(&mut client, &failed_id);
+    assert!(!client.retire_observation(&failed_id));
+    assert_eq!(
+        client.model().record(&failed_id).unwrap().presentation,
+        Presentation::Rejected
+    );
+    let (_, shutdown) = client.disconnect();
+    shutdown.join().unwrap();
+}
+
+#[test]
 fn snapshot_coalescing_preserves_each_explicit_zone() {
     use earph_core::{ErrorCode, ids::ZoneId};
     use earph_desktop::{DispatchError, Lane, Reply, SubmitError};

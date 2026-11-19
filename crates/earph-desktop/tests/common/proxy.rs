@@ -33,6 +33,12 @@ impl Proxy {
     pub fn drop_first_state(owner: PathBuf) -> Self {
         Self::start(owner, Some("state.get"), false)
     }
+    pub fn drop_first_start(owner: PathBuf) -> Self {
+        Self::start(owner, Some("sessions.start"), false)
+    }
+    pub fn drop_first_discovery(owner: PathBuf) -> Self {
+        Self::start(owner, Some("devices.list"), false)
+    }
     pub fn hold_first_capabilities(owner: PathBuf) -> Self {
         Self::start(owner, None, true)
     }

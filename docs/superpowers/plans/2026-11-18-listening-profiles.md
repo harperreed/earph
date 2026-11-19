@@ -536,3 +536,31 @@ Application stays muted and requires fresh target authorization.
 Restart retains the lower safe gain without runtime authority.
 See `docs/evidence/profiles/fixed-preparation-linux-precommit-20261119.json` for the bounded evidence.
 Native fixed output, combined Mac, hardware volume, DSD, migration, full T12, and release remain pending.
+
+## Source-specific Mac qualification checkpoints
+
+### Source-specific Mac device discovery checkpoint
+
+The read-only Core Audio discovery gate passes at `fecf4030075285e89ffb47bbc819a9e50cc81c01`.
+Its five selected build steps and six pure tests pass.
+Both device queries complete through the owner with exact terminal byte replay.
+The two deliberate typed errors return their expected exit one.
+The original owner exits zero and its helper group is absent.
+Before and after inventories and selected device properties match.
+The [Mac receipt](../../evidence/profiles/macos-device-discovery-20261119.json) binds the exact source and independent verification.
+This qualifies advertised endpoints and current properties, without opened identity or playback proof.
+Later source changes remain outside this receipt.
+
+### Muted software association Mac checkpoint
+
+Selected release checks and the muted owner gate pass at `79810bc05246d67f4a08e157c7fdcb99bcf692e1`.
+The owner binds its observed native identity and applies the exact saved software-profile revision while muted.
+Association, exact-device resolution, checkpoint, and muted unconsented restart pass.
+One output instance records four successful native opens across five live samples.
+SDK write attempts, SDK start attempts, and accepted frames remain zero.
+The matching Stop confirms close and both owners exit zero with fresh absence checks.
+The [Mac receipt](../../evidence/profiles/macos-software-profile-association-20261119.json) binds the exact source, products, and verification.
+The scope covers that output instance across reopens, rather than process lifetime or OS calls.
+Fixed/hardware output, physical playback, CPU margin, a full Mac canonical, and full T12 are outside this gate.
+Private fixed arming is not serialized and remains unavailable in its readback.
+Later source changes remain outside this receipt.

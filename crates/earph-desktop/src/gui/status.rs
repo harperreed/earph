@@ -53,10 +53,10 @@ pub(super) fn show(ui: &mut egui::Ui, controller: &mut GuiController) {
     }
     if let Some(command) = controller.waiting_queue_edit() {
         ui.label(format!(
-            "Queue edit waiting for background observation (not sent): {command:?}"
+            "Foreground action waiting for background observation (not sent): {command:?}"
         ));
     } else if controller.queue_edit_pending() {
-        ui.label("Queue edit preflight or mutation pending. Inspect its receipts below.");
+        ui.label("Foreground action preflight, mutation, or discovery pending. Inspect its receipts below.");
     }
     ui.horizontal(|ui| {
         let enabled = controller.attached() && controller.state().is_some();

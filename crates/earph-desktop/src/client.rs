@@ -5,7 +5,7 @@ use crate::{
 };
 use earph_core::{
     control::{Command, CommandEnvelope},
-    ids::{RequestId, SessionId, ZoneId},
+    ids::{OwnerId, RequestId, SessionId, ZoneId},
 };
 use earph_ffi::{ClientError, LocalClient};
 use std::sync::Arc;
@@ -19,6 +19,7 @@ pub enum Lane {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestError {
     NotQuery,
+    NotDeviceQuery,
     NotMutation,
     NotStart,
     MissingOwner,
@@ -37,11 +38,34 @@ impl Request {
         if !payload.is_query() {
             return Err(RequestError::NotQuery);
         }
+        Self::query_envelope(id, zone, None, payload)
+    }
+    /// Binds native discovery to the observed owner without capturing playback state.
+    pub fn device_query(
+        id: RequestId,
+        state: &StateView,
+        payload: Command,
+    ) -> Result<Self, RequestError> {
+        if !matches!(
+            payload,
+            Command::DevicesList { .. } | Command::DevicesInspect { .. }
+        ) {
+            return Err(RequestError::NotDeviceQuery);
+        }
+        let owner = state.owner_id.clone().ok_or(RequestError::MissingOwner)?;
+        Self::query_envelope(id, state.zone_id.clone(), Some(owner), payload)
+    }
+    fn query_envelope(
+        id: RequestId,
+        zone: ZoneId,
+        owner_id: Option<OwnerId>,
+        payload: Command,
+    ) -> Result<Self, RequestError> {
         Self::encode(CommandEnvelope {
             schema_version: 1,
             request_id: id,
             zone_id: zone,
-            owner_id: None,
+            owner_id,
             session_id: None,
             expected_revision: None,
             payload,
@@ -119,6 +143,12 @@ impl Request {
     }
     pub fn lane(&self) -> Lane {
         self.lane
+    }
+    pub(crate) fn is_snapshot_query(&self) -> bool {
+        matches!(
+            self.envelope.payload,
+            Command::State | Command::Capabilities | Command::QueueGet { .. }
+        )
     }
 }
 

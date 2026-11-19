@@ -3,10 +3,12 @@
 mod app;
 mod connect;
 mod host;
+mod output;
 mod queue;
 mod receipts;
 mod signal_path;
 mod status;
+mod transport;
 mod workflow;
 pub use app::{GuiApp, run};
 pub use host::HostStatus;

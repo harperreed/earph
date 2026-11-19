@@ -11,6 +11,12 @@ const HISTORY_LIMIT: usize = 16;
 // Keep space for one in-flight and one queued safety request even during ordinary uncertainty.
 const ORDINARY_HISTORY_LIMIT: usize = HISTORY_LIMIT - 2;
 
+fn is_applied_snapshot(record: &RequestRecord) -> bool {
+    !record.in_flight
+        && record.presentation == Presentation::Applied
+        && record.request.is_snapshot_query()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Presentation {
     Queued,
@@ -182,6 +188,17 @@ impl DesktopClient {
     pub fn model(&self) -> &PresentationModel {
         &self.model
     }
+    /// Retires an adopted internal snapshot while preserving the latest observed State.
+    /// Sent work, failures, uncertainty, discovery, and mutation receipts remain retained.
+    pub fn retire_observation(&mut self, id: &RequestId) -> bool {
+        let Some(index) = self.model.records.iter().position(|record| {
+            &record.request.envelope().request_id == id && is_applied_snapshot(record)
+        }) else {
+            return false;
+        };
+        self.model.records.remove(index);
+        true
+    }
     pub fn submit(&mut self, request: Request) -> Result<Submission, SubmitError> {
         if self.model.record(&request.envelope().request_id).is_some() {
             return Err(SubmitError::DuplicateIdentity);
@@ -215,11 +232,14 @@ impl DesktopClient {
                 self.model
                     .records
                     .iter()
-                    .position(|entry| {
+                    .enumerate()
+                    .filter(|(_, entry)| {
                         !entry.in_flight
                             && entry.presentation.settled()
                             && (!ordinary_full || entry.request.lane() == Lane::Ordinary)
                     })
+                    .min_by_key(|(_, entry)| !is_applied_snapshot(entry))
+                    .map(|(index, _)| index)
                     .ok_or(SubmitError::HistoryFull)?,
             )
         } else {

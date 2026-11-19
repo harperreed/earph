@@ -45,3 +45,13 @@
   Refresh the exact failed Text accessible or counted parent, then restart the complete read.
   Keep mutations outside retries and preserve deadlines and process identity checks.
   See the [native desktop checkpoint](docs/superpowers/plans/2026-11-18-desktop-connect-queue.md).
+
+- Keep writable executable descriptors outside a multithreaded fixture parent's inheritance table.
+  Concurrent children can inherit them before exec, even with CLOEXEC, and cause ETXTBSY.
+  Publish fixture executables in an isolated child and wait for its exit.
+  See [the fixture publisher](crates/earph-engine/tests/support/device_process.rs) and [Linux exec rules](https://man7.org/linux/man-pages/man2/execve.2.html).
+
+- Give live egui request bodies stable request-derived scope IDs.
+  Local ID salts do not stabilize every descendant when earlier controls disappear.
+  Keep reconciliation disabled during delivery; removing it can prevent complete accessibility reads.
+  See [receipt rendering](crates/earph-desktop/src/gui/receipts.rs).

@@ -49,6 +49,46 @@ fn append(gui: &mut GuiController, path: &str) {
 }
 
 #[test]
+fn successful_background_polls_preserve_user_action_receipts() {
+    let owner = Owner::start();
+    let mut gui = attached(&owner.runtime);
+    append(&mut gui, "/owned-history.wav");
+    until(&mut gui, |g| {
+        !g.busy() && g.queue().is_some_and(|q| q.entries.len() == 1)
+    });
+    let action = gui
+        .receipts()
+        .find(|r| matches!(r.request.envelope().payload, Command::QueueAppend { .. }))
+        .unwrap()
+        .request
+        .envelope()
+        .request_id
+        .clone();
+    for _ in 0..20 {
+        let previous = gui.observed_at().unwrap();
+        gui.tick(Instant::now() + Duration::from_secs(1));
+        until(&mut gui, |g| {
+            !g.busy() && g.observed_at().unwrap() > previous
+        });
+    }
+    assert!(
+        gui.receipts()
+            .any(|r| r.request.envelope().request_id == action),
+        "background observations evicted the user's action receipt"
+    );
+    assert!(
+        !gui.receipts()
+            .any(|r| r.presentation == Presentation::Applied
+                && matches!(
+                    r.request.envelope().payload,
+                    Command::State | Command::Capabilities | Command::QueueGet { .. }
+                ))
+    );
+    gui.handle(UiIntent::CloseController);
+    until(&mut gui, |g| g.ready_to_close());
+}
+
+#[test]
 fn actual_queue_edits_publish_observed_order_and_close_leaves_owner_muted() {
     let owner = Owner::start();
     let mut gui = attached(&owner.runtime);

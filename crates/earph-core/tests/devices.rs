@@ -20,6 +20,37 @@ fn query(method: &str) -> CommandEnvelope {
     decode_command(&bytes, &ControlLimits::default()).expect("canonical device query must decode")
 }
 #[test]
+fn owner_bound_discovery_cannot_dispatch_after_owner_replacement() {
+    for method in ["devices.list", "devices.inspect"] {
+        let mut original = session();
+        original.enable_device_discovery(OutputBackend::Alsa);
+        let mut command = query(method);
+        command.owner_id = original.snapshot().owner_id.clone();
+        let accepted = original.submit(command.clone());
+        assert_eq!(accepted.status, ReceiptStatus::Accepted);
+        assert_eq!(original.submit(command.clone()), accepted);
+        assert!(original.device_query_job().is_some());
+
+        let mut replacement = Session::new_owner(
+            ZoneId::new("main").unwrap(),
+            OwnerId::new("replacement-owner").unwrap(),
+            ControlLimits::default(),
+        );
+        replacement.enable_device_discovery(OutputBackend::Alsa);
+        let before = replacement.snapshot();
+        let rejected = replacement.submit(command.clone());
+        assert_eq!(rejected.status, ReceiptStatus::Rejected);
+        assert_eq!(rejected.error.unwrap().code, ErrorCode::StaleSession);
+        assert!(replacement.device_query_job().is_none());
+        assert_eq!(replacement.snapshot(), before);
+
+        command.request_id = RequestId::new("ownerless").unwrap();
+        command.owner_id = None;
+        assert_eq!(replacement.submit(command).status, ReceiptStatus::Accepted);
+    }
+}
+
+#[test]
 fn embedded_domain_without_helper_support_reports_discovery_unavailable() {
     for method in ["devices.list", "devices.inspect"] {
         let mut session = session();

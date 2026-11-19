@@ -1,6 +1,8 @@
 // ABOUTME: Renders the native Earph controller with opaque local Light and Dark choices.
 // ABOUTME: Owns local drafts while the workflow retains actual owner observations.
-use super::{GuiController, UiIntent, connect, queue, receipts, signal_path, status};
+use super::{
+    GuiController, UiIntent, connect, output, queue, receipts, signal_path, status, transport,
+};
 use eframe::egui;
 use std::{
     path::PathBuf,
@@ -21,6 +23,8 @@ pub struct GuiApp {
     pub(super) executable: String,
     pub(super) file: String,
     pub(super) folder: String,
+    pub(super) output: output::Draft,
+    pub(super) transport: transport::Draft,
     view: View,
     dark: bool,
     applied_theme: Option<bool>,
@@ -40,6 +44,8 @@ impl GuiApp {
             executable,
             file: String::new(),
             folder: String::new(),
+            output: output::Draft::default(),
+            transport: transport::Draft::default(),
             view: View::Connect,
             dark: true,
             applied_theme: None,
@@ -75,13 +81,7 @@ impl GuiApp {
                 match self.view {
                     View::Connect => connect::show(ui, self),
                     View::Queue => queue::show(ui, self),
-                    View::Output => {
-                        ui.heading("Output / Safety");
-                        ui.label("Output setup and playback controls are not implemented in this desktop unit.");
-                        ui.label("Mute, Stop, and actual safety state remain available above.");
-                        ui.label("The owner has no device-discovery command. Hardware volume readback is unavailable.");
-                        ui.label("Selecting output, consent, starting playback, fixed arming, and unmute require separate explicit actions.");
-                    }
+                    View::Output => output::show(ui, self),
                     View::Profiles => {
                         ui.heading("Profiles / DSP");
                         ui.label("Profile, correction-import, and graph views are not implemented in this desktop unit.");

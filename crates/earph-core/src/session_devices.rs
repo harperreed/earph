@@ -43,6 +43,9 @@ impl Session {
         &mut self,
         command: &CommandEnvelope,
     ) -> Result<ReceiptStatus, EngineError> {
+        if command.owner_id.is_some() && command.owner_id != self.state.owner_id {
+            return Err(STALE);
+        }
         if self.state.shutdown_requested {
             return Err(STATE);
         }

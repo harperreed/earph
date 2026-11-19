@@ -83,6 +83,7 @@ fn state(runtime: &std::path::Path) -> StateView {
 #[derive(Clone, Copy)]
 enum Mode {
     Observe,
+    DropDiscovery,
     DropShutdown,
     Accepted,
     DropSafetyThenAccepted,
@@ -103,6 +104,9 @@ pub struct ReceiptTransport {
 impl ReceiptTransport {
     pub fn observation(owner: PathBuf) -> Self {
         Self::start(owner, Mode::Observe)
+    }
+    pub fn drop_discovery(owner: PathBuf) -> Self {
+        Self::start(owner, Mode::DropDiscovery)
     }
     pub fn drop_shutdown(owner: PathBuf) -> Self {
         Self::start(owner, Mode::DropShutdown)
@@ -149,6 +153,7 @@ impl ReceiptTransport {
             mode,
             Mode::DropSafetyThenAccepted
         )));
+        let dropping_discovery = Arc::new(AtomicBool::new(matches!(mode, Mode::DropDiscovery)));
         let route = owner.clone();
         let captured = frames.clone();
         let target = ordinary.clone();
@@ -171,6 +176,7 @@ impl ReceiptTransport {
                         let safety_done = safety_done.clone();
                         let dropping = dropping.clone();
                         let dropping_safety = dropping_safety.clone();
+                        let dropping_discovery = dropping_discovery.clone();
                         let artifacts = artifacts.clone();
                         let hold_next = hold_next.clone();
                         let held = held.clone();
@@ -276,6 +282,11 @@ impl ReceiptTransport {
                             };
                             fs::write(artifacts.join(format!("reply-{index}.json")), &reply)
                                 .unwrap();
+                            if matches!(command.payload, Command::DevicesList { .. })
+                                && dropping_discovery.swap(false, Ordering::AcqRel)
+                            {
+                                return;
+                            }
                             let _ = stream
                                 .write_all(&(reply.len() as u32).to_be_bytes())
                                 .and_then(|_| stream.write_all(&reply));

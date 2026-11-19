@@ -307,6 +307,83 @@ fn embedded_owner_advertises_empty_discovery_and_retains_capability_rejection() 
 }
 
 #[test]
+fn device_queries_capture_owner_without_transport_or_revision_fences() {
+    use earph_core::control::OutputBackend;
+    use earph_desktop::RequestError;
+    let owner = Owner::start();
+    let mut state = owner.state();
+    state.session_id = Some(earph_core::ids::SessionId::new("active-session").unwrap());
+    state.revision = 97;
+    for payload in [
+        Command::DevicesList {
+            backend: OutputBackend::Alsa,
+        },
+        Command::DevicesInspect {
+            backend: OutputBackend::Alsa,
+            endpoint: "null".into(),
+        },
+    ] {
+        let request =
+            Request::device_query(RequestId::new(unique()).unwrap(), &state, payload).unwrap();
+        assert_eq!(request.envelope().owner_id, state.owner_id);
+        assert_eq!(request.envelope().zone_id, state.zone_id);
+        assert!(request.envelope().session_id.is_none());
+        assert!(request.envelope().expected_revision.is_none());
+        assert_eq!(request.lane(), Lane::Ordinary);
+        let decoded: earph_core::control::CommandEnvelope =
+            serde_json::from_slice(request.bytes()).unwrap();
+        assert_eq!(&decoded, request.envelope());
+    }
+    for payload in [Command::State, Command::Stop] {
+        assert_eq!(
+            Request::device_query(RequestId::new(unique()).unwrap(), &state, payload).unwrap_err(),
+            RequestError::NotDeviceQuery
+        );
+    }
+    state.owner_id = None;
+    assert_eq!(
+        Request::device_query(
+            RequestId::new(unique()).unwrap(),
+            &state,
+            Command::DevicesList {
+                backend: OutputBackend::Alsa
+            }
+        )
+        .unwrap_err(),
+        RequestError::MissingOwner
+    );
+}
+
+#[test]
+fn device_query_bytes_remain_bound_across_actual_owner_restart() {
+    use earph_core::control::OutputBackend;
+    let mut original = Owner::start();
+    let state = original.state();
+    let request = Request::device_query(
+        RequestId::new(unique()).unwrap(),
+        &state,
+        Command::DevicesList {
+            backend: OutputBackend::Alsa,
+        },
+    )
+    .unwrap();
+    let bytes = request.bytes().to_vec();
+    let runtime = original.runtime.clone();
+    original.stop();
+    let replacement = Owner::at(runtime);
+    let before = replacement.state();
+    assert_ne!(before.owner_id, state.owner_id);
+    let Reply::Receipt(receipt) = replacement.client().request(&request).unwrap() else {
+        panic!("actual replacement receipt");
+    };
+    assert_eq!(receipt.status, ReplyStatus::Rejected);
+    assert_eq!(receipt.error.unwrap().code, ErrorCode::StaleSession);
+    assert_eq!(request.bytes(), bytes);
+    assert_eq!(replacement.state().revision, before.revision);
+    assert!(replacement.state().output.is_none());
+}
+
+#[test]
 fn request_builders_capture_targets_and_replay_the_identical_owner_envelope() {
     let owner = Owner::start();
     let client = owner.client();

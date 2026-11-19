@@ -2,13 +2,13 @@
 // ABOUTME: Fences queue pages and captured edits without repairing stale targets.
 use super::{HostStatus, host::OwnerHost, request_id};
 use crate::{
-    CapabilitiesView, DeliveryFailure, DesktopClient, DispatchError, Lane, Presentation,
-    PresentationModel, QueueView, Reply, Request, RequestRecord, ResultView, StateView,
-    SubmitError,
+    CapabilitiesView, DeliveryFailure, DesktopClient, DeviceQueryResultView, DispatchError, Lane,
+    Presentation, PresentationModel, QueueView, Reply, Request, RequestRecord, ResultView,
+    StateView, SubmitError,
 };
 use earph_core::{
-    control::Command,
-    ids::{RequestId, ZoneId},
+    control::{Command, OutputBackend},
+    ids::{OwnerId, RequestId, SessionId, ZoneId},
 };
 use std::{
     path::{Component, Path, PathBuf},
@@ -30,6 +30,18 @@ pub enum UiIntent {
     QueueEdit {
         basis: Arc<StateView>,
         command: Command,
+    },
+    ControlEdit {
+        basis: Arc<StateView>,
+        command: Command,
+    },
+    StartLocal {
+        basis: Arc<StateView>,
+        takeover: bool,
+    },
+    Discover {
+        backend: OutputBackend,
+        endpoint: Option<String>,
     },
     Mute,
     Stop,
@@ -59,6 +71,10 @@ fn same_context(a: &StateView, b: &StateView) -> bool {
         && a.session_id == b.session_id
         && a.revision == b.revision
         && a.epochs == b.epochs
+        && a.output == b.output
+        && a.device_epoch == b.device_epoch
+        && a.graph_epoch == b.graph_epoch
+        && a.active_entry_id == b.active_entry_id
 }
 enum Task {
     Before,
@@ -68,12 +84,20 @@ enum Task {
     Preflight {
         basis: Arc<StateView>,
         command: Command,
+        session: Option<SessionId>,
     },
     Mutation,
+    Discovery {
+        command: Command,
+        owner: OwnerId,
+    },
 }
 impl Task {
-    fn edits_queue(&self) -> bool {
-        matches!(self, Self::Preflight { .. } | Self::Mutation)
+    fn edits_foreground(&self) -> bool {
+        matches!(
+            self,
+            Self::Preflight { .. } | Self::Mutation | Self::Discovery { .. }
+        )
     }
 }
 pub struct GuiController {
@@ -88,6 +112,9 @@ pub struct GuiController {
     pending: Option<(RequestId, Task)>,
     waiting_edit: Option<Task>,
     safety: Vec<RequestId>,
+    operation_cursor: usize,
+    discovery: Option<Arc<DeviceQueryResultView>>,
+    inspection: Option<Arc<DeviceQueryResultView>>,
     shutdown: Option<RequestId>,
     wait_for_child: bool,
     refresh: bool,
@@ -121,6 +148,9 @@ impl GuiController {
             pending: None,
             waiting_edit: None,
             safety: Vec::new(),
+            operation_cursor: 0,
+            discovery: None,
+            inspection: None,
             shutdown: None,
             wait_for_child: false,
             refresh: false,
@@ -155,31 +185,50 @@ impl GuiController {
             || self
                 .pending
                 .as_ref()
-                .is_some_and(|(_, task)| task.edits_queue())
+                .is_some_and(|(_, task)| task.edits_foreground())
     }
     pub fn waiting_queue_edit(&self) -> Option<&Command> {
         match self.waiting_edit.as_ref() {
-            Some(Task::Preflight { command, .. }) => Some(command),
+            Some(Task::Preflight { command, .. } | Task::Discovery { command, .. }) => {
+                Some(command)
+            }
             _ => None,
         }
     }
     pub fn queue_edit_available(&self) -> bool {
-        self.connected
-            && self.client.is_some()
+        self.control_edit_available()
             && !self.queue_stale
-            && !self.queue_edit_pending()
-            && !self.closing
-            && self.shutdown.is_none()
-            && self.cleanup.is_none()
-            && !self.host.launching()
             && self
                 .queue_basis
                 .as_ref()
                 .zip(self.state())
                 .is_some_and(|(basis, current)| same_context(basis, current))
     }
+    pub fn control_edit_available(&self) -> bool {
+        self.connected
+            && self.client.is_some()
+            && !self.queue_edit_pending()
+            && !self.closing
+            && self.shutdown.is_none()
+            && self.cleanup.is_none()
+            && !self.host.launching()
+            && !self.model().records().iter().any(|record| {
+                !record.owner_changed
+                    && !record.request.envelope().payload.is_query()
+                    && (record.presentation == Presentation::Uncertain
+                        || (record.presentation == Presentation::Accepted
+                            && !is_transport_operation(&record.request.envelope().payload)
+                            && record.request.lane() == Lane::Ordinary))
+            })
+    }
     pub fn capabilities(&self) -> Option<&CapabilitiesView> {
         self.capabilities.as_ref()
+    }
+    pub fn discovery(&self) -> Option<&DeviceQueryResultView> {
+        self.discovery.as_deref()
+    }
+    pub fn inspection(&self) -> Option<&DeviceQueryResultView> {
+        self.inspection.as_deref()
     }
     pub fn connected(&self) -> bool {
         self.connected
@@ -276,12 +325,97 @@ impl GuiController {
                 if !self.queue_edit_available() {
                     return Err("Observe a fresh published queue context before editing".into());
                 }
-                let task = Task::Preflight { basis, command };
+                self.capture(basis, command)
+            }
+            UiIntent::ControlEdit { basis, command } => {
+                if !matches!(
+                    command,
+                    Command::OutputSelect { .. }
+                        | Command::OutputConsent { .. }
+                        | Command::VolumeCaps { .. }
+                        | Command::VolumeSet { .. }
+                        | Command::FixedArm { .. }
+                        | Command::Pause
+                        | Command::Resume
+                        | Command::Seek { .. }
+                        | Command::Mute { muted: false }
+                ) {
+                    return Err(
+                        "Only output and transport commands belong to a control edit".into(),
+                    );
+                }
+                if !self.control_edit_available() {
+                    return Err("A foreground edit is waiting, pending, or uncertain; observe and reconcile first".into());
+                }
+                if let Command::Seek { position_frames } = command {
+                    let bounds = self.seek_bounds();
+                    if !basis.seekable || bounds.is_none_or(|(_, total)| position_frames > total) {
+                        return Err(
+                            "Observe a seekable active entry and its source-frame bounds first"
+                                .into(),
+                        );
+                    }
+                }
+                self.capture(basis, command)
+            }
+            UiIntent::StartLocal { basis, takeover } => {
+                if !self.queue_edit_available() {
+                    return Err(
+                        "Observe a fresh selected queue and reconcile pending playback first"
+                            .into(),
+                    );
+                }
+                if self
+                    .queue
+                    .as_ref()
+                    .and_then(|q| q.selected.as_ref())
+                    .is_none()
+                {
+                    return Err("Select a local queue entry first".into());
+                }
+                let device_id = basis
+                    .output
+                    .as_ref()
+                    .ok_or("Select an output first")?
+                    .device_id
+                    .clone();
+                self.capture(
+                    basis,
+                    Command::Start {
+                        source: earph_core::control::SourceKind::LocalFile,
+                        device_id,
+                        takeover,
+                        seekable: true,
+                    },
+                )
+            }
+            UiIntent::Discover { backend, endpoint } => {
+                if !self.control_edit_available() {
+                    return Err("A foreground action is waiting, pending, or uncertain".into());
+                }
+                if !self
+                    .capabilities
+                    .as_ref()
+                    .is_some_and(|c| c.devices.backends.contains(&backend))
+                {
+                    return Err("This owner does not advertise discovery for that backend".into());
+                }
+                let command = match endpoint {
+                    Some(endpoint) => Command::DevicesInspect { backend, endpoint },
+                    None => Command::DevicesList { backend },
+                };
+                let task = Task::Discovery {
+                    command: command.clone(),
+                    owner: self
+                        .state()
+                        .and_then(|s| s.owner_id.clone())
+                        .ok_or("Observe an owner before discovery")?,
+                };
                 if self.pending.is_some() {
                     self.waiting_edit = Some(task);
                     Ok(())
                 } else {
-                    self.start_query(Command::State, task)
+                    self.start_query(command, task)
                 }
             }
             UiIntent::Mute => self.safety_command(Command::Mute { muted: true }),
@@ -313,6 +447,49 @@ impl GuiController {
                 self.refresh = false;
                 Ok(())
             }
+        }
+    }
+    fn capture(&mut self, basis: Arc<StateView>, command: Command) -> Result<(), String> {
+        let session = if matches!(command, Command::Start { .. }) {
+            Some(SessionId::new(request_id()?.as_str()).map_err(|e| e.to_string())?)
+        } else {
+            None
+        };
+        let task = Task::Preflight {
+            basis,
+            command,
+            session,
+        };
+        if self.pending.is_some() {
+            self.waiting_edit = Some(task);
+            Ok(())
+        } else {
+            self.start_query(Command::State, task)
+        }
+    }
+    pub fn seek_bounds(&self) -> Option<(&earph_core::ids::QueueEntryId, u64)> {
+        let state = self.state()?;
+        if !state.seekable || self.queue_stale {
+            return None;
+        }
+        let active = state.active_entry_id.as_ref()?;
+        let entry = self
+            .queue
+            .as_ref()?
+            .entries
+            .iter()
+            .find(|entry| &entry.id == active)?;
+        match entry.status {
+            earph_core::queue::PreparationStatus::Ready { total_frames, .. } => {
+                Some((active, total_frames))
+            }
+            _ => None,
+        }
+    }
+    fn cancel_unsent(&mut self) {
+        self.waiting_edit = None;
+        if let Some((_, task @ Task::Preflight { .. })) = self.pending.as_mut() {
+            *task = Task::Before;
         }
     }
     fn attach(&mut self, runtime: String) -> Result<(), String> {
@@ -360,17 +537,31 @@ impl GuiController {
         }
     }
     fn start_query(&mut self, command: Command, task: Task) -> Result<(), String> {
-        let request = Request::query(
-            request_id()?,
-            ZoneId::new("main").map_err(|e| e.to_string())?,
-            command,
-        )
+        if let Task::Discovery { owner, .. } = &task
+            && self.state().and_then(|s| s.owner_id.as_ref()) != Some(owner)
+        {
+            return Err("Discovery owner changed before submission; refresh explicitly".into());
+        }
+        let request = if matches!(task, Task::Discovery { .. }) {
+            Request::device_query(
+                request_id()?,
+                self.state().ok_or("Observe an owner before discovery")?,
+                command,
+            )
+        } else {
+            Request::query(
+                request_id()?,
+                ZoneId::new("main").map_err(|e| e.to_string())?,
+                command,
+            )
+        }
         .map_err(|e| format!("{e:?}"))?;
-        self.pending = Some((self.submit(request)?, task));
+        let id = self.submit(request)?;
+        self.pending = Some((id, task));
         Ok(())
     }
     fn safety_command(&mut self, command: Command) -> Result<(), String> {
-        self.waiting_edit = None;
+        self.cancel_unsent();
         if self.safety.len() == 2 {
             return Err("Safety requests are pending".into());
         }
@@ -384,6 +575,16 @@ impl GuiController {
         Ok(())
     }
     fn reconcile(&mut self, id: &RequestId) -> Result<(), String> {
+        if let Some(record) = self.model().record(id)
+            && matches!(
+                record.request.envelope().payload,
+                Command::DevicesList { .. } | Command::DevicesInspect { .. }
+            )
+            && record.request.envelope().owner_id.as_ref()
+                != self.state().and_then(|s| s.owner_id.as_ref())
+        {
+            return Err("Discovery target owner changed or is unobserved; refresh explicitly after attachment".into());
+        }
         let restore_safety = self
             .client
             .as_ref()
@@ -391,6 +592,7 @@ impl GuiController {
             .is_some_and(|record| {
                 record.request.lane() == Lane::Safety
                     && !matches!(record.request.envelope().payload, Command::OwnerShutdown)
+                    && !is_transport_operation(&record.request.envelope().payload)
             })
             && !self.safety.contains(id);
         if restore_safety && self.safety.len() == 2 {
@@ -420,6 +622,8 @@ impl GuiController {
         self.connected = false;
         self.queue_stale = true;
         self.safety.clear();
+        self.discovery = None;
+        self.inspection = None;
         if let Some(client) = self.client.take() {
             let (model, shutdown) = client.disconnect();
             self.disconnected = Some(model);
@@ -453,24 +657,42 @@ impl GuiController {
         let previous_owner = self.state().and_then(|state| state.owner_id.clone());
         if let Some(client) = self.client.as_mut() {
             client.poll();
-            if let Some(observed) = client.model().latest_state() {
-                if previous_owner != observed.state.owner_id {
-                    self.capabilities = None;
-                    if self.waiting_edit.take().is_some() {
-                        self.error = Some(
-                            "Owner changed; waiting queue edit cancelled before submission".into(),
-                        );
-                    }
-                }
+        }
+        if let Some(observed) = self.model().latest_state().map(|o| o.state.clone()) {
+            if previous_owner != observed.owner_id {
+                self.capabilities = None;
+                self.discovery = None;
+                self.inspection = None;
                 if self
-                    .queue_basis
+                    .pending
                     .as_ref()
-                    .is_some_and(|basis| !same_context(basis, &observed.state))
+                    .is_some_and(|(_, task)| matches!(task, Task::Discovery { .. }))
                 {
-                    self.queue_stale = true;
+                    self.pending = None;
+                    self.error =
+                        Some("Discovery owner changed; its sent receipt remains in history".into());
+                }
+                if self.waiting_edit.is_some()
+                    || self
+                        .pending
+                        .as_ref()
+                        .is_some_and(|(_, t)| matches!(t, Task::Preflight { .. }))
+                {
+                    self.cancel_unsent();
+                    self.error = Some(
+                        "Owner changed; waiting queue edit cancelled before submission".into(),
+                    );
                 }
             }
+            if self
+                .queue_basis
+                .as_ref()
+                .is_some_and(|basis| !same_context(basis, &observed))
+            {
+                self.queue_stale = true;
+            }
         }
+        self.observe_discovery();
         if let Some(id) = self.shutdown.clone() {
             match self.outcome(&id) {
                 Some((Presentation::Applied, _)) => {
@@ -498,6 +720,21 @@ impl GuiController {
         if self.closing {
             return;
         }
+        // Muted transport may stay Accepted after readiness. Release the send workflow,
+        // while the same bounded model record retains the exact operation identity.
+        if let Some((id, Task::Mutation)) = self.pending.as_ref()
+            && self
+                .outcome(id)
+                .is_some_and(|(p, _)| p == Presentation::Accepted)
+            && self
+                .model()
+                .record(id)
+                .is_some_and(|r| is_transport_operation(&r.request.envelope().payload))
+        {
+            self.pending = None;
+            self.refresh = true;
+            self.queue_stale = true;
+        }
         let completed = self
             .pending
             .as_ref()
@@ -506,15 +743,22 @@ impl GuiController {
         if let Some((presentation, reply)) = completed
             && !matches!(presentation, Presentation::Accepted | Presentation::Queued)
         {
-            let (_, task) = self.pending.take().unwrap();
+            let (id, task) = self.pending.take().unwrap();
             if presentation == Presentation::Applied {
-                if let Some(Ok(Reply::Receipt(receipt))) = reply
-                    && let Err(e) = self.complete(task, receipt, now)
-                {
-                    self.waiting_edit = None;
-                    self.error = Some(e);
-                    self.queue_stale = true;
-                    self.next_poll = now + Duration::from_millis(500);
+                if let Some(Ok(Reply::Receipt(receipt))) = reply {
+                    match self.complete(task, receipt, now) {
+                        Ok(()) => {
+                            if let Some(client) = self.client.as_mut() {
+                                client.retire_observation(&id);
+                            }
+                        }
+                        Err(e) => {
+                            self.waiting_edit = None;
+                            self.error = Some(e);
+                            self.queue_stale = true;
+                            self.next_poll = now + Duration::from_millis(500);
+                        }
+                    }
                 }
             } else {
                 self.waiting_edit = None;
@@ -543,7 +787,11 @@ impl GuiController {
         self.poll_accepted(now);
         if self.client.is_some() && self.pending.is_none() {
             if let Some(task) = self.waiting_edit.take() {
-                if let Err(error) = self.start_query(Command::State, task) {
+                let command = match &task {
+                    Task::Discovery { command, .. } => command.clone(),
+                    _ => Command::State,
+                };
+                if let Err(error) = self.start_query(command, task) {
                     self.error = Some(error);
                 }
             } else if self.refresh || now >= self.next_poll {
@@ -552,6 +800,48 @@ impl GuiController {
                     self.error = Some(e);
                 }
                 self.next_poll = now + Duration::from_millis(500);
+            }
+        }
+    }
+    fn observe_discovery(&mut self) {
+        if !self.connected || self.client.is_none() {
+            return;
+        }
+        let results: Vec<_> = self
+            .model()
+            .records()
+            .iter()
+            .filter_map(|record| {
+                if let Some(Ok(Reply::Receipt(receipt))) = &record.outcome
+                    && let Some(ResultView::Devices(result)) = &receipt.result
+                    && self.state().and_then(|s| s.owner_id.as_ref()) == Some(&result.owner_id)
+                    && record.request.envelope().owner_id.as_ref() == Some(&result.owner_id)
+                {
+                    Some((
+                        matches!(
+                            record.request.envelope().payload,
+                            Command::DevicesList { .. }
+                        ),
+                        result.clone(),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // Retain the actual shared result, including failures. Archived exact replay cannot
+        // replace a more recent observation or populate another owner's inventory.
+        for (list, result) in results {
+            let slot = if list {
+                &mut self.discovery
+            } else {
+                &mut self.inspection
+            };
+            if slot
+                .as_ref()
+                .is_none_or(|old| old.completed_monotonic_ns < result.completed_monotonic_ns)
+            {
+                *slot = Some(result);
             }
         }
     }
@@ -567,8 +857,37 @@ impl GuiController {
             return;
         }
         // Fixed slots keep changing ordinary request identities from starving safety work.
+        let operations: Vec<_> = self
+            .model()
+            .records()
+            .iter()
+            .filter(|r| {
+                !r.owner_changed
+                    && !r.in_flight
+                    && r.presentation == Presentation::Accepted
+                    && !self
+                        .pending
+                        .as_ref()
+                        .is_some_and(|(id, _)| id == &r.request.envelope().request_id)
+                    && !self.safety.contains(&r.request.envelope().request_id)
+                    && (is_transport_operation(&r.request.envelope().payload)
+                        || (matches!(
+                            r.request.envelope().payload,
+                            Command::DevicesList { .. } | Command::DevicesInspect { .. }
+                        ) && self.connected
+                            && r.request.envelope().owner_id.as_ref()
+                                == self.state().and_then(|s| s.owner_id.as_ref())))
+            })
+            .map(|r| r.request.envelope().request_id.clone())
+            .collect();
+        let operation = if operations.is_empty() {
+            None
+        } else {
+            Some(operations[self.operation_cursor % operations.len()].clone())
+        };
         let slots = [
             self.pending.as_ref().map(|(id, _)| id.clone()),
+            operation,
             self.safety.first().cloned(),
             self.safety.get(1).cloned(),
             self.shutdown.clone(),
@@ -585,6 +904,9 @@ impl GuiController {
                 continue;
             }
             self.replay_cursor = (slot + 1) % slots.len();
+            if slot == 1 {
+                self.operation_cursor = self.operation_cursor.wrapping_add(1);
+            }
             self.next_replay = now + Duration::from_millis(100);
             if let Err(error) = self.client.as_mut().unwrap().reconcile(id) {
                 if !matches!(error, SubmitError::Dispatch(DispatchError::Full(_))) {
@@ -712,7 +1034,11 @@ impl GuiController {
                 self.next_poll = now + Duration::from_millis(500);
                 Ok(())
             }
-            Task::Preflight { basis, command } => {
+            Task::Preflight {
+                basis,
+                command,
+                session,
+            } => {
                 let Some(ResultView::State(state)) = receipt.result else {
                     return Err("Edit preflight State unavailable".into());
                 };
@@ -723,8 +1049,18 @@ impl GuiController {
                             .into(),
                     );
                 }
-                let request = Request::mutation(request_id()?, &basis, command)
-                    .map_err(|e| format!("{e:?}"))?;
+                if self.model().records().iter().any(|r| {
+                    !r.owner_changed
+                        && !r.request.envelope().payload.is_query()
+                        && r.presentation == Presentation::Uncertain
+                }) {
+                    return Err("A sent action became uncertain; reconcile its exact request before another edit".into());
+                }
+                let request = match session {
+                    Some(session) => Request::start(request_id()?, &state, session, command),
+                    None => Request::mutation(request_id()?, &state, command),
+                }
+                .map_err(|e| format!("{e:?}"))?;
                 let id = self.submit(request)?;
                 self.pending = Some((id, Task::Mutation));
                 Ok(())
@@ -734,6 +1070,7 @@ impl GuiController {
                 self.queue_stale = true;
                 Ok(())
             }
+            Task::Discovery { .. } => Ok(()),
         }
     }
 }
@@ -769,11 +1106,126 @@ fn validate_queue(command: &Command) -> Result<(), String> {
         _ => Err("Only queue commands belong to a queue edit".into()),
     }
 }
+fn is_transport_operation(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Start { .. } | Command::Resume | Command::Pause | Command::Seek { .. }
+    )
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::OwnerClient;
+
+    #[test]
+    fn actual_core_partial_inventory_keeps_unselectable_endpoint_and_failures_visible() {
+        use earph_core::{
+            control::{CommandEnvelope, ControlLimits},
+            devices::{DeviceObservation, DeviceQueryError, DeviceSummary},
+            session::Session,
+        };
+        use eframe::egui;
+        let owner = OwnerId::new("controlled-discovery-owner").unwrap();
+        let mut session = Session::new_owner(
+            ZoneId::new("main").unwrap(),
+            owner,
+            ControlLimits::default(),
+        );
+        session.enable_device_discovery(OutputBackend::CoreAudio);
+        let command = CommandEnvelope {
+            schema_version: 1,
+            request_id: request_id().unwrap(),
+            zone_id: ZoneId::new("main").unwrap(),
+            owner_id: None,
+            session_id: None,
+            expected_revision: None,
+            payload: Command::DevicesList {
+                backend: OutputBackend::CoreAudio,
+            },
+        };
+        session.submit(command.clone());
+        let endpoint = "owned-uid-".repeat(40);
+        session
+            .complete_device_query(
+                &session.device_query_job().unwrap(),
+                1,
+                DeviceObservation::List {
+                    devices: vec![DeviceSummary::advertised(
+                        OutputBackend::CoreAudio,
+                        endpoint.clone(),
+                        Some("Controlled long endpoint".into()),
+                        None,
+                        None,
+                    )],
+                    complete: false,
+                    failures: vec![DeviceQueryError {
+                        code: earph_core::ErrorCode::DeviceUnavailable,
+                        message: "Controlled native property failure".into(),
+                        native_status: Some(-1),
+                        native_object_id: Some(42),
+                    }],
+                },
+            )
+            .unwrap();
+        let bytes =
+            serde_json::to_vec(&serde_json::json!({"receipt": session.submit(command)})).unwrap();
+        let Reply::Receipt(receipt) = crate::decode_reply(bytes).unwrap() else {
+            panic!("Core receipt")
+        };
+        let Some(ResultView::Devices(result)) = receipt.result else {
+            panic!("Core inventory")
+        };
+        let mut controller = GuiController::new();
+        controller.discovery = Some(result);
+        let mut app = super::super::GuiApp::new(controller);
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let mut output = context.run_ui(egui::RawInput::default(), |ui| app.draw(ui));
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.unwrap();
+        let target = tree
+            .nodes
+            .iter()
+            .find(|(_, n)| {
+                n.role() != egui::accesskit::Role::TextRun && n.label() == Some("Output / Safety")
+            })
+            .unwrap()
+            .0;
+        let mut output = context.run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::AccessKitActionRequest(
+                    egui::accesskit::ActionRequest {
+                        action: egui::accesskit::Action::Click,
+                        target_tree: tree.tree_id,
+                        target_node: target,
+                        data: None,
+                    },
+                )],
+                ..Default::default()
+            },
+            |ui| app.draw(ui),
+        );
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.unwrap();
+        let labels: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter_map(|(_, n)| n.label().or_else(|| n.value()))
+            .collect();
+        assert!(
+            labels
+                .iter()
+                .any(|s| *s == format!("Exact endpoint: {endpoint}"))
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|s| s.contains("Inventory complete: false")
+                    && s.contains("Controlled native property failure"))
+        );
+        assert!(!labels.contains(&"Copy backend and endpoint to draft"));
+    }
 
     #[test]
     fn archived_snapshot_replay_cannot_replace_a_newer_cache_after_reconnect() {

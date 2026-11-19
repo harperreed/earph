@@ -302,3 +302,33 @@ The desktop package passes 83 tests; strict Clippy and the independent client re
 See `docs/evidence/desktop/device-discovery-client-linux-20261119.json` for exact bindings and limits.
 Root adds only this checkpoint and that evidence document after the checks.
 GUI discovery, native Mac acquisition, foreign discovery scenarios, and full desktop parity remain pending.
+
+## Native Output, Safety, and Transport checkpoint
+
+The native controller now exposes output discovery, inspection, selection, safety settings, and local transport.
+Local drafts remain separate from owner state.
+Selection, consent, caps, gain, fixed arming, Start, and Unmute require separate actions.
+Discovery binds the observed owner; replacement owners reject before native dispatch.
+Mutations require a fresh captured context before submission.
+Muted Accepted transport retains exact replay while releasing foreground occupancy.
+Mute and Stop retain their independent emergency lanes.
+Successful internal observations retire after adoption; failures and uncertain receipts stay visible.
+Request disclosures retain their identity during status and delivery updates.
+Reconciliation stays visible but disabled during delivery.
+
+The full Linux check passes 959 tests, with zero failures and five existing ignores.
+Actual native windows pass discovery, transport, zero-PCM software playback, themes, and shutdown.
+All generated source bytes and private software configuration remain unchanged.
+The capture contains 943232 stereo frames, all zero.
+Both controllers and consumers exit zero; the owner is freshly absent.
+The owner exit number remains unknown because the controller owned its child handle.
+See [the exact native receipt](../../evidence/desktop/native-output-transport-linux-20261119.json).
+
+A parallel fixture launch reproduced ETXTBSY before cancellation could begin.
+The fixture now publishes executable bytes in an isolated child process.
+Twenty full engine unit runs pass at unchanged concurrency and deadlines.
+Production supervision preserves launch failure codes without retries or private paths.
+
+A low severity background queue warning remains visible after recovery in this snapshot.
+Its targeted fix passes the isolated Profiles workflow tests and awaits integration.
+Profiles/DSP integration, corrections, packages, diagnostics, networks, Mac windows, and full parity remain incomplete.
