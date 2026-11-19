@@ -7,12 +7,11 @@ use earph_core::{control::Command, ids::RequestId};
 use earph_desktop::{DesktopClient, OwnerClient, Presentation, Reply, Request, ResultView};
 use serde_json::json;
 use std::{
-    fs,
-    os::unix::fs::PermissionsExt,
-    path::PathBuf,
-    thread,
+    fs, thread,
     time::{Duration, Instant},
 };
+#[cfg(target_os = "linux")]
+use std::{os::unix::fs::PermissionsExt, path::PathBuf};
 
 fn settle(client: &mut DesktopClient, request: Request) -> RequestId {
     let id = request.envelope().request_id.clone();
