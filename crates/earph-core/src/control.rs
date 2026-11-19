@@ -281,9 +281,10 @@ impl CommandEnvelope {
                 id, draft, input, ..
             } => {
                 draft.validate_storage()?;
+                let input_bytes = input.retained_capacity_bytes()?;
                 bytes = bytes
                     .checked_add(draft.retained_capacity_bytes()?)
-                    .and_then(|n| n.checked_add(input.retained_capacity_bytes().ok()?))
+                    .and_then(|n| n.checked_add(input_bytes))
                     .ok_or(BUDGET)?;
                 Some(id)
             }

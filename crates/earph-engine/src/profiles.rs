@@ -128,12 +128,106 @@ fn write_object_with_sync(
     Ok(hash)
 }
 
+#[derive(Debug)]
+enum PreparedCorrectionSource {
+    Text(Vec<u8>),
+    Fir(assets::PreparedFirSource),
+}
+#[derive(Debug)]
+struct PreparedInputs {
+    graph_bytes: Vec<u8>,
+    profile_bytes: Vec<u8>,
+    source: Option<PreparedCorrectionSource>,
+}
+impl PreparedInputs {
+    fn new(
+        profile: &ProfileDocument,
+        graph_bytes: Vec<u8>,
+        source: Option<PreparedCorrectionSource>,
+    ) -> Result<Self, EngineError> {
+        if graph_bytes.len() > MAX_GRAPH_INTENT_BYTES || hash(&graph_bytes)? != profile.graph_sha256
+        {
+            return Err(BUDGET);
+        }
+        let profile_bytes = serde_json::to_vec(profile).map_err(|_| INVALID)?;
+        if profile_bytes.len() > MAX_PROFILE_BYTES {
+            return Err(BUDGET);
+        }
+        Ok(Self {
+            graph_bytes,
+            profile_bytes,
+            source,
+        })
+    }
+    fn fir(&self) -> Option<&assets::PreparedFirSource> {
+        match &self.source {
+            Some(PreparedCorrectionSource::Fir(source)) => Some(source),
+            _ => None,
+        }
+    }
+    fn holding_bytes(&self, graph: &GraphIntent) -> Result<u64, EngineError> {
+        let source = match &self.source {
+            None => 0,
+            Some(PreparedCorrectionSource::Text(bytes)) => bytes.capacity() as u64,
+            Some(PreparedCorrectionSource::Fir(source)) => {
+                let mut bytes = source.retained_bytes()?;
+                if graph.graph.nodes.iter().any(|node| {
+                    matches!(&node.kind,
+                    NodeKind::Convolution { asset } if asset == source.coefficients().reference())
+                }) {
+                    // This immutable Arc bank is charged by the compiler for this graph.
+                    bytes = bytes
+                        .checked_sub(source.coefficients().resident_bytes())
+                        .ok_or(BUDGET)?;
+                }
+                bytes
+            }
+        };
+        (self.graph_bytes.capacity() as u64)
+            .checked_add(self.profile_bytes.capacity() as u64)
+            .and_then(|bytes| bytes.checked_add(source))
+            .and_then(|bytes| bytes.checked_add(size_of::<Self>() as u64))
+            .ok_or(BUDGET)
+    }
+}
+#[derive(Debug)]
+struct PreparedProfile {
+    record: Arc<ProfileRecord>,
+    inputs: PreparedInputs,
+}
+fn prepare_record(
+    profile: ProfileDocument,
+    graph: Arc<GraphIntent>,
+    corrections: Arc<Vec<ProfileCorrectionObject>>,
+    correction_preview: Option<Arc<ProfileCorrectionPreview>>,
+    inputs: PreparedInputs,
+) -> Result<PreparedProfile, EngineError> {
+    let record = Arc::new(ProfileRecord {
+        profile: Arc::new(profile),
+        profile_sha256: hash(&inputs.profile_bytes)?,
+        graph,
+        corrections,
+        correction_preview,
+    });
+    record.validate()?;
+    Ok(PreparedProfile { record, inputs })
+}
 fn validate_intent(
     runtime_path: &Path,
     profile: &ProfileDocument,
     intent: &GraphIntent,
     retained: u64,
     cancel: &AtomicBool,
+) -> Result<Vec<f64>, EngineError> {
+    validate_prepared_intent(runtime_path, profile, intent, retained, cancel, None)
+}
+fn validate_prepared_intent(
+    runtime_path: &Path,
+    profile: &ProfileDocument,
+    intent: &GraphIntent,
+    retained: u64,
+    cancel: &AtomicBool,
+    inputs: Option<&PreparedInputs>,
 ) -> Result<Vec<f64>, EngineError> {
     check(cancel)?;
     profile.validate()?;
@@ -188,9 +282,11 @@ fn validate_intent(
     let scratch = SCRATCH
         .checked_add(asset_admission.scratch_bytes())
         .ok_or(BUDGET)?;
+    let holding = inputs.map_or(Ok(0), |inputs| inputs.holding_bytes(intent))?;
     let available = LIMIT
         .checked_sub(retained)
         .and_then(|n| n.checked_sub(scratch))
+        .and_then(|n| n.checked_sub(holding))
         .ok_or(BUDGET)?;
     let resident = available.min(profile.latency.max_resident_bytes);
     let preparation = available.min(
@@ -198,12 +294,21 @@ fn validate_intent(
             .latency
             .max_preparation_bytes
             .checked_sub(scratch)
+            .and_then(|bytes| bytes.checked_sub(holding))
             .ok_or(BUDGET)?,
     );
-    let resolved =
-        asset_admission.resolve(Some(runtime_path), resident.min(preparation), || {
-            check(cancel)
-        })?;
+    let resolved = asset_admission.resolve_with(
+        resident.min(preparation),
+        || check(cancel),
+        |reference| {
+            if let Some(source) = inputs.and_then(PreparedInputs::fir)
+                && source.coefficients().reference() == reference
+            {
+                return Ok(source.coefficients().clone());
+            }
+            assets::coefficients(runtime_path, reference)
+        },
+    )?;
     check(cancel)?;
     let quantum = intent
         .graph
@@ -276,12 +381,12 @@ fn validate_intent(
     check(cancel)?;
     Ok(bounds)
 }
-fn save(
+fn prepare_save(
     runtime_path: &Path,
     job: &ProfileSaveJob,
     retained: u64,
     cancel: &AtomicBool,
-) -> Result<Arc<ProfileRecord>, EngineError> {
+) -> Result<PreparedProfile, EngineError> {
     let graph_bytes = serde_json::to_vec(&*job.graph).map_err(|_| INVALID)?;
     if graph_bytes.len() > MAX_GRAPH_INTENT_BYTES {
         return Err(BUDGET);
@@ -289,45 +394,57 @@ fn save(
     let profile = job
         .draft
         .document(job.id.clone(), job.revision, hash(&graph_bytes)?)?;
-    validate_intent(runtime_path, &profile, &job.graph, retained, cancel)?;
-    persist_record(
+    let inputs = PreparedInputs::new(&profile, graph_bytes, None)?;
+    validate_prepared_intent(
         runtime_path,
+        &profile,
+        &job.graph,
+        retained,
+        cancel,
+        Some(&inputs),
+    )?;
+    prepare_record(
         profile,
         job.graph.clone(),
         Arc::new(Vec::new()),
         None,
-        cancel,
+        inputs,
     )
 }
 fn persist_record(
     runtime_path: &Path,
-    profile: ProfileDocument,
-    graph: Arc<GraphIntent>,
-    corrections: Arc<Vec<ProfileCorrectionObject>>,
-    correction_preview: Option<Arc<ProfileCorrectionPreview>>,
+    prepared: PreparedProfile,
     cancel: &AtomicBool,
 ) -> Result<Arc<ProfileRecord>, EngineError> {
-    let graph_bytes = serde_json::to_vec(&*graph).map_err(|_| INVALID)?;
-    if graph_bytes.len() > MAX_GRAPH_INTENT_BYTES || hash(&graph_bytes)? != profile.graph_sha256 {
-        return Err(BUDGET);
-    }
-    let bytes = serde_json::to_vec(&profile).map_err(|_| INVALID)?;
-    if bytes.len() > MAX_PROFILE_BYTES {
-        return Err(BUDGET);
-    }
     check(cancel)?;
+    let PreparedProfile { record, inputs } = prepared;
+    if let Some(PreparedCorrectionSource::Fir(source)) = &inputs.source {
+        source.publish(runtime_path, &mut || check(cancel))?;
+    }
     let directory = directory(runtime_path, true)?;
-    if write_object(&directory, &graph_bytes, "graph", cancel)? != profile.graph_sha256 {
+    if let Some(PreparedCorrectionSource::Text(bytes)) = &inputs.source {
+        write_object(&directory, bytes, "text-source", cancel)?;
+    }
+    for object in record.corrections.iter() {
+        let kind = match object.kind {
+            earph_core::profiles::ProfileCorrectionKind::TextReport => "text-report",
+            earph_core::profiles::ProfileCorrectionKind::FirManifest => "fir-manifest",
+        };
+        if write_object(&directory, object.document_json.as_bytes(), kind, cancel)?
+            != object.object_sha256
+        {
+            return Err(INVALID);
+        }
+    }
+    if write_object(&directory, &inputs.graph_bytes, "graph", cancel)?
+        != record.profile.graph_sha256
+    {
         return Err(INVALID);
     }
-    let record = Arc::new(ProfileRecord {
-        profile: Arc::new(profile),
-        profile_sha256: write_object(&directory, &bytes, "profile", cancel)?,
-        graph,
-        corrections,
-        correction_preview,
-    });
-    record.validate()?;
+    if write_object(&directory, &inputs.profile_bytes, "profile", cancel)? != record.profile_sha256
+    {
+        return Err(INVALID);
+    }
     check(cancel)?;
     Ok(record)
 }
@@ -336,6 +453,15 @@ fn validate_catalog_records(
     records: &[Arc<ProfileRecord>],
     live_retained: u64,
     cancel: &AtomicBool,
+) -> Result<(), EngineError> {
+    validate_prepared_catalog(runtime_path, records, live_retained, cancel, None)
+}
+fn validate_prepared_catalog(
+    runtime_path: &Path,
+    records: &[Arc<ProfileRecord>],
+    live_retained: u64,
+    cancel: &AtomicBool,
+    inputs: Option<&PreparedInputs>,
 ) -> Result<(), EngineError> {
     if records.len() > earph_core::profiles::MAX_PROFILES {
         return Err(BUDGET);
@@ -353,12 +479,13 @@ fn validate_catalog_records(
     // Charge the whole prospective catalog and its staging owner, independent of ID ordering.
     let retained = live_retained.max(catalog.checked_mul(2).ok_or(BUDGET)?);
     for record in records {
-        validate_intent(
+        validate_prepared_intent(
             runtime_path,
             &record.profile,
             &record.graph,
             retained,
             cancel,
+            inputs,
         )?;
     }
     Ok(())
@@ -366,7 +493,7 @@ fn validate_catalog_records(
 fn validate_prospective_catalog(
     runtime_path: &Path,
     records: &[Arc<ProfileRecord>],
-    candidate: &Arc<ProfileRecord>,
+    candidate: &PreparedProfile,
     live_retained: u64,
     cancel: &AtomicBool,
 ) -> Result<(), EngineError> {
@@ -374,11 +501,17 @@ fn validate_prospective_catalog(
     prospective.extend(
         records
             .iter()
-            .filter(|r| r.profile.id != candidate.profile.id)
+            .filter(|r| r.profile.id != candidate.record.profile.id)
             .cloned(),
     );
-    prospective.push(candidate.clone());
-    validate_catalog_records(runtime_path, &prospective, live_retained, cancel)
+    prospective.push(candidate.record.clone());
+    validate_prepared_catalog(
+        runtime_path,
+        &prospective,
+        live_retained,
+        cancel,
+        Some(&candidate.inputs),
+    )
 }
 pub(crate) fn restore(
     runtime_path: &Path,
@@ -455,13 +588,23 @@ impl ProfileJobs {
         let (complete, receiver) = mpsc::sync_channel(1);
         let join = thread::spawn(move || {
             while let Ok(work) = work.recv() {
+                let publish = |prepared| {
+                    validate_prospective_catalog(
+                        &directory,
+                        &work.catalog,
+                        &prepared,
+                        work.retained,
+                        &work.cancel,
+                    )?;
+                    persist_record(&directory, prepared, &work.cancel)
+                };
                 let result = match &work.job.operation {
                     ProfileWorkOperation::Save {
                         id,
                         revision,
                         draft,
                         graph,
-                    } => save(
+                    } => prepare_save(
                         &directory,
                         &ProfileSaveJob {
                             request_id: work.job.request_id.clone(),
@@ -475,13 +618,14 @@ impl ProfileJobs {
                         work.retained,
                         &work.cancel,
                     )
+                    .and_then(&publish)
                     .map(ProfileWorkOutput::Profile),
                     ProfileWorkOperation::Import {
                         id,
                         revision,
                         draft,
                         input,
-                    } => correction_import::import(
+                    } => correction_import::prepare_import(
                         &directory,
                         id.clone(),
                         *revision,
@@ -490,6 +634,7 @@ impl ProfileJobs {
                         work.retained,
                         &work.cancel,
                     )
+                    .and_then(&publish)
                     .map(ProfileWorkOutput::Profile),
                     ProfileWorkOperation::FirAsset { path, .. } => correction_import::import_asset(
                         &directory,
@@ -499,18 +644,6 @@ impl ProfileJobs {
                     )
                     .map(ProfileWorkOutput::FirAsset),
                 };
-                let result = result.and_then(|output| {
-                    if let ProfileWorkOutput::Profile(record) = &output {
-                        validate_prospective_catalog(
-                            &directory,
-                            &work.catalog,
-                            record,
-                            work.retained,
-                            &work.cancel,
-                        )?;
-                    }
-                    Ok(output)
-                });
                 if complete
                     .send(Completion {
                         id: work.job.request_id,
@@ -622,6 +755,19 @@ mod tests {
     use super::*;
     use std::{fs::OpenOptions, io::Write, os::unix::fs::OpenOptionsExt};
 
+    fn persist_fixture(
+        runtime: &Path,
+        profile: ProfileDocument,
+        graph: Arc<GraphIntent>,
+        corrections: Arc<Vec<ProfileCorrectionObject>>,
+        preview: Option<Arc<ProfileCorrectionPreview>>,
+        cancel: &AtomicBool,
+    ) -> Result<Arc<ProfileRecord>, EngineError> {
+        let inputs = PreparedInputs::new(&profile, serde_json::to_vec(&*graph).unwrap(), None)?;
+        let prepared = prepare_record(profile, graph, corrections, preview, inputs)?;
+        persist_record(runtime, prepared, cancel)
+    }
+
     #[test]
     fn catalog_admission_is_independent_of_record_order() {
         use earph_core::ids::ProfileId;
@@ -651,7 +797,7 @@ mod tests {
                 hash(&serde_json::to_vec(&graph).unwrap()).unwrap(),
             )
             .unwrap();
-        let large = persist_record(
+        let large = persist_fixture(
             &runtime,
             profile,
             graph,
@@ -680,7 +826,7 @@ mod tests {
                 )
                 .unwrap();
             refs.push(
-                persist_record(
+                persist_fixture(
                     &runtime,
                     profile,
                     cheap.clone(),
@@ -707,6 +853,171 @@ mod tests {
 
     #[test]
     fn live_save_checks_the_existing_catalog_before_publication() {
+        catalog_refusal_preserves_objects(|_| None);
+    }
+
+    #[test]
+    fn refused_text_import_does_not_publish_candidate_dependencies() {
+        catalog_refusal_preserves_objects(|_| {
+            use earph_media::correction_text::{
+                CorrectionFormat, ImportContext, ImportMetadata, import_correction_text,
+            };
+            let source = "Preamp: -6 dB\nFilter 1: ON PK Fc 1000 Hz Gain 0 dB Q 1\n";
+            let report = import_correction_text(
+                source.as_bytes(),
+                CorrectionFormat::AutoEq,
+                ImportContext {
+                    sample_rate_hz: 48000,
+                    channels: earph_core::audio::ChannelLayout::Mono,
+                    quantum_frames: 64,
+                },
+                ImportMetadata::default(),
+            )
+            .unwrap();
+            Some(Arc::new(
+                earph_core::profile_control::ProfileCorrectionInput::TextReport {
+                    report_json: serde_json::to_string(&report).unwrap(),
+                    source_text: source.into(),
+                },
+            ))
+        });
+    }
+
+    #[test]
+    fn refused_fir_import_does_not_publish_candidate_dependencies() {
+        catalog_refusal_preserves_objects(|runtime| Some(fir_input(runtime)));
+    }
+    fn fir_input(runtime: &Path) -> Arc<earph_core::profile_control::ProfileCorrectionInput> {
+        let source = runtime.join("candidate.wav");
+        let mut bytes = Vec::new();
+        bytes.extend(b"RIFF");
+        bytes.extend(44_u32.to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        bytes.extend(16_u32.to_le_bytes());
+        bytes.extend(3_u16.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(48000_u32.to_le_bytes());
+        bytes.extend(384000_u32.to_le_bytes());
+        bytes.extend(8_u16.to_le_bytes());
+        bytes.extend(64_u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend(8_u32.to_le_bytes());
+        bytes.extend(0.5_f64.to_le_bytes());
+        fs::write(&source, bytes).unwrap();
+        Arc::new(earph_core::profile_control::ProfileCorrectionInput::Fir {
+            path: source.to_str().unwrap().into(),
+            purpose: earph_core::dsp_nodes::FirPurpose::Correction,
+            context: earph_core::profile_control::ProfileCorrectionContext {
+                sample_rate_hz: 48000,
+                channels: earph_core::audio::ChannelLayout::Mono,
+                quantum_frames: 64,
+            },
+            metadata_json: "{}".into(),
+            preamp_db: earph_core::graph::FiniteGraphScalar::new(0.0).unwrap(),
+        })
+    }
+
+    fn import_draft() -> Arc<earph_core::profile_control::ProfileDraft> {
+        Arc::new(serde_json::from_value(serde_json::json!({"name":"Owned", "source_policy":"local_file", "fidelity":"compatible_conversion",
+            "output":{"backend":"alsa","route":"system","device_id":"owned","manual_setup":null},
+            "volume":{"mode":"software","software_cap_millidecibels":-20000,"hardware_cap_millidecibels":null},
+            "latency":{"mode":"balanced","max_resident_bytes":268435456,"max_preparation_bytes":268435456,"max_latency_frames":null},"corrections":[]})).unwrap())
+    }
+
+    #[test]
+    fn cancelled_prepared_fir_keeps_all_dependencies_unpublished() {
+        let runtime = PathBuf::from("/tmp").join(format!(
+            "epc-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
+        let input = fir_input(&runtime);
+        let cancel = AtomicBool::new(false);
+        let prepared = correction_import::prepare_import(
+            &runtime,
+            earph_core::ids::ProfileId::new("cancelled").unwrap(),
+            1,
+            &import_draft(),
+            &input,
+            0,
+            &cancel,
+        )
+        .unwrap();
+        cancel.store(true, Ordering::Release);
+        assert_eq!(
+            persist_record(&runtime, prepared, &cancel)
+                .unwrap_err()
+                .code,
+            ErrorCode::OperationCancelled
+        );
+        assert!(!runtime.join("assets").exists());
+        assert!(!runtime.join("profiles").exists());
+    }
+
+    #[test]
+    fn admitted_fir_publishes_the_original_prepared_bytes_after_source_change() {
+        let runtime = PathBuf::from("/tmp").join(format!(
+            "epf-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
+        let input = fir_input(&runtime);
+        let source = runtime.join("candidate.wav");
+        let original = fs::read(&source).unwrap();
+        let cancel = AtomicBool::new(false);
+        let prepared = correction_import::prepare_import(
+            &runtime,
+            earph_core::ids::ProfileId::new("frozen").unwrap(),
+            1,
+            &import_draft(),
+            &input,
+            0,
+            &cancel,
+        )
+        .unwrap();
+        let reference = prepared
+            .inputs
+            .fir()
+            .unwrap()
+            .coefficients()
+            .reference()
+            .clone();
+        assert!(!runtime.join("assets").exists());
+        assert!(!runtime.join("profiles").exists());
+        fs::write(&source, b"changed owned source after preparation").unwrap();
+        validate_prospective_catalog(&runtime, &[], &prepared, 0, &cancel).unwrap();
+        let record = persist_record(&runtime, prepared, &cancel).unwrap();
+        assert_eq!(
+            fs::read(
+                runtime
+                    .join("assets")
+                    .join(format!("{}.wav", reference.sha256.as_str()))
+            )
+            .unwrap(),
+            original
+        );
+        assert_eq!(
+            assets::resolve(&runtime, &reference).unwrap().taps[0],
+            [0.5]
+        );
+        assert_eq!(restore(&runtime, &[record.reference()]).unwrap()[0], record);
+        assert_eq!(
+            fs::read(&source).unwrap(),
+            b"changed owned source after preparation"
+        );
+    }
+
+    fn catalog_refusal_preserves_objects(
+        input: fn(&Path) -> Option<Arc<earph_core::profile_control::ProfileCorrectionInput>>,
+    ) {
         use earph_core::{
             control::{Command, CommandEnvelope, ControlLimits, ReceiptStatus},
             ids::{OwnerId, ProfileId, RequestId, ZoneId},
@@ -736,7 +1047,7 @@ mod tests {
                 hash(&serde_json::to_vec(&graph).unwrap()).unwrap(),
             )
             .unwrap();
-        let old = persist_record(
+        let old = persist_fixture(
             &runtime,
             profile,
             graph.clone(),
@@ -763,6 +1074,22 @@ mod tests {
         session.restore_profile_records(loaded).unwrap();
         let mut cheap = (*graph).clone();
         Arc::make_mut(&mut cheap.graph).nodes[1].kind = NodeKind::Bypass;
+        let input = input(&runtime);
+        let stored_objects = || {
+            [runtime.join("profiles"), runtime.join("assets")]
+                .into_iter()
+                .filter(|directory| directory.exists())
+                .flat_map(|directory| fs::read_dir(directory).unwrap())
+                .map(|entry| {
+                    let path = entry.unwrap().path();
+                    (
+                        path.strip_prefix(&runtime).unwrap().to_owned(),
+                        Sha256::digest(fs::read(&path).unwrap()),
+                    )
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        let original_objects = stored_objects();
         let state = session.snapshot();
         let command = CommandEnvelope {
             schema_version: 1,
@@ -771,10 +1098,19 @@ mod tests {
             owner_id: state.owner_id,
             session_id: state.session_id,
             expected_revision: Some(state.revision),
-            payload: Command::ProfilesCreate {
-                id: ProfileId::new("a-cheap").unwrap(),
-                draft,
-                graph: Arc::new(cheap),
+            payload: if let Some(input) = input {
+                Command::ProfilesImport {
+                    id: ProfileId::new("a-cheap").unwrap(),
+                    expected_profile_revision: None,
+                    draft,
+                    input,
+                }
+            } else {
+                Command::ProfilesCreate {
+                    id: ProfileId::new("a-cheap").unwrap(),
+                    draft,
+                    graph: Arc::new(cheap),
+                }
             },
         };
         assert_eq!(
@@ -800,6 +1136,11 @@ mod tests {
             ErrorCode::ResourceBudgetExceeded
         );
         assert_eq!(session.profile_references(), &[old.reference()]);
+        assert_eq!(
+            stored_objects(),
+            original_objects,
+            "ordinary catalog refusal published candidate objects"
+        );
         assert_eq!(
             restore(&runtime, session.profile_references())
                 .unwrap()
@@ -859,13 +1200,14 @@ mod tests {
         );
         session.submit_graph(create, 1);
         let job = session.profile_job().unwrap();
-        let record = save(
+        let record = prepare_save(
             &runtime,
             &job,
             preparation_retained_bytes(&session).unwrap(),
             &AtomicBool::new(false),
         )
         .unwrap();
+        let record = persist_record(&runtime, record, &AtomicBool::new(false)).unwrap();
         session
             .complete_profile_save(&job.request_id, &job.binding, 2, Ok(record), |_| Ok(()))
             .unwrap();

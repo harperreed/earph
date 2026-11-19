@@ -714,7 +714,27 @@ fn owner_imports_real_fir_provenance_and_refuses_wrong_context_without_a_profile
     assert_eq!(manifest.channel_map, [0]);
     assert!(manifest.metadata.redistribution_license.is_none());
     assert_eq!(record["profile"]["corrections"][0]["kind"], "fir_manifest");
+    let published = || {
+        [runtime.join("profiles"), runtime.join("assets")]
+            .into_iter()
+            .flat_map(|directory| std::fs::read_dir(directory).unwrap())
+            .map(|entry| {
+                let path = entry.unwrap().path();
+                (
+                    path.strip_prefix(&runtime).unwrap().to_owned(),
+                    std::fs::read(path).unwrap(),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    let original_objects = published();
+    let wrong_source = runtime.join("wrong-context.wav");
+    let mut wrong_bytes = bytes.clone();
+    let tail = wrong_bytes.len() - 8;
+    wrong_bytes[tail..].copy_from_slice(&0.25_f64.to_le_bytes());
+    std::fs::write(&wrong_source, &wrong_bytes).unwrap();
     let mut wrong = input;
+    wrong["path"] = json!(wrong_source);
     wrong["context"]["channels"] = json!("stereo");
     let request = envelope(
         "wrong-layout",
@@ -726,6 +746,12 @@ fn owner_imports_real_fir_provenance_and_refuses_wrong_context_without_a_profile
         "ASSET_INVALID"
     );
     assert_eq!(state(&runtime)["revision"], 1);
+    assert_eq!(
+        published(),
+        original_objects,
+        "rejected FIR context published candidate dependencies"
+    );
+    assert_eq!(std::fs::read(wrong_source).unwrap(), wrong_bytes);
     assert_eq!(std::fs::read(source).unwrap(), bytes);
     shutdown(&runtime);
     host.join().unwrap();

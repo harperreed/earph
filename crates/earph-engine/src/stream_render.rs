@@ -122,6 +122,8 @@ pub struct PreparedStreamRender {
     cancel: Arc<AtomicBool>,
     #[cfg(test)]
     cancel_after_pump: bool,
+    #[cfg(test)]
+    cancel_after_finish_output: bool,
     resources: StreamRenderResources,
 }
 impl PreparedStreamRender {
@@ -232,6 +234,8 @@ impl PreparedStreamRender {
             cancel,
             #[cfg(test)]
             cancel_after_pump: false,
+            #[cfg(test)]
+            cancel_after_finish_output: false,
             resources,
         })
     }
@@ -348,6 +352,12 @@ impl PreparedStreamRender {
             .stream
             .finish(&mut self.output[..output_frames * channels])
             .map_err(|e| self.retain_stream_error(e))?;
+        #[cfg(test)]
+        if self.cancel_after_finish_output && step.produced_frames != 0 {
+            self.cancel_after_finish_output = false;
+            self.cancel.store(true, Ordering::Release);
+        }
+        self.check_live()?;
         self.replay
             .append(&self.output[..step.produced_frames * channels])
             .map_err(|e| self.retain_error(e))?;
@@ -564,6 +574,85 @@ mod tests {
         resample::SrcDesign,
         stream::{StreamBudget, StreamStagePlan},
     };
+
+    #[test]
+    fn cancelled_tail_publication_retains_dsp_progress_without_extending_replay() {
+        for cancelled in [false, true] {
+            let design = SrcDesign::analyze(
+                48000,
+                48000,
+                ChannelLayout::Mono,
+                64,
+                SrcPreset::Responsive,
+                16 << 20,
+            )
+            .unwrap();
+            let plan = StreamPlan::new(
+                vec![StreamStagePlan::Src(design)],
+                &[1.0],
+                StreamBudget::default(),
+            )
+            .unwrap();
+            let format =
+                PcmFormat::new(48000, ChannelLayout::Mono, PcmRepresentation::Signed16).unwrap();
+            let cancel = Arc::new(AtomicBool::new(false));
+            let mut render = PreparedStreamRender::prepare(
+                plan,
+                StreamRenderConfig {
+                    input_format: format,
+                    native_format: format,
+                    period_frames: 64,
+                    queue_frames: 256,
+                    epochs: Epochs::default(),
+                    budget_bytes: 64 << 20,
+                },
+                cancel.clone(),
+            )
+            .unwrap();
+            let mut block =
+                PcmBlock::prepare(format, 64, Epochs::default(), MemoryBudget::default()).unwrap();
+            for index in 0..64 {
+                block.set_integer_sample(index, 8192).unwrap();
+            }
+            block.set_span(Epochs::default(), 0, 0, 64).unwrap();
+            assert_eq!(
+                render
+                    .pump(Some(SourceSpan {
+                        block: &block,
+                        offset: 0,
+                        frames: 64
+                    }))
+                    .unwrap()
+                    .consumed_frames,
+                64
+            );
+            render.cancel_after_finish_output = cancelled;
+            let mut reached = false;
+            for _ in 0..256 {
+                let before = render.stream().stats();
+                let published = render.output_positions().generated;
+                let result = render.finish();
+                let after = render.stream().stats();
+                assert_eq!(after.source_frames, 64);
+                if after.output_frames == before.output_frames {
+                    result.unwrap();
+                    continue;
+                }
+                reached = true;
+                let generated = after.output_frames - before.output_frames;
+                if cancelled {
+                    assert!(cancel.load(Ordering::Acquire));
+                    assert_eq!(result.unwrap_err().code, ErrorCode::OperationCancelled);
+                    assert_eq!(render.output_positions().generated, published);
+                } else {
+                    assert_eq!(result.unwrap().produced_frames as u64, generated);
+                    assert_eq!(render.output_positions().generated, published + generated);
+                }
+                break;
+            }
+            assert!(reached, "the actual SRC produced no tail frames");
+        }
+    }
 
     #[test]
     fn cancellation_after_actual_dsp_pump_keeps_new_output_out_of_replay() {

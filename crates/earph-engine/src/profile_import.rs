@@ -1,5 +1,5 @@
-// ABOUTME: Imports verified correction reports and FIR provenance through the owner worker.
-// ABOUTME: Persists every source dependency before publishing a named profile revision.
+// ABOUTME: Prepares verified correction reports and FIR provenance through the owner worker.
+// ABOUTME: Keeps original sources unpublished until the complete catalog passes admission.
 use super::*;
 use earph_core::{
     dsp_nodes::FirAssetReference,
@@ -85,15 +85,16 @@ fn preview(
     preamp_db: FiniteGraphScalar,
     bounds: Vec<f64>,
 ) -> Result<Arc<ProfileCorrectionPreview>, EngineError> {
-    let required = 20.0 * bounds.iter().copied().fold(1.0_f64, f64::max).log10();
+    let bounds = bounds
+        .into_iter()
+        .map(FiniteGraphScalar::new)
+        .collect::<Result<Vec<_>, _>>()?;
+    let required = ProfileCorrectionPreview::minimum_headroom_db(&bounds);
     let value = ProfileCorrectionPreview {
         context,
         preamp_db,
         required_headroom_db: FiniteGraphScalar::new(required)?,
-        channel_peak_bounds: bounds
-            .into_iter()
-            .map(FiniteGraphScalar::new)
-            .collect::<Result<_, _>>()?,
+        channel_peak_bounds: bounds,
         normalization: CorrectionNormalization::Preserved,
     };
     value.validate()?;
@@ -117,7 +118,7 @@ fn intent(graph: earph_core::graph::GraphDocument) -> Arc<GraphIntent> {
         },
     })
 }
-pub(super) fn import(
+pub(super) fn prepare_import(
     runtime: &Path,
     id: ProfileId,
     revision: u64,
@@ -125,10 +126,10 @@ pub(super) fn import(
     input: &ProfileCorrectionInput,
     retained: u64,
     cancel: &AtomicBool,
-) -> Result<Arc<ProfileRecord>, EngineError> {
+) -> Result<PreparedProfile, EngineError> {
     io_admission(retained, draft.latency.max_preparation_bytes)?;
     check(cancel)?;
-    let (graph, object, context, preamp, text_source) = match input {
+    let (graph, object, context, preamp, source) = match input {
         ProfileCorrectionInput::TextReport {
             report_json,
             source_text,
@@ -145,7 +146,9 @@ pub(super) fn import(
                 object,
                 context(report.context),
                 preamp,
-                Some(source_text.as_bytes()),
+                Some(PreparedCorrectionSource::Text(
+                    source_text.as_bytes().to_vec(),
+                )),
             )
         }
         ProfileCorrectionInput::Fir {
@@ -158,12 +161,11 @@ pub(super) fn import(
             declared.validate()?;
             let metadata: ImportMetadata =
                 serde_json::from_str(metadata_json).map_err(|_| INVALID)?;
-            let reference = import_asset(runtime, path, retained, cancel)?;
-            let (correction, source_bytes) = assets::resolve_with_size(runtime, &reference)?;
-            drop(correction);
+            let source = assets::PreparedFirSource::read(Path::new(path))?;
+            check(cancel)?;
             let manifest = FirCorrectionManifest::new(
-                reference,
-                source_bytes,
+                source.coefficients().reference().clone(),
+                source.source_bytes(),
                 ImportContext {
                     sample_rate_hz: declared.sample_rate_hz,
                     channels: declared.channels,
@@ -181,7 +183,7 @@ pub(super) fn import(
                 json_object(ProfileCorrectionKind::FirManifest, &bytes)?,
                 *declared,
                 *preamp_db,
-                None,
+                Some(PreparedCorrectionSource::Fir(source)),
             )
         }
     };
@@ -195,28 +197,16 @@ pub(super) fn import(
         kind: object.kind,
         object_sha256: object.object_sha256,
     });
-    let bounds = validate_intent(runtime, &profile, &graph, retained, cancel)?;
+    let inputs = PreparedInputs::new(&profile, graph_bytes, source)?;
+    let bounds =
+        validate_prepared_intent(runtime, &profile, &graph, retained, cancel, Some(&inputs))?;
     let preview = preview(context, preamp, bounds)?;
-    let directory = directory(runtime, true)?;
-    if let Some(source) = text_source {
-        write_object(&directory, source, "text-source", cancel)?;
-    }
-    let kind = match object.kind {
-        ProfileCorrectionKind::TextReport => "text-report",
-        ProfileCorrectionKind::FirManifest => "fir-manifest",
-    };
-    if write_object(&directory, object.document_json.as_bytes(), kind, cancel)?
-        != object.object_sha256
-    {
-        return Err(INVALID);
-    }
-    persist_record(
-        runtime,
+    prepare_record(
         profile,
         graph,
         Arc::new(vec![object]),
         Some(preview),
-        cancel,
+        inputs,
     )
 }
 pub(super) fn load(
@@ -307,7 +297,7 @@ mod tests {
             report_json: "not JSON".into(),
             source_text: "unparsed source".into(),
         };
-        let result = import(
+        let result = prepare_import(
             Path::new("/unused"),
             ProfileId::new("owned").unwrap(),
             1,
@@ -343,7 +333,7 @@ mod tests {
         );
         draft.latency.max_preparation_bytes = LIMIT;
         assert_eq!(
-            import(
+            prepare_import(
                 Path::new("/unused"),
                 ProfileId::new("owned").unwrap(),
                 1,

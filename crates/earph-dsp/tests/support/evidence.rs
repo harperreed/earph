@@ -67,9 +67,14 @@ pub fn check_export(
     let original = std::fs::read(&file).unwrap();
     let parsed: serde_json::Value = serde_json::from_slice(&original).unwrap();
     assert!(parsed.as_object().is_some_and(|v| !v.is_empty()));
+    let repeated = run();
     assert!(
-        !run().status.success(),
+        !repeated.status.success(),
         "reusing an export directory must fail"
+    );
+    assert!(
+        String::from_utf8_lossy(&repeated.stderr)
+            .contains("numeric evidence exists or is unwritable")
     );
     assert_eq!(std::fs::read(&file).unwrap(), original);
     (parsed, root.join(component))

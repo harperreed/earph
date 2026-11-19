@@ -333,13 +333,22 @@ pub struct ProfileCorrectionPreview {
     pub normalization: CorrectionNormalization,
 }
 impl ProfileCorrectionPreview {
+    /// Computes conservative attenuation from the largest declared channel peak.
+    pub fn minimum_headroom_db(bounds: &[FiniteGraphScalar]) -> f64 {
+        20.0 * bounds
+            .iter()
+            .map(|peak| peak.get())
+            .fold(1.0_f64, f64::max)
+            .log10()
+    }
     pub fn validate(&self) -> Result<(), EngineError> {
         self.context.validate()?;
         if self.preamp_db.get().abs() > 150.0
             || self.channel_peak_bounds.len() != self.context.channels.count()
             || self.channel_peak_bounds.capacity() > 2
             || self.channel_peak_bounds.iter().any(|p| p.get() < 0.0)
-            || self.required_headroom_db.get() < 0.0
+            || self.required_headroom_db.get()
+                < Self::minimum_headroom_db(&self.channel_peak_bounds)
         {
             return Err(INVALID);
         }

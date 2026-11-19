@@ -26,6 +26,8 @@ Its volume fields use integer `software_cap_millidecibels` and optional `hardwar
 The owner converts these caps into the saved document's dB values.
 The graph payload uses `GraphIntent`: `graph` and `processing`.
 The owner computes hashes from the exact immutable bytes it stores.
+Owner command paths use UTF-8 strings, including forwarded FIR imports.
+The direct Rust asset helper retains its native `Path` contract.
 Clients do not supply graph hashes beside graph payloads.
 
 A save first returns `accepted`.
@@ -39,6 +41,9 @@ The list result includes `operation.stage`, request ID, and deadline.
 The stage is `saving`, `retiring`, or null.
 The deadline bounds saving and becomes null during retirement.
 It does not promise a cleanup completion time after the receipt settles.
+Cancellation checks surround source file I/O; they cannot interrupt a blocked kernel read.
+An unresponsive filesystem can delay worker retirement and owner shutdown.
+The owner retains its lock until that worker retires, preventing concurrent storage writers.
 Cancellation can settle a receipt before worker resources retire.
 During retirement, another save, source preparation, or graph preparation returns `SOURCE_BUSY`.
 Stop, emergency mute, and owner shutdown remain available.

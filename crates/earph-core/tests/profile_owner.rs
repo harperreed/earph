@@ -598,3 +598,100 @@ fn correction_request_capacity_refuses_small_content_with_oversized_retained_buf
         assert_eq!(s.profile_storage_bytes(), 0);
     }
 }
+
+#[test]
+fn profile_fir_import_preserves_the_direct_paths_validation_error() {
+    use earph_core::{audio::ChannelLayout, dsp_nodes::FirPurpose, graph::FiniteGraphScalar};
+    for path in ["", "invalid\0name"] {
+        let mut s = session();
+        let direct = command(
+            &s,
+            "direct",
+            Command::FirImport {
+                path: path.into(),
+                purpose: FirPurpose::Correction,
+            },
+        );
+        let expected = s.submit(direct).error.unwrap();
+        assert_eq!(expected.code, ErrorCode::AssetInvalid);
+        let imported = command(
+            &s,
+            "profile",
+            Command::ProfilesImport {
+                id: ProfileId::new("invalid-path").unwrap(),
+                expected_profile_revision: None,
+                draft: draft(),
+                input: Arc::new(ProfileCorrectionInput::Fir {
+                    path: path.into(),
+                    purpose: FirPurpose::Correction,
+                    context: ProfileCorrectionContext {
+                        sample_rate_hz: 48000,
+                        channels: ChannelLayout::Stereo,
+                        quantum_frames: 64,
+                    },
+                    metadata_json: "{}".into(),
+                    preamp_db: FiniteGraphScalar::new(0.0).unwrap(),
+                }),
+            },
+        );
+        assert_eq!(s.submit(imported).error.unwrap(), expected);
+    }
+}
+
+#[test]
+fn correction_preview_cannot_understate_peak_headroom() {
+    use earph_core::{audio::ChannelLayout, graph::FiniteGraphScalar};
+    let scalar = |value| FiniteGraphScalar::new(value).unwrap();
+    let mut preview = ProfileCorrectionPreview {
+        context: ProfileCorrectionContext {
+            sample_rate_hz: 48000,
+            channels: ChannelLayout::Stereo,
+            quantum_frames: 64,
+        },
+        preamp_db: scalar(0.0),
+        channel_peak_bounds: vec![scalar(2.0), scalar(1.0)],
+        required_headroom_db: scalar(0.0),
+        normalization: CorrectionNormalization::Preserved,
+    };
+    for understated in [0.0, 6.0] {
+        preview.required_headroom_db = scalar(understated);
+        assert_eq!(
+            preview.validate().unwrap_err().code,
+            ErrorCode::AssetInvalid
+        );
+    }
+    preview.required_headroom_db = scalar(6.1);
+    preview.validate().unwrap();
+    preview.channel_peak_bounds = vec![scalar(1.0), scalar(0.5)];
+    preview.required_headroom_db = scalar(0.0);
+    preview.validate().unwrap();
+}
+
+#[test]
+fn failed_dispatch_never_publishes_a_profile_worker_reservation() {
+    for code in [
+        ErrorCode::SourceBusy,
+        ErrorCode::OperationCancelled,
+        ErrorCode::InternalFault,
+    ] {
+        let mut s = session();
+        let request = create(&s, "dispatch-failure", false);
+        let failed = s.submit_with_graph_effects(
+            request,
+            1,
+            |_| unreachable!(),
+            |staged| {
+                assert!(staged.profile_work().is_some());
+                assert!(staged.profile_worker_busy());
+                Err(EngineError::new(code, "controlled dispatch failure"))
+            },
+        );
+        assert_eq!(failed.status, ReceiptStatus::Failed);
+        assert_eq!(failed.error.unwrap().code, code);
+        assert!(s.profile_work().is_none());
+        assert!(!s.profile_worker_busy());
+        assert!(s.profile_references().is_empty());
+        let next = create(&s, "next-dispatch", false);
+        assert_eq!(s.submit_graph(next, 2).status, ReceiptStatus::Accepted);
+    }
+}

@@ -358,6 +358,15 @@ enum PendingPeriodKind {
     Source,
     Tail,
 }
+struct QueueReservation {
+    view: Arc<Mutex<PlanView>>,
+    epochs: Epochs,
+}
+impl Drop for QueueReservation {
+    fn drop(&mut self) {
+        clear_reservation(&self.view, self.epochs);
+    }
+}
 struct Playback {
     pipeline: Option<PreparedPipeline>,
     installed_graph_epoch: u64,
@@ -392,6 +401,8 @@ struct Playback {
     output_peak: Option<f64>,
     modified: bool,
     progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
+    // This last field retires the exact reservation after the output and source resources.
+    reservation: QueueReservation,
 }
 impl Playback {
     fn prepare(
@@ -503,6 +514,10 @@ impl Playback {
             sequence: 0,
             started: false,
             cancel,
+            reservation: QueueReservation {
+                view: view.clone(),
+                epochs,
+            },
             view,
             input_peak: None,
             output_peak: None,
@@ -724,6 +739,7 @@ impl Playback {
             };
             view.active = Some(self.current.entry.id.clone());
             view.epochs = Some(self.epochs());
+            self.reservation.epochs = self.epochs();
             let next = view.following(&self.current.entry.id);
             view.reserved = next.as_ref().map(|entry| entry.id.clone());
             next
@@ -2709,6 +2725,196 @@ pub(crate) mod tests {
             before
         );
         assert_eq!(before.source_frames, 65);
+    }
+    #[cfg(target_os = "linux")]
+    fn resumed_tail_playback() -> (Playback, SyncSender<Event>, Receiver<Event>) {
+        let (mut playback, events, receiver) = streaming_playback();
+        for _ in 0..64 {
+            playback.step(&events).unwrap();
+            if playback.phase == RenderPhase::GraphTail {
+                break;
+            }
+        }
+        assert_eq!(playback.phase, RenderPhase::GraphTail);
+        let source = playback.source_position;
+        assert_eq!(source, 65);
+        let origin = playback.epochs();
+        let mut pause = playback.settings.clone();
+        pause.snapshot.epochs = origin.next_stream().unwrap();
+        pause.snapshot.muted = true;
+        pause.playing = false;
+        playback.reposition(pause, None, &events, true).unwrap();
+        playback.settings.snapshot.muted = false;
+        playback.settings.playing = true;
+        playback.set_gain().unwrap();
+        let generated = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .stream()
+            .stats()
+            .output_frames;
+        for _ in 0..256 {
+            playback.step(&events).unwrap();
+            if playback.stream_position > 0
+                && playback
+                    .pipeline
+                    .as_ref()
+                    .unwrap()
+                    .stream_render()
+                    .unwrap()
+                    .stream()
+                    .stats()
+                    .output_frames
+                    > generated
+            {
+                break;
+            }
+        }
+        assert_ne!(playback.epochs(), origin);
+        assert_eq!(playback.source_position, source);
+        assert!(
+            playback.stream_position > 0,
+            "no resumed tail reached the real output"
+        );
+        assert_eq!(
+            playback.failure_observation().submitted_frames,
+            playback.output.progress().unwrap().submitted
+        );
+        let view = playback.view.lock().unwrap();
+        assert!(view.active.is_some());
+        assert_eq!(
+            view.validate_edit(&earph_core::control::Command::QueueRemove {
+                id: playback.current.entry.id.clone(),
+            })
+            .unwrap_err()
+            .code,
+            ErrorCode::SourceBusy
+        );
+        drop(view);
+        receiver.try_iter().for_each(drop);
+        (playback, events, receiver)
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn stopped_resumed_graph_tail_releases_its_original_queue_reservation() {
+        let (current, events, receiver) = resumed_tail_playback();
+        let before = current.failure_observation();
+        let view = current.view.clone();
+        let entry = current.current.entry.id.clone();
+        let mut settings = current.settings.clone();
+        settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
+        current.cancel.store(true, Ordering::Release);
+        let mut playback = Some(current);
+        let mut stopped = None;
+        let mut terminal = None;
+        stop_source(
+            StopRequest {
+                request_id: RequestId::new("tail-stop").unwrap(),
+                settings,
+            },
+            &mut playback,
+            &mut stopped,
+            &mut terminal,
+            &view,
+            &events,
+        )
+        .unwrap();
+        let event = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            matches!(event, Event::Stopped { observation: Some(observation), .. }
+            if observation == before)
+        );
+        assert!(playback.is_none());
+        let view = view.lock().unwrap();
+        assert!(view.active.is_none());
+        assert!(view.reserved.is_none());
+        view.validate_edit(&earph_core::control::Command::QueueRemove { id: entry })
+            .unwrap();
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn completed_resumed_graph_tail_releases_its_original_queue_reservation() {
+        let (mut current, events, _receiver) = resumed_tail_playback();
+        let view = current.view.clone();
+        let entry = current.current.entry.id.clone();
+        let mut completed = false;
+        for _ in 0..256 {
+            if current.step(&events).unwrap() {
+                completed = true;
+                break;
+            }
+        }
+        assert!(completed);
+        assert_eq!(current.phase, RenderPhase::Finished);
+        assert!(current.failure_observation().submitted_frames > 0);
+        drop(current);
+        let view = view.lock().unwrap();
+        assert!(view.active.is_none());
+        assert!(view.reserved.is_none());
+        view.validate_edit(&earph_core::control::Command::QueueRemove { id: entry })
+            .unwrap();
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn failed_resumed_graph_tail_releases_its_original_queue_reservation() {
+        let (mut current, events, receiver) = resumed_tail_playback();
+        let view = current.view.clone();
+        let entry = current.current.entry.id.clone();
+        let before = current.failure_observation();
+        current.output.stop().unwrap();
+        let error = current.step(&events).unwrap_err();
+        assert_eq!(error.code, ErrorCode::OutputFault);
+        let mut stopped = None;
+        let mut terminal = None;
+        playback_step_failure(&mut current, error, &mut stopped, &mut terminal, &events);
+        assert!(terminal.is_some());
+        let event = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            matches!(event, Event::Failed { observation: Some(observation), error: actual, .. }
+            if observation.submitted_frames == before.submitted_frames && actual == error)
+        );
+        drop(current);
+        let view = view.lock().unwrap();
+        assert!(view.active.is_none());
+        assert!(view.reserved.is_none());
+        view.validate_edit(&earph_core::control::Command::QueueRemove { id: entry })
+            .unwrap();
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn retired_resumed_graph_tail_cannot_release_a_newer_source_reservation() {
+        let (current, events, _receiver) = resumed_tail_playback();
+        let view = current.view.clone();
+        let mut settings = current.settings.clone();
+        settings.snapshot.epochs = settings.snapshot.epochs.next_session().unwrap();
+        settings.snapshot.session_id = Some(SessionId::new("replacement-source").unwrap());
+        settings.snapshot.muted = true;
+        settings.playing = false;
+        let replacement_epochs = settings.snapshot.epochs;
+        let entries = view.lock().unwrap().entries.clone();
+        let replacement = Playback::prepare(
+            settings,
+            entries,
+            Arc::new(AtomicBool::new(false)),
+            view.clone(),
+            Arc::new(Mutex::new(None)),
+            &events,
+        )
+        .unwrap();
+        drop(current);
+        {
+            let view = view.lock().unwrap();
+            assert_eq!(view.epochs, Some(replacement_epochs));
+            assert!(
+                view.active.is_some(),
+                "an old source released the replacement's reservation"
+            );
+        }
+        drop(replacement);
+        assert!(view.lock().unwrap().active.is_none());
     }
     #[cfg(target_os = "linux")]
     fn staged_streaming_playback() -> (Playback, SyncSender<Event>, Receiver<Event>, usize) {

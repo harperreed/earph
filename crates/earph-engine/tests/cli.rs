@@ -170,3 +170,27 @@ fn executable_reports_usage_and_remote_protocol_failures() {
     );
     assert!(host.0.wait().unwrap().success());
 }
+
+#[test]
+fn engine_cli_handles_file_limit_signal_and_continues_real_owner_requests() {
+    let runtime = runtime();
+    let mut host = start(&runtime);
+    let pid = rustix::process::Pid::from_raw(host.0.id() as i32).unwrap();
+    rustix::process::kill_process(pid, rustix::process::Signal::XFSZ).unwrap();
+    let observed = state(&runtime, "after-file-limit-signal");
+    assert!(host.0.try_wait().unwrap().is_none());
+    assert!(
+        call(
+            &runtime,
+            &envelope(
+                "shutdown-after-signal",
+                observed["owner_id"].clone(),
+                observed["revision"].as_u64().unwrap(),
+                json!({"method":"owner.shutdown"})
+            )
+        )
+        .status
+        .success()
+    );
+    assert!(host.0.wait().unwrap().success());
+}

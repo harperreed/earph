@@ -136,9 +136,10 @@ If terminal counters exhaust, proved completion still closes the source muted an
 Counters never wrap.
 A fresh owner resets only an exhausted persisted revision and restores intent without granting output consent.
 
-Activation, pause, seek, and mute rebuffering reset graph history.
-They discard the old tail at an explicit discontinuity.
-They do not reconstruct filter history or establish physical pause continuity.
+Same-rate structural rebuffering resets graph history and discards the old tail at an explicit discontinuity.
+Streaming pause and mute holds preserve DSP history and replay.
+A true seek resets streaming history instead of reconstructing earlier filter state.
+These controls do not establish physical pause continuity.
 Allocation-free tests cover conversion, kernels, gain, quantization, finish, reset, and cancellation.
 The whole playback worker still allocates, locks, decodes, and performs I/O.
 
