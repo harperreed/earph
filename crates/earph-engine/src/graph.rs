@@ -11,7 +11,7 @@ use earph_core::{
         GraphResidentUsage, GraphTransition, SignalTransformation,
     },
     ids::{Epochs, RequestId},
-    safety::{FidelityPolicy, OutputContext, SampleDomain},
+    safety::{FidelityPolicy, OutputContext, SampleDomain, VolumeMode},
     session::{ObservedStreamFormat, SessionSnapshot},
 };
 use earph_dsp::{CompileContext, CompiledPlan, GraphBudget, GraphError, ProcessingPolicy};
@@ -492,6 +492,11 @@ fn retire(retired: Retired, accounting: &Accounting) {
     accounting.retiring.fetch_sub(1, Ordering::AcqRel);
 }
 
+enum PreparationPurpose<'a> {
+    CurrentOutput,
+    MutedProfileApplication(&'a SessionSnapshot),
+}
+
 fn prepare(
     request: &GraphJobRequest,
     snapshot: &SessionSnapshot,
@@ -528,6 +533,11 @@ fn prepare(
     {
         return Err(STALE.into());
     }
+    let purpose = if request.profile_application.is_some() {
+        PreparationPurpose::MutedProfileApplication(snapshot)
+    } else {
+        PreparationPurpose::CurrentOutput
+    };
     let prospective;
     let snapshot = if let Some(application) = &request.profile_application {
         application.validate().map_err(GraphDiagnostic::from)?;
@@ -546,26 +556,33 @@ fn prepare(
             )
             .into());
         }
-        if snapshot
-            .output
-            .as_ref()
-            .is_none_or(|o| o.volume_mode != earph_core::safety::VolumeMode::Software)
-            || application.device_identity_sha256
-                != snapshot
-                    .playback
-                    .as_ref()
-                    .and_then(|p| p.backend.as_ref())
-                    .and_then(|b| {
-                        (b.backend == earph_core::control::OutputBackend::CoreAudio)
-                            .then_some(b.device_identity_sha256)
-                            .flatten()
-                    })
+        if snapshot.output.as_ref().is_none_or(|o| {
+            o.volume_mode != application.volume_mode || o.fidelity != application.fidelity
+        }) || application.device_identity_sha256
+            != snapshot
+                .playback
+                .as_ref()
+                .and_then(|p| p.backend.as_ref())
+                .and_then(|b| {
+                    (b.backend == earph_core::control::OutputBackend::CoreAudio)
+                        .then_some(b.device_identity_sha256)
+                        .flatten()
+                })
             || application.software_gain_db
                 != snapshot
                     .software_gain_db
                     .min(application.effective_policy.software_cap_db())
         {
             return Err(STALE.into());
+        }
+        if application.volume_mode == VolumeMode::Fixed
+            && (snapshot.software_gain_db != 0.0 || snapshot.gain_ramp_frames != 0)
+        {
+            return Err(EngineError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "fixed profile preparation requires current unity gain and zero ramp",
+            )
+            .into());
         }
         prospective = {
             let mut state = snapshot.clone();
@@ -623,9 +640,8 @@ fn prepare(
         )
         .into());
     }
-    snapshot
-        .volume_policy
-        .validate_unmute(
+    match purpose {
+        PreparationPurpose::CurrentOutput => snapshot.volume_policy.validate_unmute(
             &OutputContext {
                 device_id: output.device_id.clone(),
                 profile_id: output.profile_id.clone(),
@@ -635,8 +651,22 @@ fn prepare(
             output.fidelity,
             snapshot.software_gain_db,
             None,
-        )
-        .map_err(GraphDiagnostic::from)?;
+        ),
+        PreparationPurpose::MutedProfileApplication(current) => {
+            current.volume_policy.validate_profile_preparation(
+                &OutputContext {
+                    device_id: output.device_id.clone(),
+                    profile_id: output.profile_id.clone(),
+                },
+                output.volume_mode,
+                output.fidelity,
+                current.software_gain_db,
+                &snapshot.volume_policy,
+                snapshot.software_gain_db,
+            )
+        }
+    }
+    .map_err(GraphDiagnostic::from)?;
     let quantum = output.period_frames as usize;
     let float = matches!(
         request.intent.processing,

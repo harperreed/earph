@@ -503,3 +503,36 @@ The [local receipt](../../evidence/profiles/observed-associations-linux-precommi
 Only this checkpoint and its public-safe receipt change after that verification.
 Positive native owner E2E and combined Mac qualification remain pending.
 ALSA stable identity, fixed/hardware application, full T12/AC-35 and release remain unqualified.
+
+### Approved fixed profile preparation unit
+
+Root approves contract `d58ae4b1d62e46b0ea266b9956dadbce453dbb9d99d13da6bb3fc2ebe438fcd9` from clean `01f39957ffdd4c45c6b62decc7dfe1e7cd9c29c4`.
+Admit fixed profiles only on the already matching fixed output with current consent/arming, unity gain, and zero ramp.
+Keep ordinary graph preparation and validate_unmute authorization behavior and error order unchanged.
+Use one shared non-arming constraints helper and a current-authorization preparation validator.
+Compile prospective policy without copying or granting arming.
+Bind volume mode and fidelity through the same candidate, semantic hash, muted acknowledgment, and checkpoint.
+Separate restore intent validation from runtime preparation; keep the lower safe restart gain.
+Require fresh target consent and fixed arming after successful activation.
+Independent caps remain canonical and can block fixed output without an automatic override.
+
+Use TDD, real owner/request executables, and the existing ALSA file-to-null capture fixtures.
+Preserve all RED/GREEN attempts, actual exits, source/runtime/lock bindings, and partial artifacts.
+Freeze before one final canonical verification and one Root-assigned independent main-model review.
+No Worker/host authority change, dependency, migration, hardware-volume/readback, or DSD implementation is authorized.
+No physical fixed/unity output is authorized; attenuated Mac signal permission does not extend to this unit.
+Native/physical fixed qualification, combined Mac, full Task3/T12, and release remain separate gates.
+
+
+## Fixed-profile local checkpoint
+
+The fixed-profile unit passed one independent review with no material findings.
+Its tested tree is `544d2f8265e5d3a0c477a69d17eeefc35283e378`, before this evidence note.
+The canonical check passed 807 tests, with zero failures and five ignored.
+Scoped checks passed 373 tests and overlap canonical coverage.
+Real owner tests captured exact unity and processed samples through owned ALSA file-to-null fixtures.
+Current consent, fixed arming, unity, zero ramp, and independent caps remain mandatory.
+Application stays muted and requires fresh target authorization.
+Restart retains the lower safe gain without runtime authority.
+See `docs/evidence/profiles/fixed-preparation-linux-precommit-20261119.json` for the bounded evidence.
+Native fixed output, combined Mac, hardware volume, DSD, migration, full T12, and release remain pending.

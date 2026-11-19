@@ -114,6 +114,8 @@ pub struct ProfileCatalogReference {
 pub struct ProfileApplicationBinding {
     pub profile: ProfileCatalogReference,
     pub device_identity_sha256: Option<ProfileObjectHash>,
+    pub volume_mode: VolumeMode,
+    pub fidelity: FidelityPolicy,
     pub graph_sha256: ProfileObjectHash,
     pub source: crate::control::SourceKind,
     pub effective_policy: crate::safety::VolumePolicy,
@@ -125,6 +127,21 @@ impl ProfileApplicationBinding {
         validate_catalog(std::slice::from_ref(&self.profile), 1)?;
         if self.source != crate::control::SourceKind::LocalFile {
             return Err(INVALID);
+        }
+        if self.volume_mode == VolumeMode::Hardware {
+            return Err(EngineError::new(
+                ErrorCode::CapabilityUnsupported,
+                "hardware profile application is unavailable",
+            ));
+        }
+        if self.volume_mode == VolumeMode::Fixed {
+            self.effective_policy.validate_gain_constraints(
+                self.volume_mode,
+                crate::safety::SampleDomain::Pcm,
+                self.fidelity,
+                self.software_gain_db,
+                None,
+            )?;
         }
         crate::safety::VolumePolicy::new(
             self.effective_policy.software_cap_db(),
@@ -502,6 +519,9 @@ impl Default for ProfilePackageCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProfileApplicationCapabilities {
     pub volume_modes: Vec<VolumeMode>,
+    pub fixed_requires_current_arming: bool,
+    pub fixed_requires_unity_gain: bool,
+    pub fixed_requires_zero_gain_ramp: bool,
     pub requires_current_output: bool,
     pub requires_output_consent: bool,
     pub requires_matching_fidelity: bool,

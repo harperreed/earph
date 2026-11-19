@@ -95,7 +95,8 @@ fn owner_advertises_bounded_application_and_refuses_imported_device_trust() {
     );
     assert_eq!(
         profiles["application"],
-        json!({"volume_modes":["software"],"requires_current_output":true,
+        json!({"volume_modes":["software","fixed"],"requires_current_output":true,
+        "fixed_requires_current_arming":true,"fixed_requires_unity_gain":true,"fixed_requires_zero_gain_ramp":true,
         "requires_output_consent":true,"requires_matching_fidelity":true,
         "live_selected_profile_update":false,"finite_aggregate_src_latency":false})
     );

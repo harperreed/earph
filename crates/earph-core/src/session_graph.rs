@@ -482,7 +482,7 @@ impl Session {
                             revision: *expected_profile_revision,
                             profile_sha256: *profile_sha256,
                         };
-                        let binding = self.profile_application_binding(&reference, true)?;
+                        let binding = self.authorized_profile_application_binding(&reference)?;
                         if ready.prepared.preview.profile_application.as_ref() != Some(&binding) {
                             return Err(EngineError::new(
                                 ErrorCode::StaleRevision,
@@ -605,7 +605,7 @@ impl Session {
             }
             let application = if let Some(application) = &job.request.profile_application {
                 let current = self
-                    .profile_application_binding(&application.profile, true)
+                    .authorized_profile_application_binding(&application.profile)
                     .map_err(GraphDiagnostic::from)?;
                 if &current != application {
                     return Err(STALE.into());
@@ -769,7 +769,7 @@ impl Session {
                     .flatten()
             });
             let valid = self
-                .profile_application_binding(&application.profile, false)
+                .profile_application_binding(&application.profile)
                 .is_ok_and(|current| current == *application)
                 && observed_identity == application.device_identity_sha256;
             if !valid {
@@ -915,6 +915,7 @@ mod tests {
     use crate::{audio::ChannelLayout, graph::*, safety::VolumeMode};
 
     include!("session_profile_associations_tests.rs");
+    include!("session_fixed_profiles_tests.rs");
 
     fn fixture() -> Session {
         let mut s = Session::new_owner(

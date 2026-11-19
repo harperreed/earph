@@ -341,6 +341,8 @@ fn with_profile(mut request: GraphJobRequest) -> GraphJobRequest {
     use earph_core::{profile_control::*, profiles::*, safety::VolumePolicy};
     let hash = ProfileObjectHash::try_from("c".repeat(64)).unwrap();
     request.profile_application = Some(Arc::new(ProfileApplicationBinding {
+        volume_mode: earph_core::safety::VolumeMode::Software,
+        fidelity: earph_core::safety::FidelityPolicy::CompatibleConversion,
         device_identity_sha256: None,
         profile: ProfileCatalogReference {
             id: ProfileId::new("headphones").unwrap(),
@@ -359,6 +361,158 @@ fn with_profile(mut request: GraphJobRequest) -> GraphJobRequest {
         },
     }));
     request
+}
+
+fn fixed_profile_request() -> (GraphJobRequest, SessionSnapshot) {
+    use earph_core::safety::{OutputContext, VolumeMode, VolumePolicy};
+    let mut state = snapshot();
+    let output = state.output.as_mut().unwrap();
+    output.volume_mode = VolumeMode::Fixed;
+    state.software_gain_db = 0.0;
+    state.gain_ramp_frames = 0;
+    state.volume_policy.arm_fixed(OutputContext {
+        device_id: output.device_id.clone(),
+        profile_id: output.profile_id.clone(),
+    });
+    let mut job = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
+    let application = Arc::make_mut(job.profile_application.as_mut().unwrap());
+    application.volume_mode = VolumeMode::Fixed;
+    application.software_gain_db = 0.0;
+    application.effective_policy = VolumePolicy::default();
+    (job, state)
+}
+#[test]
+fn fixed_profile_compiles_prospective_unarmed_policy_without_relaxing_ordinary_graph_authorization()
+{
+    use earph_core::{ErrorCode, safety::*};
+    let mut service = GraphService::spawn(None).unwrap();
+    let (job, state) = fixed_profile_request();
+    service
+        .submit(job.clone(), state.clone(), active_source())
+        .unwrap();
+    let prepared = completion(&mut service).result.unwrap();
+    let application = prepared.preview.profile_application.as_ref().unwrap();
+    assert_eq!(application.volume_mode, VolumeMode::Fixed);
+    assert!(
+        application
+            .effective_policy
+            .validate_unmute(
+                &OutputContext {
+                    device_id: state.output.as_ref().unwrap().device_id.clone(),
+                    profile_id: application.profile.id.clone()
+                },
+                VolumeMode::Fixed,
+                SampleDomain::Pcm,
+                application.fidelity,
+                0.0,
+                None
+            )
+            .is_err()
+    );
+    drop(prepared);
+    retired(&service);
+    for purpose in ["ordinary", "profile"] {
+        let (mut job, mut state) = fixed_profile_request();
+        state.volume_policy.disarm();
+        if purpose == "ordinary" {
+            job.profile_application = None;
+        }
+        service.submit(job, state, active_source()).unwrap();
+        assert_eq!(
+            completion(&mut service).result.err().unwrap().code,
+            ErrorCode::SafetyPolicyBlocked,
+            "{purpose}"
+        );
+        retired(&service);
+    }
+}
+#[test]
+fn fixed_profile_service_refuses_mode_policy_ramp_headroom_and_cancelled_source() {
+    use earph_core::{ErrorCode, safety::*};
+    for (condition, expected) in [
+        ("consent", ErrorCode::SafetyPolicyBlocked),
+        ("ramp", ErrorCode::SafetyPolicyBlocked),
+        ("cap", ErrorCode::SafetyPolicyBlocked),
+        ("hardware", ErrorCode::SafetyPolicyBlocked),
+        ("mode", ErrorCode::StaleSession),
+        ("fidelity", ErrorCode::StaleSession),
+        ("headroom", ErrorCode::SafetyPolicyBlocked),
+        ("cancel", ErrorCode::OperationCancelled),
+    ] {
+        let (mut job, mut state) = fixed_profile_request();
+        let cancel = active_source();
+        match condition {
+            "consent" => state.output_consented = false,
+            "ramp" => state.gain_ramp_frames = 64,
+            "cap" => {
+                Arc::make_mut(job.profile_application.as_mut().unwrap()).effective_policy =
+                    VolumePolicy::new(-20.0, None).unwrap()
+            }
+            "hardware" => {
+                Arc::make_mut(job.profile_application.as_mut().unwrap()).effective_policy =
+                    VolumePolicy::new(0.0, Some(-30.0)).unwrap()
+            }
+            "mode" => {
+                Arc::make_mut(job.profile_application.as_mut().unwrap()).volume_mode =
+                    VolumeMode::Software
+            }
+            "fidelity" => {
+                Arc::make_mut(job.profile_application.as_mut().unwrap()).fidelity =
+                    FidelityPolicy::ExpertOverride
+            }
+            "headroom" => {
+                job.intent =
+                    request(&state, serde_json::json!({"kind":"gain","gain_linear":2.0})).intent
+            }
+            "cancel" => cancel.store(true, std::sync::atomic::Ordering::Release),
+            _ => unreachable!(),
+        }
+        let mut service = GraphService::spawn(None).unwrap();
+        if condition == "cancel" {
+            assert_eq!(
+                service.submit(job, state, cancel).err().unwrap().code,
+                expected
+            );
+            assert!(service.try_completion().is_none());
+            continue;
+        }
+        service.submit(job, state, cancel).unwrap();
+        assert_eq!(
+            completion(&mut service).result.err().unwrap().code,
+            expected,
+            "{condition}"
+        );
+        retired(&service);
+    }
+}
+
+#[test]
+fn profile_hashes_bind_supported_mode_and_fidelity_with_the_same_kernel() {
+    use earph_core::safety::*;
+    let mut service = GraphService::spawn(None).unwrap();
+    let mut hashes = vec![];
+    let mut kernels = vec![];
+    for (mode, fidelity) in [
+        (VolumeMode::Software, FidelityPolicy::CompatibleConversion),
+        (VolumeMode::Fixed, FidelityPolicy::CompatibleConversion),
+        (VolumeMode::Fixed, FidelityPolicy::ExpertOverride),
+    ] {
+        let (mut job, mut state) = fixed_profile_request();
+        state.output.as_mut().unwrap().volume_mode = mode;
+        state.output.as_mut().unwrap().fidelity = fidelity;
+        let application = Arc::make_mut(job.profile_application.as_mut().unwrap());
+        application.volume_mode = mode;
+        application.fidelity = fidelity;
+        job.validate_only = true;
+        service.submit(job, state, active_source()).unwrap();
+        let result = completion(&mut service).result.unwrap();
+        hashes.push(result.preview.graph_hash.clone());
+        kernels.push(result.preview.kernel_hash.clone());
+        graph::wait_for_validation_publication(&service);
+    }
+    assert!(kernels.windows(2).all(|pair| pair[0] == pair[1]));
+    assert_ne!(hashes[0], hashes[1]);
+    assert_ne!(hashes[1], hashes[2]);
 }
 
 #[test]

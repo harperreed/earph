@@ -751,6 +751,121 @@ fn executable_profile_application_stays_muted_and_renders_exact_saved_intent() {
     );
 }
 
+#[test]
+fn executable_fixed_profiles_require_fresh_arming_and_restore_lower_gain() {
+    for processed in [false, true] {
+        let directory = directory();
+        let source = directory.join("fixed-profile.wav");
+        let original = wave(&source, 0, 1025);
+        let (config, capture) = configuration(&directory);
+        let mut host = Host::start(&config);
+        let controller = &host.controller;
+        let fidelity = if processed {
+            "compatible_conversion"
+        } else {
+            "strict_preservation"
+        };
+        select_output(controller, "fixed", fidelity);
+        controller.apply(json!({"method":"volume.set","millidecibels":0,"ramp_frames":0}));
+        consent(controller);
+        controller.apply(json!({"method":"volume.arm_fixed","device_id":"acceptance-output","profile_id":"acceptance-profile"}));
+        let draft = json!({"name":"Owned fixed intent","source_policy":"local_file","fidelity":fidelity,
+            "output":{"backend":"alsa","route":"system","device_id":"acceptance-output","manual_setup":"headphones"},
+            "volume":{"mode":"fixed","software_cap_millidecibels":0,"hardware_cap_millidecibels":null},
+            "latency":{"mode":"balanced","max_resident_bytes":268435456,"max_preparation_bytes":268435456,"max_latency_frames":null},"corrections":[]});
+        let port = json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"signed24","max_quantum_frames":64});
+        let intent = if processed {
+            json!({"graph":delay_gain_graph(0,0.5),"processing":{"kind":"float64","quantization":"round_ties_away_saturate_no_dither"}})
+        } else {
+            json!({"graph":{"schema_version":1,"nodes":[{"id":"in","kind":{"kind":"input"},"format":port},{"id":"out","kind":{"kind":"output"},"format":port}],"edges":[{"from":"in","to":"out","from_port":0,"to_port":0}],"output":"out"},"processing":{"kind":"integer_bypass"}})
+        };
+        let save = controller.document(
+            json!({"method":"profiles.create","id":"headphones","draft":draft,"graph":intent}),
+            None,
+        );
+        let saved = controller.settled(&save)["receipt"]["result"]["value"].clone();
+        append_selected(controller, &source);
+        start(controller);
+        controller.wait(|s| s["transport"] == "buffering");
+        controller.apply(json!({"method":"volume.caps.set","software_millidecibels":-20000,"hardware_millidecibels":null}));
+        let blocked = controller.document(json!({"method":"profiles.prepare","id":"headphones","expected_profile_revision":1,"profile_sha256":saved["profile_sha256"]}), None);
+        assert_eq!(
+            controller.send(&blocked)["receipt"]["error"]["code"],
+            "SAFETY_POLICY_BLOCKED"
+        );
+        assert_eq!(controller.state()["software_gain_db"], -20.0);
+        controller.apply(json!({"method":"volume.caps.set","software_millidecibels":0,"hardware_millidecibels":null}));
+        assert_eq!(controller.state()["software_gain_db"], -20.0);
+        controller.apply(json!({"method":"volume.set","millidecibels":0,"ramp_frames":0}));
+        controller.apply(json!({"method":"volume.arm_fixed","device_id":"acceptance-output","profile_id":"acceptance-profile"}));
+        let prepare = controller.document(json!({"method":"profiles.prepare","id":"headphones","expected_profile_revision":1,"profile_sha256":saved["profile_sha256"]}), None);
+        let prepared = controller.settled(&prepare)["receipt"]["result"]["value"].clone();
+        assert_eq!(
+            prepared["preview"]["profile_application"]["volume_mode"],
+            "fixed"
+        );
+        assert_eq!(
+            prepared["preview"]["profile_application"]["fidelity"],
+            fidelity
+        );
+        let apply = controller.document(json!({"method":"profiles.apply","id":"headphones","expected_profile_revision":1,
+            "profile_sha256":saved["profile_sha256"],"token":prepared["token"],"graph_hash":prepared["preview"]["graph_hash"]}), None);
+        controller.settled(&apply);
+        let installed = controller.state();
+        assert_eq!(installed["configured_profile"]["id"], "headphones");
+        assert_eq!(installed["output_consented"], false);
+        assert_eq!(installed["software_gain_db"], 0.0);
+        assert_eq!(installed["local_volume_policy"]["software_cap_db"], 0.0);
+        assert_no_capture(&capture);
+        controller.apply(json!({"method":"output.consent","device_id":"acceptance-output","profile_id":"headphones"}));
+        let unmute = controller.document(json!({"method":"mute.set","muted":false}), None);
+        assert_eq!(
+            controller.send(&unmute)["receipt"]["error"]["code"],
+            "SAFETY_POLICY_BLOCKED"
+        );
+        controller.apply(json!({"method":"volume.arm_fixed","device_id":"acceptance-output","profile_id":"headphones"}));
+        controller.apply(json!({"method":"mute.set","muted":false}));
+        let done = controller.wait(|s| s["transport"] == "idle" || s["transport"] == "failed");
+        assert!(done["error"].is_null(), "{done}");
+        controller.apply(json!({"method":"owner.shutdown"}));
+        assert!(host.child.wait().unwrap().success());
+        let actual = fs::read(&capture).unwrap();
+        if processed {
+            assert_eq!(actual.len(), original.len());
+            for (a, b) in actual
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .zip(original.as_chunks::<3>().0)
+            {
+                assert!((integer24(a) - (f64::from(integer24(b)) * 0.5).round() as i32).abs() <= 1);
+            }
+        } else {
+            assert_eq!(actual, original);
+        }
+        let mut restarted = Host::start_at(&config, host.controller.runtime.clone());
+        let restored = restarted.controller.state();
+        assert_eq!(restored["configured_profile"]["revision"], 1);
+        assert_eq!(restored["software_gain_db"], -40.0);
+        assert_eq!(restored["muted"], true);
+        assert_eq!(restored["output_consented"], false);
+        assert!(restored["playback"].is_null());
+        restarted.controller.apply(json!({"method":"output.consent","device_id":"acceptance-output","profile_id":"headphones"}));
+        assert_eq!(restarted.controller.state()["output_consented"], true);
+        let update = restarted.controller.document(json!({"method":"profiles.update","id":"headphones","expected_profile_revision":1,"draft":draft,"graph":intent}), None);
+        restarted.controller.settled(&update);
+        let updated = restarted.controller.state();
+        assert!(updated["configured_profile"].is_null());
+        assert_eq!(updated["output_consented"], false);
+        assert_eq!(updated["local_volume_policy"]["software_cap_db"], 0.0);
+        assert_eq!(updated["software_gain_db"], -40.0);
+        restarted
+            .controller
+            .apply(json!({"method":"owner.shutdown"}));
+        assert!(restarted.child.wait().unwrap().success());
+    }
+}
+
 fn src_reference(bytes: &[u8]) -> Vec<u8> {
     use earph_core::{audio::ChannelLayout, dsp_nodes::SrcPreset};
     use earph_dsp::resample::PreparedSrc;

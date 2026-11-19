@@ -559,7 +559,10 @@ impl Session {
                             },
                             apply: self.local_playback_enabled,
                             application: crate::profile_control::ProfileApplicationCapabilities {
-                                volume_modes: vec![VolumeMode::Software],
+                                volume_modes: vec![VolumeMode::Software, VolumeMode::Fixed],
+                                fixed_requires_current_arming: true,
+                                fixed_requires_unity_gain: true,
+                                fixed_requires_zero_gain_ramp: true,
                                 requires_current_output: true,
                                 requires_output_consent: true,
                                 requires_matching_fidelity: true,

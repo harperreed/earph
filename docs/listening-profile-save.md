@@ -85,18 +85,24 @@ A manual choice cannot select a profile targeting another backend, route, or dev
 An unchanged DAC identity never establishes the attached passive listening setup.
 Direct create/update commands require empty correction references.
 The correction import command creates those references from verified source facts.
-Profile packages and broader application modes remain separate work.
+Package and application workflows use the shared commands described below.
 
 Profile preparation requires a live local source with actual opened backend observations and current output consent.
-The selected backend, route, device ID, software volume mode, and fidelity must match the saved profile.
+The selected backend, route, device ID, volume mode, and fidelity must match the saved profile.
 Preparation never supplies an endpoint, opens another device, grants consent, arms fixed output, or assumes hardware readback.
-Fixed/hardware application and fidelity transitions return `CAPABILITY_UNSUPPORTED` in this slice.
+Software and fixed application are available on the matching current output.
+Fixed preparation requires current consent, current fixed arming, unity gain, zero ramp, and caps that admit unity.
+Capabilities expose these limits as fixed_requires_current_arming, fixed_requires_unity_gain, and fixed_requires_zero_gain_ramp.
+Preparation validates current authorization before compiling prospective unarmed policy.
+It never copies arming from the current output into saved or prospective intent.
+Hardware application and mode/fidelity transitions return `CAPABILITY_UNSUPPORTED` in this slice.
 A different live output returns `SOURCE_BUSY`; Stop and select the output explicitly.
 
 Use the exact immutable profile reference returned by `profiles.get` or the save receipt.
 Preparation first returns `accepted`; replay the identical envelope for its `GraphPrepared` result.
 That result's `preview.profile_application` binds the profile revision/hash, graph object hash, effective caps, gain, and limits.
 It also binds the optional native identity from the actual opened backend.
+The binding includes the saved volume mode and fidelity.
 Apply rejects changed identity; the acknowledgment must report the same identity before persistence and publication.
 It shares the existing graph candidate slot, five-second preparation deadline, and 30-second token lifetime.
 A profile token cannot be consumed by `graph.commit`, or an ordinary token by `profiles.apply`.
@@ -107,6 +113,9 @@ It revokes consent and fixed arming without raising the current level.
 The configured profile appears only after the matching worker acknowledgment and successful checkpoint.
 Its terminal `applied` receipt reports the activation frame, rather than claiming an acoustic output boundary.
 Consent the exact acknowledged output/profile explicitly before requesting unmute.
+For fixed output, also arm that newly acknowledged device/profile explicitly.
+Restart retains desired fixed intent at the lower safe gain, muted and without consent, arming, or prepared tokens.
+Explicit later commands must establish unity and authorization again; restore never raises gain.
 Stop and emergency mute remain available throughout preparation and activation.
 An installation followed by storage failure requires recovery; the owner never claims physical rollback.
 

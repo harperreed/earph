@@ -45,7 +45,6 @@ impl Session {
     pub(super) fn profile_application_binding(
         &self,
         reference: &ProfileCatalogReference,
-        require_consent: bool,
     ) -> Result<Arc<ProfileApplicationBinding>, EngineError> {
         let record = self.profile_record(reference)?;
         let profile = &record.profile;
@@ -62,36 +61,70 @@ impl Session {
                 "stop and select the profile output explicitly",
             ));
         }
-        if output.volume_mode != crate::safety::VolumeMode::Software
-            || profile.volume.mode != crate::safety::VolumeMode::Software
+        if output.volume_mode != profile.volume.mode
+            || profile.volume.mode == VolumeMode::Hardware
             || output.fidelity != profile.fidelity
         {
             return Err(EngineError::new(
                 ErrorCode::CapabilityUnsupported,
-                "profile application requires software volume and matching current fidelity",
+                "profile application requires matching software or fixed volume and current fidelity",
             ));
         }
-        if require_consent && !self.state.output_consented {
+        if profile.volume.mode == VolumeMode::Fixed
+            && (self.state.software_gain_db != 0.0 || self.state.gain_ramp_frames != 0)
+        {
             return Err(EngineError::new(
                 ErrorCode::SafetyPolicyBlocked,
-                "consent the current output before profile preparation",
+                "fixed profile application requires current unity gain and zero ramp",
             ));
         }
         let effective_policy = profile
             .volume
             .effective_policy(&self.state.local_volume_policy)?;
-        Ok(Arc::new(ProfileApplicationBinding {
+        let binding = Arc::new(ProfileApplicationBinding {
             profile: reference.clone(),
             device_identity_sha256: self.profile_native_identity(),
+            volume_mode: profile.volume.mode,
+            fidelity: profile.fidelity,
             graph_sha256: profile.graph_sha256,
             source: SourceKind::LocalFile,
-            software_gain_db: self
-                .state
-                .software_gain_db
-                .min(effective_policy.software_cap_db()),
+            software_gain_db: if profile.volume.mode == VolumeMode::Fixed {
+                self.state.software_gain_db
+            } else {
+                self.state
+                    .software_gain_db
+                    .min(effective_policy.software_cap_db())
+            },
             effective_policy,
             latency: profile.latency.clone(),
-        }))
+        });
+        binding.validate()?;
+        Ok(binding)
+    }
+    pub(super) fn authorized_profile_application_binding(
+        &self,
+        reference: &ProfileCatalogReference,
+    ) -> Result<Arc<ProfileApplicationBinding>, EngineError> {
+        let binding = self.profile_application_binding(reference)?;
+        if !self.state.output_consented {
+            return Err(EngineError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "consent the current output before profile preparation",
+            ));
+        }
+        let output = self.state.output.as_ref().ok_or(STATE)?;
+        self.state.volume_policy.validate_profile_preparation(
+            &OutputContext {
+                device_id: output.device_id.clone(),
+                profile_id: output.profile_id.clone(),
+            },
+            output.volume_mode,
+            output.fidelity,
+            self.state.software_gain_db,
+            &binding.effective_policy,
+            binding.software_gain_db,
+        )?;
+        Ok(binding)
     }
     pub(super) fn apply_profile_prepare(
         &mut self,
@@ -117,7 +150,7 @@ impl Session {
             revision: *expected_profile_revision,
             profile_sha256: *profile_sha256,
         };
-        let binding = self.profile_application_binding(&reference, true)?;
+        let binding = self.authorized_profile_application_binding(&reference)?;
         if self
             .state
             .playback
@@ -166,9 +199,15 @@ impl Session {
             let output = staged.state.output.as_ref().ok_or(INVALID)?;
             if staged.graph.configured.as_ref() != Some(&record.graph)
                 || output.profile_id != reference.id
-                || staged
-                    .profile_application_binding(reference, false)?
-                    .effective_policy
+                || output.backend != record.profile.output.backend
+                || output.route != record.profile.output.route
+                || output.device_id != record.profile.output.device_id
+                || output.volume_mode != record.profile.volume.mode
+                || output.fidelity != record.profile.fidelity
+                || record
+                    .profile
+                    .volume
+                    .effective_policy(&staged.state.local_volume_policy)?
                     != staged.state.volume_policy
             {
                 return Err(INVALID);
