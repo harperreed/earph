@@ -5,6 +5,7 @@ mod connect;
 mod host;
 mod queue;
 mod receipts;
+mod signal_path;
 mod status;
 mod workflow;
 pub use app::{GuiApp, run};

@@ -1,6 +1,6 @@
 // ABOUTME: Renders the native Earph controller with opaque local Light and Dark choices.
 // ABOUTME: Owns local drafts while the workflow retains actual owner observations.
-use super::{GuiController, UiIntent, connect, queue, receipts, status};
+use super::{GuiController, UiIntent, connect, queue, receipts, signal_path, status};
 use eframe::egui;
 use std::{
     path::PathBuf,
@@ -90,14 +90,7 @@ impl GuiApp {
                         }
                         ui.label("Saving intent or importing a correction does not apply a profile or unmute output.");
                     }
-                    View::SignalPath => {
-                        ui.heading("Signal Path / Recovery");
-                        ui.label("Detailed graph, playback, and backend observations need typed desktop projections.");
-                        ui.label("The owner state above is observed. Downstream DAC and acoustic behavior remain unverified.");
-                        ui.label("Decoded position is separate from audible position. Missing values remain unknown.");
-                        if ui.button("Refresh actual state").clicked() { self.controller.handle(UiIntent::Refresh); }
-                        ui.label("Reconnect in Connect. Raw receipt details below are local data, not a redacted support bundle.");
-                    }
+                    View::SignalPath => signal_path::show(ui, &mut self.controller),
                 }
                 ui.separator();
                 receipts::show(ui, &mut self.controller);

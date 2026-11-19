@@ -1,0 +1,36 @@
+{
+  "scope": "typed Signal Path display on Linux",
+  "date_utc": "2026-11-19",
+  "base_commit": "415377e92aed89c4b926d23e005ac4fabb57b092",
+  "tested_source": {
+    "files": 1764,
+    "manifest_sha256": "d666a30b6493c14608c2ca26ac4aea6ec8a9c02ca840eabb13a9ca969386c732",
+    "unchanged_after_check": true,
+    "post_check_additions": ["this evidence document", "the append-only desktop plan checkpoint"]
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "signal": null,
+    "passed": 909,
+    "failed": 0,
+    "ignored": 5,
+    "summaries": 103,
+    "log_sha256": "44d898a2561991a3b7254af5c5651c4d170b2eb5cc8268fa781a7191206b42ad"
+  },
+  "evidence": {
+    "idle_real_owner_widget_red_exit": 101,
+    "controlled_core_serializer": "different source/native formats, separate positions, full u64 counters and overflow lower bounds",
+    "integration": "actual owner IPC and offscreen product navigation preserve revision and output safety",
+    "process_e2e": "actual muted standalone ALSA profile flow also renders backend and processing observations",
+    "review": "one bounded Root source and caller review; no material findings"
+  },
+  "limits": {
+    "native_windows_qualified": false,
+    "mac_view_qualified": false,
+    "controlled_native_fixture_is_hardware_evidence": false,
+    "downstream_dac_or_acoustic_measurement": false,
+    "new_playback_authority_or_signal": false,
+    "full_desktop_parity": false
+  }
+}

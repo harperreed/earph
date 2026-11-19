@@ -2,6 +2,7 @@
 // ABOUTME: Preserves runtime files and explicitly shuts down only the test-owned owner.
 #![allow(dead_code)]
 pub mod proxy;
+pub mod widgets;
 use earph_core::{
     EngineError,
     control::Command,

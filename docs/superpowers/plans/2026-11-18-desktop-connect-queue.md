@@ -268,3 +268,20 @@ Prepared muted Start stays Accepted. The matching Stop cancels that pending requ
 The final canonical passes 907 tests, with zero failures and five ignored. The desktop package passes 72 tests.
 Strict Clippy and Root's bounded review pass. No GUI transport button or output authority changes here.
 The separate Mac/Swift qualification remains pinned to the earlier immutable `79810bc` source.
+
+## Signal Path observation checkpoint
+
+The Signal Path view now renders the owner's typed playback and processing observations.
+It separates requested output, configured intent, backend formats, native identity, and measurement boundaries.
+It labels missing facts unknown and preserves source-frame versus output-frame accounting.
+Output activity shows its origin, scope, exact counters, overflow meaning, and observed closure.
+The view adds no playback command, native client, or copied state authority.
+
+The idle real-owner widget test fails against the placeholder before implementation.
+A controlled Core serializer covers differing formats, independent frame positions, and maximum u64 counters.
+The actual muted standalone ALSA profile test now also renders the view without changing revision or captured bytes.
+The final canonical passes 909 tests, with zero failures and five ignored.
+Root's single bounded review finds no material issue.
+See `docs/evidence/desktop/signal-path-linux-20261119.json` for the bounded result.
+Root adds only this checkpoint and that evidence document after the checks.
+Actual native windows, Mac view behavior, Output/Transport controls, and full desktop parity remain pending.

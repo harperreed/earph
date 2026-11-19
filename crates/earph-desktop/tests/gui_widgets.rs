@@ -98,6 +98,28 @@ fn action(
 }
 
 #[test]
+fn signal_path_keeps_missing_playback_facts_unknown_after_real_owner_observation() {
+    let owner = Owner::start();
+    let before = owner.state();
+    let labels = widgets::signal_path_labels(owner.runtime.to_str().unwrap());
+    for expected in [
+        "Playback observation: unavailable",
+        "Backend format: unknown",
+        "Native device identity: unknown",
+        "Output activity: unavailable",
+    ] {
+        assert!(
+            labels.iter().any(|label| label == expected),
+            "missing observed fact: {expected}; {labels:?}"
+        );
+    }
+    let after = owner.state();
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.epochs, before.epochs);
+    assert!(after.muted && !after.output_consented && after.playback.is_none());
+}
+
+#[test]
 fn queue_widgets_accept_one_action_during_observation_and_show_local_waiting() {
     let owner = Owner::start();
     let transport = receipt_fixture::ReceiptTransport::observation(owner.runtime.clone());

@@ -577,6 +577,23 @@ fn muted_real_profile_preparation_and_application_preserve_actual_backend_observ
     assert_eq!(state.local_volume_policy, opened.local_volume_policy);
     assert_eq!(state.volume_policy.software_cap_db, -20.0);
     assert_eq!(state.software_gain_db, opened.software_gain_db);
+    let labels = widgets::signal_path_labels(owner.runtime.to_str().unwrap());
+    for text in [
+        "Playback format:",
+        "48000",
+        "Backend: Alsa",
+        "Backend measurement boundary:",
+        "Active processing hash:",
+        "Submitted output: 0 frames",
+        "Native device identity: unknown",
+        "Output activity: unavailable",
+    ] {
+        assert!(
+            labels.iter().any(|label| label.contains(text)),
+            "missing actual Signal Path fact: {text}; {labels:?}"
+        );
+    }
+    assert_eq!(refresh(&mut client).revision, state.revision);
     assert_eq!(fs::read(&fixture).unwrap(), samples);
     match fs::metadata(&capture) {
         Ok(metadata) => assert_eq!(
