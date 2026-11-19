@@ -30,7 +30,14 @@ The later T05 spike adds a native adapter with its own explicit lifecycle.
 | Graph activation | Session accepts muted rebuffering in a newer stream epoch. One typed worker acknowledgement carries installed playback facts. | Commit observation and intent together. Gate exact request, epochs, hash, and device generation. Advance `graph_epoch` once. Never unmute on acknowledgement. |
 | Graph recovery | Failed activation sets an explicit recovery gate and invalidates its generation. Restart restores intent without runtime claims. | Stop and retire the candidate. Require successful explicit graph activation before unmute. |
 | Graph resources | [`GraphService`](../crates/earph-engine/src/graph.rs) owns one preparation slot, two pipeline owners, and two retirement slots. | Admit aggregate storage before allocation. Retire through the executor on every ownership path. |
+| Saved profile catalog | [`Session` profile control](../crates/earph-core/src/session_profiles.rs) owns immutable named intent and expected revisions. | Publish references only after object durability and the existing checkpoint transaction. Restore paused and muted without runtime authorization. |
+| Profile save worker | One bounded worker owns saving, retiring, and matching completion. | Cancellation can settle a receipt before resources retire. Keep the reservation until matching completion. Keep Stop, mute, and shutdown available. |
+| Profile selection | The [pure resolver](../crates/earph-core/src/profiles.rs) reports manual selection, exact match, ambiguity, or no verified match. | An unchanged DAC never identifies passive headphones. Owner associations remain unavailable until native identity evidence is wired. |
 | Graph kernels | [`PreparedGraph`](../crates/earph-dsp/src/runtime.rs) owns prepared, running, draining, finished, failed, or cancelled execution. | Reset only into newer epochs. Preserve state across compatible joins. Drain each declared tail once. |
+| Streaming graph execution | [`PreparedStreamRender`](../crates/earph-engine/src/stream_render.rs) owns source acceptance, generated output, retained replay, and native submission. | Preserve history across holds and compatible joins. Reset all frontiers on true seek. Drain only after actual final EOF and submitted DSP tails. |
+| Streaming replacement | The worker replaces execution at its actual accepted source frontier and publishes discarded held output. | Keep source and output epochs distinct. Preserve irrevocable native acknowledgments after cancellation. Leave audible source position unknown. |
+| Filter settlement | The compiler selects authored FIR support or bounded IIR truncation and carries per-node future envelopes. | Flush global zeros. Mask FIR-only output after authored support. Verify the final discarded-output bound before preparing a token. |
+| Correction assets | The [private store](../crates/earph-engine/src/assets.rs) validates source bytes, publishes immutable content identity, and freezes coefficients during preparation. | Preserve originals and failed writes. Reject conflicting objects, wrong geometry, and missing assets. Never resolve files during processing or activation. |
 | Source and tail periods | The worker owns `Feeding -> GraphTail -> BackendDrain -> Finished` and a source-or-tail pending period. | Retain partially written samples. Never reprocess retries or advance source offsets for tail frames. |
 | Completed drain handoff | The worker retains one immutable completion token and final observation after releasing playback. | Reissue proof across matching mute generations and earlier-entry snapshots. Release only on exact acknowledgement or explicit stream replacement. |
 | Mute and gain intent | `Session` owns mute, gain caps, output consent, and fixed-output arming. | The worker applies admitted software gain. Hardware gain control remains unsupported. Restore caps without consent or arming. |
@@ -44,6 +51,7 @@ The later T05 spike adds a native adapter with its own explicit lifecycle.
 | Core Audio registration | [`SilentRegistration`](../crates/earph-coreaudio/src/native.rs) owns `Registered -> Closed/Failed`, one IOProc ID, and one callback context. | Never start the registration. Destroy its own ID before releasing context. Keep failed destruction terminal and retain context until process exit. |
 | Core Audio precision assessment | [`assess`](../crates/earph-coreaudio/src/contract.rs) compares an explicit UID and request against raw physical and virtual descriptors. | Keep observed settings separate from opening, ownership acquisition, and measurement. A format conflict changes no device state. |
 | Core Audio playback | [`CoreAudioOutput`](../crates/earph-coreaudio/src/playback.rs) owns prepared, running, paused, stopped, failed, and closed states. | Prebuffer before explicit start. Keep callback delivery separate from audible position. Retain uncertain native contexts until process exit. |
+| Core Audio first fault | [`FaultSignal`](../crates/earph-coreaudio/src/playback/fault.rs) moves once from empty to one packed reason and optional frame counts. | Publish one complete record without callback allocation or logging. Preserve the first cause through later notifications and cleanup. Unknown codes remain terminal. |
 | Native EOF handoff | The Core Audio adapter tracks the current generation's last payload-bearing buffer. | Require consistent SDK sample and host clocks before natural completion. Empty rings and callback counts do not prove completion. |
 | Local playback worker | [`Playback`](../crates/earph-engine/src/worker.rs) owns decoders, prepared gain, pending spans, and one native output. | Apply commands through the session actor. Pause, seek, and stop settle after worker acknowledgement. Faults mute and revoke consent. |
 | Live queue reservation | [`PlanView`](../crates/earph-engine/src/plan.rs) observes the active entry and one reserved next entry. | Protect those entries. Recheck reservations after durable staging. Roll back rejected edits before reporting failure. |
@@ -186,6 +194,26 @@ The [final review receipts](evidence/dsp/final-review-verification-20261118.json
 The overlapping eleven-test SDK recheck also passes.
 Earlier [review receipts](evidence/dsp/review-verification-20261118.json) retain their original source binding.
 The [earlier graph receipts](evidence/dsp/verification-20261118.json) remain bound to their original source snapshot.
-Profiles, network roles, FFI clients, and GUIs remain unimplemented or unqualified.
+Profile imports, profile application, network roles, FFI clients, and GUIs remain unimplemented or unqualified.
 This task does not qualify power-loss durability beyond completed writes and atomic JSON publication.
 Their proposed lifecycles remain in [the product specification](SPEC.md).
+
+## Streaming DSP evidence
+
+The live SRC worker preserves separate source, generated-output, and native-submission frontiers.
+Real owner tests cover holds, compatible joins, true seeks, replacement, cancellation, and retained native prefixes.
+The selected Linux release hardware run submits all 26313 generated frames from 24000 source frames.
+The first Mac hardware run fails after 2993 producer-ring writes; its native cause remains unknown.
+Later first-fault diagnostics pass software and silent SDK checks, without reclassifying that historical failure.
+Prepared software CPU checks pass on both reference hosts; they exclude native scheduling and driver work.
+See the [DSP checkpoint](superpowers/plans/2026-11-18-dsp-nodes.md) for source bindings and public receipts.
+
+## Saved profile evidence
+
+Named profile saves, updates, queries, manual resolution, and restart use the existing owner command contract.
+The reviewed save unit passes 633 Linux tests and a 30-test Mac owner/filesystem gate.
+The Mac gate records its dirty precommit source explicitly.
+Both immutable profile objects and FIR retries synchronize the verified regular file before its directory.
+These tests prove successful application synchronization, without simulating power loss or an actual disk-sync failure.
+See [saved profile commands](listening-profile-save.md) and [the profile checkpoint](superpowers/plans/2026-11-18-listening-profiles.md).
+Correction provenance imports, verified device associations, atomic application, and packages remain separate work.

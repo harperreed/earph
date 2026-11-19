@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "scope": "prepared_software_DSP_CPU_qualification_only",
+  "source_files": 1523,
+  "raw_files": 60,
+  "raw_rows": 1000000,
+  "raw_csv_bytes": 24205769,
+  "candidate_sha256": "f13004f20fad0166fa59b3940172dcdc2bdcef3f3a00a9ef9f054e482b5d536d",
+  "worst_p999_period_percent": 14.756250000000001,
+  "deadline_misses": 0,
+  "physical_output_invoked": false
+}

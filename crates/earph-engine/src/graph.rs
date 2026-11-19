@@ -1,5 +1,6 @@
 // ABOUTME: Prepares one graph candidate from captured session facts outside playback.
 // ABOUTME: Retires every owned graph on its bounded preparation thread.
+use crate::assets;
 use crate::render::{PreparedRender, RenderError, RenderResources};
 use earph_core::{
     EngineError, ErrorCode,
@@ -17,6 +18,7 @@ use earph_dsp::{CompileContext, CompiledPlan, GraphBudget, GraphError, Processin
 use sha2::{Digest, Sha256};
 use std::{
     io::Write,
+    path::{Path, PathBuf},
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -85,12 +87,22 @@ struct Payload {
     _intent: Arc<GraphIntent>,
     mode: Mode,
 }
+struct CompiledPreview {
+    kernel_hash: String,
+    implementation_version: String,
+    timing: earph_core::graph_control::GraphTiming,
+    preservation: PreservationDecision,
+    transformations: Vec<earph_core::graph::Transformation>,
+    bounds: Vec<f64>,
+    resources: GraphResidentUsage,
+}
 enum Mode {
     Integer {
         _plan: Box<CompiledPlan>,
         epochs: Epochs,
     },
     Float64(Box<PreparedRender>),
+    Streaming(Box<crate::stream_render::PreparedStreamRender>),
 }
 
 /// This owner never frees graph storage on the playback worker.
@@ -112,13 +124,25 @@ impl PreparedPipeline {
     pub fn render(&self) -> Option<&PreparedRender> {
         match &self.payload.as_ref().expect("owned pipeline").mode {
             Mode::Float64(render) => Some(render),
-            Mode::Integer { .. } => None,
+            Mode::Integer { .. } | Mode::Streaming(_) => None,
         }
     }
     pub fn render_mut(&mut self) -> Option<&mut PreparedRender> {
         match &mut self.payload.as_mut().expect("owned pipeline").mode {
             Mode::Float64(render) => Some(render),
-            Mode::Integer { .. } => None,
+            Mode::Integer { .. } | Mode::Streaming(_) => None,
+        }
+    }
+    pub fn stream_render(&self) -> Option<&crate::stream_render::PreparedStreamRender> {
+        match &self.payload.as_ref().expect("owned pipeline").mode {
+            Mode::Streaming(render) => Some(render),
+            Mode::Integer { .. } | Mode::Float64(_) => None,
+        }
+    }
+    pub fn stream_render_mut(&mut self) -> Option<&mut crate::stream_render::PreparedStreamRender> {
+        match &mut self.payload.as_mut().expect("owned pipeline").mode {
+            Mode::Streaming(render) => Some(render),
+            Mode::Integer { .. } | Mode::Float64(_) => None,
         }
     }
     /// Call only when the worker installs this candidate at its muted boundary.
@@ -135,6 +159,7 @@ impl PreparedPipeline {
     pub fn reset(&mut self, epochs: Epochs) -> Result<(), RenderError> {
         match &mut self.payload.as_mut().expect("owned pipeline").mode {
             Mode::Float64(render) => render.reset(epochs),
+            Mode::Streaming(render) => render.reset(epochs).map_err(Into::into),
             Mode::Integer {
                 epochs: current, ..
             } => {
@@ -155,6 +180,7 @@ impl Drop for PreparedPipeline {
         if let Mode::Float64(render) = &mut payload.mode {
             render.cancel();
         }
+        // Streaming kernels share source cancellation; retire them by off-thread ownership release.
         self.retirement
             .accounting
             .retiring
@@ -221,6 +247,7 @@ struct Job {
     request: GraphJobRequest,
     snapshot: Box<SessionSnapshot>,
     cancellation: GraphCancellation,
+    source_cancel: Arc<AtomicBool>,
     retirement: Arc<Retirement>,
     started: Instant,
 }
@@ -246,7 +273,7 @@ pub struct GraphService {
     cancellation: Option<GraphCancellation>,
 }
 impl GraphService {
-    pub fn spawn() -> Result<Self, EngineError> {
+    pub fn spawn(asset_store: Option<PathBuf>) -> Result<Self, EngineError> {
         let (completions_tx, completions) = mpsc::sync_channel(1);
         let accounting = Arc::new(Accounting::default());
         let mailbox = Arc::new(Mailbox::default());
@@ -254,7 +281,14 @@ impl GraphService {
         let worker_mailbox = mailbox.clone();
         let join = thread::Builder::new()
             .name("earph-graph-preparation".into())
-            .spawn(move || run(worker_mailbox, completions_tx, worker_accounting))
+            .spawn(move || {
+                run(
+                    worker_mailbox,
+                    completions_tx,
+                    worker_accounting,
+                    asset_store,
+                )
+            })
             .map_err(|_| {
                 EngineError::new(
                     ErrorCode::DeviceUnavailable,
@@ -285,7 +319,11 @@ impl GraphService {
         &mut self,
         request: GraphJobRequest,
         snapshot: SessionSnapshot,
+        source_cancel: Arc<AtomicBool>,
     ) -> Result<GraphCancellation, EngineError> {
+        if source_cancel.load(Ordering::Acquire) {
+            return Err(CANCELLED);
+        }
         let accounting = &self.retirement.accounting;
         if accounting.retiring.load(Ordering::Acquire) != 0
             || accounting.owners.load(Ordering::Acquire) >= 2
@@ -307,6 +345,7 @@ impl GraphService {
             request,
             snapshot: Box::new(snapshot),
             cancellation: cancellation.clone(),
+            source_cancel,
             retirement: self.retirement.clone(),
             started: Instant::now(),
         });
@@ -376,6 +415,7 @@ fn run(
     mailbox: Arc<Mailbox>,
     completions: SyncSender<GraphCompletion>,
     accounting: Arc<Accounting>,
+    asset_store: Option<PathBuf>,
 ) {
     loop {
         let mut state = mailbox
@@ -394,6 +434,7 @@ fn run(
                 request,
                 snapshot,
                 cancellation,
+                source_cancel,
                 retirement,
                 started,
             } = job;
@@ -401,7 +442,15 @@ fn run(
             let binding = request.binding.clone();
             // Contain compiler panics so the one retirement executor remains alive.
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                prepare(&request, &snapshot, &cancellation, &retirement, started)
+                prepare(
+                    &request,
+                    &snapshot,
+                    &cancellation,
+                    &source_cancel,
+                    &retirement,
+                    started,
+                    asset_store.as_deref(),
+                )
             }))
             .unwrap_or_else(|_| {
                 Err(EngineError::new(ErrorCode::OutputFault, "graph preparation panicked").into())
@@ -447,12 +496,14 @@ fn prepare(
     request: &GraphJobRequest,
     snapshot: &SessionSnapshot,
     cancellation: &GraphCancellation,
+    source_cancel: &Arc<AtomicBool>,
     retirement: &Arc<Retirement>,
     started: Instant,
+    asset_store: Option<&Path>,
 ) -> Result<GraphSuccess, GraphDiagnostic> {
     let check = || -> Result<(), GraphDiagnostic> {
         let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
-        if cancellation.0.load(Ordering::Acquire) {
+        if cancellation.0.load(Ordering::Acquire) || source_cancel.load(Ordering::Acquire) {
             return Err(CANCELLED.into());
         }
         if snapshot
@@ -542,6 +593,26 @@ fn prepare(
         request.intent.processing,
         GraphProcessingRequest::Float64 { .. }
     );
+    let streaming = request
+        .intent
+        .graph
+        .nodes
+        .iter()
+        .any(|n| matches!(n.kind, NodeKind::Src { .. }));
+    if !float
+        && request.intent.graph.nodes.iter().any(|n| {
+            matches!(
+                n.kind,
+                NodeKind::Peq { .. } | NodeKind::Convolution { .. } | NodeKind::Src { .. }
+            )
+        })
+    {
+        return Err(EngineError::new(
+            ErrorCode::FidelityPolicyConflict,
+            "integer routes cannot admit filter processing",
+        )
+        .into());
+    }
     if float && output.fidelity == FidelityPolicy::StrictPreservation {
         return Err(EngineError::new(
             ErrorCode::FidelityPolicyConflict,
@@ -573,6 +644,18 @@ fn prepare(
     let metadata = METADATA_ALLOWANCE
         .checked_add(intent_bytes)
         .ok_or(RESOURCE)?;
+    // Session-owned profile history can grow while compilation and receipt staging overlap.
+    // Keep that shared allowance outside per-pipeline residency to avoid charging every pipeline.
+    if snapshot.profile_storage_bytes > earph_core::profile_control::MAX_PROFILE_STORAGE_BYTES {
+        return Err(RESOURCE.into());
+    }
+    let profile_retention = if snapshot.profile_storage_bytes == 0 {
+        0
+    } else {
+        earph_core::profile_control::MAX_PROFILE_STORAGE_BYTES
+            .checked_mul(2)
+            .ok_or(RESOURCE)?
+    };
     let host_input = if float {
         processing_input
             .storage_bytes(quantum as u64)
@@ -594,39 +677,186 @@ fn prepare(
     } else {
         0
     };
+    let native_period = if streaming {
+        native_period.checked_mul(2).ok_or(RESOURCE)?
+    } else {
+        native_period
+    };
+    let stream_bridge = if streaming {
+        Some(
+            crate::stream_render::StreamRenderConfig {
+                input_format: source,
+                native_format: native,
+                period_frames: quantum,
+                queue_frames: output.buffer_frames as usize,
+                epochs: request.binding.epochs,
+                budget_bytes: LIMIT,
+            }
+            .bridge_resources(quantum)
+            .map_err(GraphDiagnostic::from)?,
+        )
+    } else {
+        None
+    };
     let existing = retirement.accounting.resident.load(Ordering::Acquire);
+    let backend_audio_bytes = playback
+        .backend
+        .as_ref()
+        .map_or(0, |b| b.audio_storage_bytes);
+    // Core Audio constructs its replacement while the closed output still owns its ring.
+    let backend_audio_peak_bytes = match output.backend {
+        earph_core::control::OutputBackend::CoreAudio => {
+            backend_audio_bytes.checked_mul(2).ok_or(RESOURCE)?
+        }
+        earph_core::control::OutputBackend::Alsa => backend_audio_bytes,
+    };
     let existing_route_bytes = source
         .storage_bytes(quantum as u64)
         .map_err(GraphDiagnostic::from)? as u64;
+    let asset_admission =
+        assets::GraphAssets::inspect(&request.intent.graph).map_err(GraphDiagnostic::from)?;
+    let asset_scratch = asset_admission.scratch_bytes();
+    let bridge_bytes = match stream_bridge {
+        Some(bridge) => bridge.bridge_bytes,
+        None => sum(&[host_input, host_output, native_period])?,
+    };
     let fixed = sum(&[
         existing,
+        backend_audio_peak_bytes,
         existing_route_bytes,
         metadata,
-        host_input,
-        host_output,
-        native_period,
-        PREPARATION_SCRATCH,
+        bridge_bytes,
+        profile_retention,
+        if streaming { 0 } else { PREPARATION_SCRATCH },
+        asset_scratch,
     ])?;
     let kernel_allowance = LIMIT.checked_sub(fixed).ok_or(RESOURCE)?;
+    let resolved = asset_admission
+        .resolve(asset_store, kernel_allowance, || {
+            check().map_err(|e| e.error())
+        })
+        .map_err(GraphDiagnostic::from)?;
     check()?;
-    let plan = earph_dsp::compile(
-        &request.intent.graph,
-        &CompileContext {
-            input_format: processing_input,
-            output_format: processing_output,
-            quantum_frames: quantum,
-            policy: if float {
-                ProcessingPolicy::AllowProcessing
-            } else {
-                ProcessingPolicy::StrictPreservation
-            },
-            budget: GraphBudget {
-                max_buffer_bytes: kernel_allowance,
-                ..GraphBudget::default()
-            },
+    let context = CompileContext {
+        input_format: processing_input,
+        output_format: processing_output,
+        quantum_frames: quantum,
+        policy: if float {
+            ProcessingPolicy::AllowProcessing
+        } else {
+            ProcessingPolicy::StrictPreservation
         },
-    )
-    .map_err(diagnostic)?;
+        budget: GraphBudget {
+            max_buffer_bytes: kernel_allowance,
+            ..GraphBudget::default()
+        },
+    };
+    if let Some(bridge) = stream_bridge {
+        let plan = earph_dsp::compile_stream(
+            &request.intent.graph,
+            &context,
+            &resolved,
+            earph_dsp::stream::StreamBudget {
+                max_resident_bytes: kernel_allowance,
+                max_preparation_bytes: kernel_allowance,
+                ..earph_dsp::stream::StreamBudget::default()
+            },
+        )
+        .map_err(diagnostic)?;
+        check()?;
+        let resources = plan.resources();
+        let aggregate_peak_bytes = sum(&[fixed, resources.preparation_peak_bytes])?;
+        let pipeline_bytes = sum(&[metadata, bridge.bridge_bytes, resources.resident_bytes])?;
+        let bridge_remainder = bridge
+            .bridge_bytes
+            .checked_sub(sum(&[host_input, host_output, native_period])?)
+            .ok_or(RESOURCE)?;
+        let mut preview = prepared_preview(
+            CompiledPreview {
+                kernel_hash: plan.content_hash().into(),
+                implementation_version: plan.implementation_version().into(),
+                timing: earph_core::graph_control::GraphTiming::Streaming {
+                    stages: plan.stage_metadata(),
+                },
+                preservation: PreservationDecision::ProcessFloat64,
+                transformations: plan.transformations().to_vec(),
+                bounds: plan.output_peak_bounds().to_vec(),
+                resources: GraphResidentUsage {
+                    backend_audio_bytes,
+                    backend_audio_peak_bytes,
+                    stream_bridge_bytes: sum(&[
+                        resources.fifo_bytes,
+                        resources.staging_bytes,
+                        bridge_remainder,
+                    ])?,
+                    kernel_audio_bytes: resources.kernel_bytes,
+                    host_input_bytes: host_input,
+                    host_output_bytes: host_output,
+                    native_period_bytes: native_period,
+                    metadata_bytes: sum(&[metadata, resources.metadata_bytes])?,
+                    pipeline_bytes,
+                    aggregate_peak_bytes,
+                },
+            },
+            request,
+            snapshot,
+            context,
+            source,
+            native,
+        )?;
+        check()?;
+        if request.validate_only {
+            return Ok(GraphSuccess {
+                preview,
+                pipeline: None,
+            });
+        }
+        let render = crate::stream_render::PreparedStreamRender::prepare(
+            plan.into_stream_plan(),
+            crate::stream_render::StreamRenderConfig {
+                input_format: source,
+                native_format: native,
+                period_frames: quantum,
+                queue_frames: output.buffer_frames as usize,
+                epochs: request.binding.epochs,
+                budget_bytes: kernel_allowance
+                    .checked_add(bridge.bridge_bytes)
+                    .ok_or(RESOURCE)?,
+            },
+            source_cancel.clone(),
+        )
+        .map_err(GraphDiagnostic::from)?;
+        if sum(&[render.resources().resident_bytes, metadata])? != pipeline_bytes
+            || render.resources().preparation_peak_bytes
+                != sum(&[resources.preparation_peak_bytes, bridge.bridge_bytes])?
+        {
+            return Err(RESOURCE.into());
+        }
+        if let earph_core::graph_control::GraphTiming::Streaming { stages } =
+            &mut Arc::make_mut(&mut preview).timing
+        {
+            for (index, stage) in Arc::make_mut(stages).iter_mut().enumerate() {
+                if let earph_core::graph_control::CompiledStreamStageKind::Src {
+                    truncated_library_output_delay_frames,
+                    ..
+                } = &mut stage.kind
+                {
+                    let actual = render.stream().src_metadata(index).ok_or(RESOURCE)?;
+                    *truncated_library_output_delay_frames =
+                        Some(u64::try_from(actual.truncated_output_delay).map_err(|_| RESOURCE)?);
+                }
+            }
+        }
+        check()?;
+        return Ok(retained_pipeline(
+            preview,
+            request,
+            Mode::Streaming(Box::new(render)),
+            retirement,
+        ));
+    }
+    let plan = earph_dsp::compile_with_assets(&request.intent.graph, &context, &resolved)
+        .map_err(diagnostic)?;
     check()?;
     if !float
         && (plan.preservation() != PreservationDecision::RetainInteger
@@ -650,30 +880,6 @@ fn prepare(
         )
         .into());
     }
-    let bounds = peak_bounds(&plan)?;
-    let maximum = bounds.iter().copied().fold(1.0_f64, f64::max);
-    let mut transformations: Vec<_> = plan
-        .transformations()
-        .iter()
-        .cloned()
-        .map(|transformation| SignalTransformation::Kernel { transformation })
-        .collect();
-    if let GraphProcessingRequest::Float64 { quantization } = request.intent.processing {
-        transformations.insert(0, SignalTransformation::IntegerToFloat64);
-        transformations.push(SignalTransformation::SoftwareVolume);
-        transformations.push(SignalTransformation::Quantization {
-            policy: quantization,
-        });
-    } else if snapshot.software_gain_db != 0.0 || snapshot.gain_ramp_frames != 0 {
-        transformations.push(SignalTransformation::SoftwareVolume);
-    }
-    if let Some(backend) = &playback.backend
-        && backend.client_format.representation != ObservedStreamFormat::from(native).representation
-    {
-        transformations.push(SignalTransformation::BackendAdapterConversion {
-            client_representation: backend.client_format.representation,
-        });
-    }
     let kernel_bytes = if float {
         plan.resources().buffer_bytes
     } else {
@@ -688,50 +894,69 @@ fn prepare(
     ])?;
     let aggregate_peak_bytes = sum(&[
         existing,
+        backend_audio_peak_bytes,
         existing_route_bytes,
         pipeline_bytes,
         PREPARATION_SCRATCH,
+        asset_scratch,
+        profile_retention,
+        plan.preparation_scratch_bytes(),
     ])?;
     if aggregate_peak_bytes > LIMIT {
         return Err(RESOURCE.into());
     }
-    let preview = Arc::new(GraphPreview {
-        backend: playback.backend.clone(),
-        graph_hash: activation_hash(&plan, request, snapshot, source, native)?,
-        kernel_hash: plan.content_hash().into(),
-        implementation_version: plan.implementation_version().into(),
-        binding: request.binding.clone(),
-        source_format: source,
-        native_output_format: native,
-        processing_input_format: processing_input,
-        processing_output_format: processing_output,
-        quantum_frames: quantum,
-        latency_frames: plan.latency_frames(),
-        tail_frames: plan.tail_frames(),
-        preservation: plan.preservation(),
-        transformations,
-        resources: GraphResidentUsage {
-            kernel_audio_bytes: kernel_bytes,
-            host_input_bytes: host_input,
-            host_output_bytes: host_output,
-            native_period_bytes: native_period,
-            metadata_bytes: metadata,
-            pipeline_bytes,
-            aggregate_peak_bytes,
+    let preview = prepared_preview(
+        CompiledPreview {
+            kernel_hash: plan.content_hash().into(),
+            implementation_version: plan.implementation_version().into(),
+            timing: earph_core::graph_control::GraphTiming::SameRate {
+                latency_frames: plan.latency_frames(),
+                tail_frames: plan.tail_frames(),
+                tail_policy: if plan.bounded_iir_truncation() {
+                    earph_core::graph_control::GraphTailPolicy::BoundedIirTruncation
+                } else {
+                    earph_core::graph_control::GraphTailPolicy::AuthoredFiniteSupport
+                },
+                terminal_output_bounds: plan.terminal_output_bounds().to_vec(),
+                node_tails: plan
+                    .schedule()
+                    .iter()
+                    .filter(|n| {
+                        matches!(
+                            n.kind(),
+                            NodeKind::Peq { .. } | NodeKind::Convolution { .. }
+                        )
+                    })
+                    .map(|n| earph_core::graph_control::FilterTailObservation {
+                        node: n.id().clone(),
+                        channels: n.format().channels,
+                        horizon_frames: n.tail_frames(),
+                        terminal_output_bounds: n.terminal_output_bounds().to_vec(),
+                    })
+                    .collect(),
+            },
+            preservation: plan.preservation(),
+            transformations: plan.transformations().to_vec(),
+            resources: GraphResidentUsage {
+                backend_audio_bytes,
+                backend_audio_peak_bytes,
+                stream_bridge_bytes: 0,
+                kernel_audio_bytes: kernel_bytes,
+                host_input_bytes: host_input,
+                host_output_bytes: host_output,
+                native_period_bytes: native_period,
+                metadata_bytes: metadata,
+                pipeline_bytes,
+                aggregate_peak_bytes,
+            },
+            bounds: plan.output_peak_bounds().to_vec(),
         },
-        channel_peak_bounds: bounds,
-        required_headroom_db: 20.0 * maximum.log10(),
-        transition: GraphTransition::MutedRebuffer,
-    });
-    preview.validate().map_err(GraphDiagnostic::from)?;
-    if !request.validate_only {
-        preview
-            .validate_headroom(
-                snapshot.software_gain_db,
-                snapshot.volume_policy.software_cap_db(),
-            )
-            .map_err(GraphDiagnostic::from)?;
-    }
+        request,
+        snapshot,
+        context,
+        source,
+        native,
+    )?;
     check()?;
     if request.validate_only {
         return Ok(GraphSuccess {
@@ -763,6 +988,15 @@ fn prepare(
         }
     };
     check()?;
+    Ok(retained_pipeline(preview, request, mode, retirement))
+}
+fn retained_pipeline(
+    preview: Arc<GraphPreview>,
+    request: &GraphJobRequest,
+    mode: Mode,
+    retirement: &Arc<Retirement>,
+) -> GraphSuccess {
+    let pipeline_bytes = preview.resources.pipeline_bytes;
     let payload = Box::new(Payload {
         preview: preview.clone(),
         _intent: request.intent.clone(),
@@ -773,14 +1007,82 @@ fn prepare(
         .resident
         .fetch_add(pipeline_bytes, Ordering::AcqRel);
     retirement.accounting.owners.fetch_add(1, Ordering::AcqRel);
-    Ok(GraphSuccess {
+    GraphSuccess {
         preview,
         pipeline: Some(PreparedPipeline {
             payload: Some(payload),
             retirement: retirement.clone(),
             candidate: true,
         }),
-    })
+    }
+}
+fn prepared_preview(
+    compiled: CompiledPreview,
+    request: &GraphJobRequest,
+    snapshot: &SessionSnapshot,
+    context: CompileContext,
+    source: PcmFormat,
+    native: PcmFormat,
+) -> Result<Arc<GraphPreview>, GraphDiagnostic> {
+    let playback = snapshot.playback.as_ref().ok_or(STALE)?;
+    let maximum = compiled.bounds.iter().copied().fold(1.0_f64, f64::max);
+    let mut transformations: Vec<_> = compiled
+        .transformations
+        .into_iter()
+        .map(|transformation| SignalTransformation::Kernel { transformation })
+        .collect();
+    if let GraphProcessingRequest::Float64 { quantization } = request.intent.processing {
+        transformations.insert(0, SignalTransformation::IntegerToFloat64);
+        transformations.push(SignalTransformation::SoftwareVolume);
+        transformations.push(SignalTransformation::Quantization {
+            policy: quantization,
+        });
+    } else if snapshot.software_gain_db != 0.0 || snapshot.gain_ramp_frames != 0 {
+        transformations.push(SignalTransformation::SoftwareVolume);
+    }
+    if let Some(backend) = &playback.backend
+        && backend.client_format.representation != ObservedStreamFormat::from(native).representation
+    {
+        transformations.push(SignalTransformation::BackendAdapterConversion {
+            client_representation: backend.client_format.representation,
+        });
+    }
+    let preview = Arc::new(GraphPreview {
+        backend: playback.backend.clone(),
+        graph_hash: activation_hash(
+            &compiled.kernel_hash,
+            context.quantum_frames,
+            request,
+            snapshot,
+            source,
+            native,
+        )?,
+        kernel_hash: compiled.kernel_hash,
+        implementation_version: compiled.implementation_version,
+        binding: request.binding.clone(),
+        source_format: source,
+        native_output_format: native,
+        processing_input_format: context.input_format,
+        processing_output_format: context.output_format,
+        quantum_frames: context.quantum_frames,
+        timing: compiled.timing,
+        preservation: compiled.preservation,
+        transformations,
+        resources: compiled.resources,
+        channel_peak_bounds: compiled.bounds,
+        required_headroom_db: 20.0 * maximum.log10(),
+        transition: GraphTransition::MutedRebuffer,
+    });
+    preview.validate().map_err(GraphDiagnostic::from)?;
+    if !request.validate_only {
+        preview
+            .validate_headroom(
+                snapshot.software_gain_db,
+                snapshot.volume_policy.software_cap_db(),
+            )
+            .map_err(GraphDiagnostic::from)?;
+    }
+    Ok(preview)
 }
 fn sum(terms: &[u64]) -> Result<u64, GraphDiagnostic> {
     terms.iter().try_fold(0_u64, |total, value| {
@@ -827,86 +1129,9 @@ fn intent_capacity(intent: &GraphIntent) -> Result<u64, GraphDiagnostic> {
         .map_err(|_| GraphDiagnostic::from(RESOURCE))?,
     ])
 }
-fn peak_bounds(plan: &CompiledPlan) -> Result<Vec<f64>, GraphDiagnostic> {
-    let mut bounds: Vec<Vec<f64>> = Vec::with_capacity(plan.schedule().len());
-    for node in plan.schedule() {
-        let channels = node.format().channels.count();
-        let mut values = vec![0.0; channels];
-        match node.kind() {
-            NodeKind::Input => values.fill(1.0),
-            NodeKind::Gain { gain_linear } => {
-                let input = &bounds[node.inputs()[0].source_index];
-                for (target, source) in values.iter_mut().zip(input) {
-                    *target = upper_product(*source, gain_linear.get().abs())?;
-                }
-            }
-            NodeKind::Matrix {
-                input_channels,
-                coefficients,
-            } => {
-                let input = &bounds[node.inputs()[0].source_index];
-                for (row, target) in values.iter_mut().enumerate() {
-                    for channel in 0..input_channels.count() {
-                        *target = upper_sum(
-                            *target,
-                            upper_product(
-                                coefficients[row * input_channels.count() + channel]
-                                    .get()
-                                    .abs(),
-                                input[channel],
-                            )?,
-                        )?;
-                    }
-                }
-            }
-            NodeKind::Sum => {
-                for input in node.inputs() {
-                    for (target, source) in values.iter_mut().zip(&bounds[input.source_index]) {
-                        *target = upper_sum(*target, *source)?;
-                    }
-                }
-            }
-            _ => values.copy_from_slice(&bounds[node.inputs()[0].source_index]),
-        }
-        bounds.push(values);
-    }
-    Ok(bounds.swap_remove(plan.output_index()))
-}
-fn upper_product(a: f64, b: f64) -> Result<f64, GraphDiagnostic> {
-    if a == 0.0 || b == 0.0 {
-        return Ok(0.0);
-    }
-    if a == 1.0 {
-        return finite_bound(b);
-    }
-    if b == 1.0 {
-        return finite_bound(a);
-    }
-    finite_bound((a * b).next_up())
-}
-fn upper_sum(a: f64, b: f64) -> Result<f64, GraphDiagnostic> {
-    if a == 0.0 {
-        finite_bound(b)
-    } else if b == 0.0 {
-        finite_bound(a)
-    } else {
-        finite_bound((a + b).next_up())
-    }
-}
-fn finite_bound(value: f64) -> Result<f64, GraphDiagnostic> {
-    if value.is_finite() {
-        Ok(value)
-    } else {
-        Err(EngineError::new(
-            ErrorCode::GraphInvalid,
-            "graph absolute peak bound overflowed",
-        )
-        .into())
-    }
-}
-
 fn activation_hash(
-    plan: &CompiledPlan,
+    kernel_hash: &str,
+    quantum_frames: usize,
     request: &GraphJobRequest,
     snapshot: &SessionSnapshot,
     source: PcmFormat,
@@ -923,18 +1148,38 @@ fn activation_hash(
         }
     }
     let mut writer = HashWriter(Sha256::new());
+    #[derive(serde::Serialize)]
+    struct BackendIdentity<'a> {
+        backend: &'a earph_core::control::OutputBackend,
+        client_format: &'a ObservedStreamFormat,
+        device_format: &'a Option<ObservedStreamFormat>,
+        measurement_boundary: &'static str,
+        preservation: &'a earph_core::session::PreservationState,
+    }
+    // Storage affects admission, while these existing facts define route identity.
+    let backend_identity = snapshot
+        .playback
+        .as_ref()
+        .and_then(|p| p.backend.as_ref())
+        .map(|b| BackendIdentity {
+            backend: &b.backend,
+            client_format: &b.client_format,
+            device_format: &b.device_format,
+            measurement_boundary: b.measurement_boundary,
+            preservation: &b.preservation,
+        });
     // This tuple intentionally omits binding IDs, epochs, revision, clocks, and TTL.
     // Output device/profile IDs remain because they describe the selected route.
     serde_json::to_writer(
         &mut writer,
         &(
             "earph-activation/1",
-            plan.content_hash(),
+            kernel_hash,
             source,
             native,
-            plan.context().quantum_frames,
+            quantum_frames,
             snapshot.output.as_ref(),
-            snapshot.playback.as_ref().and_then(|p| p.backend.as_ref()),
+            backend_identity,
             request.intent.processing,
             &snapshot.volume_policy,
             snapshot.software_gain_db,

@@ -1,0 +1,14 @@
+Filter Settings file
+
+Room EQ V5.20.14
+Dated: 18-Nov-2026 12:00:00
+
+Notes: Owned format-derived test fixture
+
+Equaliser: Generic
+Owned fixture
+Full range
+Target level: 75.0dB
+Filter 1: ON PK Fc 1000.0 Hz Gain -6.0 dB Q 1.000
+Filter 2: OFF PK Fc 200.0 Hz Gain 3.0 dB Q 2.000
+Filter 3: ON None

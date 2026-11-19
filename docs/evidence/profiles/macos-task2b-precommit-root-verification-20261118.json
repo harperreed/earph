@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "candidate_sha256": "cb2b7c66e2b189907eb458f729cc8d485ffe88a3b0c36524a1a0eb185731d2fd",
+  "archive_sha256": "5e38612a42fb47d72092fa4c641af335a867ea65cd31330fd56700b021276c53",
+  "manifest_sha256": "7b542133abe3b6cd1c0f264607ca16b8d19190971d3011e4a2ad4b57cda2f9e6",
+  "raw_files_verified": 331,
+  "source_files_verified": 1550,
+  "source_phases": 9,
+  "runtime_source_sha256": "6fa2f053b5b8e7d11ba10af22c710f4465595fd211559dac0d4788037aa73005",
+  "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+  "test_executions": 18,
+  "test_failures": 0,
+  "test_ignored": 0,
+  "strict_scoped_clippy": "pass",
+  "actual_owner_cli": "pass",
+  "owner_exit_codes": [
+    0,
+    0
+  ],
+  "fresh_owned_process_lookups_absent": true,
+  "preserved_initial_verifier_failure": true,
+  "source_dirty": true,
+  "native_device_operations": 0,
+  "signal_exercises": 0
+}

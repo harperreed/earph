@@ -2,6 +2,10 @@
 // ABOUTME: Preserves integer samples at the worker-to-engine boundary.
 #![forbid(unsafe_code)]
 mod admission;
+pub mod cli_io;
+pub mod correction_text;
+mod fir;
+mod fir_manifest;
 mod render;
 use earph_core::{
     EngineError, ErrorCode,
@@ -10,6 +14,8 @@ use earph_core::{
     },
     ids::Epochs,
 };
+pub use fir::{FirCorrection, MAX_FIR_WAV_BYTES, decode_fir_wav, read_fir_file, read_fir_source};
+pub use fir_manifest::{FirCorrectionManifest, MAX_FIR_MANIFEST_BYTES, read_fir_manifest};
 pub use render::{RenderReport, render};
 use std::path::Path;
 use symphonia::core::{

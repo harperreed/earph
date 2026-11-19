@@ -101,10 +101,11 @@ pub fn snapshot() -> Result<(Value, String), String> {
             .map(|entry| entry.path())
             .filter(|path| {
                 path.is_file()
-                    && path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.starts_with("LICENSE") || n.starts_with("COPYING"))
+                    && path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                        n.starts_with("LICENSE")
+                            || n.starts_with("COPYING")
+                            || n.ends_with("-LICENSE")
+                    })
             })
             .collect();
         paths.sort();
@@ -174,6 +175,8 @@ pub fn snapshot() -> Result<(Value, String), String> {
             json!({"name":name,"status":"selected","qualification":"partial","revision":"objc2-core-audio 0.3.2"})
         } else if name == "symphonia" {
             json!({"name":name,"status":"selected","qualification":"partial","revision":"symphonia 0.6.1"})
+        } else if name == "rubato" {
+            json!({"name":name,"status":"selected","qualification":"partial","revision":"rubato 5.1.0; source audit and isolated proof"})
         } else if name == "operational store" {
             json!({"name":name,"status":"selected","qualification":"partial","revision":"versioned JSON checkpoints v1"})
         } else {

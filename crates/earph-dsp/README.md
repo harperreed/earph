@@ -19,9 +19,19 @@ Each node declares its output format and maximum quantum.
 An ordinary node requires one input with the same format.
 Matrix nodes declare a separate input channel layout.
 Only PCM, mono/stereo layouts, and a single connected rate domain are supported.
-The initial node kinds are input, output, bypass, gain, delay, matrix, sum, and meter.
-DSD, fractional delays, implicit conversions, resampling, PEQ, and convolution are unsupported.
+The node kinds are input, output, bypass, gain, delay, matrix, sum, meter, PEQ, and convolution.
+DSD, fractional delays, and implicit conversions remain unsupported.
+The same-rate `compile`, `compile_with_assets`, and `compile_with_input_bounds` entry points reject SRC nodes.
+Use `compile_stream` for explicit serial rate changes and bounded same-rate islands.
 Unknown schema versions, node kinds, and fields reject.
+See [correction filters](../../docs/correction-filters.md) for parameters, imports, and finite tail contracts.
+
+Use `compile_with_assets` to supply verified immutable correction coefficients.
+Use `compile_with_input_bounds` for stream islands with explicit per-channel input bounds.
+Explicit bounds are enforced before processing exposes output.
+Default structural plans retain their unrestricted processing contract and describe normalized-input peak bounds.
+Filter plans enforce normalized input bounds by default because their tail proofs require them.
+Compiled plans expose the input, output, and terminal channel bounds.
 
 Edges use source port zero.
 Ordinary nodes consume destination port zero.
@@ -46,8 +56,11 @@ Runtime implementations must allocate one output buffer per scheduled node.
 Each output holds `quantum_frames * output_channels` f64 samples.
 Each delay owns `delay_frames * output_channels` f64 state samples.
 Each compensated input owns `compensation_frames * input_channels` f64 state samples.
-Resources report node output bytes, combined delay state bytes, and their total.
+Filters also own an input staging buffer and a boxed prepared kernel.
+Resources report node buffers, delay state, and the complete resident processing payload.
 Delay state bytes include merge compensation.
+The total includes filter objects, FFT storage, and unique retained coefficient owners.
+Plans expose separate kernel state, asset, and preparation scratch totals.
 This budget covers audio buffers; bounded document and schedule metadata use separate ordinary allocations.
 Runtime implementations must not allocate additional audio buffers without updating compiler accounting.
 
@@ -59,7 +72,7 @@ The default does not impose an additional latency ceiling.
 Checked arithmetic and the platform vector-size limit apply before preparation.
 The compiler never removes processing to fit a budget.
 
-Strict preservation rejects gain, matrix, sum, nonzero delay, and compensation transformations.
+Strict preservation rejects gain, matrix, sum, PEQ, convolution, nonzero delay, and compensation transformations.
 Gain and matrix nodes remain transformations even when their parameters resemble an identity.
 Input, output, bypass, meter, and zero-frame delay preserve sample values.
 An unchanged integer graph returns `RetainInteger` with zero f64 buffer bytes.
@@ -72,6 +85,7 @@ Integer retention alone does not implement integer metering; the owner must prov
 Compiled plans expose read-only metadata and cannot deserialize from untrusted JSON.
 The SHA-256 hash includes canonical intent, the compilation context, and the implementation version.
 The hashed context includes source/output formats, policy, and quantum.
+Filter hashes also include algorithm identities, coefficient bits or fingerprints, and the selected tail policy.
 Admission budgets can change acceptance without changing the hash when both budgets admit the graph.
 Activation tokens must bind the resulting hash to source/device epochs and the expected session revision.
 The compiler does not introduce another revision authority.
@@ -90,7 +104,7 @@ Call `PreparedGraph::prepare(plan, epochs)` outside the processing thread.
 Preparation allocates the exact audio storage declared by `plan.resources()`.
 Each node owns one quantum output buffer.
 Delay nodes and compensated inputs own their declared interleaved delay rings.
-Processing uses scalar temporaries without additional audio scratch buffers.
+Preparation allocates filter staging and kernel scratch before processing starts.
 Allocation failure returns `ResourceBudgetExceeded` before activation.
 `RetainInteger` plans return `CapabilityUnsupported` from f64 preparation.
 Keep those plans on the existing integer payload path.
@@ -102,7 +116,8 @@ Each span can contain at most the compiled quantum, including shorter final span
 The returned count measures frames, not scalar samples.
 Zero-frame processing preserves the lifecycle and does not create a tail.
 Geometry errors preserve delay state, meters, and lifecycle.
-Finite headroom above full scale remains unchanged; processing never clamps samples.
+Finite output above full scale passes through without clamping.
+Filter plans and explicitly bounded plans reject inputs above their admitted channel peaks.
 Non-finite input or any non-finite node output moves the graph to `Failed`.
 Failed calls leave the caller's output unchanged.
 Resolve `failure_node_index()` through `plan().schedule()[index].id()` for the failing node.
@@ -140,3 +155,34 @@ They cover mono/stereo matrix routing, gain headroom, sum order, branch compensa
 Split-source execution is compared with an unsplit reference without resetting the graph at joins.
 An instrumented global allocator checks success, malformed input, non-finite faults, reset, and cancellation.
 These tests qualify offline execution; they do not qualify graph activation or hardware playback.
+
+## Streaming components
+
+`resample::SrcDesign` resolves SRC coefficients and parameter fingerprints outside processing.
+Its resource preflight allocates no storage.
+`instantiate` creates independent mutable state using the same admitted construction bound.
+The standalone `PreparedSrc::prepare` composes those operations.
+
+`stream::PreparedStream` composes prepared same-rate islands and SRC stages through fixed FIFOs.
+Its plan checks formats, input peak certificates, and complete preparation resources.
+Bounded IIR processing must occupy the final island.
+Each step reports accepted source frames, produced output frames, bounded work, and terminal state separately.
+Zero output during priming or finishing does not mean EOF.
+Compatible source packets share SRC history and one guard per stage.
+Finalization forwards every valid upstream tail and declared SRC padding frame.
+
+The caller supplies the worker's shared cancellation token.
+Cancellation checks occur between stage steps and before output publication.
+Failure preserves the caller's complete output span.
+Reset requires newer epochs; cancellation remains permanent.
+Processing and lifecycle calls retain prepared storage for off-thread retirement.
+
+The engine integrates live SRC graph commands, native replay, and timing observations.
+Native endpoint and real-time qualification remain bound to their exact evidence snapshots.
+
+## Numerical receipts
+
+PEQ and convolution numerical checks need no receipt destination.
+For receipts, set `EARPH_DSP_EVIDENCE_DIR` to an absolute writable parent before the relevant test command.
+Exports create fresh `peq` and `convolution` child directories and refuse reuse or replacement.
+The tests preserve every created artifact, including failed exports.

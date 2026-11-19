@@ -1,0 +1,15 @@
+{
+  "status": "pass",
+  "source_commit": "d829e34cf38c164e877cfffce25ec3e938a57e00",
+  "raw_artifacts_verified": 49,
+  "source_files_verified": 1463,
+  "source_manifest_checks": 6,
+  "runtime_inputs_verified": 83,
+  "tests_passed": 55,
+  "ignored": 1,
+  "numeric_cases": 30,
+  "drift_traces": 10,
+  "hardware_signals_submitted": 0,
+  "full_stack_bound_claimed": false,
+  "candidate_sha256": "473e63ce335c629fc94f14319d4f47059430faae6bc3066c7d5dad81e92938a9"
+}

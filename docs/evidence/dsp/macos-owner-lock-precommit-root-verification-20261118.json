@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "candidate_sha256": "720f49a93266e5b79eee862f31397fb4c6472a334798c0b09af8221d1dada046",
+  "archive_sha256": "f7ebcd0d8868a08bec67cc3f68c8f4dec3cd4cba446bc0790802c55a431e2e3e",
+  "manifest_sha256": "d71558e76c9b9abfd1d05c6aaf37707060a30592d80fd0971d195cb2c03305cd",
+  "raw_files": 66,
+  "source_files": 1550,
+  "reviewed_source_files": 3,
+  "source_phases": 5,
+  "exact_ordered_phase_paths": true,
+  "runtime_source_sha256": "c60de3dcc679da1a83f38ac174f9217306321bb9ff27a5e27e25563c272e2e9f",
+  "lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+  "owner_suite": {
+    "passed": 12,
+    "failed": 0,
+    "ignored": 0
+  },
+  "profiles_suite": {
+    "passed": 10,
+    "failed": 0,
+    "ignored": 0
+  },
+  "actual_mac_pre_exec_child_success_assertion": true,
+  "separate_child_pid_or_numeric_exit_receipt": false,
+  "strict_engine_clippy": "pass",
+  "optional_observer_executed": false,
+  "preserved_helper_failures": 2,
+  "source_dirty": true,
+  "native_device_operations": 0,
+  "signal_exercises": 0
+}

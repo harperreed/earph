@@ -1,6 +1,8 @@
 // ABOUTME: Exercises local playback through the real owner and client executables.
 // ABOUTME: Captures ALSA file-to-null output without opening physical audio devices.
 #![cfg(target_os = "linux")]
+#[path = "support/graphs.rs"]
+mod graph_fixtures;
 mod support;
 use serde_json::{Value, json};
 use std::{
@@ -190,6 +192,95 @@ fn configuration(directory: &Path) -> (PathBuf, PathBuf) {
     fs::write(&config, format!("pcm.null {{ type null }}\npcm.earph_capture {{ type file slave.pcm null file \"{escaped}\" format raw }}\n")).unwrap();
     (config, capture)
 }
+
+struct CaptureGate {
+    fifo: fs::File,
+    capacity: usize,
+    release: Option<std::sync::mpsc::SyncSender<()>>,
+    finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    drain: Option<std::thread::JoinHandle<Vec<u8>>>,
+}
+impl CaptureGate {
+    fn new(path: &Path) -> Self {
+        use std::os::unix::fs::OpenOptionsExt;
+        rustix::fs::mkfifoat(
+            rustix::fs::CWD,
+            path,
+            rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+        )
+        .unwrap();
+        let fifo = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(i32::try_from(rustix::fs::OFlags::NONBLOCK.bits()).unwrap())
+            .open(path)
+            .unwrap();
+        rustix::pipe::fcntl_setpipe_size(&fifo, 4096).unwrap();
+        let capacity = rustix::pipe::fcntl_getpipe_size(&fifo).unwrap();
+        let mut reader = fifo.try_clone().unwrap();
+        let (release, ready) = std::sync::mpsc::sync_channel(1);
+        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopping = finished.clone();
+        let drain = std::thread::spawn(move || {
+            ready.recv().unwrap();
+            let mut result = Vec::new();
+            let mut buffer = [0; 8192];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(count) => result.extend_from_slice(&buffer[..count]),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if stopping.load(std::sync::atomic::Ordering::Acquire) {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(error) => panic!("capture FIFO read failed: {error}"),
+                }
+            }
+            result
+        });
+        Self {
+            fifo,
+            capacity,
+            release: Some(release),
+            finished,
+            drain: Some(drain),
+        }
+    }
+    fn wait_full(&self) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        // The selected native period is 64 stereo S24 frames, or 384 bytes.
+        while rustix::io::ioctl_fionread(&self.fifo).unwrap() + 384 <= self.capacity as u64 {
+            assert!(
+                Instant::now() < deadline,
+                "actual capture FIFO never filled"
+            );
+            std::thread::yield_now();
+        }
+    }
+    fn release(&mut self) {
+        if let Some(release) = self.release.take() {
+            release.send(()).unwrap();
+        }
+    }
+    fn finish(mut self) -> Vec<u8> {
+        self.release();
+        self.finished
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.drain.take().unwrap().join().unwrap()
+    }
+}
+impl Drop for CaptureGate {
+    fn drop(&mut self) {
+        self.release();
+        self.finished
+            .store(true, std::sync::atomic::Ordering::Release);
+        if let Some(drain) = self.drain.take() {
+            drain.join().unwrap();
+        }
+    }
+}
 fn select_output(controller: &Controller, mode: &str, fidelity: &str) {
     controller.apply(json!({"method":"output.select","output":{
         "backend":"alsa","route":"system","endpoint":"earph_capture",
@@ -280,11 +371,14 @@ fn executable_pause_seek_and_resume_preserve_paused_intent_and_exact_suffix() {
     select_fixed(controller);
     append_selected(controller, &source);
     start(controller);
-    controller.wait(|state| state["transport"] == "buffering");
+    let opened = controller.wait(|state| state["transport"] == "buffering");
     let pause = controller.document(json!({"method":"sessions.pause"}), None);
     let receipt = controller.send(&pause);
     assert_eq!(receipt["receipt"]["status"], "accepted", "{receipt}");
     controller.settled(&pause);
+    let paused = controller.state();
+    assert_eq!(paused["playback"]["backend"], opened["playback"]["backend"]);
+    assert_eq!(paused["playback"]["submitted_frames"], 0);
     let seek = controller.document(
         json!({"method":"sessions.seek","position_frames":4097}),
         None,
@@ -292,7 +386,10 @@ fn executable_pause_seek_and_resume_preserve_paused_intent_and_exact_suffix() {
     let receipt = controller.send(&seek);
     assert_eq!(receipt["receipt"]["status"], "accepted", "{receipt}");
     controller.settled(&seek);
-    controller.wait(|state| state["transport"] == "paused");
+    let sought = controller.wait(|state| state["transport"] == "paused");
+    assert_eq!(sought["playback"]["backend"], opened["playback"]["backend"]);
+    assert_eq!(sought["playback"]["source_position_frames"], 4097);
+    assert_eq!(sought["playback"]["submitted_frames"], 0);
     controller.apply(json!({"method":"mute.set","muted":false}));
     assert_eq!(controller.state()["transport"], "paused");
     assert_no_capture(&capture);
@@ -308,6 +405,187 @@ fn executable_pause_seek_and_resume_preserve_paused_intent_and_exact_suffix() {
 
 fn integer24(bytes: &[u8]) -> i32 {
     (i32::from_le_bytes([bytes[0], bytes[1], bytes[2], 0]) << 8) >> 8
+}
+
+#[test]
+fn executable_imported_fir_preserves_one_tail_across_a_real_queue_join() {
+    let directory = directory();
+    let first = directory.join("fir-first.wav");
+    let second = directory.join("fir-second.wav");
+    let mut samples = wave(&first, 0, 65);
+    samples.extend(wave(&second, 65, 70));
+    let (config, capture) = configuration(&directory);
+    let host = Host::start(&config);
+    let controller = &host.controller;
+    let correction = directory.join("correction.wav");
+    let mut bytes = Vec::new();
+    bytes.extend(b"RIFF");
+    bytes.extend(84_u32.to_le_bytes());
+    bytes.extend(b"WAVEfmt ");
+    bytes.extend(16_u32.to_le_bytes());
+    bytes.extend(3_u16.to_le_bytes());
+    bytes.extend(2_u16.to_le_bytes());
+    bytes.extend(48000_u32.to_le_bytes());
+    bytes.extend(768000_u32.to_le_bytes());
+    bytes.extend(16_u16.to_le_bytes());
+    bytes.extend(64_u16.to_le_bytes());
+    bytes.extend(b"data");
+    bytes.extend(48_u32.to_le_bytes());
+    for v in [0.5_f64, 0.25, -0.25, 0.125, 0.0, 0.0] {
+        bytes.extend(v.to_le_bytes());
+    }
+    fs::write(&correction, &bytes).unwrap();
+    let imported = Command::new(env!("CARGO_BIN_EXE_earph-engine"))
+        .args(["import-fir", "--runtime"])
+        .arg(&controller.runtime)
+        .arg(&correction)
+        .output()
+        .unwrap();
+    assert!(
+        imported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+    let asset = serde_json::from_slice::<Value>(&imported.stdout).unwrap()["asset"].clone();
+    select_output(controller, "software", "compatible_conversion");
+    consent(controller);
+    append_selected(controller, &first);
+    controller.apply(json!({"method":"queue.append","path":second}));
+    start(controller);
+    controller.wait(|s| s["transport"] == "buffering");
+    let mut graph = delay_gain_graph(0, 1.0);
+    graph["nodes"][1]["kind"] = json!({"kind":"convolution","asset":asset});
+    let (_, ready) = prepare_graph(controller, graph);
+    assert_eq!(ready["preview"]["tail_frames"], 258);
+    assert_eq!(ready["preview"]["timing_kind"], "same_rate");
+    assert_eq!(ready["preview"]["latency_frames"], 256);
+    assert_eq!(ready["preview"]["tail_policy"], "authored_finite_support");
+    assert_eq!(ready["preview"]["node_tails"][0]["horizon_frames"], 258);
+    fs::write(
+        controller
+            .runtime
+            .join("assets")
+            .join(format!("{}.wav", asset["sha256"].as_str().unwrap())),
+        b"changed after preparation",
+    )
+    .unwrap();
+    let commit=controller.document(json!({"method":"graph.commit","token":ready["token"],"graph_hash":ready["preview"]["graph_hash"]}),None);
+    controller.send(&commit);
+    controller.settled(&commit);
+    assert_eq!(controller.state()["muted"], true);
+    assert_no_capture(&capture);
+    controller.apply(json!({"method":"mute.set","muted":false}));
+    let completed = controller.wait(|s| s["transport"] == "idle" || s["transport"] == "failed");
+    assert!(completed["error"].is_null(), "{completed}");
+    assert_eq!(completed["playback"]["submitted_frames"], 393);
+    assert_eq!(completed["playback"]["source_position_frames"], 70);
+    assert_eq!(completed["playback"]["processing"]["saturation_count"], 0);
+    assert!(completed["audible_position_frames"].is_null());
+    let mut expected = vec![[0.0_f64; 2]; 393];
+    for (i, frame) in samples.as_chunks::<6>().0.iter().enumerate() {
+        for (ch, taps) in [[0.5, -0.25], [0.25, 0.125]].iter().enumerate() {
+            let x = f64::from(integer24(&frame[ch * 3..ch * 3 + 3]));
+            expected[256 + i][ch] += x * taps[0];
+            expected[257 + i][ch] += x * taps[1];
+        }
+    }
+    let expected: Vec<_> = expected
+        .into_iter()
+        .flatten()
+        .flat_map(|x| ((x * 0.01).round() as i32).to_le_bytes()[..3].to_vec())
+        .collect();
+    let actual = fs::read(&capture).unwrap();
+    assert_eq!(actual.len(), expected.len());
+    for (a, b) in actual
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<3>().0.iter())
+    {
+        assert!((integer24(a) - integer24(b)).abs() <= 1);
+    }
+    assert_eq!(fs::read(&correction).unwrap(), bytes);
+    controller.apply(json!({"method":"owner.shutdown"}));
+}
+
+#[test]
+fn executable_peq_publishes_and_renders_a_bounded_truncation() {
+    use earph_core::{audio::ChannelLayout, dsp_nodes::PeqFilter, graph::FiniteGraphScalar};
+    let directory = directory();
+    let source = directory.join("peq.wav");
+    let raw = wave(&source, 0, 73);
+    let (config, capture) = configuration(&directory);
+    let host = Host::start(&config);
+    let controller = &host.controller;
+    select_output(controller, "software", "compatible_conversion");
+    consent(controller);
+    append_selected(controller, &source);
+    start(controller);
+    controller.wait(|s| s["transport"] == "buffering");
+    let mut graph = delay_gain_graph(0, 1.0);
+    graph["nodes"][1]["kind"] = json!({"kind":"peq","filter":{"kind":"peaking","frequency_hz":1000.0,"q":0.707,"gain_db":-6.0}});
+    let (_, ready) = prepare_graph(controller, graph);
+    let tail = ready["preview"]["tail_frames"].as_u64().unwrap() as usize;
+    assert!(tail > 0 && tail <= 1048576);
+    assert_eq!(ready["preview"]["tail_policy"], "bounded_iir_truncation");
+    assert!(
+        ready["preview"]["terminal_output_bounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v.as_f64().unwrap() <= 1e-12)
+    );
+    let commit=controller.document(json!({"method":"graph.commit","token":ready["token"],"graph_hash":ready["preview"]["graph_hash"]}),None);
+    controller.send(&commit);
+    controller.settled(&commit);
+    assert_eq!(controller.state()["muted"], true);
+    assert_no_capture(&capture);
+    controller.apply(json!({"method":"mute.set","muted":false}));
+    let completed = controller.wait(|s| s["transport"] == "idle" || s["transport"] == "failed");
+    assert!(completed["error"].is_null(), "{completed}");
+    assert_eq!(
+        completed["playback"]["submitted_frames"],
+        (73 + tail) as u64
+    );
+    assert!(completed["audible_position_frames"].is_null());
+    let f = |x| FiniteGraphScalar::new(x).unwrap();
+    let filter = PeqFilter::Peaking {
+        frequency_hz: f(1000.0),
+        q: f(0.707),
+        gain_db: f(-6.0),
+    };
+    let [b0, b1, b2, a1, a2] =
+        earph_dsp::peq::PeqDesign::prepare(&filter, 48000, ChannelLayout::Stereo)
+            .unwrap()
+            .coefficients();
+    let mut history = [[0.0_f64; 4]; 2];
+    let mut expected = Vec::new();
+    for frame in 0..73 + tail {
+        for (ch, h) in history.iter_mut().enumerate() {
+            let x = if frame < 73 {
+                f64::from(integer24(&raw[frame * 6 + ch * 3..frame * 6 + ch * 3 + 3]))
+            } else {
+                0.0
+            };
+            let y = b0 * x + b1 * h[0] + b2 * h[1] - a1 * h[2] - a2 * h[3];
+            h[1] = h[0];
+            h[0] = x;
+            h[3] = h[2];
+            h[2] = y;
+            expected.extend_from_slice(&((y * 0.01).round() as i32).to_le_bytes()[..3]);
+        }
+    }
+    let actual = fs::read(capture).unwrap();
+    assert_eq!(actual.len(), expected.len());
+    for (a, b) in actual
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<3>().0.iter())
+    {
+        assert!((integer24(a) - integer24(b)).abs() <= 1);
+    }
+    controller.apply(json!({"method":"owner.shutdown"}));
 }
 
 fn delay_gain_graph(delay_frames: u64, gain: f64) -> Value {
@@ -333,6 +611,354 @@ fn prepare_graph(controller: &Controller, graph: Value) -> (Value, Value) {
     assert_eq!(reply["receipt"]["status"], "accepted", "{reply}");
     let result = controller.settled(&request)["receipt"]["result"]["value"].clone();
     (request, result)
+}
+
+fn src_reference(bytes: &[u8]) -> Vec<u8> {
+    use earph_core::{audio::ChannelLayout, dsp_nodes::SrcPreset};
+    use earph_dsp::resample::PreparedSrc;
+    let mut values: Vec<f64> = bytes
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|b| {
+            let sample =
+                i32::from_le_bytes([b[0], b[1], b[2], if b[2] & 128 == 0 { 0 } else { 255 }]);
+            f64::from(sample) / 8388608.0
+        })
+        .collect();
+    for (input, output) in [(48000, 44100), (44100, 48000)] {
+        let mut src = PreparedSrc::prepare(
+            input,
+            output,
+            ChannelLayout::Stereo,
+            64,
+            SrcPreset::Responsive,
+            16 << 20,
+        )
+        .unwrap();
+        let mut converted = Vec::new();
+        let mut buffer = [0.0; 74];
+        let mut offset = 0;
+        while offset < values.len() / 2 {
+            let step = src.process(&values[offset * 2..], &mut buffer).unwrap();
+            offset += step.consumed_frames;
+            converted.extend_from_slice(&buffer[..step.produced_frames * 2]);
+        }
+        src.begin_finish().unwrap();
+        loop {
+            let step = src.finish(&mut buffer).unwrap();
+            converted.extend_from_slice(&buffer[..step.produced_frames * 2]);
+            if step.terminal {
+                break;
+            }
+        }
+        values = converted;
+    }
+    let gain = 10_f64.powf(-48.0 / 20.0);
+    values
+        .into_iter()
+        .flat_map(|v| {
+            let value = (v * gain * 8388608.0).round().clamp(-8388608.0, 8388607.0) as i32;
+            value.to_le_bytes()[..3].to_vec()
+        })
+        .collect()
+}
+
+#[test]
+fn executable_streaming_graph_joins_sources_and_drains_the_actual_src_tail() {
+    for lengths in [[0, 0], [1, 0], [63, 1], [64, 65], [4097, 4102]] {
+        let directory = directory();
+        let first = directory.join("first.wav");
+        let second = directory.join("second.wav");
+        let mut input = wave(&first, 0, lengths[0]);
+        input.extend(wave(&second, lengths[0], lengths[1]));
+        let expected = src_reference(&input);
+        let (config, capture) = configuration(&directory);
+        let mut host = Host::start(&config);
+        let controller = &host.controller;
+        select_output(controller, "software", "compatible_conversion");
+        controller.apply(json!({"method":"volume.set","millidecibels":-48000,"ramp_frames":0}));
+        consent(controller);
+        append_selected(controller, &first);
+        controller.apply(json!({"method":"queue.append","path":second}));
+        start(controller);
+        controller.wait(|s| s["transport"] == "buffering");
+        let (_, ready) = prepare_graph(controller, graph_fixtures::src_roundtrip());
+        let commit = controller.document(json!({"method":"graph.commit","token":ready["token"],"graph_hash":ready["preview"]["graph_hash"]}),None);
+        assert_eq!(controller.send(&commit)["receipt"]["status"], "accepted");
+        controller.settled(&commit);
+        assert_no_capture(&capture);
+        controller.apply(json!({"method":"mute.set","muted":false}));
+        let complete = controller.wait(|s| s["transport"] == "idle");
+        assert!(complete["playback"]["audible_entry_id"].is_null());
+        assert!(complete["playback"]["audible_source_position_frames"].is_null());
+        assert_eq!(
+            complete["playback"]["processing"]["timing_kind"],
+            "streaming"
+        );
+        assert_eq!(
+            complete["playback"]["processing"]["streaming"]["source_accepted_frames"],
+            lengths.iter().sum::<usize>()
+        );
+        assert_eq!(
+            complete["playback"]["processing"]["streaming"]["generated_output_frames"],
+            expected.len() / 6
+        );
+        assert_eq!(complete["playback"]["submitted_frames"], expected.len() / 6);
+        controller.apply(json!({"method":"owner.shutdown"}));
+        assert!(host.child.wait().unwrap().success());
+        assert_eq!(
+            fs::read(capture).unwrap_or_default(),
+            expected,
+            "lengths={lengths:?}"
+        );
+    }
+}
+
+fn install_src(controller: &Controller) {
+    let (_, ready) = prepare_graph(controller, graph_fixtures::src_roundtrip());
+    let commit = controller.document(json!({"method":"graph.commit","token":ready["token"],"graph_hash":ready["preview"]["graph_hash"]}),None);
+    assert_eq!(controller.send(&commit)["receipt"]["status"], "accepted");
+    controller.settled(&commit);
+}
+
+#[test]
+fn executable_streaming_pause_and_resume_keep_one_continuous_guard_and_exact_capture() {
+    let directory = directory();
+    let source = directory.join("continuous.wav");
+    let second = directory.join("after-hold.wav");
+    let mut original = wave(&source, 0, 32769);
+    original.extend(wave(&second, 32769, 32768));
+    let expected = src_reference(&original);
+    let (config, capture) = configuration(&directory);
+    let mut capture_gate = CaptureGate::new(&capture);
+    let mut host = Host::start(&config);
+    let controller = &host.controller;
+    select_output(controller, "software", "compatible_conversion");
+    controller.apply(json!({"method":"volume.set","millidecibels":-48000,"ramp_frames":0}));
+    consent(controller);
+    append_selected(controller, &source);
+    start(controller);
+    controller.wait(|s| s["transport"] == "buffering");
+    install_src(controller);
+    controller.apply(json!({"method":"mute.set","muted":false}));
+    capture_gate.wait_full();
+    controller.wait(|s| {
+        s["transport"] == "playing" && s["playback"]["submitted_frames"].as_u64().unwrap_or(0) > 0
+    });
+    let pause = controller.document(json!({"method":"sessions.pause"}), None);
+    assert_eq!(controller.send(&pause)["receipt"]["status"], "accepted");
+    capture_gate.release();
+    controller.settled(&pause);
+    let paused = controller.wait(|s| s["transport"] == "paused");
+    let before = &paused["playback"]["processing"]["streaming"];
+    assert!(before["source_accepted_frames"].as_u64().unwrap() > 0);
+    assert!(
+        before["output_epochs"]["stream"].as_u64().unwrap()
+            > before["source_epochs"]["stream"].as_u64().unwrap()
+    );
+    let stable = controller.state();
+    assert_eq!(stable["playback"], paused["playback"]);
+    controller.apply(json!({"method":"queue.append","path":second}));
+    let resume = controller.document(json!({"method":"sessions.resume"}), None);
+    assert_eq!(controller.send(&resume)["receipt"]["status"], "accepted");
+    let completed = controller.wait(|s| s["transport"] == "idle" || s["transport"] == "failed");
+    assert!(completed["error"].is_null(), "{completed}");
+    assert_eq!(
+        completed["playback"]["processing"]["streaming"]["source_accepted_frames"],
+        65537
+    );
+    controller.apply(json!({"method":"owner.shutdown"}));
+    assert!(host.child.wait().unwrap().success());
+    assert_eq!(capture_gate.finish(), expected);
+    assert_eq!(fs::read(&source).unwrap()[44..], original[..32769 * 6]);
+}
+
+#[test]
+fn executable_streaming_native_write_fault_keeps_actual_progress_and_revokes_consent() {
+    let directory = directory();
+    let source = directory.join("fault.wav");
+    wave(&source, 0, 65537);
+    let config = directory.join("alsa-full.conf");
+    fs::write(&config,"pcm.null { type null }\npcm.earph_capture { type file slave.pcm null file \"/dev/full\" format raw }\n").unwrap();
+    let host = Host::start(&config);
+    let controller = &host.controller;
+    select_output(controller, "software", "compatible_conversion");
+    controller.apply(json!({"method":"volume.set","millidecibels":-48000,"ramp_frames":0}));
+    consent(controller);
+    append_selected(controller, &source);
+    start(controller);
+    controller.wait(|s| s["transport"] == "buffering");
+    install_src(controller);
+    controller.apply(json!({"method":"mute.set","muted":false}));
+    let failed = controller.wait(|s| s["transport"] == "failed");
+    assert_eq!(failed["error"], "OUTPUT_FAULT");
+    assert_eq!(failed["output_consented"], false);
+    assert_eq!(failed["muted"], true);
+    let observation = &failed["playback"];
+    let streaming = &observation["processing"]["streaming"];
+    assert!(streaming["source_accepted_frames"].as_u64().unwrap() > 0);
+    assert_eq!(
+        streaming["source_accepted_frames"],
+        observation["source_position_frames"]
+    );
+    assert!(
+        streaming["generated_output_frames"].as_u64().unwrap()
+            >= streaming["submission_frontier_frames"].as_u64().unwrap()
+    );
+    assert!(observation["audible_source_position_frames"].is_null());
+    assert!(observation["processing"]["audio_payload_bytes"].is_null());
+    let unmute =
+        controller.send(&controller.document(json!({"method":"mute.set","muted":false}), None));
+    assert_eq!(unmute["receipt"]["status"], "rejected");
+    controller.apply(json!({"method":"owner.shutdown"}));
+}
+
+#[test]
+fn executable_streaming_seek_starts_a_new_guard_at_the_exact_source_suffix() {
+    let directory = directory();
+    let source = directory.join("seek.wav");
+    let original = wave(&source, 0, 8199);
+    let expected = src_reference(&original[17 * 6..]);
+    let (config, capture) = configuration(&directory);
+    let mut host = Host::start(&config);
+    let controller = &host.controller;
+    select_output(controller, "software", "compatible_conversion");
+    controller.apply(json!({"method":"volume.set","millidecibels":-48000,"ramp_frames":0}));
+    consent(controller);
+    append_selected(controller, &source);
+    start(controller);
+    controller.wait(|s| s["transport"] == "buffering");
+    install_src(controller);
+    let seek = controller.document(json!({"method":"sessions.seek","position_frames":17}), None);
+    assert_eq!(controller.send(&seek)["receipt"]["status"], "accepted");
+    controller.settled(&seek);
+    let sought = controller.state();
+    assert_eq!(sought["playback"]["source_position_frames"], 17);
+    assert_eq!(
+        sought["playback"]["processing"]["streaming"]["source_accepted_frames"],
+        0
+    );
+    assert_eq!(
+        sought["playback"]["processing"]["streaming"]["generated_output_frames"],
+        0
+    );
+    controller.apply(json!({"method":"mute.set","muted":false}));
+    let completed = controller.wait(|s| s["transport"] == "idle" || s["transport"] == "failed");
+    assert!(completed["error"].is_null(), "{completed}");
+    assert_eq!(
+        completed["playback"]["processing"]["streaming"]["source_accepted_frames"],
+        8199 - 17
+    );
+    controller.apply(json!({"method":"owner.shutdown"}));
+    assert!(host.child.wait().unwrap().success());
+    assert_eq!(fs::read(capture).unwrap(), expected);
+}
+
+#[test]
+fn executable_streaming_replacement_resumes_a_same_rate_graph_at_accepted_source_position() {
+    let directory = directory();
+    let source = directory.join("replace.wav");
+    let original = wave(&source, 0, 65537);
+    let (config, capture) = configuration(&directory);
+    let mut capture_gate = CaptureGate::new(&capture);
+    let mut host = Host::start(&config);
+    let controller = &host.controller;
+    select_output(controller, "software", "compatible_conversion");
+    controller.apply(json!({"method":"volume.set","millidecibels":-48000,"ramp_frames":0}));
+    consent(controller);
+    append_selected(controller, &source);
+    start(controller);
+    controller.wait(|s| s["transport"] == "buffering");
+    install_src(controller);
+    controller.apply(json!({"method":"mute.set","muted":false}));
+    capture_gate.wait_full();
+    controller.wait(|s| {
+        s["transport"] == "playing" && s["playback"]["submitted_frames"].as_u64().unwrap_or(0) > 0
+    });
+    controller.apply(json!({"method":"mute.set","muted":true}));
+    capture_gate.release();
+    let muted = controller
+        .wait(|s| s["playback"]["processing"]["streaming"]["output_epochs"] == s["epochs"]);
+    let accepted = muted["playback"]["source_position_frames"]
+        .as_u64()
+        .unwrap() as usize;
+    let retained = muted["playback"]["processing"]["streaming"]["backend_origin_frames"]
+        .as_u64()
+        .unwrap() as usize;
+    let (_, ready) = prepare_graph(controller, delay_gain_graph(0, 0.5));
+    let commit = controller.document(json!({"method":"graph.commit","token":ready["token"],"graph_hash":ready["preview"]["graph_hash"]}),None);
+    assert_eq!(controller.send(&commit)["receipt"]["status"], "accepted");
+    controller.settled(&commit);
+    let installed = controller.state();
+    assert_eq!(installed["playback"]["source_position_frames"], accepted);
+    assert_eq!(
+        installed["playback"]["processing"]["source_boundary"]["source_position_frames"],
+        accepted
+    );
+    assert_eq!(
+        installed["playback"]["processing"]["timing_kind"],
+        "same_rate"
+    );
+    let gain = 10_f64.powf(-48.0 / 20.0);
+    let expected: Vec<u8> = original[accepted * 6..]
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .flat_map(|b| {
+            let v = f64::from(integer24(b)) / 8388608.0 * 0.5;
+            ((v * gain * 8388608.0).round() as i32).to_le_bytes()[..3].to_vec()
+        })
+        .collect();
+    controller.apply(json!({"method":"mute.set","muted":false}));
+    let completed = controller.wait(|s| s["transport"] == "idle" || s["transport"] == "failed");
+    assert!(completed["error"].is_null(), "{completed}");
+    controller.apply(json!({"method":"owner.shutdown"}));
+    assert!(host.child.wait().unwrap().success());
+    let actual = capture_gate.finish();
+    assert_eq!(&actual[retained * 6..], expected);
+}
+
+#[test]
+fn executable_streaming_stop_closes_the_native_owner_and_preserves_its_written_prefix() {
+    let directory = directory();
+    let source = directory.join("stop-stream.wav");
+    let original = wave(&source, 0, 65537);
+    let (config, capture) = configuration(&directory);
+    let mut capture_gate = CaptureGate::new(&capture);
+    let mut host = Host::start(&config);
+    let controller = &host.controller;
+    select_output(controller, "software", "compatible_conversion");
+    controller.apply(json!({"method":"volume.set","millidecibels":-48000,"ramp_frames":0}));
+    consent(controller);
+    append_selected(controller, &source);
+    start(controller);
+    controller.wait(|s| s["transport"] == "buffering");
+    install_src(controller);
+    controller.apply(json!({"method":"mute.set","muted":false}));
+    capture_gate.wait_full();
+    controller.wait(|s| {
+        s["transport"] == "playing" && s["playback"]["submitted_frames"].as_u64().unwrap_or(0) > 0
+    });
+    let stop = controller.document(json!({"method":"sessions.stop"}), None);
+    assert_eq!(controller.send(&stop)["receipt"]["status"], "accepted");
+    capture_gate.release();
+    controller.settled(&stop);
+    let stopped = controller.wait(|s| s["transport"] == "idle");
+    assert!(stopped["error"].is_null(), "{stopped}");
+    assert_eq!(stopped["muted"], true);
+    let accepted = stopped["playback"]["processing"]["streaming"]["source_accepted_frames"]
+        .as_u64()
+        .unwrap() as usize;
+    let submitted = stopped["playback"]["submitted_frames"].as_u64().unwrap() as usize;
+    assert!(accepted > 0 && accepted < 65537);
+    assert!(submitted > 0);
+    controller.apply(json!({"method":"owner.shutdown"}));
+    assert!(host.child.wait().unwrap().success());
+    let actual = capture_gate.finish();
+    let expected = src_reference(&original[..accepted * 6]);
+    assert_eq!(actual.len(), submitted * 6);
+    assert_eq!(actual, expected[..actual.len()]);
 }
 
 #[test]
@@ -456,6 +1082,43 @@ fn executable_graph_rejects_competing_preparation_and_keeps_the_working_plan_on_
 }
 
 #[test]
+fn executable_validates_src_without_allocating_a_runtime_owner_or_changing_playback() {
+    let directory = directory();
+    let source = directory.join("src-validation.wav");
+    wave(&source, 0, 513);
+    let (config, capture) = configuration(&directory);
+    let host = Host::start(&config);
+    let controller = &host.controller;
+    select_output(controller, "software", "compatible_conversion");
+    consent(controller);
+    append_selected(controller, &source);
+    start(controller);
+    let before = controller.wait(|state| state["transport"] == "buffering");
+    let command = controller.document(
+        json!({"method":"graph.validate",
+        "graph":graph_fixtures::src_roundtrip(),
+        "processing":{"kind":"float64","quantization":"round_ties_away_saturate_no_dither"}}),
+        None,
+    );
+    assert_eq!(controller.send(&command)["receipt"]["status"], "accepted");
+    let reply = controller.settled(&command);
+    let preview = &reply["receipt"]["result"]["value"];
+    assert_eq!(preview["timing_kind"], "streaming");
+    assert_eq!(preview["stages"].as_array().unwrap().len(), 4);
+    assert!(preview.get("latency_frames").is_none());
+    assert!(preview.get("tail_frames").is_none());
+    let after = controller.state();
+    assert_eq!(after["revision"], before["revision"]);
+    assert_eq!(after["epochs"], before["epochs"]);
+    assert_eq!(after["playback"], before["playback"]);
+    let inspection = controller.query(json!({"method":"graph.inspect"}));
+    assert!(inspection["prepared"].is_null());
+    assert_eq!(inspection["service"]["resident_bytes"], 0);
+    assert_no_capture(&capture);
+    controller.apply(json!({"method":"owner.shutdown"}));
+}
+
+#[test]
 fn executable_paused_graph_swap_publishes_the_installed_observation() {
     let directory = directory();
     let source = directory.join("paused-graph.wav");
@@ -474,6 +1137,8 @@ fn executable_paused_graph_swap_publishes_the_installed_observation() {
     for delay in [3, 7] {
         let before_epoch = controller.state()["graph_epoch"].as_u64().unwrap();
         let (_, ready) = prepare_graph(controller, delay_gain_graph(delay, 0.5));
+        assert_eq!(ready["preview"]["backend"]["audio_storage_bytes"], 384);
+        assert_eq!(ready["preview"]["resources"]["backend_audio_bytes"], 384);
         let commit = controller.document(
             json!({"method":"graph.commit",
             "token":ready["token"],"graph_hash":ready["preview"]["graph_hash"]}),
@@ -485,12 +1150,15 @@ fn executable_paused_graph_swap_publishes_the_installed_observation() {
         let inspection = controller.query(json!({"method":"graph.inspect"}));
         assert_eq!(state["transport"], "paused");
         assert_eq!(state["muted"], true);
+        assert_eq!(state["playback"]["backend"], ready["preview"]["backend"]);
+        assert_eq!(inspection["active"]["backend"], ready["preview"]["backend"]);
         assert_eq!(state["graph_epoch"], before_epoch + 1);
         assert_eq!(
             state["playback"]["processing"]["graph_hash"],
             inspection["active"]["graph_hash"]
         );
         assert_eq!(state["playback"]["processing"]["latency_frames"], delay);
+        assert_eq!(state["playback"]["processing"]["timing_kind"], "same_rate");
         assert_eq!(
             state["playback"]["processing"]["resident_bytes"],
             inspection["active"]["resources"]["pipeline_bytes"]

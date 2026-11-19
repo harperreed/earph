@@ -6,6 +6,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+default-run = "earph-media"
 
 [dependencies]
 earph-core = { path = "../earph-core" }
@@ -13,4 +14,9 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 symphonia = { version = "=0.6.1", default-features = false, features = ["pcm", "wav", "aiff", "flac"] }
-rustix = { version = "=1.1.6", features = ["fs"] }
+rustix = { version = "=1.1.6", features = ["fs", "process"] }
+signal-hook.workspace = true
+yaml-rust2 = { version = "=0.13.0", default-features = false }
+
+[dev-dependencies]
+earph-dsp = { path = "../earph-dsp" }

@@ -49,6 +49,10 @@ fn denied_start_queue_cancel_close_and_reopen_never_emit_or_change_settings() {
         let input = request(&device);
         let mut output = CoreAudioOutput::open(input.clone(), Epochs::default()).unwrap();
         assert_eq!(
+            output.audio_storage_bytes().unwrap(),
+            u64::from(input.ring_frames) * input.format.channels().count() as u64 * 4
+        );
+        assert_eq!(
             output.start(SignalPermission::Denied).unwrap_err().code,
             ErrorCode::SafetyPolicyBlocked
         );

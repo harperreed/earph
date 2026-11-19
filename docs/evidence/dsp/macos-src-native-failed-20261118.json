@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "status": "fail",
+  "verified_on": "2026-11-18",
+  "scope": "t11_sole_reviewed_macos_signal_attempt",
+  "build": {
+    "commit": "2396efb38789038b20c2727afe8bc58409580be9",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": false,
+    "source_inputs_sha256": "7594a1440a436d19f7b3c9e6ab8fca923b3b14b74ee50b35bef8698d1411ba3e",
+    "target": "aarch64-apple-darwin"
+  },
+  "canonical": [
+    538,
+    0,
+    3
+  ],
+  "silent_sdk": [
+    11,
+    0,
+    0
+  ],
+  "release_components": [
+    59,
+    0,
+    1
+  ],
+  "release_stream": [
+    32,
+    0,
+    0
+  ],
+  "explicit_numeric_writer": [
+    1,
+    0,
+    0
+  ],
+  "log_sha256": {
+    "canonical": "94c43504d23e7e4449e42d4451878ea2b459b4bd4c9f9a2d5a84f550613591af",
+    "silent-sdk": "f9e944753657dfa60c931ef68beaf986bd17e343553458d7ef37572526614632",
+    "components-release": "dd0ef41e3daae1dc06cb479639c0e82f83aebe0e33111674ed6c0ca551ac1e15",
+    "stream-release": "7906a3c5636d17b4c97fb73c4698bf6289b4d012315835fdfbe09e54fe99047d",
+    "src-numeric": "c8da8e27f37ab777dc9a520546bf0ef9bbb2164f1b777779d44cec3d6494ae7e"
+  },
+  "engine_executable_sha256": "0ed4c8f759278614a2e667f329bfa50ac6fe1b0bf5bfc580fa7f40cb3015b3e4",
+  "native_executable_sha256": "093729391e4ec6cf3e6dfedd03d4724b5bcf88009f95c8d92aa4d4d98b32b7bc",
+  "source_files_verified": 1521,
+  "source_manifest_verifications": 14,
+  "source_and_executables_unchanged": true,
+  "authored_graph": {
+    "graph_document_sha256": "b11737a2768feb38835e1e496fa859b972f02719d3f2b9db00e97608e2b25b9e",
+    "kernel_hash": "c8c4ce8ded9a949b6823c3beefca68eb1305a0209a71ef7a249cfcc53c4fbf2c",
+    "source_sha256": "414e78bb8568df9ce120e9fdcba661adc739861b55227fac1cea7cfe59447dad",
+    "fir_sha256": "14fbf4c67facc21b9c4b50f1abcc80c278962b24b9d88c5acbd356edea172cea",
+    "source_frames": 24000,
+    "expected_producer_ring_writes": 26313,
+    "expected_count_basis": "actual offline capture from the same frozen executable and exact authored graph",
+    "offline_capture_sha256": "93e51fde91fb044d497b19b20bea1d7836c9fe2a9a8400c3a6b9086bb0f396a8",
+    "offline_capture_bytes": 157878,
+    "native_period_frames": 512,
+    "source_and_native_input": "signed24_stereo_48000",
+    "sdk_client": "float32_stereo_48000",
+    "source_peak_measured": 0.04418349266052246,
+    "admitted_source_peak_bound": 1,
+    "channel_peak_bounds": [
+      1.3557279002773488,
+      1.3557279002773488
+    ],
+    "required_headroom_db": 2.643450674603103,
+    "software_gain_db": -40,
+    "gain_ramp_frames": 960,
+    "pre_src_gain_linear": 0.125,
+    "offline_graph_peak": 0.002425303648995292,
+    "offline_output_peak": 0.000024199485778808594
+  },
+  "helper_sha256": "04028f0fb07800ebd8430d2c17a1f374c481de67edb999ee2fb24a02a7f96fc3",
+  "wrapper_sha256": "4d3973c8ac212d62b309ee9d5bc3ca0ac31a091db7a8c8175c8345d6d855e39b",
+  "signal_attempts": 1,
+  "unmute_receipt_status": "applied",
+  "authorization_consumed": true,
+  "retry_allowed": false,
+  "pre_unmute": {
+    "muted": true,
+    "software_gain_db": -40,
+    "gain_ramp_frames": 960,
+    "output_consented": true,
+    "submitted_frames": 0,
+    "graph_epoch": 1
+  },
+  "actual": {
+    "transport": "failed",
+    "muted": true,
+    "error_code": "OUTPUT_FAULT",
+    "error_detail": null,
+    "failure_node": null,
+    "source_position_frames": 4095,
+    "source_accepted_frames": 4095,
+    "generated_output_frames": 3132,
+    "submission_frontier_frames": 2993,
+    "submitted_frames": 2993,
+    "submission_boundary": "Core Audio producer-ring writes",
+    "retained_start_frames": 2560,
+    "backend_origin_frames": 0,
+    "saturation_count": 0,
+    "hardware_accepted_frames": null,
+    "consumed_frames": null,
+    "dac_delivered_frames": null,
+    "audible_source_position_frames": null,
+    "previous_playing_observations": [
+      {
+        "source_position_frames": 2687,
+        "submitted_frames": 1669
+      },
+      {
+        "source_position_frames": 3391,
+        "submitted_frames": 2435
+      }
+    ]
+  },
+  "cleanup": {
+    "shutdown_receipt_status": "applied",
+    "owner_process_observed_absent": true,
+    "owner_exit_code": null,
+    "selected_device_settings_unchanged": true,
+    "owned_source_and_fir_unchanged": true,
+    "final_graph_resident_bytes": null,
+    "final_graph_pending_retirements": null,
+    "runtime_regular_files_retained": 5
+  },
+  "cause": "not determined",
+  "limitations": [
+    "The expected offline result is 26313 frames; the actual attempt stopped after 2993 producer-ring writes",
+    "No successful completion or native drain is claimed",
+    "The helper failure-cleanup branch did not retain a numeric child exit status or final graph service counters",
+    "Only OUTPUT_FAULT was retained; no exact underlying fault message was queried before shutdown",
+    "Running Mac hold/replay, CPU deadlines, DAC delivery, and acoustic playback remain unqualified"
+  ],
+  "held_artifacts_preserved": 145,
+  "evidence_artifacts_verified": 184,
+  "evidence_archive_sha256": "210e9949db334f9743c1e413cd8ba84f3f1d00221ca73c74365635b4e5d2735e",
+  "evidence_manifest_sha256": "18018f1122f3cb9b4da03513d2fee97b3eabcce02b309a3f0f9ffe4e6aa58a4e"
+}

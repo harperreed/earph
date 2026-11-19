@@ -42,6 +42,17 @@ fn without_heap(operation: impl FnOnce()) {
     );
 }
 
+#[test]
+fn actual_ring_audio_storage_is_observable_without_sdk_calls_or_heap_work() {
+    for (route, bytes) in [
+        (PlaybackRoute::StrictInteger, 24),
+        (PlaybackRoute::Float32Compatibility, 32),
+    ] {
+        let producer = super::super::tests::producer(route);
+        without_heap(|| assert_eq!(producer.ring.audio_storage_bytes().unwrap(), bytes));
+    }
+}
+
 fn call(context: &mut Context, output: &mut AudioBufferList) {
     let mut stamp: AudioTimeStamp = unsafe { std::mem::zeroed() };
     call_at(context, output, &mut stamp);
@@ -182,7 +193,10 @@ fn overlapping_sdk_callbacks_fault_without_publishing_delivery_or_timestamps() {
     call(&mut context, &mut output);
     assert_eq!(bytes, [0; 6]);
     assert_eq!(producer.ring.consumed.load(Ordering::Acquire), 0);
-    assert_ne!(producer.ring.fault.load(Ordering::Acquire), 0);
+    assert_eq!(
+        producer.ring.fault.detail().unwrap().reason,
+        OutputFaultReason::CallbackReentry
+    );
     assert!(context.timing.observation().payload.is_none());
 }
 #[test]
@@ -212,7 +226,75 @@ fn sdk_callback_delivers_owned_frames_and_silences_after_underflow() {
     call(&mut context, output.as_mut());
     assert_eq!(bytes, [0; 12]);
     assert_eq!(producer.ring.consumed.load(Ordering::Acquire), 2);
-    assert_ne!(producer.ring.fault.load(Ordering::Acquire), 0);
+    assert_eq!(
+        producer.ring.fault.detail(),
+        Some(OutputFaultDetail {
+            reason: OutputFaultReason::RingUnderrun,
+            requested_frames: Some(2),
+            queued_frames: Some(0),
+        })
+    );
+    let first = producer.ring.fault.detail();
+    let mut address = ca::AudioObjectPropertyAddress {
+        mSelector: ca::kAudioDevicePropertyNominalSampleRate,
+        mScope: ca::kAudioObjectPropertyScopeGlobal,
+        mElement: ca::kAudioObjectPropertyElementMain,
+    };
+    without_heap(|| {
+        // SAFETY: The listener points to its static fault slot during this synchronous invocation.
+        unsafe {
+            changed(
+                1,
+                1,
+                NonNull::from(&mut address),
+                std::ptr::from_ref(context.ring.fault).cast_mut().cast(),
+            );
+        }
+    });
+    assert_eq!(producer.ring.fault.detail(), first);
+}
+
+#[test]
+fn sdk_callback_shape_errors_retain_their_actual_first_reason() {
+    for (count, size, channels, null_data, expected) in [
+        (0, 12, 2, false, OutputFaultReason::CallbackBufferCount),
+        (17, 12, 2, false, OutputFaultReason::CallbackBufferCount),
+        (
+            1,
+            8192 * 8 + 1,
+            2,
+            false,
+            OutputFaultReason::CallbackBufferSize,
+        ),
+        (1, 12, 2, true, OutputFaultReason::CallbackBufferPointer),
+        (1, 12, 1, false, OutputFaultReason::CallbackBufferChannels),
+        (1, 1, 2, false, OutputFaultReason::CallbackBufferSize),
+    ] {
+        let producer = super::super::tests::producer(PlaybackRoute::StrictInteger);
+        producer.ring.enabled.store(true, Ordering::Release);
+        let mut context = Context {
+            ring: producer.ring.clone(),
+            channels: 2,
+            timing: Timing::new(),
+            entered: AtomicBool::new(false),
+        };
+        let mut bytes = [255_u8; 12];
+        let mut output = AudioBufferList {
+            mNumberBuffers: count,
+            mBuffers: [AudioBuffer {
+                mNumberChannels: channels,
+                mDataByteSize: size,
+                mData: if null_data {
+                    std::ptr::null_mut()
+                } else {
+                    bytes.as_mut_ptr().cast()
+                },
+            }],
+        };
+        call(&mut context, &mut output);
+        assert_eq!(producer.ring.fault.detail().unwrap().reason, expected);
+        assert_eq!(producer.ring.consumed.load(Ordering::Acquire), 0);
+    }
 }
 #[test]
 fn sdk_callback_rejects_planar_or_changed_channels_with_silence() {
@@ -235,7 +317,10 @@ fn sdk_callback_rejects_planar_or_changed_channels_with_silence() {
     });
     call(&mut context, output.as_mut());
     assert_eq!(bytes, [0; 12]);
-    assert_ne!(producer.ring.fault.load(Ordering::Acquire), 0);
+    assert_eq!(
+        producer.ring.fault.detail().unwrap().reason,
+        OutputFaultReason::CallbackBufferChannels
+    );
 }
 
 #[test]
@@ -262,7 +347,10 @@ fn observed_device_changes_disable_callbacks_and_reject_future_submission() {
             std::ptr::from_ref(context.ring.fault).cast_mut().cast(),
         );
     }
-    assert_ne!(context.ring.fault.load(Ordering::Acquire), 0);
+    assert_eq!(
+        context.ring.fault.detail().unwrap().reason,
+        OutputFaultReason::DevicePropertyChanged
+    );
     assert_eq!(
         producer
             .write(&super::super::tests::block(0, &[1, 2]), 0, 1)
@@ -295,8 +383,11 @@ fn late_notification_outlives_freed_ring_and_cannot_fault_a_new_generation() {
             changed(1, 1, NonNull::from(&mut address), pointer);
         }
     });
-    assert_eq!(retired.load(Ordering::Acquire), 1);
-    assert_eq!(current.ring.fault.load(Ordering::Acquire), 0);
+    assert_eq!(
+        retired.detail().unwrap().reason,
+        OutputFaultReason::DevicePropertyChanged
+    );
+    assert!(!current.ring.fault.is_set());
     current
         .write(&super::super::tests::block(0, &[1, 2]), 0, 1)
         .unwrap();

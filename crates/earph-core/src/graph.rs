@@ -67,6 +67,17 @@ pub enum NodeKind {
     Gain {
         gain_linear: FiniteGraphScalar,
     },
+    Peq {
+        filter: crate::dsp_nodes::PeqFilter,
+    },
+    Convolution {
+        asset: crate::dsp_nodes::FirAssetReference,
+    },
+    Src {
+        input_rate_hz: u32,
+        preset: crate::dsp_nodes::SrcPreset,
+        chunk_frames: usize,
+    },
     Delay {
         delay_frames: u64,
     },
@@ -88,6 +99,17 @@ enum NodeFields {
     Gain {
         gain_linear: FiniteGraphScalar,
     },
+    Peq {
+        filter: crate::dsp_nodes::PeqFilter,
+    },
+    Convolution {
+        asset: crate::dsp_nodes::FirAssetReference,
+    },
+    Src {
+        input_rate_hz: u32,
+        preset: crate::dsp_nodes::SrcPreset,
+        chunk_frames: usize,
+    },
     Delay {
         delay_frames: u64,
     },
@@ -106,6 +128,17 @@ impl From<NodeFields> for NodeKind {
             NodeFields::Output {} => Self::Output,
             NodeFields::Bypass {} => Self::Bypass,
             NodeFields::Gain { gain_linear } => Self::Gain { gain_linear },
+            NodeFields::Peq { filter } => Self::Peq { filter },
+            NodeFields::Convolution { asset } => Self::Convolution { asset },
+            NodeFields::Src {
+                input_rate_hz,
+                preset,
+                chunk_frames,
+            } => Self::Src {
+                input_rate_hz,
+                preset,
+                chunk_frames,
+            },
             NodeFields::Delay { delay_frames } => Self::Delay { delay_frames },
             NodeFields::Matrix {
                 input_channels,
@@ -264,6 +297,10 @@ pub enum PreservationDecision {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Transformation {
     Gain { node: NodeId },
+    Peq { node: NodeId },
+    Convolution { node: NodeId },
+    Src { node: NodeId },
+    BoundedIirTruncation { node: NodeId, frames: u64 },
     Delay { node: NodeId },
     Matrix { node: NodeId },
     Sum { node: NodeId },

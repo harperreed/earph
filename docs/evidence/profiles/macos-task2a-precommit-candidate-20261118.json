@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "kind": "macos_profile_owner_precommit_gate",
+  "qualification": "scoped_software_owner_and_filesystem_only",
+  "source": {
+    "baseline_commit": "2320ccffdfd6d8a994372ab3c22821c66af02965",
+    "expected_source_dirty": true,
+    "source_files": 1530,
+    "runtime_source_sha256": "fdb951b8d8ed471e31b2fb35f1f5e2ba8246e4726188392ea7bd5a7823bd640d",
+    "lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "patch_sha256": "2dc013b714a27d7dffc7f5d07b8d47f922c508d7d9fd4c99c92483077140eb95",
+    "source_manifest_sha256": "abad2bbde1a89056b5973a8f4b17f83a3c1799a496a7d5a9b713f8fc99ca8aeb",
+    "archive_sha256": "ab71ec5aee38e8f43ab1df17d09edfc27a1d12a664811bf6efecf1bca49166ae",
+    "bundle_sha256": "e0573c9111367c29ccbacb4ce1fb0481ccd9adcd9a96a014c37d55af280a9616",
+    "snapshot_kind": "reviewed_uncommitted_working_tree_patch"
+  },
+  "build_provenance": {
+    "commit": "2320ccffdfd6d8a994372ab3c22821c66af02965",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "fdb951b8d8ed471e31b2fb35f1f5e2ba8246e4726188392ea7bd5a7823bd640d",
+    "target": "aarch64-apple-darwin"
+  },
+  "commands": [
+    {
+      "label": "core-build",
+      "exit": 0,
+      "log_sha256": "1089b2d4889b33b4aac11140df2cabf4e5ac85b1326de85ad4be1cf3d98215ee"
+    },
+    {
+      "label": "engine-build",
+      "exit": 0,
+      "log_sha256": "c8f4df0f701311a4a786a439af168487905b67322a69d8b6a6c023f20a73ac15"
+    },
+    {
+      "label": "bound-direct",
+      "exit": 0,
+      "log_sha256": "0c494bd7072bd459e50f8b94162caa49ac7c81f2d2d09574c0b7b1f1c9ce62f6"
+    },
+    {
+      "label": "targeted-clippy",
+      "exit": 0,
+      "log_sha256": "28b29d5716d4bd43b12bb23996c3c784cd6ae446dc2057648066b9974d54d5f7"
+    }
+  ],
+  "tests": [
+    {
+      "label": "core-profiles",
+      "binary_sha256": "3993cbd2955bd4ba865a6e3e119b6c706ffa72c8ee40a7c9ac425208fac71292",
+      "binary_after_sha256": "3993cbd2955bd4ba865a6e3e119b6c706ffa72c8ee40a7c9ac425208fac71292",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "a55b0c0ba7cebf071f9981b8c3d22d001e6eda1508e6c3080c67914c0fdfb95c",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "core-profile-owner",
+      "binary_sha256": "64cf15504e0ded368638da3e0f1fa85b747475325a2434df60b8e4e096b7f454",
+      "binary_after_sha256": "64cf15504e0ded368638da3e0f1fa85b747475325a2434df60b8e4e096b7f454",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "d308a132aa7a50ab954b4969dc0afe75566fec0296204f8285c0c1ef78d19892",
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-profile-durability",
+      "binary_sha256": "d62a9223d449e21513e028faf6cb1cafea1357da9db6d1fd0f2cf8bf8aa248e0",
+      "binary_after_sha256": "d62a9223d449e21513e028faf6cb1cafea1357da9db6d1fd0f2cf8bf8aa248e0",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "6e9aaa74ff158500d60362aa2e2159745cb04d2146a319d11c96f8650f372cf8",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-fir-durability",
+      "binary_sha256": "d62a9223d449e21513e028faf6cb1cafea1357da9db6d1fd0f2cf8bf8aa248e0",
+      "binary_after_sha256": "d62a9223d449e21513e028faf6cb1cafea1357da9db6d1fd0f2cf8bf8aa248e0",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "83d7e1b8040d2310c5b887ee142151f444006267711aa9cc12467a99af517460",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-owner-profiles",
+      "binary_sha256": "5bbdd7e08f45fa1d2d0c4c7ae066e93ccd62223509bc9cab7ce8580b97004233",
+      "binary_after_sha256": "5bbdd7e08f45fa1d2d0c4c7ae066e93ccd62223509bc9cab7ce8580b97004233",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "dd7385036fd5725483743aae448ad3c2f06fbec799ca333722cfff2e274fd0f4",
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "engine-fir-cli",
+      "binary_sha256": "55e5ddfb5339334aa31d2a0d4de514475d1845508f6fc4d4387519ea203630ca",
+      "binary_after_sha256": "55e5ddfb5339334aa31d2a0d4de514475d1845508f6fc4d4387519ea203630ca",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "20572c776625391196c61f9f14ebfbdc7712ccafbff59b17c3c23fa4e2cfeb3d",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "engine_cli_sha256": "5fbaa20ef05d607e1ff597b366a70fbfb1396276fc4e47e5687a92d702842af7",
+  "source_verification_phases": [
+    "source-verification-after-apply.log",
+    "source-verification-after-bound-direct.log",
+    "source-verification-after-core-build.log",
+    "source-verification-after-engine-build.log",
+    "source-verification-after-targeted-clippy.log"
+  ],
+  "source_checks_per_phase": 1530,
+  "native_output_opened": false,
+  "native_device_operations": 0,
+  "signal_exercises": 0,
+  "scope": [
+    "Actual owner save/update/list/get/manual resolution and restart",
+    "Real profile and FIR immutable-file sync_all forwarding on verified handles",
+    "Actual owner/request and FIR import executables",
+    "Missing/corrupt objects and persistence recovery",
+    "Core profile model, receipt, cancellation, retained admission, and compatibility contracts"
+  ],
+  "limits": [
+    "Dirty precommit source, not a clean release qualification",
+    "Focused profile and Core tests, not the full macOS canonical suite",
+    "No native hardware or acoustic claim",
+    "No real power-loss or disk-sync failure claim"
+  ]
+}

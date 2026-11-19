@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "result": "pass",
+  "candidate_sha256": "97c1ebdc5416268c2e5c5407603c230b05fb32f20a415f7592a05487de3231cb",
+  "archive_sha256": "baeeab7707f09d3854c3a61f38c75bbedae175c29ed565fae30a0c58fe2614e1",
+  "manifest_sha256": "976cb83e043f5a813ccbdb827577b702beb1ab793ea3af3ac80f470b2b214614",
+  "raw_files": 62,
+  "source_files": 1530,
+  "source_phases": 5,
+  "fresh_remote_source_and_binary_readback": true,
+  "tests_passed": 30,
+  "tests_failed": 0,
+  "tests_ignored": 0,
+  "strict_core_engine_clippy_exit": 0,
+  "source_dirty": true,
+  "baseline_commit": "2320ccffdfd6d8a994372ab3c22821c66af02965",
+  "runtime_source_sha256": "fdb951b8d8ed471e31b2fb35f1f5e2ba8246e4726188392ea7bd5a7823bd640d",
+  "native_output_opened": false,
+  "signal_exercises": 0,
+  "scope": "Actual Mac owner, request CLI, immutable-file durability, profile models, and FIR CLI only.",
+  "limitation": "Not a clean release, full macOS suite, hardware playback, real disk-sync failure, or power-loss qualification."
+}

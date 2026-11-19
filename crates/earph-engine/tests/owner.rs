@@ -119,6 +119,58 @@ fn real_owner_persists_queue_and_restarts_paused_without_output() {
 }
 
 #[test]
+fn owner_drop_releases_its_lock_while_a_real_child_waits_before_exec() {
+    use std::{
+        io::{Read, Write},
+        os::unix::{net::UnixStream, process::CommandExt},
+        process::{Command, Stdio},
+        time::Duration,
+    };
+    let runtime = runtime();
+    let owner = EngineOwner::bind(&runtime).unwrap();
+    let (mut ready, notification) = UnixStream::pair().unwrap();
+    let (mut release, continuation) = UnixStream::pair().unwrap();
+    ready
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_earph-engine"));
+    command
+        .args(["render-graph", "--help"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    // SAFETY: The child uses only fd syscalls before exec; each error stores an OS error inline.
+    unsafe {
+        command.pre_exec(move || {
+            if rustix::io::write(&notification, b"r")? != 1 {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            let mut byte = [0];
+            if rustix::io::read(&continuation, &mut byte)? != 1 {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            Ok(())
+        });
+    }
+    let child = thread::spawn(move || command.status());
+    let entered = ready.read_exact(&mut [0]);
+    drop(owner);
+    let replacement = EngineOwner::bind(&runtime);
+    // Release and reap the child before any assertion can unwind the parent's fixture.
+    let released = release.write_all(b"x");
+    let status = child.join().unwrap().unwrap();
+    entered.unwrap();
+    released.unwrap();
+    assert!(status.success());
+    let replacement = replacement.expect("a pre-exec child retained the retired owner's lock");
+    assert_eq!(
+        EngineOwner::bind(&runtime).err().unwrap().code,
+        ErrorCode::SourceBusy,
+        "the replacement owner must still hold exclusive ownership"
+    );
+    drop(replacement);
+}
+
+#[test]
 fn public_or_symlinked_runtime_is_rejected_without_changing_permissions() {
     let runtime = runtime();
     fs::create_dir(&runtime).unwrap();
@@ -511,6 +563,7 @@ fn maximum_escaped_queue_restores_and_returns_bounded_pages() {
         queue.append("\u{1}".repeat(1024)).unwrap();
     }
     let checkpoint = earph_core::session::SessionCheckpoint {
+        profile_catalog: vec![],
         graph_intent: None,
         volume_policy: Default::default(),
         output: None,

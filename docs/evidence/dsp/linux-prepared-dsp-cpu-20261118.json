@@ -1,0 +1,3481 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "config": {
+    "qualification": true,
+    "warmup": 4096,
+    "measured": 100000
+  },
+  "build_provenance": {
+    "commit": "7594910b4ae644ccfbde0ad1b306879bc311a5b9",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "profile": "release",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": false,
+    "source_inputs_sha256": "7594a1440a436d19f7b3c9e6ab8fca923b3b14b74ee50b35bef8698d1411ba3e",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "harness_source_sha256": "25f75016dd7a27db42197f26e1821a37d5ad470f14890d9da7a74bbb48557144",
+  "binary_sha256": "7f80fdea6049ffa91495cd0d88ac96164cf75095a70f6e1c05a8626c08ac923b",
+  "hardware": {
+    "allowed_cpus": "0-7",
+    "cpu0_governor": "powersave",
+    "cpu_model": "Intel(R) Core(TM) i7-8809G CPU @ 3.10GHz",
+    "load_average": "0.97 1.52 1.60",
+    "logical_cpus": 8,
+    "os_kernel_arch": "Linux 7.0.0-38-generic x86_64",
+    "policy_changes": false
+  },
+  "scope": "Prepared software rendering includes conversion, DSP, gain, quantization, output witnesses, and streaming replay ledger work. It excludes decoding, worker scheduling, native I/O, callbacks, driver queues, and acoustic output. Streaming acknowledgments are harness ledger actions.",
+  "sample_rate_hz": 48000,
+  "timer_calibration": {
+    "minimum_ns": 21,
+    "p50_ns": 23,
+    "p95_ns": 24,
+    "p99_ns": 27,
+    "p999_ns": 67,
+    "maximum_ns": 73,
+    "total_ns": 232292,
+    "deadline_misses": 0,
+    "margin_pass": true
+  },
+  "cases": [
+    {
+      "name": "same_rate_gain_q64",
+      "workload": "same_rate_gain",
+      "quantum": 64,
+      "measured_count": 100000,
+      "warmup_count": 4096,
+      "graph": {
+        "schema_version": 1,
+        "nodes": [
+          {
+            "id": "input",
+            "kind": {
+              "kind": "input"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "gain",
+            "kind": {
+              "kind": "gain",
+              "gain_linear": 0.5
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "output",
+            "kind": {
+              "kind": "output"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "gain",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "gain",
+            "to": "output",
+            "from_port": 0,
+            "to_port": 0
+          }
+        ],
+        "output": "output"
+      },
+      "graph_hash": "435f3715af0fc3b4d6a065cd717a8cfc1e52077b36a454a8d3473547b03921c2",
+      "implementation_version": "earph-dsp/0.1.0/compiler-3-peq-fir",
+      "stage_metadata": {
+        "latency_frames": 0,
+        "tail_frames": 0
+      },
+      "resources": {
+        "audio_payload_bytes": 5632
+      },
+      "source_packet_sha256": "638edde90237dda50c3ad2f2b14e10eb0b4eab100452c717b58a2b442c62209b",
+      "cold_priming_ns": 4190,
+      "before_measurement": {
+        "source_accepted_frames": 262208,
+        "generated_frames": 262208,
+        "submitted_frames": 262208
+      },
+      "after_measurement": {
+        "source_accepted_frames": 6662208,
+        "generated_frames": 6662208,
+        "submitted_frames": 6662208
+      },
+      "summary": {
+        "minimum_ns": 2306,
+        "p50_ns": 2418,
+        "p95_ns": 2548,
+        "p99_ns": 14876,
+        "p999_ns": 25764,
+        "maximum_ns": 72724,
+        "total_ns": 264365269,
+        "deadline_misses": 0,
+        "margin_pass": true
+      },
+      "csv": {
+        "path": "same_rate_gain_q64.csv",
+        "bytes": 2190028,
+        "sha256": "50ddd7eae3f8f26c2cf9f5df524bee40aff48958e40791328e367486e4bba961"
+      },
+      "finish": {
+        "terminal": true,
+        "source_accepted_frames": 6662208,
+        "generated_frames": 6662208,
+        "submitted_frames": 6662208,
+        "saturation_count": 0,
+        "tail_calls": 1,
+        "tail_elapsed_ns": 355
+      },
+      "output_checksum": 669128516578719106
+    },
+    {
+      "name": "same_rate_gain_q256",
+      "workload": "same_rate_gain",
+      "quantum": 256,
+      "measured_count": 100000,
+      "warmup_count": 4096,
+      "graph": {
+        "schema_version": 1,
+        "nodes": [
+          {
+            "id": "input",
+            "kind": {
+              "kind": "input"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "gain",
+            "kind": {
+              "kind": "gain",
+              "gain_linear": 0.5
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "output",
+            "kind": {
+              "kind": "output"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "gain",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "gain",
+            "to": "output",
+            "from_port": 0,
+            "to_port": 0
+          }
+        ],
+        "output": "output"
+      },
+      "graph_hash": "040dfb3be0f6a8d73bfc2f10fcdfd4d6d02ad5d97e45ef1086c76883be84901f",
+      "implementation_version": "earph-dsp/0.1.0/compiler-3-peq-fir",
+      "stage_metadata": {
+        "latency_frames": 0,
+        "tail_frames": 0
+      },
+      "resources": {
+        "audio_payload_bytes": 22528
+      },
+      "source_packet_sha256": "127d1e7e1d38218d45439d3080bb757d9c10c0a8224a4ce64399864fef610888",
+      "cold_priming_ns": 10483,
+      "before_measurement": {
+        "source_accepted_frames": 1048832,
+        "generated_frames": 1048832,
+        "submitted_frames": 1048832
+      },
+      "after_measurement": {
+        "source_accepted_frames": 26648832,
+        "generated_frames": 26648832,
+        "submitted_frames": 26648832
+      },
+      "summary": {
+        "minimum_ns": 8773,
+        "p50_ns": 9005,
+        "p95_ns": 18256,
+        "p99_ns": 29137,
+        "p999_ns": 43769,
+        "maximum_ns": 115610,
+        "total_ns": 1005071979,
+        "deadline_misses": 0,
+        "margin_pass": true
+      },
+      "csv": {
+        "path": "same_rate_gain_q256.csv",
+        "bytes": 2495851,
+        "sha256": "8d7f4c34e2086ec5411b9546350fa0b5d14a1714bfac40ef1c9b158c6c3a2116"
+      },
+      "finish": {
+        "terminal": true,
+        "source_accepted_frames": 26648832,
+        "generated_frames": 26648832,
+        "submitted_frames": 26648832,
+        "saturation_count": 0,
+        "tail_calls": 1,
+        "tail_elapsed_ns": 260
+      },
+      "output_checksum": 6222979037918809802
+    },
+    {
+      "name": "same_rate_peq10_q64",
+      "workload": "same_rate_peq10",
+      "quantum": 64,
+      "measured_count": 100000,
+      "warmup_count": 4096,
+      "graph": {
+        "schema_version": 1,
+        "nodes": [
+          {
+            "id": "input",
+            "kind": {
+              "kind": "input"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq0",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 80.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq1",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 125.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq2",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 200.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq3",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 315.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq4",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 500.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq5",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 800.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq6",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 1250.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq7",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 2000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq8",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 3150.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq9",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 5000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "output",
+            "kind": {
+              "kind": "output"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "peq0",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq0",
+            "to": "peq1",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq1",
+            "to": "peq2",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq2",
+            "to": "peq3",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq3",
+            "to": "peq4",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq4",
+            "to": "peq5",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq5",
+            "to": "peq6",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq6",
+            "to": "peq7",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq7",
+            "to": "peq8",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq8",
+            "to": "peq9",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq9",
+            "to": "output",
+            "from_port": 0,
+            "to_port": 0
+          }
+        ],
+        "output": "output"
+      },
+      "graph_hash": "2d2d468649932024c8c83253d5d814892f81e8f25c244dd5f0feb5948145fc5c",
+      "implementation_version": "earph-dsp/0.1.0/compiler-3-peq-fir",
+      "stage_metadata": {
+        "latency_frames": 0,
+        "tail_frames": 11489
+      },
+      "resources": {
+        "audio_payload_bytes": 27248
+      },
+      "source_packet_sha256": "638edde90237dda50c3ad2f2b14e10eb0b4eab100452c717b58a2b442c62209b",
+      "cold_priming_ns": 9157,
+      "before_measurement": {
+        "source_accepted_frames": 262208,
+        "generated_frames": 262208,
+        "submitted_frames": 262208
+      },
+      "after_measurement": {
+        "source_accepted_frames": 6662208,
+        "generated_frames": 6662208,
+        "submitted_frames": 6662208
+      },
+      "summary": {
+        "minimum_ns": 7451,
+        "p50_ns": 7552,
+        "p95_ns": 7934,
+        "p99_ns": 25579,
+        "p999_ns": 34542,
+        "maximum_ns": 83208,
+        "total_ns": 810255545,
+        "deadline_misses": 0,
+        "margin_pass": true
+      },
+      "csv": {
+        "path": "same_rate_peq10_q64.csv",
+        "bytes": 2192640,
+        "sha256": "bd288711f607456db37bbdda6bf6f85b5d9eb820614dbd802284518b241b774b"
+      },
+      "finish": {
+        "terminal": true,
+        "source_accepted_frames": 6662208,
+        "generated_frames": 6673697,
+        "submitted_frames": 6673697,
+        "saturation_count": 0,
+        "tail_calls": 180,
+        "tail_elapsed_ns": 1571438
+      },
+      "output_checksum": 11393678514318766926
+    },
+    {
+      "name": "same_rate_peq10_q256",
+      "workload": "same_rate_peq10",
+      "quantum": 256,
+      "measured_count": 100000,
+      "warmup_count": 4096,
+      "graph": {
+        "schema_version": 1,
+        "nodes": [
+          {
+            "id": "input",
+            "kind": {
+              "kind": "input"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq0",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 80.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq1",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 125.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq2",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 200.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq3",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 315.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq4",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 500.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq5",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 800.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq6",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 1250.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq7",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 2000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq8",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 3150.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq9",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 5000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "output",
+            "kind": {
+              "kind": "output"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "peq0",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq0",
+            "to": "peq1",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq1",
+            "to": "peq2",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq2",
+            "to": "peq3",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq3",
+            "to": "peq4",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq4",
+            "to": "peq5",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq5",
+            "to": "peq6",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq6",
+            "to": "peq7",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq7",
+            "to": "peq8",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq8",
+            "to": "peq9",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq9",
+            "to": "output",
+            "from_port": 0,
+            "to_port": 0
+          }
+        ],
+        "output": "output"
+      },
+      "graph_hash": "2dfd51a9a4b93d7d720f14a5148aef3f52211f513935024f5a38c3a6093cee7c",
+      "implementation_version": "earph-dsp/0.1.0/compiler-3-peq-fir",
+      "stage_metadata": {
+        "latency_frames": 0,
+        "tail_frames": 11489
+      },
+      "resources": {
+        "audio_payload_bytes": 102512
+      },
+      "source_packet_sha256": "127d1e7e1d38218d45439d3080bb757d9c10c0a8224a4ce64399864fef610888",
+      "cold_priming_ns": 29870,
+      "before_measurement": {
+        "source_accepted_frames": 1048832,
+        "generated_frames": 1048832,
+        "submitted_frames": 1048832
+      },
+      "after_measurement": {
+        "source_accepted_frames": 26648832,
+        "generated_frames": 26648832,
+        "submitted_frames": 26648832
+      },
+      "summary": {
+        "minimum_ns": 28294,
+        "p50_ns": 28479,
+        "p95_ns": 47207,
+        "p99_ns": 64978,
+        "p999_ns": 87768,
+        "maximum_ns": 293000,
+        "total_ns": 3071639606,
+        "deadline_misses": 0,
+        "margin_pass": true
+      },
+      "csv": {
+        "path": "same_rate_peq10_q256.csv",
+        "bytes": 2589002,
+        "sha256": "c0dd92bf37d0e5da572db2bca116cdcafe273c1906f2da820f369cedfe5e1dcb"
+      },
+      "finish": {
+        "terminal": true,
+        "source_accepted_frames": 26648832,
+        "generated_frames": 26660321,
+        "submitted_frames": 26660321,
+        "saturation_count": 0,
+        "tail_calls": 45,
+        "tail_elapsed_ns": 1272746
+      },
+      "output_checksum": 7408804039207477482
+    },
+    {
+      "name": "same_rate_fir4096_q64",
+      "workload": "same_rate_fir4096",
+      "quantum": 64,
+      "measured_count": 100000,
+      "warmup_count": 4096,
+      "graph": {
+        "schema_version": 1,
+        "nodes": [
+          {
+            "id": "input",
+            "kind": {
+              "kind": "input"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "fir",
+            "kind": {
+              "kind": "convolution",
+              "asset": {
+                "sha256": "30c6ee9f9a6d053e26bc43195d8f62261cc5f8c46006ee6aa0ddea1d5dc28457",
+                "sample_rate_hz": 48000,
+                "channels": "stereo",
+                "taps_per_channel": 4096,
+                "purpose": "correction"
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "output",
+            "kind": {
+              "kind": "output"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "fir",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "fir",
+            "to": "output",
+            "from_port": 0,
+            "to_port": 0
+          }
+        ],
+        "output": "output"
+      },
+      "graph_hash": "ede3cbe964409220db63a09c6f11efdc2c027909c30d945d814ce7ccaf3ebf64",
+      "implementation_version": "earph-dsp/0.1.0/compiler-3-peq-fir",
+      "stage_metadata": {
+        "latency_frames": 256,
+        "tail_frames": 4351
+      },
+      "resources": {
+        "audio_payload_bytes": 630568
+      },
+      "source_packet_sha256": "638edde90237dda50c3ad2f2b14e10eb0b4eab100452c717b58a2b442c62209b",
+      "cold_priming_ns": 4583,
+      "before_measurement": {
+        "source_accepted_frames": 262208,
+        "generated_frames": 262208,
+        "submitted_frames": 262208
+      },
+      "after_measurement": {
+        "source_accepted_frames": 6662208,
+        "generated_frames": 6662208,
+        "submitted_frames": 6662208
+      },
+      "summary": {
+        "minimum_ns": 2801,
+        "p50_ns": 2956,
+        "p95_ns": 55049,
+        "p99_ns": 93565,
+        "p999_ns": 127862,
+        "maximum_ns": 269335,
+        "total_ns": 1687751924,
+        "deadline_misses": 0,
+        "margin_pass": true
+      },
+      "csv": {
+        "path": "same_rate_fir4096_q64.csv",
+        "bytes": 2215564,
+        "sha256": "04915fa6ebfc50feb7e37e99514a6ff0163b789bd7163fd1f4bb205e6573a3db"
+      },
+      "finish": {
+        "terminal": true,
+        "source_accepted_frames": 6662208,
+        "generated_frames": 6666559,
+        "submitted_frames": 6666559,
+        "saturation_count": 0,
+        "tail_calls": 68,
+        "tail_elapsed_ns": 1072083
+      },
+      "output_checksum": 1881794675122094523
+    },
+    {
+      "name": "same_rate_fir4096_q256",
+      "workload": "same_rate_fir4096",
+      "quantum": 256,
+      "measured_count": 100000,
+      "warmup_count": 4096,
+      "graph": {
+        "schema_version": 1,
+        "nodes": [
+          {
+            "id": "input",
+            "kind": {
+              "kind": "input"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "fir",
+            "kind": {
+              "kind": "convolution",
+              "asset": {
+                "sha256": "30c6ee9f9a6d053e26bc43195d8f62261cc5f8c46006ee6aa0ddea1d5dc28457",
+                "sample_rate_hz": 48000,
+                "channels": "stereo",
+                "taps_per_channel": 4096,
+                "purpose": "correction"
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "output",
+            "kind": {
+              "kind": "output"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "fir",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "fir",
+            "to": "output",
+            "from_port": 0,
+            "to_port": 0
+          }
+        ],
+        "output": "output"
+      },
+      "graph_hash": "144423da075954f2a72ce30679660d3f6e511cbefbc6b3def3237f16fd8bb997",
+      "implementation_version": "earph-dsp/0.1.0/compiler-3-peq-fir",
+      "stage_metadata": {
+        "latency_frames": 256,
+        "tail_frames": 4351
+      },
+      "resources": {
+        "audio_payload_bytes": 653608
+      },
+      "source_packet_sha256": "127d1e7e1d38218d45439d3080bb757d9c10c0a8224a4ce64399864fef610888",
+      "cold_priming_ns": 63208,
+      "before_measurement": {
+        "source_accepted_frames": 1048832,
+        "generated_frames": 1048832,
+        "submitted_frames": 1048832
+      },
+      "after_measurement": {
+        "source_accepted_frames": 26648832,
+        "generated_frames": 26648832,
+        "submitted_frames": 26648832
+      },
+      "summary": {
+        "minimum_ns": 58967,
+        "p50_ns": 59798,
+        "p95_ns": 99983,
+        "p99_ns": 130803,
+        "p999_ns": 176462,
+        "maximum_ns": 369645,
+        "total_ns": 6544011241,
+        "deadline_misses": 0,
+        "margin_pass": true
+      },
+      "csv": {
+        "path": "same_rate_fir4096_q256.csv",
+        "bytes": 2593975,
+        "sha256": "3c69982999048d8ae1295dbc4ffe3ded7ec6e6ea8406c7db07ebc1f2c5a2ef8d"
+      },
+      "finish": {
+        "terminal": true,
+        "source_accepted_frames": 26648832,
+        "generated_frames": 26653183,
+        "submitted_frames": 26653183,
+        "saturation_count": 0,
+        "tail_calls": 17,
+        "tail_elapsed_ns": 1287777
+      },
+      "output_checksum": 16204785250738875133
+    },
+    {
+      "name": "responsive_roundtrip_correction_q64",
+      "workload": "responsive_roundtrip_correction",
+      "quantum": 64,
+      "measured_count": 100000,
+      "warmup_count": 4096,
+      "graph": {
+        "schema_version": 1,
+        "nodes": [
+          {
+            "id": "input",
+            "kind": {
+              "kind": "input"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "down",
+            "kind": {
+              "kind": "src",
+              "input_rate_hz": 48000,
+              "preset": "responsive",
+              "chunk_frames": 64
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 44100,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "up",
+            "kind": {
+              "kind": "src",
+              "input_rate_hz": 44100,
+              "preset": "responsive",
+              "chunk_frames": 64
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "fir",
+            "kind": {
+              "kind": "convolution",
+              "asset": {
+                "sha256": "2236345089cd206c57b4f67a94f0db3c923d1c1253851c4f2a7840e52bc1b9bc",
+                "sample_rate_hz": 48000,
+                "channels": "stereo",
+                "taps_per_channel": 1024,
+                "purpose": "correction"
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq0",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 1250.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq1",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 2000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq2",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 3150.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq3",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 5000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "output",
+            "kind": {
+              "kind": "output"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "down",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "down",
+            "to": "up",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "up",
+            "to": "fir",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "fir",
+            "to": "peq0",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq0",
+            "to": "peq1",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq1",
+            "to": "peq2",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq2",
+            "to": "peq3",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq3",
+            "to": "output",
+            "from_port": 0,
+            "to_port": 0
+          }
+        ],
+        "output": "output"
+      },
+      "graph_hash": "c91280a088d75b9b1c0f4ade239cc0f21f700a8aa95370edf1e4abfebb10b468",
+      "implementation_version": "earph-dsp/0.1.0/serial-rate-compiler-1",
+      "stage_metadata": [
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            1.0,
+            1.0
+          ],
+          "kind": {
+            "bounded_iir_truncation": false,
+            "emitted_tail_frames": 0,
+            "kernel_hash": "b440642b219346b6a31406440abfeb691273d077170ab8658ef2d231c8017142",
+            "kind": "island",
+            "local_latency_frames": 0,
+            "terminal_output_bounds": [
+              0.0,
+              0.0
+            ]
+          },
+          "original_nodes": [
+            "input"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            1.0,
+            1.0
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            1.0,
+            1.0
+          ],
+          "kind": {
+            "coefficient_fingerprint": [
+              245,
+              181,
+              194,
+              152,
+              183,
+              58,
+              122,
+              49,
+              43,
+              236,
+              84,
+              134,
+              120,
+              2,
+              252,
+              86,
+              218,
+              93,
+              72,
+              109,
+              222,
+              31,
+              76,
+              16,
+              7,
+              199,
+              191,
+              214,
+              126,
+              12,
+              35,
+              37
+            ],
+            "guard_time_denominator": 48000,
+            "kind": "src",
+            "maximum_adapter_finish_output_frames": 759,
+            "parameter_fingerprint": [
+              81,
+              151,
+              205,
+              194,
+              58,
+              105,
+              122,
+              31,
+              191,
+              207,
+              38,
+              121,
+              19,
+              242,
+              29,
+              142,
+              107,
+              132,
+              22,
+              255,
+              78,
+              39,
+              235,
+              102,
+              1,
+              108,
+              60,
+              214,
+              68,
+              3,
+              178,
+              198
+            ],
+            "parameters": {
+              "channels": "stereo",
+              "chunk_frames": 64,
+              "drain_zero_calls": 9,
+              "explicit_pre_scaling_cutoff": null,
+              "filter_length": 256,
+              "guard_time_numerator": 1,
+              "input_rate": 48000,
+              "library_max_relative_ratio": 1.001001001001001,
+              "max_output_frames": 69,
+              "output_rate": 44100,
+              "phases": 256,
+              "pre_scaling_cutoff": 0.9470546841621399,
+              "preset": "responsive",
+              "resources": {
+                "preparation_peak_bytes": 1593080,
+                "resident_bytes": 545586
+              }
+            },
+            "truncated_library_output_delay_frames": null
+          },
+          "original_nodes": [
+            "down"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 44100
+          },
+          "output_peak_bounds": [
+            3.1712677029422527,
+            3.1712677029422527
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 44100
+          },
+          "input_peak_bounds": [
+            3.1712677029422527,
+            3.1712677029422527
+          ],
+          "kind": {
+            "coefficient_fingerprint": [
+              66,
+              200,
+              101,
+              3,
+              18,
+              158,
+              119,
+              47,
+              77,
+              142,
+              35,
+              20,
+              19,
+              184,
+              151,
+              2,
+              245,
+              7,
+              33,
+              62,
+              212,
+              146,
+              186,
+              160,
+              167,
+              192,
+              7,
+              248,
+              16,
+              110,
+              5,
+              198
+            ],
+            "guard_time_denominator": 44100,
+            "kind": "src",
+            "maximum_adapter_finish_output_frames": 880,
+            "parameter_fingerprint": [
+              168,
+              177,
+              190,
+              220,
+              13,
+              155,
+              216,
+              145,
+              36,
+              217,
+              149,
+              77,
+              215,
+              234,
+              97,
+              220,
+              167,
+              194,
+              192,
+              185,
+              198,
+              224,
+              211,
+              122,
+              6,
+              25,
+              159,
+              5,
+              209,
+              184,
+              35,
+              170
+            ],
+            "parameters": {
+              "channels": "stereo",
+              "chunk_frames": 64,
+              "drain_zero_calls": 9,
+              "explicit_pre_scaling_cutoff": null,
+              "filter_length": 256,
+              "guard_time_numerator": 1,
+              "input_rate": 44100,
+              "library_max_relative_ratio": 1.001001001001001,
+              "max_output_frames": 80,
+              "output_rate": 48000,
+              "phases": 256,
+              "pre_scaling_cutoff": 0.9470546841621399,
+              "preset": "responsive",
+              "resources": {
+                "preparation_peak_bytes": 1593256,
+                "resident_bytes": 545762
+              }
+            },
+            "truncated_library_output_delay_frames": null
+          },
+          "original_nodes": [
+            "up"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            10.883687815288903,
+            10.883687815288903
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            10.883687815288903,
+            10.883687815288903
+          ],
+          "kind": {
+            "bounded_iir_truncation": true,
+            "emitted_tail_frames": 2094,
+            "kernel_hash": "502281aba8c763953faa61c77d8e04b4a5fdb10a7e081422e9cde2bd0fd19ce3",
+            "kind": "island",
+            "local_latency_frames": 256,
+            "terminal_output_bounds": [
+              2.2890661736297937e-13,
+              2.2890661736297937e-13
+            ]
+          },
+          "original_nodes": [
+            "fir",
+            "peq0",
+            "peq1",
+            "peq2",
+            "peq3",
+            "output"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            66.42231817942225,
+            66.42231817942225
+          ]
+        }
+      ],
+      "resources": {
+        "bridge_bytes": 8960,
+        "preparation_peak_bytes": 8653354,
+        "replay_frames": 320,
+        "resident_bytes": 7605252
+      },
+      "source_packet_sha256": "638edde90237dda50c3ad2f2b14e10eb0b4eab100452c717b58a2b442c62209b",
+      "cold_priming_ns": 73695,
+      "before_measurement": {
+        "source_accepted_frames": 262336,
+        "generated_frames": 262263,
+        "submitted_frames": 262208
+      },
+      "after_measurement": {
+        "source_accepted_frames": 6662336,
+        "generated_frames": 6662263,
+        "submitted_frames": 6662208
+      },
+      "summary": {
+        "minimum_ns": 23641,
+        "p50_ns": 49381,
+        "p95_ns": 98296,
+        "p99_ns": 136870,
+        "p999_ns": 186390,
+        "maximum_ns": 340028,
+        "total_ns": 6021548136,
+        "deadline_misses": 0,
+        "margin_pass": true
+      },
+      "csv": {
+        "path": "responsive_roundtrip_correction_q64.csv",
+        "bytes": 2293519,
+        "sha256": "274da6b5a7ff0e400f18cd40f435ffa6b8f4db89ed7c5030a79e8539f3072010"
+      },
+      "finish": {
+        "terminal": true,
+        "source_accepted_frames": 6662336,
+        "generated_frames": 6665754,
+        "submitted_frames": 6665754,
+        "saturation_count": 0,
+        "tail_calls": 112,
+        "tail_elapsed_ns": 1456399
+      },
+      "output_checksum": 1626590629388127863
+    },
+    {
+      "name": "responsive_roundtrip_correction_q256",
+      "workload": "responsive_roundtrip_correction",
+      "quantum": 256,
+      "measured_count": 100000,
+      "warmup_count": 4096,
+      "graph": {
+        "schema_version": 1,
+        "nodes": [
+          {
+            "id": "input",
+            "kind": {
+              "kind": "input"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "down",
+            "kind": {
+              "kind": "src",
+              "input_rate_hz": 48000,
+              "preset": "responsive",
+              "chunk_frames": 256
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 44100,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "up",
+            "kind": {
+              "kind": "src",
+              "input_rate_hz": 44100,
+              "preset": "responsive",
+              "chunk_frames": 256
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "fir",
+            "kind": {
+              "kind": "convolution",
+              "asset": {
+                "sha256": "2236345089cd206c57b4f67a94f0db3c923d1c1253851c4f2a7840e52bc1b9bc",
+                "sample_rate_hz": 48000,
+                "channels": "stereo",
+                "taps_per_channel": 1024,
+                "purpose": "correction"
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq0",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 1250.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq1",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 2000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq2",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 3150.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq3",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 5000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "output",
+            "kind": {
+              "kind": "output"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "down",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "down",
+            "to": "up",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "up",
+            "to": "fir",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "fir",
+            "to": "peq0",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq0",
+            "to": "peq1",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq1",
+            "to": "peq2",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq2",
+            "to": "peq3",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq3",
+            "to": "output",
+            "from_port": 0,
+            "to_port": 0
+          }
+        ],
+        "output": "output"
+      },
+      "graph_hash": "76b7383e2a0007fb362ae68556ca3d9be6244e16ce151322e95b54fc1012b55d",
+      "implementation_version": "earph-dsp/0.1.0/serial-rate-compiler-1",
+      "stage_metadata": [
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            1.0,
+            1.0
+          ],
+          "kind": {
+            "bounded_iir_truncation": false,
+            "emitted_tail_frames": 0,
+            "kernel_hash": "3220248fc5ef61c8552a012fe890c653eddab7ecb4ff7b0e468ab8fabcbae729",
+            "kind": "island",
+            "local_latency_frames": 0,
+            "terminal_output_bounds": [
+              0.0,
+              0.0
+            ]
+          },
+          "original_nodes": [
+            "input"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            1.0,
+            1.0
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            1.0,
+            1.0
+          ],
+          "kind": {
+            "coefficient_fingerprint": [
+              245,
+              181,
+              194,
+              152,
+              183,
+              58,
+              122,
+              49,
+              43,
+              236,
+              84,
+              134,
+              120,
+              2,
+              252,
+              86,
+              218,
+              93,
+              72,
+              109,
+              222,
+              31,
+              76,
+              16,
+              7,
+              199,
+              191,
+              214,
+              126,
+              12,
+              35,
+              37
+            ],
+            "guard_time_denominator": 48000,
+            "kind": "src",
+            "maximum_adapter_finish_output_frames": 1230,
+            "parameter_fingerprint": [
+              95,
+              246,
+              3,
+              238,
+              18,
+              111,
+              62,
+              17,
+              158,
+              228,
+              124,
+              254,
+              80,
+              54,
+              227,
+              192,
+              191,
+              60,
+              227,
+              112,
+              220,
+              62,
+              181,
+              245,
+              251,
+              102,
+              112,
+              161,
+              35,
+              149,
+              184,
+              23
+            ],
+            "parameters": {
+              "channels": "stereo",
+              "chunk_frames": 256,
+              "drain_zero_calls": 3,
+              "explicit_pre_scaling_cutoff": null,
+              "filter_length": 256,
+              "guard_time_numerator": 1,
+              "input_rate": 48000,
+              "library_max_relative_ratio": 1.001001001001001,
+              "max_output_frames": 246,
+              "output_rate": 44100,
+              "phases": 256,
+              "pre_scaling_cutoff": 0.9470546841621399,
+              "preset": "responsive",
+              "resources": {
+                "preparation_peak_bytes": 1598984,
+                "resident_bytes": 554562
+              }
+            },
+            "truncated_library_output_delay_frames": null
+          },
+          "original_nodes": [
+            "down"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 44100
+          },
+          "output_peak_bounds": [
+            3.1712677029422527,
+            3.1712677029422527
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 44100
+          },
+          "input_peak_bounds": [
+            3.1712677029422527,
+            3.1712677029422527
+          ],
+          "kind": {
+            "coefficient_fingerprint": [
+              66,
+              200,
+              101,
+              3,
+              18,
+              158,
+              119,
+              47,
+              77,
+              142,
+              35,
+              20,
+              19,
+              184,
+              151,
+              2,
+              245,
+              7,
+              33,
+              62,
+              212,
+              146,
+              186,
+              160,
+              167,
+              192,
+              7,
+              248,
+              16,
+              110,
+              5,
+              198
+            ],
+            "guard_time_denominator": 44100,
+            "kind": "src",
+            "maximum_adapter_finish_output_frames": 1445,
+            "parameter_fingerprint": [
+              122,
+              212,
+              182,
+              154,
+              229,
+              105,
+              179,
+              139,
+              200,
+              237,
+              140,
+              210,
+              7,
+              207,
+              88,
+              56,
+              118,
+              5,
+              74,
+              234,
+              161,
+              92,
+              128,
+              187,
+              196,
+              15,
+              105,
+              145,
+              110,
+              12,
+              84,
+              30
+            ],
+            "parameters": {
+              "channels": "stereo",
+              "chunk_frames": 256,
+              "drain_zero_calls": 3,
+              "explicit_pre_scaling_cutoff": null,
+              "filter_length": 256,
+              "guard_time_numerator": 1,
+              "input_rate": 44100,
+              "library_max_relative_ratio": 1.001001001001001,
+              "max_output_frames": 289,
+              "output_rate": 48000,
+              "phases": 256,
+              "pre_scaling_cutoff": 0.9470546841621399,
+              "preset": "responsive",
+              "resources": {
+                "preparation_peak_bytes": 1599672,
+                "resident_bytes": 555250
+              }
+            },
+            "truncated_library_output_delay_frames": null
+          },
+          "original_nodes": [
+            "up"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            10.883687815288903,
+            10.883687815288903
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            10.883687815288903,
+            10.883687815288903
+          ],
+          "kind": {
+            "bounded_iir_truncation": true,
+            "emitted_tail_frames": 2094,
+            "kernel_hash": "33030cd81aef1fadf318661cf0c331b23b1edfcabb0dfc686d2851783a1e9344",
+            "kind": "island",
+            "local_latency_frames": 256,
+            "terminal_output_bounds": [
+              2.2890661736297937e-13,
+              2.2890661736297937e-13
+            ]
+          },
+          "original_nodes": [
+            "fir",
+            "peq0",
+            "peq1",
+            "peq2",
+            "peq3",
+            "output"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            66.42231817942225,
+            66.42231817942225
+          ]
+        }
+      ],
+      "resources": {
+        "bridge_bytes": 33536,
+        "preparation_peak_bytes": 8782634,
+        "replay_frames": 1280,
+        "resident_bytes": 7737604
+      },
+      "source_packet_sha256": "127d1e7e1d38218d45439d3080bb757d9c10c0a8224a4ce64399864fef610888",
+      "cold_priming_ns": 312794,
+      "before_measurement": {
+        "source_accepted_frames": 1049344,
+        "generated_frames": 1049063,
+        "submitted_frames": 1048832
+      },
+      "after_measurement": {
+        "source_accepted_frames": 26649344,
+        "generated_frames": 26649063,
+        "submitted_frames": 26648832
+      },
+      "summary": {
+        "minimum_ns": 92139,
+        "p50_ns": 226362,
+        "p95_ns": 311316,
+        "p99_ns": 395015,
+        "p999_ns": 493480,
+        "maximum_ns": 1523118,
+        "total_ns": 23442192796,
+        "deadline_misses": 0,
+        "margin_pass": true
+      },
+      "csv": {
+        "path": "responsive_roundtrip_correction_q256.csv",
+        "bytes": 2682257,
+        "sha256": "a9ea057d3ffc469ed1410672f369817f0355872721697d6add2755553947586b"
+      },
+      "finish": {
+        "terminal": true,
+        "source_accepted_frames": 26649344,
+        "generated_frames": 26653398,
+        "submitted_frames": 26653398,
+        "saturation_count": 0,
+        "tail_calls": 36,
+        "tail_elapsed_ns": 1983064
+      },
+      "output_checksum": 3582986274449971400
+    },
+    {
+      "name": "quality_roundtrip_correction_q64",
+      "workload": "quality_roundtrip_correction",
+      "quantum": 64,
+      "measured_count": 100000,
+      "warmup_count": 4096,
+      "graph": {
+        "schema_version": 1,
+        "nodes": [
+          {
+            "id": "input",
+            "kind": {
+              "kind": "input"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "down",
+            "kind": {
+              "kind": "src",
+              "input_rate_hz": 48000,
+              "preset": "quality",
+              "chunk_frames": 64
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 44100,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "up",
+            "kind": {
+              "kind": "src",
+              "input_rate_hz": 44100,
+              "preset": "quality",
+              "chunk_frames": 64
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "fir",
+            "kind": {
+              "kind": "convolution",
+              "asset": {
+                "sha256": "2236345089cd206c57b4f67a94f0db3c923d1c1253851c4f2a7840e52bc1b9bc",
+                "sample_rate_hz": 48000,
+                "channels": "stereo",
+                "taps_per_channel": 1024,
+                "purpose": "correction"
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq0",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 1250.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq1",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 2000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq2",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 3150.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq3",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 5000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "output",
+            "kind": {
+              "kind": "output"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "down",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "down",
+            "to": "up",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "up",
+            "to": "fir",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "fir",
+            "to": "peq0",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq0",
+            "to": "peq1",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq1",
+            "to": "peq2",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq2",
+            "to": "peq3",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq3",
+            "to": "output",
+            "from_port": 0,
+            "to_port": 0
+          }
+        ],
+        "output": "output"
+      },
+      "graph_hash": "8c63a4d443d24c43c69b1fcaf2c270b25b147d741a1b02c713124667868b8827",
+      "implementation_version": "earph-dsp/0.1.0/serial-rate-compiler-1",
+      "stage_metadata": [
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            1.0,
+            1.0
+          ],
+          "kind": {
+            "bounded_iir_truncation": false,
+            "emitted_tail_frames": 0,
+            "kernel_hash": "b440642b219346b6a31406440abfeb691273d077170ab8658ef2d231c8017142",
+            "kind": "island",
+            "local_latency_frames": 0,
+            "terminal_output_bounds": [
+              0.0,
+              0.0
+            ]
+          },
+          "original_nodes": [
+            "input"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            1.0,
+            1.0
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            1.0,
+            1.0
+          ],
+          "kind": {
+            "coefficient_fingerprint": [
+              11,
+              216,
+              201,
+              202,
+              109,
+              223,
+              243,
+              120,
+              43,
+              38,
+              117,
+              37,
+              46,
+              45,
+              252,
+              189,
+              221,
+              215,
+              175,
+              28,
+              16,
+              50,
+              94,
+              111,
+              18,
+              48,
+              208,
+              140,
+              229,
+              62,
+              156,
+              165
+            ],
+            "guard_time_denominator": 48000,
+            "kind": "src",
+            "maximum_adapter_finish_output_frames": 2415,
+            "parameter_fingerprint": [
+              3,
+              10,
+              176,
+              107,
+              46,
+              22,
+              236,
+              14,
+              227,
+              217,
+              234,
+              32,
+              224,
+              88,
+              101,
+              39,
+              181,
+              198,
+              209,
+              226,
+              46,
+              182,
+              115,
+              39,
+              198,
+              97,
+              63,
+              170,
+              139,
+              65,
+              23,
+              172
+            ],
+            "parameters": {
+              "channels": "stereo",
+              "chunk_frames": 64,
+              "drain_zero_calls": 33,
+              "explicit_pre_scaling_cutoff": 0.9844619631767273,
+              "filter_length": 1024,
+              "guard_time_numerator": 1,
+              "input_rate": 48000,
+              "library_max_relative_ratio": 1.001001001001001,
+              "max_output_frames": 69,
+              "output_rate": 44100,
+              "phases": 256,
+              "pre_scaling_cutoff": 0.9844619631767273,
+              "preset": "quality",
+              "resources": {
+                "preparation_peak_bytes": 6311672,
+                "resident_bytes": 2149170
+              }
+            },
+            "truncated_library_output_delay_frames": null
+          },
+          "original_nodes": [
+            "down"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 44100
+          },
+          "output_peak_bounds": [
+            3.9629039477340915,
+            3.9629039477340915
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 44100
+          },
+          "input_peak_bounds": [
+            3.9629039477340915,
+            3.9629039477340915
+          ],
+          "kind": {
+            "coefficient_fingerprint": [
+              84,
+              39,
+              170,
+              1,
+              7,
+              140,
+              166,
+              183,
+              59,
+              221,
+              159,
+              194,
+              144,
+              7,
+              130,
+              81,
+              181,
+              11,
+              35,
+              142,
+              118,
+              0,
+              27,
+              168,
+              51,
+              175,
+              234,
+              241,
+              214,
+              64,
+              245,
+              118
+            ],
+            "guard_time_denominator": 44100,
+            "kind": "src",
+            "maximum_adapter_finish_output_frames": 2800,
+            "parameter_fingerprint": [
+              222,
+              162,
+              114,
+              237,
+              53,
+              96,
+              200,
+              103,
+              46,
+              190,
+              107,
+              253,
+              198,
+              186,
+              56,
+              126,
+              32,
+              138,
+              232,
+              128,
+              62,
+              36,
+              98,
+              42,
+              142,
+              244,
+              58,
+              194,
+              163,
+              98,
+              246,
+              111
+            ],
+            "parameters": {
+              "channels": "stereo",
+              "chunk_frames": 64,
+              "drain_zero_calls": 33,
+              "explicit_pre_scaling_cutoff": null,
+              "filter_length": 1024,
+              "guard_time_numerator": 1,
+              "input_rate": 44100,
+              "library_max_relative_ratio": 1.001001001001001,
+              "max_output_frames": 80,
+              "output_rate": 48000,
+              "phases": 256,
+              "pre_scaling_cutoff": 0.9866363406181335,
+              "preset": "quality",
+              "resources": {
+                "preparation_peak_bytes": 6311848,
+                "resident_bytes": 2149346
+              }
+            },
+            "truncated_library_output_delay_frames": null
+          },
+          "original_nodes": [
+            "up"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            17.965699777694013,
+            17.965699777694013
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            17.965699777694013,
+            17.965699777694013
+          ],
+          "kind": {
+            "bounded_iir_truncation": true,
+            "emitted_tail_frames": 2102,
+            "kernel_hash": "ae95a1693845b5fa6cb9e527e9e367cadc624750922dfe2b30f31e324751a7d0",
+            "kind": "island",
+            "local_latency_frames": 256,
+            "terminal_output_bounds": [
+              2.2340252225527347e-13,
+              2.2340252225527347e-13
+            ]
+          },
+          "original_nodes": [
+            "fir",
+            "peq0",
+            "peq1",
+            "peq2",
+            "peq3",
+            "output"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            109.64329804403629,
+            109.64329804403629
+          ]
+        }
+      ],
+      "resources": {
+        "bridge_bytes": 8960,
+        "preparation_peak_bytes": 14975530,
+        "replay_frames": 320,
+        "resident_bytes": 10812420
+      },
+      "source_packet_sha256": "638edde90237dda50c3ad2f2b14e10eb0b4eab100452c717b58a2b442c62209b",
+      "cold_priming_ns": 427501,
+      "before_measurement": {
+        "source_accepted_frames": 262336,
+        "generated_frames": 262263,
+        "submitted_frames": 262208
+      },
+      "after_measurement": {
+        "source_accepted_frames": 6662336,
+        "generated_frames": 6662263,
+        "submitted_frames": 6662208
+      },
+      "summary": {
+        "minimum_ns": 64089,
+        "p50_ns": 146573,
+        "p95_ns": 232235,
+        "p99_ns": 302087,
+        "p999_ns": 406106,
+        "maximum_ns": 749764,
+        "total_ns": 15991129552,
+        "deadline_misses": 0,
+        "margin_pass": true
+      },
+      "csv": {
+        "path": "quality_roundtrip_correction_q64.csv",
+        "bytes": 2381583,
+        "sha256": "71e31a8c0409aebdc043c860d39b77c2eebef476bf547383b2805ad0a9cd996e"
+      },
+      "finish": {
+        "terminal": true,
+        "source_accepted_frames": 6662336,
+        "generated_frames": 6668966,
+        "submitted_frames": 6668966,
+        "saturation_count": 0,
+        "tail_calls": 212,
+        "tail_elapsed_ns": 9019683
+      },
+      "output_checksum": 11415189618498807359
+    },
+    {
+      "name": "quality_roundtrip_correction_q256",
+      "workload": "quality_roundtrip_correction",
+      "quantum": 256,
+      "measured_count": 100000,
+      "warmup_count": 4096,
+      "graph": {
+        "schema_version": 1,
+        "nodes": [
+          {
+            "id": "input",
+            "kind": {
+              "kind": "input"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "down",
+            "kind": {
+              "kind": "src",
+              "input_rate_hz": 48000,
+              "preset": "quality",
+              "chunk_frames": 256
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 44100,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "up",
+            "kind": {
+              "kind": "src",
+              "input_rate_hz": 44100,
+              "preset": "quality",
+              "chunk_frames": 256
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "fir",
+            "kind": {
+              "kind": "convolution",
+              "asset": {
+                "sha256": "2236345089cd206c57b4f67a94f0db3c923d1c1253851c4f2a7840e52bc1b9bc",
+                "sample_rate_hz": 48000,
+                "channels": "stereo",
+                "taps_per_channel": 1024,
+                "purpose": "correction"
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq0",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 1250.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq1",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 2000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq2",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 3150.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "peq3",
+            "kind": {
+              "kind": "peq",
+              "filter": {
+                "kind": "peaking",
+                "frequency_hz": 5000.0,
+                "q": 0.707,
+                "gain_db": -3.0
+              }
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          },
+          {
+            "id": "output",
+            "kind": {
+              "kind": "output"
+            },
+            "format": {
+              "domain": "pcm",
+              "sample_rate_hz": 48000,
+              "channels": "stereo",
+              "precision": "float64",
+              "max_quantum_frames": 512
+            }
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "down",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "down",
+            "to": "up",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "up",
+            "to": "fir",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "fir",
+            "to": "peq0",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq0",
+            "to": "peq1",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq1",
+            "to": "peq2",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq2",
+            "to": "peq3",
+            "from_port": 0,
+            "to_port": 0
+          },
+          {
+            "from": "peq3",
+            "to": "output",
+            "from_port": 0,
+            "to_port": 0
+          }
+        ],
+        "output": "output"
+      },
+      "graph_hash": "8abdbea54e97b545cd2e39c04b3b9a3abf2ed1bf7bd024e1fa3620a7caf72f7b",
+      "implementation_version": "earph-dsp/0.1.0/serial-rate-compiler-1",
+      "stage_metadata": [
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            1.0,
+            1.0
+          ],
+          "kind": {
+            "bounded_iir_truncation": false,
+            "emitted_tail_frames": 0,
+            "kernel_hash": "3220248fc5ef61c8552a012fe890c653eddab7ecb4ff7b0e468ab8fabcbae729",
+            "kind": "island",
+            "local_latency_frames": 0,
+            "terminal_output_bounds": [
+              0.0,
+              0.0
+            ]
+          },
+          "original_nodes": [
+            "input"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            1.0,
+            1.0
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            1.0,
+            1.0
+          ],
+          "kind": {
+            "coefficient_fingerprint": [
+              11,
+              216,
+              201,
+              202,
+              109,
+              223,
+              243,
+              120,
+              43,
+              38,
+              117,
+              37,
+              46,
+              45,
+              252,
+              189,
+              221,
+              215,
+              175,
+              28,
+              16,
+              50,
+              94,
+              111,
+              18,
+              48,
+              208,
+              140,
+              229,
+              62,
+              156,
+              165
+            ],
+            "guard_time_denominator": 48000,
+            "kind": "src",
+            "maximum_adapter_finish_output_frames": 2706,
+            "parameter_fingerprint": [
+              6,
+              122,
+              125,
+              51,
+              24,
+              218,
+              195,
+              44,
+              167,
+              30,
+              222,
+              90,
+              241,
+              131,
+              23,
+              184,
+              14,
+              208,
+              245,
+              33,
+              69,
+              71,
+              95,
+              164,
+              53,
+              163,
+              138,
+              218,
+              31,
+              218,
+              151,
+              96
+            ],
+            "parameters": {
+              "channels": "stereo",
+              "chunk_frames": 256,
+              "drain_zero_calls": 9,
+              "explicit_pre_scaling_cutoff": 0.9844619631767273,
+              "filter_length": 1024,
+              "guard_time_numerator": 1,
+              "input_rate": 48000,
+              "library_max_relative_ratio": 1.001001001001001,
+              "max_output_frames": 246,
+              "output_rate": 44100,
+              "phases": 256,
+              "pre_scaling_cutoff": 0.9844619631767273,
+              "preset": "quality",
+              "resources": {
+                "preparation_peak_bytes": 6317576,
+                "resident_bytes": 2158146
+              }
+            },
+            "truncated_library_output_delay_frames": null
+          },
+          "original_nodes": [
+            "down"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 44100
+          },
+          "output_peak_bounds": [
+            3.9629039477340915,
+            3.9629039477340915
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 44100
+          },
+          "input_peak_bounds": [
+            3.9629039477340915,
+            3.9629039477340915
+          ],
+          "kind": {
+            "coefficient_fingerprint": [
+              84,
+              39,
+              170,
+              1,
+              7,
+              140,
+              166,
+              183,
+              59,
+              221,
+              159,
+              194,
+              144,
+              7,
+              130,
+              81,
+              181,
+              11,
+              35,
+              142,
+              118,
+              0,
+              27,
+              168,
+              51,
+              175,
+              234,
+              241,
+              214,
+              64,
+              245,
+              118
+            ],
+            "guard_time_denominator": 44100,
+            "kind": "src",
+            "maximum_adapter_finish_output_frames": 3179,
+            "parameter_fingerprint": [
+              119,
+              79,
+              255,
+              58,
+              205,
+              116,
+              151,
+              237,
+              205,
+              62,
+              97,
+              68,
+              220,
+              191,
+              168,
+              250,
+              101,
+              48,
+              40,
+              32,
+              80,
+              157,
+              41,
+              146,
+              75,
+              134,
+              210,
+              115,
+              23,
+              54,
+              92,
+              131
+            ],
+            "parameters": {
+              "channels": "stereo",
+              "chunk_frames": 256,
+              "drain_zero_calls": 9,
+              "explicit_pre_scaling_cutoff": null,
+              "filter_length": 1024,
+              "guard_time_numerator": 1,
+              "input_rate": 44100,
+              "library_max_relative_ratio": 1.001001001001001,
+              "max_output_frames": 289,
+              "output_rate": 48000,
+              "phases": 256,
+              "pre_scaling_cutoff": 0.9866363406181335,
+              "preset": "quality",
+              "resources": {
+                "preparation_peak_bytes": 6318264,
+                "resident_bytes": 2158834
+              }
+            },
+            "truncated_library_output_delay_frames": null
+          },
+          "original_nodes": [
+            "up"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            17.965699777694013,
+            17.965699777694013
+          ]
+        },
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            17.965699777694013,
+            17.965699777694013
+          ],
+          "kind": {
+            "bounded_iir_truncation": true,
+            "emitted_tail_frames": 2102,
+            "kernel_hash": "0801caf4e14c2765fbf9eaa1fe03c5bb754c47c4444a8033c0cfb1c5343d1b21",
+            "kind": "island",
+            "local_latency_frames": 256,
+            "terminal_output_bounds": [
+              2.2340252225527347e-13,
+              2.2340252225527347e-13
+            ]
+          },
+          "original_nodes": [
+            "fir",
+            "peq0",
+            "peq1",
+            "peq2",
+            "peq3",
+            "output"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            109.64329804403629,
+            109.64329804403629
+          ]
+        }
+      ],
+      "resources": {
+        "bridge_bytes": 33536,
+        "preparation_peak_bytes": 15104810,
+        "replay_frames": 1280,
+        "resident_bytes": 10944772
+      },
+      "source_packet_sha256": "127d1e7e1d38218d45439d3080bb757d9c10c0a8224a4ce64399864fef610888",
+      "cold_priming_ns": 1103670,
+      "before_measurement": {
+        "source_accepted_frames": 1049344,
+        "generated_frames": 1049063,
+        "submitted_frames": 1048832
+      },
+      "after_measurement": {
+        "source_accepted_frames": 26649344,
+        "generated_frames": 26649063,
+        "submitted_frames": 26648832
+      },
+      "summary": {
+        "minimum_ns": 254107,
+        "p50_ns": 632727,
+        "p95_ns": 836882,
+        "p99_ns": 1012375,
+        "p999_ns": 1262943,
+        "maximum_ns": 2457085,
+        "total_ns": 63341131210,
+        "deadline_misses": 0,
+        "margin_pass": true
+      },
+      "csv": {
+        "path": "quality_roundtrip_correction_q256.csv",
+        "bytes": 2690124,
+        "sha256": "defe7fd7e5e545f8b408922c39a90c67a81e6529b86b2f9334ab0f3f12a7eb94"
+      },
+      "finish": {
+        "terminal": true,
+        "source_accepted_frames": 26649344,
+        "generated_frames": 26656750,
+        "submitted_frames": 26656750,
+        "saturation_count": 0,
+        "tail_calls": 64,
+        "tail_elapsed_ns": 10843320
+      },
+      "output_checksum": 6370695922955838705
+    }
+  ]
+}

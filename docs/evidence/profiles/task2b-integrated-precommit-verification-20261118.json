@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "Task2b correction imports integrated with reviewed PR3 fixes",
+  "parents": [
+    "757d41c1caa4671ffae59198ca6c8be486dae888",
+    "296b4c5fa5e7040e2484048f67c801f0f1b1d91a"
+  ],
+  "source_dirty": true,
+  "source_files": 1563,
+  "source_manifest_sha256": "f4efffd7b156efe4f434d431ce49a14eac55cd5a901c371d57f453e875f3a000",
+  "runtime_source_sha256": "4beb4d22733e5108ad6e713bb71ac8d11680e76b26a9efb5be78a30000fb738b",
+  "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+  "canonical": {
+    "schema_version": 1,
+    "status": "pass",
+    "command": "scripts/check",
+    "child_pid": 4101579,
+    "child_exit_code": 0,
+    "child_signal": null,
+    "wrapper_signal": null,
+    "source_manifest_sha256": "f4efffd7b156efe4f434d431ce49a14eac55cd5a901c371d57f453e875f3a000",
+    "source_mismatches": [],
+    "log_sha256": "a138d4d1b8920e34cbff9278d2eab974e080eb9702cf72fb16783a79d6df250d",
+    "passed": 701,
+    "failed": 0,
+    "ignored": 4,
+    "compiler_warnings_or_errors": [],
+    "final_log_line": "{\"status\":\"pass\"}"
+  },
+  "independent_review_sha256": "544e3b3e823d87d29cdc15af2f13a420ca508bab5cb812b0e14666512bd9e883",
+  "independent_review_source_manifest_sha256": "a0ac5d8d781f1083511b5e7231e28d2fe80bd1bbfad66943c3f31229d45c013e",
+  "integration": {
+    "shared_bounded_report_writer": true,
+    "fir_owner_forwarding_preserved": true,
+    "fir_import_shared_owner_lock": true,
+    "parent_test_coverage_preserved": true,
+    "identical_history_test_copies_consolidated": 2
+  },
+  "limits": [
+    "Dirty precommit merge snapshot; original source-bound platform receipts remain separate.",
+    "The first integration check failed E0428 on an identical duplicate test; its source and failed receipt remain preserved.",
+    "No new Mac, native device, hardware, DAC, acoustic, or power-loss qualification occurred in this integration check.",
+    "Task3a profile application commit24e9970 remains isolated and is not included."
+  ]
+}

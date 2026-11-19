@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "verified_on": "2026-11-18",
+  "scope": "precommit_dirty_macos_native_diagnostic_compile_and_silent_sdk_gate",
+  "build": {
+    "commit": "7594910b4ae644ccfbde0ad1b306879bc311a5b9",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "cbb855b17e5448132b87889e1d46d5b4163b03821487c23ab020bc540569c7ea",
+    "target": "aarch64-apple-darwin"
+  },
+  "snapshot": {
+    "kind": "reviewed_uncommitted_working_tree_patch",
+    "baseline_commit": "7594910b4ae644ccfbde0ad1b306879bc311a5b9",
+    "patch_sha256": "5481c46f50bd0ebda48f9258260aaa4b22fbcebb434c718a356fc0f195a22f7e",
+    "reviewed_manifest_sha256": "be3a4daa2a0b115bc4cd712a6d427a1fb15dda630fbe5b28e97c81480bc6d9d0",
+    "full_snapshot_manifest_sha256": "0052d5d714fa4c9e437bf5fd826dcd5b2bbe5f6153124ee36624fab4c1e2e785",
+    "baseline_archive_sha256": "4e6d07f39e5e6c833b0aaf1d2b5f6fdad1fd20b2be917d9f96349014dbedff90",
+    "files_verified": 1525,
+    "baseline_files_verified": 1523,
+    "runtime_inputs": 95,
+    "source_manifest_verifications": 7,
+    "reviewed_file_and_lock_checks": 9,
+    "reviewed_patch_paths": [
+      "crates/earph-coreaudio/src/playback.rs",
+      "crates/earph-coreaudio/src/playback/fault.rs",
+      "crates/earph-coreaudio/src/playback/native.rs",
+      "crates/earph-coreaudio/src/playback/native/tests.rs",
+      "crates/earph-coreaudio/src/playback/tests.rs",
+      "crates/earph-engine/src/output/coreaudio.rs",
+      "crates/earph-engine/src/output/coreaudio/native.rs",
+      "docs/superpowers/plans/2026-11-18-coreaudio-fault-diagnostics.md"
+    ]
+  },
+  "checks": {
+    "lib_compilation_exit": 0,
+    "coreaudio_lib": {
+      "passed": 26,
+      "failed": 0,
+      "ignored": 0
+    },
+    "engine_native_fault_diagnostic": {
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    "silent_sdk": {
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    "strict_clippy": {
+      "packages": [
+        "earph-coreaudio",
+        "earph-engine"
+      ],
+      "all_targets": true,
+      "warnings": 0,
+      "exit": 0
+    }
+  },
+  "direct_execution_bindings": [
+    {
+      "name": "earph_coreaudio",
+      "binary_sha256_before": "e04cc1df4f53aba6679973b3efea11613e3dbc954c090a10958b2f51455bd4e0",
+      "binary_sha256_after": "e04cc1df4f53aba6679973b3efea11613e3dbc954c090a10958b2f51455bd4e0",
+      "exit": 0,
+      "counts": [
+        [
+          26,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "earph_engine",
+      "binary_sha256_before": "b6a6a9d742434bef0e6a25bc24f53a9bc7f77098f1ed10ccf151e36ad21ea9bc",
+      "binary_sha256_after": "b6a6a9d742434bef0e6a25bc24f53a9bc7f77098f1ed10ccf151e36ad21ea9bc",
+      "exit": 0,
+      "counts": [
+        [
+          2,
+          0,
+          0
+        ]
+      ]
+    }
+  ],
+  "sdk_cli_executable_sha256": "89daebbe29fe90fe5f9bab3cab0287d16c5629f5a42fcd5518e1b8d4588939d8",
+  "log_sha256": {
+    "lib-build": "0c329be3b6f8090f22b2f01a79241ddfafe958ed13cf7631d680e5b62e219e6c",
+    "coreaudio-lib": "1262e496cbd905cf56824e350ce56ef5b1f04ab9e7966da7377d84574480e746",
+    "engine-json": "e22354ae440c13b76d93025a79f41c9ff0ced58ed015ed73491d744f8665f620",
+    "silent-sdk": "17ec2bd74aee77ede26b3b88d92b6662ebf65903feaefac507941b208acf654d",
+    "targeted-clippy": "64ea2e0b0d6f9aca214393990b2f472463b2df4c494ce0dd691db508c560ca4f",
+    "coreaudio-lib-direct": "9c67dcc9c808866f02b622dd83fe093619760f268a562f6af67a18c7279f1b0b",
+    "engine-json-direct": "cfdfad9622a7bf49a77fd5d19f85e6991e938861f3daac6a0603c2ccd7656383"
+  },
+  "tooling_note": {
+    "initial_wrapper_exit": 1,
+    "issue": "The initial Engine test-binary hash changed during logged controlled Cargo recompilation",
+    "resolution": "Retained both hashes and directly reran both final test executables with identical hashes before and after execution",
+    "direct_tests_overlap_prior_counts": true
+  },
+  "signal_attempts": 0,
+  "physical_output_starts": 0,
+  "cpu_qualification_runs": 0,
+  "silent_scope": "SDK tests can queue never-started rings and request denied starts; lib tests directly invoke isolated callbacks without physical output",
+  "diagnostic_slot_payload_bytes": 524288,
+  "diagnostic_slots": 65536,
+  "diagnostic_slot_bytes": 8,
+  "metadata_scope": "Static slot payload only; excludes arena counter, other metadata, audio storage and RSS",
+  "historical_physical_fault_cause_confirmed": false,
+  "throughput_fix_claimed": false,
+  "clean_commit_or_release_qualified": false,
+  "limitations": [
+    "This is a reviewed uncommitted patch on baseline 7594910; embedded source_dirty is true",
+    "The consumed failed 2396 hardware attempt remains historical and was not retried",
+    "No physical signal, native deadline, running replay, throughput, CPU deadline, DAC or acoustic qualification",
+    "Other progress counters remain current observations, not an atomic first-fault cursor snapshot"
+  ],
+  "evidence_artifacts_verified": 60,
+  "evidence_archive_sha256": "82dcb3b2ab229b5b2e4ba547a3f655f8bd09c2b55f668113304f6c08401157ef",
+  "evidence_manifest_sha256": "005df417931cd5ac68e6b8427092195e59c9dfb1a4d724f90d10c2d95f46da97"
+}

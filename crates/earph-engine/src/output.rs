@@ -19,8 +19,10 @@ pub(crate) struct Counters {
     pub basis: &'static str,
 }
 pub(crate) trait Output {
+    /// Actual Rust-owned adapter audio capacity; excludes metadata and opaque native storage.
+    fn audio_storage_bytes(&self) -> Result<u64, EngineError>;
     fn is_running(&self) -> bool;
-    fn observation(&self) -> BackendObservation;
+    fn observation(&self) -> Result<BackendObservation, EngineError>;
     fn write(
         &mut self,
         block: &PcmBlock,
@@ -62,7 +64,7 @@ pub(crate) fn open(
             epochs,
         )
         .map_err(error)?;
-        Ok(Box::new(output))
+        verified_output(output)
     }
     #[cfg(target_os = "macos")]
     {
@@ -72,9 +74,7 @@ pub(crate) fn open(
                 "selected output backend is unavailable on this host",
             ));
         }
-        Ok(Box::new(coreaudio::NativeOutput::open(
-            config, format, epochs,
-        )?))
+        verified_output(coreaudio::NativeOutput::open(config, format, epochs)?)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
@@ -84,6 +84,13 @@ pub(crate) fn open(
             "local playback output is not implemented on this host",
         ))
     }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn verified_output(output: impl Output + 'static) -> Result<Box<dyn Output>, EngineError> {
+    // Validate actual storage accounting before transferring native output ownership.
+    output.audio_storage_bytes()?;
+    Ok(Box::new(output))
 }
 
 #[cfg(target_os = "linux")]
@@ -111,20 +118,24 @@ fn counters(progress: earph_alsa::OutputProgress) -> Counters {
 }
 #[cfg(target_os = "linux")]
 impl Output for earph_alsa::AlsaOutput {
+    fn audio_storage_bytes(&self) -> Result<u64, EngineError> {
+        earph_alsa::AlsaOutput::audio_storage_bytes(self).map_err(error)
+    }
     fn is_running(&self) -> bool {
         self.state() == earph_alsa::OutputState::Running
     }
-    fn observation(&self) -> BackendObservation {
+    fn observation(&self) -> Result<BackendObservation, EngineError> {
         let report = self.report();
         let format = ObservedStreamFormat::from(report.observed.format);
-        BackendObservation {
+        Ok(BackendObservation {
             backend: OutputBackend::Alsa,
+            audio_storage_bytes: self.audio_storage_bytes().map_err(error)?,
             client_format: format.clone(),
             device_format: (report.requested.route == earph_alsa::Route::DirectHardware)
                 .then_some(format),
             measurement_boundary: "alsa_client_negotiation",
             preservation: PreservationState::Unverified,
-        }
+        })
     }
     fn write(
         &mut self,
@@ -171,6 +182,31 @@ impl Output for earph_alsa::AlsaOutput {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+    #[test]
+    fn output_trait_reports_actual_alsa_scratch_after_stop() {
+        use earph_core::{
+            audio::{ChannelLayout, PcmRepresentation},
+            ids::{DeviceId, ProfileId},
+            safety::{FidelityPolicy, VolumeMode},
+        };
+        let config = OutputConfiguration {
+            backend: OutputBackend::Alsa,
+            route: OutputRoute::System,
+            endpoint: "null".into(),
+            device_id: DeviceId::new("null").unwrap(),
+            profile_id: ProfileId::new("owned-null").unwrap(),
+            period_frames: 64,
+            buffer_frames: 256,
+            volume_mode: VolumeMode::Software,
+            fidelity: FidelityPolicy::CompatibleConversion,
+        };
+        let format =
+            PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed24).unwrap();
+        let mut output = open(&config, format, Epochs::default()).unwrap();
+        assert_eq!(output.audio_storage_bytes().unwrap(), 384);
+        output.stop().unwrap();
+        assert_eq!(output.audio_storage_bytes().unwrap(), 384);
+    }
     #[test]
     fn unwritable_diagnostics_preserve_original_backend_error() {
         let name = "output::tests::unwritable_diagnostics_preserve_original_backend_error";

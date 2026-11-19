@@ -851,8 +851,13 @@ mod tests {
             processing_input_format: float,
             processing_output_format: float,
             quantum_frames: 64,
-            latency_frames: 0,
-            tail_frames: 0,
+            timing: GraphTiming::SameRate {
+                latency_frames: 0,
+                tail_frames: 0,
+                tail_policy: crate::graph_control::GraphTailPolicy::AuthoredFiniteSupport,
+                terminal_output_bounds: vec![0.0; 2],
+                node_tails: vec![],
+            },
             preservation: PreservationDecision::ProcessFloat64,
             transformations: vec![],
             resources: GraphResidentUsage::default(),
@@ -1750,12 +1755,16 @@ mod tests {
         observation.source_position_frames = 37;
         observation.audible_source_position_frames = Some(31);
         observation.processing = Some(PlaybackProcessingObservation {
+            streaming: None,
+            source_boundary: None,
             graph_hash: p.preview.graph_hash.clone(),
             resident_bytes: 123,
-            audio_payload_bytes: 64,
+            audio_payload_bytes: Some(64),
             failure_node: None,
-            latency_frames: 6,
-            tail_frames: 6,
+            timing: PlaybackTiming::SameRate {
+                latency_frames: 6,
+                tail_frames: 6,
+            },
             saturation_count: 0,
             graph_peak: None,
             prequantization_peak: None,

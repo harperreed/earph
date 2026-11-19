@@ -1,0 +1,93 @@
+{
+  "status": "pass",
+  "scope": "Prepared software rendering includes conversion, DSP, gain, quantization, output witnesses, and streaming replay ledger work. It excludes decoding, worker scheduling, native I/O, callbacks, driver queues, and acoustic output. Streaming acknowledgments are harness ledger actions.",
+  "commit": "7594910b4ae644ccfbde0ad1b306879bc311a5b9",
+  "runtime_source_sha256": "7594a1440a436d19f7b3c9e6ab8fca923b3b14b74ee50b35bef8698d1411ba3e",
+  "receipt_sha256": "0267828d6d134087ec9d63ebeabd0b5511fb9afb7ba981239234283306a14f61",
+  "raw_rows": 1000000,
+  "raw_csv_bytes": 24324543,
+  "cases": [
+    {
+      "name": "same_rate_gain_q64",
+      "quantum": 64,
+      "p999_ns": 25764,
+      "p999_period_percent": 1.9323,
+      "maximum_ns": 72724,
+      "deadline_misses": 0
+    },
+    {
+      "name": "same_rate_gain_q256",
+      "quantum": 256,
+      "p999_ns": 43769,
+      "p999_period_percent": 0.82066875,
+      "maximum_ns": 115610,
+      "deadline_misses": 0
+    },
+    {
+      "name": "same_rate_peq10_q64",
+      "quantum": 64,
+      "p999_ns": 34542,
+      "p999_period_percent": 2.59065,
+      "maximum_ns": 83208,
+      "deadline_misses": 0
+    },
+    {
+      "name": "same_rate_peq10_q256",
+      "quantum": 256,
+      "p999_ns": 87768,
+      "p999_period_percent": 1.64565,
+      "maximum_ns": 293000,
+      "deadline_misses": 0
+    },
+    {
+      "name": "same_rate_fir4096_q64",
+      "quantum": 64,
+      "p999_ns": 127862,
+      "p999_period_percent": 9.58965,
+      "maximum_ns": 269335,
+      "deadline_misses": 0
+    },
+    {
+      "name": "same_rate_fir4096_q256",
+      "quantum": 256,
+      "p999_ns": 176462,
+      "p999_period_percent": 3.3086625,
+      "maximum_ns": 369645,
+      "deadline_misses": 0
+    },
+    {
+      "name": "responsive_roundtrip_correction_q64",
+      "quantum": 64,
+      "p999_ns": 186390,
+      "p999_period_percent": 13.97925,
+      "maximum_ns": 340028,
+      "deadline_misses": 0
+    },
+    {
+      "name": "responsive_roundtrip_correction_q256",
+      "quantum": 256,
+      "p999_ns": 493480,
+      "p999_period_percent": 9.25275,
+      "maximum_ns": 1523118,
+      "deadline_misses": 0
+    },
+    {
+      "name": "quality_roundtrip_correction_q64",
+      "quantum": 64,
+      "p999_ns": 406106,
+      "p999_period_percent": 30.45795,
+      "maximum_ns": 749764,
+      "deadline_misses": 0
+    },
+    {
+      "name": "quality_roundtrip_correction_q256",
+      "quantum": 256,
+      "p999_ns": 1262943,
+      "p999_period_percent": 23.68018125,
+      "maximum_ns": 2457085,
+      "deadline_misses": 0
+    }
+  ],
+  "worst_p999_period_percent": 30.45795,
+  "total_deadline_misses": 0
+}

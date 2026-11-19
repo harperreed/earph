@@ -1,0 +1,17 @@
+{
+  "status": "verified_failure",
+  "qualification_status": "fail",
+  "commit": "2396efb38789038b20c2727afe8bc58409580be9",
+  "raw_files": 184,
+  "held_files_unchanged": 145,
+  "source_files": 1521,
+  "source_phases": 14,
+  "signal_attempts": 1,
+  "accepted_source_frames": 4095,
+  "generated_output_frames": 3132,
+  "producer_ring_writes": 2993,
+  "native_fault_cause": null,
+  "owner_exit_code": null,
+  "final_resource_counters": null,
+  "receipt_sha256": "48fee32b5b1a7edf7d1e4475be1dd48c74782ab984ba089efe2a72e9f1a2d579"
+}

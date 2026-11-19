@@ -52,6 +52,83 @@ fn observed(format: &StreamFormat) -> ObservedStreamFormat {
     }
 }
 
+const FAULT_DIAGNOSTICS: usize = 32;
+struct FaultReporter {
+    sender: std::sync::OnceLock<std::sync::mpsc::SyncSender<FaultDiagnostic>>,
+    initialization: std::sync::Mutex<()>,
+}
+impl FaultReporter {
+    const fn new() -> Self {
+        Self {
+            sender: std::sync::OnceLock::new(),
+            initialization: std::sync::Mutex::new(()),
+        }
+    }
+    fn get(&self) -> Option<&std::sync::mpsc::SyncSender<FaultDiagnostic>> {
+        self.sender.get()
+    }
+    fn get_or_start(
+        &self,
+        start: impl FnOnce() -> std::io::Result<std::sync::mpsc::SyncSender<FaultDiagnostic>>,
+    ) -> std::io::Result<&std::sync::mpsc::SyncSender<FaultDiagnostic>> {
+        if let Some(sender) = self.get() {
+            return Ok(sender);
+        }
+        let _initialization = self
+            .initialization
+            .lock()
+            .map_err(|_| std::io::Error::other("native diagnostics initialization lock failed"))?;
+        if let Some(sender) = self.get() {
+            return Ok(sender);
+        }
+        let sender = start()?;
+        Ok(self.sender.get_or_init(|| sender))
+    }
+}
+#[derive(Debug, Clone, Copy)]
+struct FaultDiagnostic {
+    operation: &'static str,
+    error: Option<earph_coreaudio::CoreAudioError>,
+    progress: Option<earph_coreaudio::OutputProgress>,
+}
+fn spawn_fault_reporter(
+    mut writer: impl std::io::Write + Send + 'static,
+) -> std::io::Result<std::sync::mpsc::SyncSender<FaultDiagnostic>> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<FaultDiagnostic>(FAULT_DIAGNOSTICS);
+    // This process-owned writer may block on stderr. Playback never waits for it or joins it.
+    std::thread::Builder::new()
+        .name("earph-native-diagnostics".into())
+        .spawn(move || {
+            for record in receiver {
+                if write_fault_diagnostic(
+                    &mut writer,
+                    record.operation,
+                    record.error,
+                    record.progress,
+                )
+                .is_err()
+                {
+                    break;
+                }
+            }
+        })?;
+    Ok(sender)
+}
+
+fn write_fault_diagnostic(
+    writer: &mut impl std::io::Write,
+    operation: &'static str,
+    error: Option<earph_coreaudio::CoreAudioError>,
+    progress: Option<earph_coreaudio::OutputProgress>,
+) -> std::io::Result<()> {
+    let record = serde_json::json!({"backend_fault": {
+        "backend":"core_audio", "operation":operation, "error":error, "progress":progress,
+    }});
+    let mut bytes = serde_json::to_vec(&record).map_err(std::io::Error::other)?;
+    bytes.push(b'\n');
+    writer.write_all(&bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,6 +137,92 @@ mod tests {
         ids::{DeviceId, ProfileId},
         safety::{FidelityPolicy, VolumeMode},
     };
+    #[test]
+    fn reporter_recovers_after_start_failure_and_keeps_its_successful_writer() {
+        use std::{io::Read, os::unix::net::UnixStream};
+        let reporter = FaultReporter::new();
+        assert!(
+            reporter
+                .get_or_start(|| Err(std::io::Error::other("controlled start failure")))
+                .is_err()
+        );
+        assert!(reporter.get().is_none());
+        let (writer, mut reader) = UnixStream::pair().unwrap();
+        reader
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let sender = reporter
+            .get_or_start(|| spawn_fault_reporter(writer))
+            .unwrap();
+        sender
+            .try_send(FaultDiagnostic {
+                operation: "recovered",
+                error: None,
+                progress: None,
+            })
+            .unwrap();
+        assert!(reporter.get().is_some());
+        reporter
+            .get_or_start(|| panic!("successful reporter must be retained"))
+            .unwrap();
+        drop(reporter);
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["backend_fault"]["operation"], "recovered");
+    }
+    #[test]
+    fn concurrent_reporter_start_owns_one_real_writer() {
+        use std::{
+            io::Read,
+            os::unix::net::UnixStream,
+            sync::{Arc, Mutex},
+        };
+        let reporter = Arc::new(FaultReporter::new());
+        let (writer, mut reader) = UnixStream::pair().unwrap();
+        reader
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let writer = Arc::new(Mutex::new(Some(writer)));
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let reporter = reporter.clone();
+                let writer = writer.clone();
+                std::thread::spawn(move || {
+                    let sender = reporter
+                        .get_or_start(|| {
+                            spawn_fault_reporter(
+                                writer.lock().unwrap().take().expect("writer started twice"),
+                            )
+                        })
+                        .unwrap();
+                    sender
+                        .try_send(FaultDiagnostic {
+                            operation: "concurrent",
+                            error: None,
+                            progress: None,
+                        })
+                        .unwrap();
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        drop(reporter);
+        let mut bytes = String::new();
+        reader.read_to_string(&mut bytes).unwrap();
+        let records: Vec<serde_json::Value> = bytes
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(records.len(), 8);
+        assert!(
+            records
+                .iter()
+                .all(|record| record["backend_fault"]["operation"] == "concurrent")
+        );
+    }
     fn config() -> OutputConfiguration {
         OutputConfiguration {
             backend: OutputBackend::CoreAudio,
@@ -138,5 +301,180 @@ mod tests {
             observed(&native).representation,
             ObservedSampleRepresentation::Unknown
         );
+    }
+
+    #[test]
+    fn blocked_fault_writer_cannot_block_bounded_diagnostic_submission() {
+        use std::io::{Read, Write};
+        use std::sync::mpsc;
+        struct ObservedWriter {
+            stream: std::os::unix::net::UnixStream,
+            entered: Option<mpsc::SyncSender<()>>,
+        }
+        impl Write for ObservedWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if let Some(entered) = self.entered.take() {
+                    entered.send(()).unwrap();
+                }
+                self.stream.write(bytes)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.stream.flush()
+            }
+        }
+        let (mut writer, mut reader) = std::os::unix::net::UnixStream::pair().unwrap();
+        writer.set_nonblocking(true).unwrap();
+        loop {
+            match writer.write(&[b'\n'; 8192]) {
+                Ok(count) => assert!(count > 0),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("diagnostic socket fill failed: {error}"),
+            }
+        }
+        writer.set_nonblocking(false).unwrap();
+        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+        let reporter = spawn_fault_reporter(ObservedWriter {
+            stream: writer,
+            entered: Some(entered_tx),
+        })
+        .unwrap();
+        let record = FaultDiagnostic {
+            operation: "write",
+            error: None,
+            progress: None,
+        };
+        reporter.try_send(record).unwrap();
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+        for _ in 0..FAULT_DIAGNOSTICS {
+            reporter.try_send(record).unwrap();
+        }
+        let full = reporter.try_send(record);
+        // Drain the real socket and wait for writer EOF before checking the bounded overflow.
+        drop(reporter);
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).unwrap();
+        assert!(matches!(full, Err(mpsc::TrySendError::Full(_))));
+        let records: Vec<serde_json::Value> = bytes
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice(line).unwrap())
+            .collect();
+        assert_eq!(records.len(), FAULT_DIAGNOSTICS + 1);
+        assert!(
+            records
+                .iter()
+                .all(|record| record["backend_fault"]["operation"] == "write")
+        );
+    }
+
+    #[test]
+    fn native_fault_diagnostic_retains_first_cause_and_actual_counter_boundaries() {
+        let progress = earph_coreaudio::OutputProgress {
+            state: earph_coreaudio::OutputState::Failed,
+            submitted_frames: 2993,
+            callback_delivered_frames: 2560,
+            queued_frames: 433,
+            callbacks_observed: 6,
+            measurement_boundary: "core_audio_ioproc_delivery",
+            audible_position_frames: None,
+            backend_delay_frames: None,
+            fault: true,
+            fault_detail: Some(earph_coreaudio::OutputFaultDetail {
+                reason: earph_coreaudio::OutputFaultReason::RingUnderrun,
+                requested_frames: Some(512),
+                queued_frames: Some(433),
+            }),
+        };
+        let failure = earph_coreaudio::CoreAudioError::new(
+            ErrorCode::OutputFault,
+            "output is terminal or finished; open a new stream explicitly",
+        );
+        let mut bytes = Vec::new();
+        write_fault_diagnostic(&mut bytes, "write", Some(failure), Some(progress)).unwrap();
+        let document: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let fault = &document["backend_fault"];
+        assert_eq!(fault["backend"], "core_audio");
+        assert_eq!(fault["operation"], "write");
+        assert_eq!(fault["error"]["code"], "OUTPUT_FAULT");
+        assert_eq!(fault["progress"]["fault_detail"]["reason"], "ring_underrun");
+        assert_eq!(fault["progress"]["fault_detail"]["requested_frames"], 512);
+        assert_eq!(fault["progress"]["fault_detail"]["queued_frames"], 433);
+        assert_eq!(fault["progress"]["submitted_frames"], 2993);
+        assert_eq!(fault["progress"]["callback_delivered_frames"], 2560);
+        assert!(fault["progress"]["audible_position_frames"].is_null());
+        assert!(!fault.as_object().unwrap().contains_key("device_uid"));
+        assert!(!fault.as_object().unwrap().contains_key("endpoint"));
+        assert_eq!(bytes.last(), Some(&b'\n'));
+    }
+
+    #[test]
+    fn native_fault_diagnostic_preserves_errors_without_an_open_output() {
+        let error = earph_coreaudio::CoreAudioError {
+            code: ErrorCode::OutputFault,
+            message: "native open failed",
+            os_status: Some(-50),
+        };
+        let mut bytes = Vec::new();
+        write_fault_diagnostic(&mut bytes, "open", Some(error), None).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["backend_fault"]["error"]["os_status"], -50);
+        assert!(value["backend_fault"]["progress"].is_null());
+        let (mut writer, peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        drop(peer);
+        assert!(write_fault_diagnostic(&mut writer, "open", Some(error), None).is_err());
+    }
+
+    #[test]
+    fn native_fault_diagnostic_keeps_stderr_records_separate() {
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "output::coreaudio::tests::native_fault_diagnostic_stderr_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .output()
+            .unwrap();
+        assert!(child.status.success(), "{child:?}");
+        let records: Vec<serde_json::Value> = child
+            .stderr
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                serde_json::from_slice(line).expect("stderr record must remain complete JSON")
+            })
+            .collect();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0]["backend_fault"]["operation"], "open");
+        assert_eq!(records[1]["other_writer"], true);
+    }
+
+    #[test]
+    #[ignore = "Runs only in the parent's isolated stderr subprocess"]
+    fn native_fault_diagnostic_stderr_child() {
+        use std::io::{self, Write};
+        struct InterleavedStderr {
+            wrote: bool,
+        }
+        impl Write for InterleavedStderr {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                let count = io::stderr().write(bytes)?;
+                // Schedule a real competing writer after the producer's first write.
+                if !self.wrote {
+                    self.wrote = true;
+                    std::thread::spawn(|| io::stderr().write_all(b"{\"other_writer\":true}\n"))
+                        .join()
+                        .unwrap()?;
+                }
+                Ok(count)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                io::stderr().flush()
+            }
+        }
+        write_fault_diagnostic(&mut InterleavedStderr { wrote: false }, "open", None, None)
+            .unwrap();
     }
 }

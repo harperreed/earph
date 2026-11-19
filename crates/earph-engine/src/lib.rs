@@ -1,14 +1,19 @@
 // ABOUTME: Hosts one authoritative engine behind private local IPC.
 // ABOUTME: Persists validated queue state before publishing command success.
 #![forbid(unsafe_code)]
+pub mod assets;
 mod directory;
 mod graph;
 mod host;
 mod ipc;
+pub mod offline_render;
 mod output;
+mod output_replay;
 mod plan;
+mod profiles;
 mod render;
 mod runtime;
+pub mod stream_render;
 mod transport;
 mod worker;
 
@@ -20,7 +25,7 @@ use earph_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{self, File, TryLockError},
+    fs::{self, TryLockError},
     os::unix::{
         fs::{FileTypeExt, MetadataExt, PermissionsExt},
         net::UnixListener,
@@ -42,7 +47,7 @@ struct Endpoint {
 }
 
 pub struct EngineOwner {
-    _lock: File,
+    _lock: runtime::OwnerLock,
     listener: UnixListener,
     runtime: PathBuf,
     token: String,
@@ -55,17 +60,18 @@ impl EngineOwner {
     }
     pub fn bind(runtime: &Path) -> Result<Self, EngineError> {
         let runtime = runtime::directory(runtime, true)?;
-        let lock = runtime::open_lock(&runtime.join("owner.lock"))?;
-        match lock.try_lock() {
-            Ok(()) => {}
-            Err(TryLockError::WouldBlock) => {
-                return Err(EngineError::new(
-                    ErrorCode::SourceBusy,
-                    "another local owner holds this runtime",
-                ));
-            }
-            Err(TryLockError::Error(_)) => return Err(runtime::IO),
-        }
+        let lock =
+            match runtime::OwnerLock::try_acquire(runtime::open_lock(&runtime.join("owner.lock"))?)
+            {
+                Ok(lock) => lock,
+                Err(TryLockError::WouldBlock) => {
+                    return Err(EngineError::new(
+                        ErrorCode::SourceBusy,
+                        "another local owner holds this runtime",
+                    ));
+                }
+                Err(TryLockError::Error(_)) => return Err(runtime::IO),
+            };
         let generation = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| runtime::IO)?
@@ -98,6 +104,8 @@ impl EngineOwner {
         };
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         session.enable_local_playback();
+        let records = profiles::restore(&runtime, session.profile_references())?;
+        session.restore_profile_records(records)?;
         let endpoint = serde_json::to_vec(&Endpoint {
             schema_version: 1,
             socket,

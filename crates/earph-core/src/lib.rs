@@ -3,10 +3,13 @@
 #![forbid(unsafe_code)]
 pub mod audio;
 pub mod control;
+pub mod dsp_nodes;
 pub mod gain;
 pub mod graph;
 pub mod graph_control;
 pub mod ids;
+pub mod profile_control;
+pub mod profiles;
 pub mod queue;
 pub mod safety;
 pub mod session;
