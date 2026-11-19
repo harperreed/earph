@@ -16,7 +16,9 @@
 
 - The build-input digest sorts Rust path components, rather than whole path strings.
   Match that order when recomputing it in another language; `output/` sorts before `output.rs`.
-  Keep the u64 little-endian length framing in [build provenance](crates/earph-harness/build.rs).
+  Keep the u64 little-endian length framing in [build provenance](build_support/provenance.rs).
+  The harness and Engine have separate declared input sets in that shared helper.
+  Update source-hash tools to read `HARNESS_INPUTS` there; preserve earlier tools with their original source evidence.
 
 - On the tested macOS 27.2.1 host, registrations sharing one callback and a null client context collide with HAL `nope`.
   Keep a unique owned context for each registration, including silent probes.

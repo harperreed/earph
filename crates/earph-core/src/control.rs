@@ -113,6 +113,13 @@ pub enum Command {
     SignalPathGet {},
     #[serde(rename = "metrics.get")]
     MetricsGet {},
+    #[serde(rename = "events.get")]
+    EventsGet {
+        #[serde(deserialize_with = "crate::serde_helpers::nullable")]
+        cursor: Option<crate::diagnostics::EventCursor>,
+    },
+    #[serde(rename = "diagnostics.preview")]
+    DiagnosticsPreview {},
     #[serde(rename = "devices.list")]
     DevicesList { backend: OutputBackend },
     #[serde(rename = "devices.inspect")]
@@ -324,12 +331,23 @@ impl Command {
                 | Self::State
                 | Self::SignalPathGet {}
                 | Self::MetricsGet {}
+                | Self::EventsGet { .. }
+                | Self::DiagnosticsPreview {}
                 | Self::QueueGet { .. }
                 | Self::SourcesGet { .. }
                 | Self::GraphInspect { .. }
                 | Self::ProfilesList { .. }
                 | Self::ProfilesGet { .. }
                 | Self::ProfilesResolve { .. }
+        )
+    }
+    pub fn is_diagnostic(&self) -> bool {
+        matches!(
+            self,
+            Self::SignalPathGet {}
+                | Self::MetricsGet {}
+                | Self::EventsGet { .. }
+                | Self::DiagnosticsPreview {}
         )
     }
 }
@@ -507,6 +525,8 @@ impl CommandEnvelope {
                 | Command::SourcesGet {}
                 | Command::SignalPathGet {}
                 | Command::MetricsGet {}
+                | Command::EventsGet { .. }
+                | Command::DiagnosticsPreview {}
         ) && [
             self.request_id.capacity_bytes(),
             self.zone_id.capacity_bytes(),
@@ -525,6 +545,16 @@ impl CommandEnvelope {
         }
         if self.payload.is_profile() {
             self.profile_capacity_bytes()?;
+        }
+        if let Command::EventsGet {
+            cursor: Some(cursor),
+        } = &self.payload
+            && cursor.owner_id.capacity_bytes() > 128
+        {
+            return Err(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "event cursor exceeds storage limit",
+            ));
         }
         match &self.payload {
             Command::SourceStageUri { uri, metadata } => {
@@ -623,6 +653,8 @@ pub enum ReceiptStatus {
 pub enum QueryResult {
     SignalPath(Arc<crate::diagnostics::SignalPathRead>),
     Metrics(Arc<crate::diagnostics::MetricsRead>),
+    Events(Arc<crate::diagnostics::EventsRead>),
+    DiagnosticPreview(Arc<crate::diagnostics::PreviewRead>),
     Sources(crate::source::SourceStagingSnapshot),
     Devices(Arc<crate::devices::DeviceQueryResult>),
     State(Box<crate::session::SessionSnapshot>),

@@ -2,6 +2,8 @@
 // ABOUTME: Persists validated queue state before publishing command success.
 #![forbid(unsafe_code)]
 pub mod assets;
+mod build_provenance;
+pub use build_provenance::build_provenance;
 mod devices;
 mod directory;
 pub use devices::{DeviceDiscoveryHelper, run_helper as run_device_query_helper};
@@ -117,6 +119,7 @@ impl EngineOwner {
         session.enable_local_playback();
         let records = profiles::restore(&runtime, session.profile_references())?;
         session.restore_profile_records(records)?;
+        session = session.with_diagnostic_build(build_provenance())?;
         let endpoint = serde_json::to_vec(&Endpoint {
             schema_version: 1,
             socket,

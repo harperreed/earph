@@ -283,8 +283,15 @@ fn cli_diagnostic_reads_use_actual_owner_and_preserve_unavailable_metrics() {
     for (method, kind) in [
         ("signal_path.get", "signal_path"),
         ("metrics.get", "metrics"),
+        ("events.get", "events"),
+        ("diagnostics.preview", "diagnostic_preview"),
     ] {
-        let command = envelope(method, Value::Null, 0, json!({"method":method}));
+        let payload = if method == "events.get" {
+            json!({"method":method,"cursor":null})
+        } else {
+            json!({"method":method})
+        };
+        let command = envelope(method, Value::Null, 0, payload);
         let output = call(&runtime, &command);
         assert!(
             output.status.success(),
@@ -297,9 +304,20 @@ fn cli_diagnostic_reads_use_actual_owner_and_preserve_unavailable_metrics() {
         if kind == "signal_path" {
             let read = earph_core::diagnostics::SignalPathRead::decode(&body).unwrap();
             assert!(read.report.resolved.is_none() && read.report.observed.is_none());
-        } else {
+        } else if kind == "metrics" {
             let read = earph_core::diagnostics::MetricsRead::decode(&body).unwrap();
             assert!(read.report.underruns.value.is_none());
+        } else if kind == "events" {
+            let read = earph_core::diagnostics::EventsRead::decode(&body).unwrap();
+            assert!(read.report.events.is_empty());
+            assert!(!read.report.complete_audit_log);
+        } else {
+            let read = earph_core::diagnostics::PreviewRead::decode(&body).unwrap();
+            let bundle =
+                earph_core::diagnostics::DiagnosticBundle::decode(read.report.bytes.as_bytes())
+                    .unwrap();
+            assert_eq!(bundle.running_build, *earph_engine::build_provenance());
+            assert!(bundle.running_build.record.is_some());
         }
         assert_eq!(call(&runtime, &command).stdout, output.stdout);
     }

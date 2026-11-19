@@ -42,7 +42,7 @@ const OUTPUT: EngineError = EngineError::new(
     "output stopped; explicit recovery required",
 );
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransportState {
     Idle,
@@ -364,6 +364,7 @@ pub struct Session {
     profiles: ProfileControl,
     devices: DeviceControl,
     sources: crate::source::SourceStaging,
+    diagnostics: diagnostics::DiagnosticState,
 }
 impl Session {
     pub fn new(zone_id: ZoneId, limits: ControlLimits) -> Self {
@@ -413,6 +414,7 @@ impl Session {
             profiles: ProfileControl::default(),
             devices: DeviceControl::default(),
             sources: crate::source::SourceStaging::default(),
+            diagnostics: diagnostics::DiagnosticState::default(),
         }
     }
     pub fn new_owner(zone_id: ZoneId, owner_id: OwnerId, limits: ControlLimits) -> Self {
@@ -537,12 +539,8 @@ impl Session {
         state
     }
     pub fn events_since(&self, cursor: u64) -> EventBatch {
-        let oldest = self
-            .events
-            .front()
-            .map_or(self.state.event_sequence.saturating_add(1), |e| e.sequence);
         EventBatch {
-            gap: cursor > self.state.event_sequence || cursor.saturating_add(1) < oldest,
+            gap: self.event_history_gap(cursor),
             events: self
                 .events
                 .iter()
@@ -551,6 +549,13 @@ impl Session {
                 .collect(),
             snapshot: self.snapshot(),
         }
+    }
+    fn event_history_gap(&self, cursor: u64) -> bool {
+        let oldest = self
+            .events
+            .front()
+            .map_or(self.state.event_sequence.saturating_add(1), |e| e.sequence);
+        cursor > self.state.event_sequence || cursor.saturating_add(1) < oldest
     }
     fn receipt(
         &self,
@@ -576,6 +581,11 @@ impl Session {
                     Command::SignalPathGet {} | Command::MetricsGet {} => {
                         self.diagnostic_query(&c.payload).ok().flatten()
                     }
+                    Command::EventsGet { ref cursor } => self
+                        .diagnostic_events(cursor.as_ref())
+                        .ok()
+                        .map(|read| QueryResult::Events(Arc::new(read))),
+                    Command::DiagnosticsPreview {} => self.diagnostic_preview_reply(&c.request_id),
                     Command::QueueGet { offset, limit } => {
                         self.queue.page(offset, limit).ok().map(QueryResult::Queue)
                     }
@@ -734,6 +744,7 @@ impl Session {
     ) -> Receipt {
         self.expire_graph_work(now_ns);
         self.expire_profile_work(now_ns);
+        self.expire_diagnostic_candidate(now_ns);
         if let Some(record) = self.device_receipt(&command.request_id) {
             return self.replay_graph_record(&command, record);
         }
@@ -775,6 +786,10 @@ impl Session {
         let receipt = match result {
             Ok(status) => {
                 let proposed = staged.receipt(&command, status, None);
+                if let Err(error) = self.validate_diagnostic_admission(&staged, &command, &proposed)
+                {
+                    return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+                }
                 if let Err(error) = staged.validate_profile_receipt_admission(&command, &proposed) {
                     return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
                 }
@@ -792,13 +807,23 @@ impl Session {
                 match persisted {
                     Ok(()) => {
                         *self = staged;
-                        self.receipt(&command, status, None)
+                        proposed
                     }
                     Err(error) => self.receipt(&command, ReceiptStatus::Failed, Some(error)),
                 }
             }
             Err(error) => self.receipt(&command, ReceiptStatus::Rejected, Some(error)),
         };
+        if self
+            .validate_diagnostic_admission(self, &command, &receipt)
+            .is_err()
+        {
+            return self.receipt(
+                &command,
+                ReceiptStatus::Rejected,
+                Some(crate::diagnostics::DIAGNOSTIC_BUDGET),
+            );
+        }
         if self
             .validate_profile_receipt_admission(&command, &receipt)
             .is_err()
@@ -816,6 +841,7 @@ impl Session {
             self.receipts.pop_front();
         }
         let record = Arc::new((command, receipt.clone()));
+        self.retain_diagnostic_observation(&record.0.payload);
         self.retain_graph_record(record.clone());
         self.retain_profile_receipt(record.clone());
         self.retain_device_record(record.clone());
@@ -837,10 +863,8 @@ impl Session {
         if command.zone_id != self.state.zone_id {
             return Err(STALE);
         }
-        if matches!(
-            command.payload,
-            Command::SignalPathGet {} | Command::MetricsGet {}
-        ) && command.owner_id.is_some()
+        if command.payload.is_diagnostic()
+            && command.owner_id.is_some()
             && command.owner_id != self.state.owner_id
         {
             return Err(STALE);
@@ -870,6 +894,8 @@ impl Session {
                 | Command::State
                 | Command::SignalPathGet {}
                 | Command::MetricsGet {}
+                | Command::EventsGet { .. }
+                | Command::DiagnosticsPreview {}
                 | Command::Capabilities
                 | Command::DevicesList { .. }
                 | Command::DevicesInspect { .. }
@@ -897,6 +923,12 @@ impl Session {
             return Err(STALE);
         }
         if command.payload.is_query() {
+            if let Command::EventsGet { cursor } = &command.payload {
+                self.diagnostic_events(cursor.as_ref())?;
+            }
+            if matches!(command.payload, Command::DiagnosticsPreview {}) {
+                self.prepare_diagnostic_preview(&command.request_id, now_ns)?;
+            }
             self.diagnostic_query(&command.payload)?;
             if matches!(
                 command.payload,

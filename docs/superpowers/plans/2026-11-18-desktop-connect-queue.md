@@ -468,3 +468,27 @@ The released runner also checks configuration equality.
 Its before-configuration hash has no separate archived artifact; independent verification records that limit.
 Native uncertain writes, in-flight cancellation, hardware and Mac windows remain separate gates.
 Saved correction details still need presentation polish.
+
+## Diagnostic history and preview checkpoint
+
+The owner exposes bounded retained-event pages and an immutable diagnostic preview.
+Recovery distinguishes sparse history from a complete audit log.
+Preview sections share one actor cut and one exact serialized payload.
+Strict Core consumers validate the payload hash, length, schema and cut.
+Expiry removes candidate authority; retained replay preserves the original bytes.
+Admission counts staged copies, receipts and candidates without replacing a valid candidate on failure.
+Local target bindings remain private and separate from the shareable allowlist.
+
+The Engine attaches its compiled package record after restore and before publishing the endpoint.
+Build scripts share component-ordered, length-framed hashing with separate declared input sets.
+Unknown build facts remain unavailable.
+Runtime executable identity, complete test inventory and exact reproduction remain unavailable or incomplete.
+
+The final Linux source passes 1109 canonical tests with zero failures and five existing skips.
+Actual CLI, Rust FFI and standalone shared-client checks preserve exact replay without opening output.
+An independent review approves the source and final test followups.
+See [the preview receipt](../../evidence/diagnostics/preview-linux-20261119.json).
+
+Mac Clippy exposed ungated support for existing Linux-only GUI tests.
+The guards are fixed in source; after-fix Mac qualification remains pending.
+Diagnostic export, inspection, cancellation, shared artifact-worker integration and native presentation remain the next units.

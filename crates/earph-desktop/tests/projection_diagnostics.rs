@@ -131,3 +131,74 @@ fn diagnostic_review_desktop_decoder_preserves_active_session_outer_formats() {
         );
     }
 }
+
+#[test]
+fn actual_history_and_preview_use_the_shared_strict_projection() {
+    for method in ["events.get", "diagnostics.preview"] {
+        let mut owner = Session::new_owner(
+            ZoneId::new("private-zone").unwrap(),
+            OwnerId::new("private-owner").unwrap(),
+            ControlLimits::default(),
+        );
+        let mut payload = json!({"method":method});
+        if method == "events.get" {
+            payload["cursor"] = Value::Null;
+        }
+        let command=decode_command(&serde_json::to_vec(&json!({"schema_version":1,"request_id":"new-read","zone_id":"private-zone","owner_id":"private-owner","session_id":null,"expected_revision":null,"payload":payload})).unwrap(),&ControlLimits::default()).unwrap();
+        let r = owner.submit(command);
+        assert_eq!(r.status, ReceiptStatus::Applied);
+        let original = serde_json::to_vec(&json!({"receipt":r})).unwrap();
+        let decoded =
+            decode_reply(original.clone()).expect("actual Core diagnostic read must decode");
+        assert_eq!(decoded.bytes(), original);
+        let mut altered: Value = serde_json::from_slice(&original).unwrap();
+        altered["receipt"]["result"]["value"]["binding"]["epochs"]["stream"] = json!(9);
+        assert!(decode_reply(serde_json::to_vec(&altered).unwrap()).is_err());
+        altered = serde_json::from_slice(&original).unwrap();
+        altered["receipt"]["result"]["value"]["report"]["extra"] = json!("secret");
+        assert!(decode_reply(serde_json::to_vec(&altered).unwrap()).is_err());
+        if method == "diagnostics.preview" {
+            altered = serde_json::from_slice(&original).unwrap();
+            let report = &mut altered["receipt"]["result"]["value"]["report"];
+            report["bytes"] = json!(format!("{} ", report["bytes"].as_str().unwrap()));
+            assert!(decode_reply(serde_json::to_vec(&altered).unwrap()).is_err());
+        }
+    }
+}
+
+#[test]
+fn bound_request_builder_accepts_only_the_new_diagnostic_queries() {
+    use earph_desktop::{Request, ResultView};
+    let mut owner = Session::new_owner(
+        ZoneId::new("private-zone").unwrap(),
+        OwnerId::new("private-owner").unwrap(),
+        ControlLimits::default(),
+    );
+    let r = owner.submit(CommandEnvelope {
+        schema_version: 1,
+        request_id: RequestId::new("state").unwrap(),
+        zone_id: ZoneId::new("private-zone").unwrap(),
+        owner_id: None,
+        session_id: None,
+        expected_revision: None,
+        payload: Command::State,
+    });
+    let Reply::Receipt(r) =
+        decode_reply(serde_json::to_vec(&json!({"receipt":r})).unwrap()).unwrap()
+    else {
+        panic!("receipt")
+    };
+    let Some(ResultView::State(state)) = r.result else {
+        panic!("state")
+    };
+    for payload in [
+        Command::EventsGet { cursor: None },
+        Command::DiagnosticsPreview {},
+    ] {
+        let request =
+            Request::diagnostic_query(RequestId::new("query").unwrap(), &state, payload.clone())
+                .expect("bound diagnostic request");
+        assert_eq!(request.envelope().owner_id, state.owner_id);
+        assert_eq!(request.envelope().payload, payload);
+    }
+}

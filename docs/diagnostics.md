@@ -54,16 +54,73 @@ Core owns the DTOs, allowlist producer, and semantic validators.
 Desktop projection reuses those DTOs and validators.
 FFI continues forwarding the same bytes.
 Strict readers require nullable fields to exist and reject unknown fields or unsupported versions.
-Capabilities advertise the implemented reads and their 64 KiB result bound.
-Existing bounded receipt history retains query results; no event service or new dispatcher is added.
+Capabilities advertise each implemented method and its bounds.
+Signal-path and metrics reads retain their 64 KiB limit.
+Existing receipt history retains results; no event service or new dispatcher is added.
 
-These reads do not implement event cursors, diagnostic preview/export, cancellation, build provenance, or release-evidence aggregation.
-They do not complete T17, OBS-03, AC-34, AC-38, or AC-39.
+## Event recovery and preview
+
+`events.get` requires a `cursor` field, which may be null.
+A null cursor returns current public recovery facts and the latest resume sequence, without history.
+A cursor contains the exact local `owner_id` and `after_sequence`.
+A replacement owner rejects the old cursor.
+Pages contain at most 128 retained state events in ascending order.
+Sequence gaps can occur because some state updates do not append events.
+The history is not a complete audit log.
+
+`gap` reports expired or future history using Session's existing gap rule.
+Adopt the current recovery snapshot after a gap, then resume at its event sequence.
+Historical entries are context; do not apply them over that recovery snapshot.
+Recovery covers public transport, mute, gain, error-category, and cut facts.
+It is not a full private Session snapshot.
+Each page has its own cut; multiple pages do not form a frozen snapshot.
+An events result has a 256 KiB limit.
+Event request IDs are omitted.
+Event clocks retain Session's state clock; they do not timestamp receipt arrival or a fresh hardware sample.
+
+`diagnostics.preview` captures one owner cut without a source or device query.
+Its report retains an immutable UTF-8 JSON string in `bytes`.
+The SHA256 and byte length describe those exact decoded string bytes.
+Do not hash the outer JSON string's escape syntax or the private binding.
+The bundle includes signal-path, metrics, public recovery, and up to 1024 retained state events.
+The same typed validators check the producer and desktop consumer.
+Sample origins remain unavailable where Session never recorded them.
+
+Preview payloads have a 512 KiB limit, with a 64 KiB metadata allowance.
+The final control receipt must also fit the existing 1 MiB frame limit.
+One current candidate expires after 30 seconds on the owner's monotonic clock.
+Expiry is checked on the next owner command; no background timer or queue is added.
+An exact retained replay returns the original bytes after expiry.
+That replay does not restore live candidate authority.
+A fresh request captures a fresh cut; its revision can remain unchanged.
+Failed admission preserves the previously live candidate.
+
+All diagnostic receipts and candidates share an 8 MiB retained-payload budget.
+Admission conservatively charges result bounds, metadata, shared Arcs, and staged copies.
+The budget can reject new reads before the 1024-receipt count limit.
+It excludes allocator and OS overhead and does not measure total process memory.
+No unresolved operation is evicted to make room.
+
+The Engine attaches its compiled-package record after restore and before publishing its endpoint.
+The context accepts one Engine-validated record before diagnostic observations.
+It remains outside checkpoints and State snapshots.
+Without an attached producer, `running_build` explicitly reports `not_provided`.
+Compiled package facts differ from runtime executable identity and execution-checkout facts.
+The shared build helper declares separate Engine and harness input sets.
+Both retain component sorting and u64 little-endian hash framing.
+The record includes the dependency lock and selected source inputs, rather than every checkout file or build setting.
+Unknown compiler, target, profile, and Git facts stay explicitly unavailable.
+The preview runs no Git or build command.
+Test inventory remains `not_attached`; reproduction remains `incomplete`.
+
+Export, pinning, artifact workers, cancellation, and filesystem effects remain unimplemented.
+Actual pinned-candidate refusal remains a later worker-integration requirement.
+These reads do not complete T17, OBS-03, AC-34, AC-38, or AC-39.
 Use exact producer, consumer, integration, and platform evidence before extending those claims.
 
-## Linux qualification
+## D1 Linux qualification
 
-The integrated source passes 1071 canonical tests, with zero failures and five existing skips.
+The published D1 baseline passes 1071 canonical tests, with zero failures and five existing skips.
 Formatting, strict workspace Clippy, catalog validation and dependency validation pass.
 Real owner cases cover CLI, Rust FFI, the shared client and standalone exact replay with output unopened.
 Real compiler and Session cases prove private route inputs cannot change the shareable report.
@@ -71,3 +128,21 @@ The shared decoder rejects four independent source/native format corruptions.
 Valid hardware caps survive reads and checkpoint restoration across the existing policy domain.
 All source hashes remain unchanged throughout that run.
 See [the Linux receipt](evidence/diagnostics/reads-linux-20261119.json) for exact products, checks and limits.
+
+## Preview and provenance Linux qualification
+
+The integrated source passes 1109 canonical tests, with zero failures and five existing skips.
+Formatting, strict Clippy, catalog validation, dependency validation and product builds pass.
+All 1835 source hashes remain unchanged during qualification.
+Focused actual CLI and Rust FFI checks verify event recovery, exact preview replay and the compiled Engine record.
+The standalone shared desktop client decodes the same owner results and joins the Engine with exit zero.
+Real build producers verify the shared input order, length framing and explicit unavailable facts.
+The compiled record stays unchanged after a real hashed input changes.
+New provenance fixtures remain available for inspection.
+One independent review covers the shared producer, consumers and final test changes.
+
+Mac Clippy found Linux-only test support visible on macOS.
+The source now gates that support consistently with its existing Linux-only tests.
+The next committed-source Mac build must verify that fix.
+No current Mac compile or window pass follows from the Linux result.
+See [the preview receipt](evidence/diagnostics/preview-linux-20261119.json) for exact hashes and remaining limits.

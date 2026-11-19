@@ -7,8 +7,16 @@ use crate::{
     graph::PreservationDecision,
     ids::{Epochs, OwnerId, SessionId, ZoneId},
     safety::{FidelityPolicy, VolumeMode, VolumePolicy},
+    serde_helpers::nullable,
 };
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
+
+#[path = "diagnostics_history.rs"]
+mod history;
+#[path = "diagnostics_preview.rs"]
+mod preview;
+pub use history::*;
+pub use preview::*;
 
 pub const MAX_DIAGNOSTIC_READ_BYTES: usize = 64 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,7 +24,14 @@ pub const MAX_DIAGNOSTIC_READ_BYTES: usize = 64 * 1024;
 pub struct DiagnosticCapabilities {
     pub schema_version: u32,
     pub max_read_bytes: usize,
-    pub methods: [DiagnosticMethod; 2],
+    pub max_events_read_bytes: usize,
+    pub max_preview_bytes: usize,
+    pub max_preview_metadata_bytes: usize,
+    pub max_history_events: usize,
+    pub max_retained_bytes: usize,
+    pub max_events_page: usize,
+    pub candidate_lifetime_ns: u64,
+    pub methods: [DiagnosticMethod; 4],
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiagnosticMethod {
@@ -24,13 +39,29 @@ pub enum DiagnosticMethod {
     SignalPath,
     #[serde(rename = "metrics.get")]
     Metrics,
+    #[serde(rename = "events.get")]
+    Events,
+    #[serde(rename = "diagnostics.preview")]
+    Preview,
 }
 impl Default for DiagnosticCapabilities {
     fn default() -> Self {
         Self {
             schema_version: 1,
             max_read_bytes: MAX_DIAGNOSTIC_READ_BYTES,
-            methods: [DiagnosticMethod::SignalPath, DiagnosticMethod::Metrics],
+            max_events_read_bytes: MAX_EVENTS_READ_BYTES,
+            max_preview_bytes: MAX_PREVIEW_BYTES,
+            max_preview_metadata_bytes: MAX_PREVIEW_METADATA_BYTES,
+            max_history_events: MAX_DIAGNOSTIC_HISTORY,
+            max_retained_bytes: MAX_DIAGNOSTIC_RETAINED_BYTES,
+            max_events_page: MAX_EVENTS_PAGE,
+            candidate_lifetime_ns: DIAGNOSTIC_CANDIDATE_LIFETIME_NS,
+            methods: [
+                DiagnosticMethod::SignalPath,
+                DiagnosticMethod::Metrics,
+                DiagnosticMethod::Events,
+                DiagnosticMethod::Preview,
+            ],
         }
     }
 }
@@ -39,10 +70,6 @@ const BUDGET: EngineError = EngineError::new(
     ErrorCode::ResourceBudgetExceeded,
     "diagnostic read exceeds its bound",
 );
-
-fn nullable<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<T>, D::Error> {
-    Option::deserialize(d)
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,6 +121,7 @@ pub type SignalPathRead = DiagnosticRead<SignalPathReport>;
 pub type MetricsRead = DiagnosticRead<MetricsReport>;
 
 pub trait DiagnosticReport: Serialize {
+    const MAX_READ_BYTES: usize = MAX_DIAGNOSTIC_READ_BYTES;
     fn cut(&self) -> DiagnosticCut;
     fn validate(&self) -> Result<(), EngineError>;
 }
@@ -115,7 +143,7 @@ impl<T: DiagnosticReport> DiagnosticRead<T> {
                 .session_id
                 .as_ref()
                 .is_some_and(|v| v.capacity_bytes() > 128)
-            || serde_json::to_vec(self).map_err(|_| INVALID)?.len() > MAX_DIAGNOSTIC_READ_BYTES
+            || serde_json::to_vec(self).map_err(|_| INVALID)?.len() > T::MAX_READ_BYTES
         {
             return Err(BUDGET);
         }
@@ -124,7 +152,7 @@ impl<T: DiagnosticReport> DiagnosticRead<T> {
 }
 impl<'de, T: DiagnosticReport + Deserialize<'de>> DiagnosticRead<T> {
     pub fn decode(bytes: &'de [u8]) -> Result<Self, EngineError> {
-        if bytes.len() > MAX_DIAGNOSTIC_READ_BYTES {
+        if bytes.len() > T::MAX_READ_BYTES {
             return Err(BUDGET);
         }
         let value: Self = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
@@ -625,3 +653,6 @@ impl DiagnosticReport for MetricsReport {
         Ok(())
     }
 }
+
+pub(crate) const DIAGNOSTIC_BUDGET: EngineError = BUDGET;
+pub(crate) use preview::diagnostic_digest as preview_digest;

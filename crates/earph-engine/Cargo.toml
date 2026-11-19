@@ -23,3 +23,7 @@ earph-alsa = { path = "../earph-alsa" }
 [dev-dependencies]
 earph-harness = { path = "../earph-harness" }
 rustix = { version = "=1.1.6", features = ["pipe"] }
+
+[build-dependencies]
+serde_json.workspace = true
+sha2.workspace = true

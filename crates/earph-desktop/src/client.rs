@@ -62,7 +62,7 @@ impl Request {
         state: &StateView,
         payload: Command,
     ) -> Result<Self, RequestError> {
-        if !matches!(payload, Command::SignalPathGet {} | Command::MetricsGet {}) {
+        if !payload.is_diagnostic() {
             return Err(RequestError::NotDiagnosticQuery);
         }
         let owner = state.owner_id.clone().ok_or(RequestError::MissingOwner)?;
@@ -169,6 +169,8 @@ impl Request {
                 | Command::GraphInspect { .. }
                 | Command::SignalPathGet {}
                 | Command::MetricsGet {}
+                | Command::EventsGet { .. }
+                | Command::DiagnosticsPreview {}
         )
     }
 }
@@ -214,7 +216,16 @@ impl OwnerClient {
                     receipt.status == ReplyStatus::Applied
                         && diagnostic_target_matches(&value.binding, envelope)
                 }
-                (Command::SignalPathGet {} | Command::MetricsGet {}, _) => {
+                (Command::EventsGet { cursor }, Some(ResultView::Events(value))) => {
+                    receipt.status == ReplyStatus::Applied
+                        && value.validate_cursor(cursor.as_ref()).is_ok()
+                        && diagnostic_target_matches(&value.binding, envelope)
+                }
+                (Command::DiagnosticsPreview {}, Some(ResultView::DiagnosticPreview(value))) => {
+                    receipt.status == ReplyStatus::Applied
+                        && diagnostic_target_matches(&value.binding, envelope)
+                }
+                (payload, _) if payload.is_diagnostic() => {
                     receipt.status != ReplyStatus::Applied && receipt.result.is_none()
                 }
                 (

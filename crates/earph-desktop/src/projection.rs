@@ -171,6 +171,8 @@ pub struct QueueView {
 pub enum ResultView {
     SignalPath(Arc<earph_core::diagnostics::SignalPathRead>),
     Metrics(Arc<earph_core::diagnostics::MetricsRead>),
+    Events(Arc<earph_core::diagnostics::EventsRead>),
+    DiagnosticPreview(Arc<earph_core::diagnostics::PreviewRead>),
     Sources(Arc<earph_core::source::SourceStagingSnapshot>),
     State(Arc<StateView>),
     Capabilities(CapabilitiesView),
@@ -270,6 +272,8 @@ pub fn decode_reply(bytes: Vec<u8>) -> Result<Reply, ProjectionError> {
                     ResultView::Sources(_) => receipt.status == ReplyStatus::Applied,
                     ResultView::SignalPath(value) => diagnostic_matches(value, &receipt),
                     ResultView::Metrics(value) => diagnostic_matches(value, &receipt),
+                    ResultView::Events(value) => diagnostic_matches(value, &receipt),
+                    ResultView::DiagnosticPreview(value) => diagnostic_matches(value, &receipt),
                     ResultView::Capabilities(value) => {
                         value.schema_version == 1
                             && value.profiles.package.schema_version == 1

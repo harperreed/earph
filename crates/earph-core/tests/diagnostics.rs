@@ -139,7 +139,21 @@ fn advertised_read_bounds_match_actual_method_support() {
     assert_eq!(capability["value"]["diagnostics"]["max_read_bytes"], 65536);
     assert_eq!(
         capability["value"]["diagnostics"]["methods"],
-        json!(["signal_path.get", "metrics.get"])
+        json!([
+            "signal_path.get",
+            "metrics.get",
+            "events.get",
+            "diagnostics.preview"
+        ])
+    );
+    assert_eq!(capability["value"]["diagnostics"]["max_events_page"], 128);
+    assert_eq!(
+        capability["value"]["diagnostics"]["max_preview_bytes"],
+        524288
+    );
+    assert_eq!(
+        capability["value"]["diagnostics"]["max_retained_bytes"],
+        8388608
     );
 }
 

@@ -471,8 +471,18 @@ fn ffi_diagnostic_reads_share_actual_owner_producer_and_strict_decoder() {
     let mut owner = Owner::start();
     let client = owner.client();
     let initial = owner.state();
-    for method in ["signal_path.get", "metrics.get"] {
-        let command = envelope(&format!("ffi-{method}"), None, json!({"method":method}));
+    for method in [
+        "signal_path.get",
+        "metrics.get",
+        "events.get",
+        "diagnostics.preview",
+    ] {
+        let payload = if method == "events.get" {
+            json!({"method":method,"cursor":null})
+        } else {
+            json!({"method":method})
+        };
+        let command = envelope(&format!("ffi-{method}"), None, payload);
         let bytes = client.request(command.clone()).unwrap();
         assert_eq!(client.request(command).unwrap(), bytes);
         let value: Value = serde_json::from_slice(&bytes).unwrap();
@@ -485,9 +495,20 @@ fn ffi_diagnostic_reads_share_actual_owner_producer_and_strict_decoder() {
                 initial["owner_id"]
             );
             assert!(read.report.observed.is_none());
-        } else {
+        } else if method == "metrics.get" {
             let read = earph_core::diagnostics::MetricsRead::decode(&body).unwrap();
             assert!(read.report.cpu_load.value.is_none());
+        } else if method == "events.get" {
+            let read = earph_core::diagnostics::EventsRead::decode(&body).unwrap();
+            assert!(read.report.events.is_empty());
+            assert!(!read.report.complete_audit_log);
+        } else {
+            let read = earph_core::diagnostics::PreviewRead::decode(&body).unwrap();
+            let bundle =
+                earph_core::diagnostics::DiagnosticBundle::decode(read.report.bytes.as_bytes())
+                    .unwrap();
+            assert_eq!(bundle.running_build, *earph_engine::build_provenance());
+            assert!(bundle.running_build.record.is_some());
         }
     }
     assert_eq!(owner.state(), initial);
