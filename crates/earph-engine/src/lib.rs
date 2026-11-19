@@ -134,6 +134,11 @@ impl EngineOwner {
     }
 }
 
+/// Returns the shared local command and response frame limit in bytes.
+pub const fn control_frame_limit() -> usize {
+    transport::MAX_BYTES
+}
+
 /// Sends one shared command document to the existing owner.
 pub fn request(runtime: &Path, command: &[u8]) -> Result<Vec<u8>, EngineError> {
     let runtime = runtime::directory(runtime, false)?;

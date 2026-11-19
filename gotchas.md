@@ -34,3 +34,9 @@
   After native `DRAINING` begins, observe `SETUP` instead of restarting drain or polling ordinary I/O readiness.
   Plugins may need commit work while still prepared or running.
   See [the adapter](crates/earph-alsa/src/output.rs), [native state observation](crates/earph-alsa/src/native.rs), and [the scoped trace](docs/evidence/local-playback/alsa-drain-trace-20261118.json).
+
+- JNA's default loader can clean earlier JNA temporary files before loading its dispatcher.
+  The first FFI gate has no before-state receipt proving whether files existed or were removed.
+  Use [the private-dispatcher gate](docs/ffi-bindings.md) with child-only no-unpack, no-classpath, and no-system settings.
+  Verify the loaded dispatcher path and bytes, and preserve all task artifacts.
+  See the [foundation receipt](docs/evidence/ffi/foundation-20261118.json) for the unresolved historical limit.

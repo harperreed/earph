@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "attach_only_ffi_foundation_local_integration_precommit",
+  "source": {
+    "merge_parents": [
+      "c0e27b93d8f0ee875dee054d7eef7e6901df424a",
+      "043025bdb61bf8c0ba3e4314efbc9aef54817000"
+    ],
+    "source_dirty": true,
+    "source_files": 1583,
+    "source_manifest_sha256": "a5af17136714e0b7a549401b84d6f65e7b9df6fda9bce3cac090ba1d6d93b979",
+    "runtime_source_sha256": "197ccf843f967ac3a2fa277f521998b133613e3cca32cc9416ec0c8c89d3a194",
+    "dependency_lock_sha256": "eb80c2bae7a4dbab47d02836a9f13b3eda25254f07dc7df46e6b63316ce14fa8",
+    "merge_patch_before_document_tail_sha256": "f95c0207d6bd17cddb1ffa4759bb17de0e182141f338483d6fce160492f9eeee",
+    "post_gate_changes": "Integration receipt and plan checkpoint only; runtime inputs unchanged"
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "child_exit_code": 0,
+    "child_signal": null,
+    "passed": 710,
+    "failed": 0,
+    "ignored": 4,
+    "compiler_warnings_or_errors": 0,
+    "log_sha256": "38526283af1b6a11e4fd43c2e422bedd031bf89e713642ed7a64cb69e9ce7741",
+    "receipt_sha256": "d823f4f8fb925fb3a9bb1fa1afcf765a2af2f3e9d2d88649948e6eb0890ab32d"
+  },
+  "same_review_reconciliation": {
+    "original_ffi_commit": "043025bdb61bf8c0ba3e4314efbc9aef54817000",
+    "original_independent_review_receipt_sha256": "808ab86c9d434a7646121c85df8205e1d6360aa4e0de0f701afc8a9e9925db37",
+    "status": "approved_for_bounded_merge_coupling",
+    "original_ffi_exact_files_before_document_tail": 24,
+    "engine_delta": "Read-only control_frame_limit accessor only; current owner and request implementation retained",
+    "gotchas": "Retains owner-lock and JNA guidance",
+    "inventory_delta": "Existing Root Rustix pipe feature only",
+    "open_material_findings": 0
+  },
+  "foreign_qualification": {
+    "foundation_receipt": "foundation-20261118.json",
+    "swift_candidate": "macos-swift-v2-20261118.json",
+    "swift_root_verification": "macos-swift-v2-root-verification-20261118.json",
+    "scope": "Original frozen foundation source; no merged-runtime Kotlin or Swift rerun claimed"
+  },
+  "privacy": {
+    "changed_source_scan": "pass",
+    "private_raw_artifacts_published": false,
+    "repository": "harperreed/earph",
+    "repository_visibility": "public",
+    "destination_verified_by": "Read-only GitHub repository metadata",
+    "remote_mutation": false
+  },
+  "limits": [
+    "Dirty precommit canonical qualification precedes the documentation-only checkpoint tail.",
+    "Four ignored tests do not establish hardware or platform qualification.",
+    "Original foreign qualification retains its exact original source and artifact bindings.",
+    "The first default-JNA gate lacks a before-state receipt; historical cleanup uncertainty remains unresolved.",
+    "Eight trailing-whitespace diagnostics preserve exact upstream legal text in generated notices.",
+    "Attach-only synchronous control remains partial T13; desktop hosting, full transport matrices, cancellation, subscriptions, audio callbacks, and realtime behavior are not qualified.",
+    "Root owns later round2 integration and public shipping."
+  ]
+}

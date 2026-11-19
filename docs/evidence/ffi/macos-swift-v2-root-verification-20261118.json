@@ -1,0 +1,18 @@
+{
+  "status": "pass",
+  "candidate_sha256": "cf191e9b6d046f60828723df78b4ab9887d62ee06379cece3a57dc0b38d42412",
+  "archive_sha256": "fc162ea8f0f8307d8df576340833a05031e20631c6beef342f29bbc227e8320b",
+  "manifest_sha256": "014417284202064bd40ace9e80f446199b3c6980f17bc08f8f52f4ea1a879e32",
+  "raw_files": 73,
+  "source_files": 1562,
+  "source_phases": 2,
+  "actual_foreign_commands": 10,
+  "exact_cli_comparisons": 10,
+  "typed_local_failures": 4,
+  "owner_exit_code": 0,
+  "fresh_owned_process_lookup_absent": true,
+  "source_dirty": true,
+  "runtime_source_sha256": "1f3cf8abf52bb33b9bb5d570381c51237cb547922851c2abbd67efc6eb3328c0",
+  "device_operations": 0,
+  "signal_exercises": 0
+}

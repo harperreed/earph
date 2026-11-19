@@ -15,6 +15,17 @@ fn reviewed_license(package: &Value, crate_root: &Path) -> Result<(Vec<PathBuf>,
         }
         Some("windows-link") => "windows-link-0.2.1",
         Some("windows-sys") => "windows-sys-0.61.2",
+        Some("r-efi") => "r-efi-6.0.0",
+        Some(
+            "uniffi"
+            | "uniffi_bindgen"
+            | "uniffi_core"
+            | "uniffi_internal_macros"
+            | "uniffi_macros"
+            | "uniffi_meta"
+            | "uniffi_pipeline"
+            | "uniffi_udl",
+        ) => "uniffi-0.32.2",
         _ => {
             return Err(format!(
                 "dependency needs manual license review: {}",
@@ -70,7 +81,15 @@ fn reviewed_license(package: &Value, crate_root: &Path) -> Result<(Vec<PathBuf>,
 
 pub fn snapshot() -> Result<(Value, String), String> {
     let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
-        .args(["metadata", "--locked", "--format-version", "1"])
+        // Include the actual binding generator beside the ordinary workspace dependency closure.
+        .args([
+            "metadata",
+            "--locked",
+            "--format-version",
+            "1",
+            "--features",
+            "earph-ffi/bindgen",
+        ])
         .output()
         .map_err(|_| "cannot run Cargo metadata")?;
     if !output.status.success() {
@@ -177,6 +196,8 @@ pub fn snapshot() -> Result<(Value, String), String> {
             json!({"name":name,"status":"selected","qualification":"partial","revision":"symphonia 0.6.1"})
         } else if name == "rubato" {
             json!({"name":name,"status":"selected","qualification":"partial","revision":"rubato 5.1.0; source audit and isolated proof"})
+        } else if name == "uniffi" {
+            json!({"name":name,"status":"selected","qualification":"partial","revision":"uniffi 0.32.2; attach-only client foundation"})
         } else if name == "operational store" {
             json!({"name":name,"status":"selected","qualification":"partial","revision":"versioned JSON checkpoints v1"})
         } else {
