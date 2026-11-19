@@ -330,7 +330,13 @@ fn supervise(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = command.spawn().map_err(|_| DeviceQueryError::from(IO))?;
+    let mut child = command.spawn().map_err(|error| DeviceQueryError {
+        message: match error.raw_os_error() {
+            Some(code) => format!("read-only device helper spawn failed (OS error {code})"),
+            None => format!("read-only device helper spawn failed ({:?})", error.kind()),
+        },
+        ..DeviceQueryError::from(IO)
+    })?;
     let mut stdin = child.stdin.take();
     let mut stdout = child.stdout.take().expect("configured pipe");
     let mut stderr = child.stderr.take().expect("configured pipe");

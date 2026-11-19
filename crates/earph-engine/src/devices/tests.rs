@@ -55,8 +55,92 @@ fn actual_child_cancellation_preserves_original_command_and_confirms_reaping() {
     });
     let error = supervise(command, &query(), &cancel, Duration::from_secs(10)).unwrap_err();
     signal.join().unwrap();
-    assert_eq!(error.code, ErrorCode::OperationCancelled);
+    assert_eq!(error.code, ErrorCode::OperationCancelled, "{error:?}");
     reaped(&executable);
+}
+#[test]
+fn actual_spawn_failure_reports_its_os_code_without_the_private_path() {
+    let executable = device_process::fixture("valid").with_extension("missing");
+    let error = supervise(
+        Command::new(&executable),
+        &query(),
+        &AtomicBool::new(false),
+        Duration::from_secs(1),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::DeviceUnavailable);
+    assert!(
+        error.message.contains("spawn"),
+        "missing failure stage: {error:?}"
+    );
+    assert!(
+        error.message.contains("OS error 2"),
+        "missing actual ENOENT: {error:?}"
+    );
+    assert!(!error.message.contains(executable.to_str().unwrap()));
+    assert_eq!(error.native_status, None);
+    assert_eq!(error.native_object_id, None);
+}
+#[test]
+fn fixture_publisher_copies_independent_executable_bytes_and_reports_failure() {
+    let source = device_process::fixture("valid");
+    let original = fs::read(&source).unwrap();
+    let destination = source.with_file_name("fixture-valid-clone");
+    let copied = Command::new(&source)
+        .arg("--copy-fixture")
+        .arg(&destination)
+        .output()
+        .unwrap();
+    assert!(copied.status.success(), "{copied:?}");
+    assert_eq!(
+        fs::read(&destination).expect("publisher did not create its executable"),
+        original
+    );
+    let observation = supervise(
+        Command::new(&destination),
+        &query(),
+        &AtomicBool::new(false),
+        Duration::from_secs(1),
+    )
+    .unwrap();
+    assert!(matches!(
+        observation,
+        DeviceObservation::List { complete: true, .. }
+    ));
+    assert!(destination.with_extension("pid").is_file());
+    assert!(destination.with_extension("input").is_file());
+    reaped(&destination);
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&destination)
+        .unwrap()
+        .write_all(b"changed")
+        .unwrap();
+    let changed = fs::read(&destination).unwrap();
+    let collision = Command::new(&source)
+        .arg("--copy-fixture")
+        .arg(&destination)
+        .output()
+        .unwrap();
+    assert!(!collision.status.success());
+    assert_eq!(fs::read(&destination).unwrap(), changed);
+    assert_eq!(fs::read(&source).unwrap(), original);
+    assert_eq!(
+        fs::read(device_process::fixture("valid")).unwrap(),
+        original
+    );
+    let invalid = source
+        .parent()
+        .unwrap()
+        .join("absent-directory")
+        .join("helper");
+    let failed = Command::new(&source)
+        .arg("--copy-fixture")
+        .arg(&invalid)
+        .output()
+        .unwrap();
+    assert!(!failed.status.success(), "failed copy reported success");
+    assert!(!invalid.exists());
 }
 #[test]
 fn explicit_helper_preserves_only_native_environment_and_rejects_changed_bytes() {

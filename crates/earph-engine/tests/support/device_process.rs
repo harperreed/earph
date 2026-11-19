@@ -43,6 +43,14 @@ pub fn fixture(mode: &str) -> PathBuf {
         "fixture-{mode}-{}",
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
-    fs::copy(compiled, &executable).unwrap();
+    // Keep writable executable descriptors outside the multithreaded parent's inheritance table.
+    let output = Command::new(compiled)
+        .arg("--copy-fixture")
+        .arg(&executable)
+        .output()
+        .unwrap();
+    fs::write(executable.with_extension("copy.stdout"), &output.stdout).unwrap();
+    fs::write(executable.with_extension("copy.stderr"), &output.stderr).unwrap();
+    assert!(output.status.success(), "fixture copy failed: {output:?}");
     executable
 }

@@ -7,6 +7,21 @@ use std::{
 };
 fn main() {
     let executable = std::env::current_exe().unwrap();
+    let mut arguments = std::env::args_os().skip(1);
+    if arguments.next().as_deref() == Some(std::ffi::OsStr::new("--copy-fixture")) {
+        let destination = arguments.next().expect("fixture destination");
+        assert!(arguments.next().is_none(), "unexpected fixture arguments");
+        let mut source = fs::File::open(&executable).unwrap();
+        let permissions = source.metadata().unwrap().permissions();
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(destination)
+            .unwrap();
+        std::io::copy(&mut source, &mut output).unwrap();
+        output.set_permissions(permissions).unwrap();
+        return;
+    }
     let name = executable.file_name().unwrap().to_str().unwrap();
     fs::write(
         executable.with_extension("pid"),
