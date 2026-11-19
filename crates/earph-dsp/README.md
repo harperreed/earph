@@ -20,7 +20,9 @@ An ordinary node requires one input with the same format.
 Matrix nodes declare a separate input channel layout.
 Only PCM, mono/stereo layouts, and a single connected rate domain are supported.
 The node kinds are input, output, bypass, gain, delay, matrix, sum, meter, PEQ, and convolution.
-DSD, fractional delays, implicit conversions, and graph resampling remain unsupported.
+DSD, fractional delays, and implicit conversions remain unsupported.
+The same-rate `compile`, `compile_with_assets`, and `compile_with_input_bounds` entry points reject SRC nodes.
+Use `compile_stream` for explicit serial rate changes and bounded same-rate islands.
 Unknown schema versions, node kinds, and fields reject.
 See [correction filters](../../docs/correction-filters.md) for parameters, imports, and finite tail contracts.
 
@@ -175,5 +177,12 @@ Failure preserves the caller's complete output span.
 Reset requires newer epochs; cancellation remains permanent.
 Processing and lifecycle calls retain prepared storage for off-thread retirement.
 
-These components do not yet expose SRC graph commands or a native streaming bridge.
-Native replay, timing observations, and graph admission require separate integration and qualification.
+The engine integrates live SRC graph commands, native replay, and timing observations.
+Native endpoint and real-time qualification remain bound to their exact evidence snapshots.
+
+## Numerical receipts
+
+PEQ and convolution numerical checks need no receipt destination.
+For receipts, set `EARPH_DSP_EVIDENCE_DIR` to an absolute writable parent before the relevant test command.
+Exports create fresh `peq` and `convolution` child directories and refuse reuse or replacement.
+The tests preserve every created artifact, including failed exports.

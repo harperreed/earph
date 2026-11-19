@@ -704,7 +704,7 @@ fn resolves_corrections_and_retires_frozen_filter_storage() {
         success.preview.channel_peak_bounds[0] >= 0.75
             && success.preview.channel_peak_bounds[1] >= 0.25
     );
-    let pipeline = success.pipeline.unwrap();
+    let mut pipeline = success.pipeline.unwrap();
     assert!(pipeline.resources().kernel_audio_bytes > 33000);
     fs::write(
         runtime
@@ -714,6 +714,35 @@ fn resolves_corrections_and_retires_frozen_filter_storage() {
     )
     .unwrap();
     assert_eq!(pipeline.preview().kernel_hash, hash);
+    let mut input = PcmBlock::prepare(
+        state.playback.as_ref().unwrap().format,
+        64,
+        state.epochs,
+        MemoryBudget::default(),
+    )
+    .unwrap();
+    input.set_span(state.epochs, 0, 0, 1).unwrap();
+    input.set_integer_sample(0, 8192).unwrap();
+    input.set_integer_sample(1, -8192).unwrap();
+    let render = pipeline.render_mut().unwrap();
+    render.set_gain_target(Some(0.0), 0).unwrap();
+    render.process(&input, 0, 1).unwrap();
+    let mut actual = Vec::new();
+    loop {
+        let period = render.period();
+        for scalar in 0..period.header().frame_count as usize * 2 {
+            actual.push(period.integer_sample(scalar).unwrap());
+        }
+        if render.finish().unwrap().valid_frames == 0 {
+            break;
+        }
+    }
+    // The original stereo taps retain their 256-frame partition delay after disk corruption.
+    let mut expected = vec![0; 259 * 2];
+    expected[256 * 2] = 4096;
+    expected[256 * 2 + 1] = -2048;
+    expected[257 * 2] = -2048;
+    assert_eq!(actual, expected);
     drop(pipeline);
     retired(&service);
     service.submit(job, state, crate::active_source()).unwrap();

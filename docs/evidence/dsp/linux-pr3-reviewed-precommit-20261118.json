@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "PR3 reviewed DSP, Worker, offline delivery, and owner-lock correction",
+  "base_commit": "c760e373c9d8c7f7030012865162582ba308ccbc",
+  "source_dirty": true,
+  "source_files": 1550,
+  "source_manifest_sha256": "93e319ed85a5c6161757e5acb149e723cc56b0c5286d63e0decae4ce6594ba5e",
+  "runtime_source_sha256": "c60de3dcc679da1a83f38ac174f9217306321bb9ff27a5e27e25563c272e2e9f",
+  "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+  "canonical": {
+    "command": "scripts/check",
+    "child_exit_code": 0,
+    "passed": 672,
+    "failed": 0,
+    "ignored": 4,
+    "compiler_warnings_or_errors": [],
+    "log_sha256": "9a3cfdfda280388781cdfc043ea02395cd0939bd57eb89c3602d9dd2f75556bb",
+    "receipt_sha256": "d0e4f2e29c8358c19924475ed5ad9334c32c0547fa10a240c60a5a27182d8a78"
+  },
+  "independent_review_receipts": [
+    {
+      "name": "independent-initial-fixes.md",
+      "sha256": "a4eb105c7cf4170861e68b80af7eaa0b549c9322c4650f3b62e4a857358d0a46"
+    },
+    {
+      "name": "independent-root-engine-review.md",
+      "sha256": "b81cac01e647776ac357c18ac062c15b606956df5f969cbc3461260352f34abe"
+    },
+    {
+      "name": "independent-root-engine-native-fixture-reconciliation.md",
+      "sha256": "760c76d87477e497c111717218e1c9b6566e7073117d2cb27e0d0f1bd95ca025"
+    },
+    {
+      "name": "independent-worker-review.md",
+      "sha256": "5edf86b0a694a3725642f3b73aba04bfba46a588848a20c5605f9dfe4a490046"
+    },
+    {
+      "name": "independent-offline-review.md",
+      "sha256": "3be698bb96b137b45e45b6afadcfb5904e50d6ebb3267fb940a022b5919586b5"
+    }
+  ],
+  "owner_lock_regression": {
+    "linux_red_log_sha256": "0f6d34af95be3027794504f36090d8135fd6ee79628b9597447ad053f1a2d53e",
+    "real_engine_child_green_log_sha256": "1a90b6ff726fe0a2f8286a26814e2119fe5c25944f8b15078752ac38e280c227",
+    "behavior": "Replacement ownership succeeds while a real child waits before exec; a third owner remains excluded.",
+    "historical_failure": "A canonical profile restart returned SourceBusy. The matching inheritance class reproduced deterministically; its exact earlier child is unknown."
+  },
+  "limits": [
+    "Dirty precommit snapshot; do not relabel this as postcommit qualification.",
+    "Task2b correction-import commit296b4c5 is not included in this snapshot.",
+    "The earlier native startup-order gate binds its own older source snapshot.",
+    "Canonical v3 had tool exit143 and is not counted as passing.",
+    "Canonical v4 failed; all failed logs and earlier receipts remain retained.",
+    "No hardware, DAC, acoustic, power-loss, or full-release claim follows from this Linux check."
+  ]
+}

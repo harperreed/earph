@@ -2,6 +2,35 @@
 // ABOUTME: Uses analytical transfer functions and generated bounded signals without hardware.
 use earph_core::{audio::ChannelLayout, dsp_nodes::PeqFilter, graph::FiniteGraphScalar};
 use earph_dsp::peq::{self, PeqDesign, PeqError};
+#[path = "support/evidence.rs"]
+mod evidence;
+
+#[test]
+fn explicit_peq_export_roundtrips_without_overwriting_evidence() {
+    let (report, directory) = evidence::check_export(
+        "measured_response_matches_independent_analog_oracle_and_writes_numeric_receipts",
+        "peq",
+        "numeric-test-results.json",
+    );
+    assert!(report["maximum_response_error_db"].as_f64().unwrap() <= 0.01);
+    assert!(!report["results"].as_array().unwrap().is_empty());
+    assert_eq!(report["source_sha256"].as_str().unwrap().len(), 64);
+    assert_eq!(report["test_sha256"].as_str().unwrap().len(), 64);
+    let csv = std::fs::read_to_string(directory.join("peq-response.csv")).unwrap();
+    let mut lines = csv.lines();
+    assert_eq!(
+        lines.next().unwrap(),
+        "filter,rate_hz,frequency_hz,oracle_db,measured_db,error_db,tail_frames,discarded_bound"
+    );
+    let rows: Vec<_> = lines.collect();
+    assert_eq!(rows.len(), report["results"].as_array().unwrap().len());
+    for row in rows {
+        let values: Vec<f64> = row.split(',').map(|n| n.parse().unwrap()).collect();
+        assert_eq!(values.len(), 8);
+        assert!(values.iter().all(|n| n.is_finite()));
+        assert!(values[5] <= 0.01);
+    }
+}
 
 fn scalar(value: f64) -> FiniteGraphScalar {
     FiniteGraphScalar::new(value).unwrap()
@@ -352,27 +381,23 @@ fn measured_response_matches_independent_analog_oracle_and_writes_numeric_receip
             rows.push(serde_json::json!({"filter":filter,"rate_hz":rate,"frequency_hz":frequency,"coefficients":design.coefficients(),"oracle_db":oracle_db,"measured_db":measured_db,"error_db":error,"tail_frames":tail.frames(),"discarded_bound":tail.discarded_output_bound(),"full_l1_bound":design.full_l1_bound(),"runtime_peak_bound":design.peak_bound(1.0).unwrap()}));
         }
     }
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .unwrap()
-        .join("target/peq-numerics");
-    std::fs::create_dir_all(&root).unwrap();
-    std::fs::write(root.join("peq-response.csv"), csv).unwrap();
-    let source_hash = Sha256::digest(include_bytes!("../src/peq.rs"))
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let test_hash = Sha256::digest(include_bytes!("peq.rs"))
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let report = serde_json::json!({"algorithm":peq::ALGORITHM_VERSION,"source":"generated unit impulse; no device I/O","coefficient_reference":"https://www.w3.org/TR/audio-eq-cookbook/","oracle":"independent bilinear-transform analog complex transfer functions; fixed S=1 and explicit Q shelves","source_sha256":source_hash,"test_sha256":test_hash,"maximum_response_error_db":maximum_error,"cpu_qualification":"unknown; no reference-host timing","results":rows});
-    std::fs::write(
-        root.join("numeric-test-results.json"),
-        serde_json::to_vec_pretty(&report).unwrap(),
-    )
-    .unwrap();
+    if let Some(root) = evidence::directory("peq") {
+        evidence::write_file(&root, "peq-response.csv", csv.as_bytes());
+        let source_hash = Sha256::digest(include_bytes!("../src/peq.rs"))
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let test_hash = Sha256::digest(include_bytes!("peq.rs"))
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let report = serde_json::json!({"algorithm":peq::ALGORITHM_VERSION,"source":"generated unit impulse; no device I/O","coefficient_reference":"https://www.w3.org/TR/audio-eq-cookbook/","oracle":"independent bilinear-transform analog complex transfer functions; fixed S=1 and explicit Q shelves","source_sha256":source_hash,"test_sha256":test_hash,"maximum_response_error_db":maximum_error,"cpu_qualification":"unknown; no reference-host timing","results":rows});
+        evidence::write_file(
+            &root,
+            "numeric-test-results.json",
+            &serde_json::to_vec_pretty(&report).unwrap(),
+        );
+    }
 }
 
 #[test]
@@ -473,7 +498,7 @@ fn bounded_noise_alternating_dc_and_long_silence_stay_finite() {
                 *x = match block {
                     0..256 => 1.0,
                     256..512 => {
-                        if i % 2 == 0 {
+                        if (i / 2) % 2 == 0 {
                             1.0
                         } else {
                             -1.0
@@ -637,7 +662,11 @@ fn generated_sweep_matches_independent_direct_form_reference() {
     let error = output
         .iter()
         .zip(expected)
-        .map(|(a, b)| (a - b).abs())
+        .map(|(a, b)| {
+            let error = (a - b).abs();
+            assert!(error.is_finite(), "non-finite sweep error");
+            error
+        })
         .fold(0_f64, f64::max);
     assert!(error < 1e-9, "{error}");
 }

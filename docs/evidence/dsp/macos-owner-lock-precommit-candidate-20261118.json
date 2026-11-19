@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "three_file_owner_lock_explicit_release_scoped_macos_software_gate",
+  "source": {
+    "baseline_commit": "c760e373c9d8c7f7030012865162582ba308ccbc",
+    "source_dirty": true,
+    "source_files": 1550,
+    "source_manifest_sha256": "93e319ed85a5c6161757e5acb149e723cc56b0c5286d63e0decae4ce6594ba5e",
+    "review_manifest_sha256": "7c1776f0cf184f34018cc3143054a3bd538fe540d60e967c22bc6c212beb85fe",
+    "review_patch_sha256": "ec319d1e8489b0ec93f7226892e52075728b2311f22b0e158c5010b2a2af10c5",
+    "runtime_source_sha256": "c60de3dcc679da1a83f38ac174f9217306321bb9ff27a5e27e25563c272e2e9f",
+    "lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "snapshot_archive_sha256": "a66bd9f97bc2f4948cc04a018256c74ef79458f9221813f7cf5c682bd32e04cb"
+  },
+  "build_provenance": {
+    "commit": "c760e373c9d8c7f7030012865162582ba308ccbc",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "c60de3dcc679da1a83f38ac174f9217306321bb9ff27a5e27e25563c272e2e9f",
+    "target": "aarch64-apple-darwin"
+  },
+  "macos_sdk": "27.2",
+  "sdk_selection": "child-only SDKROOT from installed SDK",
+  "tests": [
+    {
+      "label": "owner-suite",
+      "binary_sha256": "45220d8c8abe8517abacb2937fee707dc6ece6768e04187ce74fdfee2d70eeb5",
+      "binary_after_sha256": "45220d8c8abe8517abacb2937fee707dc6ece6768e04187ce74fdfee2d70eeb5",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "516ce645575796aa4cfeed0d67a7f5d7601edd977e8f91d9d5cc07e93eda4b87",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "label": "profiles-suite",
+      "binary_sha256": "b1c28c1482c53d9b83a9c0214ae29440accc24d5abb0e74a8dfdcbba1505f2b2",
+      "binary_after_sha256": "b1c28c1482c53d9b83a9c0214ae29440accc24d5abb0e74a8dfdcbba1505f2b2",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "d715072a57c29ac3d449bb127c384fd2b3e2732a95a740f34ad6e81039d9d5da",
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "strict_engine_all_target_clippy": {
+    "exit": 0,
+    "log_sha256": "50182c3d363faa95db5287fda53ed996903cc258d10d25d223a02e3fedc31fed"
+  },
+  "engine_cli_sha256": "c344542600786e913d178eda080f047952a440d7421f03606f4ee2f5578fb66b",
+  "engine_cli_hash_boundary": "Observed after both suites; unchanged after Clippy and checked through fresh final readback",
+  "real_child_regression": {
+    "test": "owner_drop_releases_its_lock_while_a_real_child_waits_before_exec",
+    "passed": true,
+    "actual_child_command": [
+      "earph-engine",
+      "render-graph",
+      "--help"
+    ],
+    "actual_pre_exec_fd_gates": true,
+    "child_success_asserted_after_join": true,
+    "separate_child_pid_or_numeric_exit_receipt": false,
+    "replacement_exclusivity_asserted": true
+  },
+  "source_verification_phases": [
+    "source-verification-after-bound-owner-tests-v2.log",
+    "source-verification-after-bound-owner-tests.log",
+    "source-verification-after-engine-build.log",
+    "source-verification-after-snapshot.log",
+    "source-verification-after-targeted-clippy.log"
+  ],
+  "source_checks_per_phase": 1550,
+  "exact_ordered_phase_paths": true,
+  "optional_observer_executed": false,
+  "preserved_failed_helpers": [
+    "Initial runner incorrectly expected Linux13 instead of Mac12 after the owner suite passed",
+    "Second runner preserved both passing suites, then stopped before observer compile on two serde_json library artifacts"
+  ],
+  "integration_dependency": "After Task2b commit296b4c5 merges, its raw FIR import lock caller must use the same OwnerLock guard while preserving existing errors",
+  "native_output_opened": false,
+  "native_device_operations": 0,
+  "signal_exercises": 0,
+  "limits": [
+    "Dirty c760 v4 snapshot, not a clean shipped build or final combined canonical qualification",
+    "Only the three owner-lock files receive this independent source review",
+    "Linux-only backlog test is cfg-excluded on Mac; no test is silently skipped",
+    "The exact actual Mac regression asserts child success after join; no separate child PID or numeric exit receipt is claimed",
+    "The optional observer is unrun; its unused sources and both failed helper attempts remain retained",
+    "This gate does not qualify Task2b future lock integration, native devices, playback, CPU margins, or hardware",
+    "No physical disk-failure, crash, or power-loss claim"
+  ]
+}

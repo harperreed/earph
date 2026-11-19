@@ -371,6 +371,8 @@ struct Playback {
     prequantization_peak: Option<f64>,
     backend: BackendObservation,
     last_counters: Counters,
+    // Keep one irreversible native prefix across a quiet control boundary.
+    control_stop_observation: Option<(Epochs, PlaybackObservation)>,
     settings: Settings,
     output: Box<dyn Output>,
     current: Track,
@@ -486,6 +488,7 @@ impl Playback {
             prequantization_peak: None,
             backend,
             last_counters,
+            control_stop_observation: None,
             settings,
             output,
             current,
@@ -569,7 +572,10 @@ impl Playback {
         mut pipeline: PreparedPipeline,
         events: &SyncSender<Event>,
     ) -> Result<(), EngineError> {
-        if self.cancelled_stream_source() {
+        let incoming_stream = pipeline.stream_render().is_some();
+        if self.cancelled_stream_source()
+            || (incoming_stream && self.cancel.load(Ordering::Acquire))
+        {
             // Stop supersedes queued activation. Preserve the old source until native close.
             drop(pipeline);
             return Ok(());
@@ -601,7 +607,22 @@ impl Playback {
                     ErrorCode::ResourceBudgetExceeded,
                     "installed graph generation exhausted",
                 ))?;
-        pipeline.reset(activation.epochs).map_err(render_error)?;
+        if incoming_stream
+            || self
+                .pipeline
+                .as_ref()
+                .is_some_and(|p| p.stream_render().is_some())
+        {
+            self.remember_control_observation();
+        }
+        let reset = pipeline.reset(activation.epochs).map_err(render_error);
+        if self.cancelled_stream_source()
+            || (incoming_stream && self.cancel.load(Ordering::Acquire))
+        {
+            drop(pipeline);
+            return Ok(());
+        }
+        reset?;
         if self
             .pipeline
             .as_ref()
@@ -642,6 +663,9 @@ impl Playback {
     }
     fn failure_context(&self, requested: Option<Settings>) -> Settings {
         let mut settings = requested.unwrap_or_else(|| self.settings.clone());
+        if let Some((epochs, _)) = self.cancelled_control_observation() {
+            settings.snapshot.epochs = *epochs;
+        }
         settings.snapshot.graph_epoch = self.installed_graph_epoch;
         settings
     }
@@ -741,12 +765,25 @@ impl Playback {
         Ok(self.observation(progress))
     }
     fn failure_observation(&self) -> PlaybackObservation {
+        if let Some((_, observation)) = self.cancelled_control_observation() {
+            return observation.clone();
+        }
         let mut counters = self.last_counters;
         counters.submitted = self.stream_position;
         counters.consumed = None;
         counters.restart_cursor = None;
         counters.delay = None;
         self.observation(counters)
+    }
+    fn cancelled_control_observation(&self) -> Option<&(Epochs, PlaybackObservation)> {
+        (self.cancel.load(Ordering::Acquire) && self.stream_position == 0)
+            .then_some(self.control_stop_observation.as_ref())
+            .flatten()
+    }
+    fn remember_control_observation(&mut self) {
+        if self.stream_position != 0 {
+            self.control_stop_observation = Some((self.epochs(), self.failure_observation()));
+        }
     }
     fn observation(&self, counters: Counters) -> PlaybackObservation {
         let filter_phase = self.pipeline.as_ref().is_some_and(|p| {
@@ -889,6 +926,13 @@ impl Playback {
     ) -> Result<(), EngineError> {
         if self.cancelled_stream_source() {
             return Ok(());
+        }
+        if self
+            .pipeline
+            .as_ref()
+            .is_some_and(|p| p.stream_render().is_some())
+        {
+            self.remember_control_observation();
         }
         let counters = self.output.suspend(settings.snapshot.epochs)?;
         if let Some(stream) = self.pipeline.as_mut().and_then(|p| p.stream_render_mut()) {
@@ -1102,6 +1146,9 @@ impl Playback {
             .map_or(&self.period, |r| r.period());
         match self.output.write(period, self.period_offset, count)? {
             Some(frames) => {
+                if frames != 0 {
+                    self.control_stop_observation = None;
+                }
                 if !self.started && self.output.is_running() {
                     emit(
                         events,
@@ -1199,7 +1246,15 @@ impl Playback {
                 .and_then(|p| p.stream_render_mut())
                 .ok_or(FAILED)?;
             if self.phase == RenderPhase::GraphTail {
-                stream.finish()?;
+                let before = stream.stream().stats();
+                let result = stream.finish();
+                let after = stream.stream().stats();
+                if after.source_frames != before.source_frames
+                    || after.output_frames != before.output_frames
+                {
+                    self.control_stop_observation = None;
+                }
+                result?;
             } else {
                 let packet = self.current.packet.as_ref().ok_or(FAILED)?;
                 let count = (packet.header().frame_count as usize - self.current.offset).min(
@@ -1209,7 +1264,7 @@ impl Playback {
                         .ok_or(FAILED)?
                         .input_quantum_frames,
                 );
-                let before = stream.stream().stats().source_frames;
+                let before = stream.stream().stats();
                 let result = stream.pump(Some(SourceSpan {
                     block: packet,
                     offset: self.current.offset,
@@ -1220,7 +1275,7 @@ impl Playback {
                         .stream()
                         .stats()
                         .source_frames
-                        .checked_sub(before)
+                        .checked_sub(before.source_frames)
                         .ok_or(INVALID_STREAM_COUNT)?,
                 )
                 .map_err(|_| INVALID_STREAM_COUNT)?;
@@ -1230,6 +1285,9 @@ impl Playback {
                         .is_ok_and(|step| step.consumed_frames != consumed)
                 {
                     return Err(INVALID_STREAM_COUNT);
+                }
+                if consumed != 0 || stream.stream().stats().output_frames != before.output_frames {
+                    self.control_stop_observation = None;
                 }
                 let channels = self.format().channels().count();
                 let reference = -(self.format().representation().integer_bounds()?.0 as f64);
@@ -1283,6 +1341,9 @@ impl Playback {
         match self.output.write(render.period(), offset, count)? {
             Some(frames) => {
                 render.accepted(frames)?;
+                if frames != 0 {
+                    self.control_stop_observation = None;
+                }
                 self.stream_position = self
                     .stream_position
                     .checked_add(frames as u64)
@@ -1587,6 +1648,23 @@ fn retain_source_failure(
     }
 }
 type StoppedSource = (Settings, PlaybackObservation, Option<EngineError>);
+fn playback_step_failure(
+    current: &mut Playback,
+    error: EngineError,
+    stopped: &mut Option<StoppedSource>,
+    terminal: &mut Option<SourceTerminal>,
+    events: &SyncSender<Event>,
+) {
+    let observation = current.failure_observation();
+    let settings = current.failure_context(None);
+    if current.cancel.load(Ordering::Acquire) {
+        *stopped = Some((settings.clone(), observation.clone(), Some(error)));
+    }
+    let _ = current.output.stop();
+    clear_reservation(&current.view, current.epochs());
+    clear_reservation(&current.view, settings.snapshot.epochs);
+    retain_source_failure(terminal, &settings, error, Some(observation), events);
+}
 fn action_failure(
     playback: &mut Option<Playback>,
     stopped: &mut Option<StoppedSource>,
@@ -1597,13 +1675,18 @@ fn action_failure(
     events: &SyncSender<Event>,
 ) {
     if error.code == ErrorCode::OperationCancelled
-        && playback
-            .as_ref()
-            .is_some_and(Playback::cancelled_stream_source)
+        && playback.as_ref().is_some_and(|current| {
+            current.cancel.load(Ordering::Acquire)
+                && (current.cancelled_stream_source() || before_control.is_some())
+        })
     {
         let mut current = playback.take().expect("checked live source");
-        let (context, observation) = before_control
-            .unwrap_or_else(|| (current.failure_context(None), current.failure_observation()));
+        let (context, observation) = if current.cancelled_control_observation().is_some() {
+            (current.failure_context(None), current.failure_observation())
+        } else {
+            before_control
+                .unwrap_or_else(|| (current.failure_context(None), current.failure_observation()))
+        };
         let close_error = current.output.stop().err();
         clear_reservation(&current.view, context.snapshot.epochs);
         clear_reservation(&current.view, current.epochs());
@@ -1634,9 +1717,11 @@ fn stop_source(
 ) -> Result<(), EngineError> {
     if let Some(mut current) = playback.take() {
         let observation = current.failure_observation();
+        let context = current.failure_context(None);
         let failure = current.output.stop().err();
+        clear_reservation(view, context.snapshot.epochs);
         clear_reservation(view, current.epochs());
-        *stopped = Some((current.failure_context(None), observation, failure));
+        *stopped = Some((context, observation, failure));
     }
     if let Some(failed) = terminal.as_mut()
         && failed.bind_stop(&request, events)?
@@ -1702,12 +1787,17 @@ fn run(
             };
             // Controls submit no audio. Retain coherent facts before a partial seek or hold.
             let before_control = failure_settings.as_ref().and_then(|_| {
+                let incoming_stream = matches!(
+                    &action,
+                    Action::ActivateGraph { pipeline, .. } if pipeline.stream_render().is_some()
+                );
                 playback
                     .as_ref()
                     .filter(|p| {
-                        p.pipeline
-                            .as_ref()
-                            .is_some_and(|p| p.stream_render().is_some())
+                        incoming_stream
+                            || p.pipeline
+                                .as_ref()
+                                .is_some_and(|p| p.stream_render().is_some())
                     })
                     .map(|p| (p.failure_context(None), p.failure_observation()))
             });
@@ -1870,6 +1960,7 @@ fn run(
                         }
                     }
                     clear_reservation(&view, current.epochs());
+                    clear_reservation(&view, current.failure_context(None).snapshot.epochs);
                     playback = None;
                 }
                 Ok(false) => {
@@ -1878,22 +1969,8 @@ fn run(
                     }
                 }
                 Err(error) => {
-                    let epochs = current.epochs();
-                    let observation = current.failure_observation();
-                    let settings = current.failure_context(None);
-                    if current.cancel.load(Ordering::Acquire) {
-                        stopped = Some((settings.clone(), observation.clone(), Some(error)));
-                    }
-                    let _ = current.output.stop();
-                    clear_reservation(&view, epochs);
+                    playback_step_failure(current, error, &mut stopped, &mut terminal, &events);
                     playback = None;
-                    retain_source_failure(
-                        &mut terminal,
-                        &settings,
-                        error,
-                        Some(observation),
-                        &events,
-                    );
                 }
             }
         }
@@ -2805,6 +2882,265 @@ pub(crate) mod tests {
             assert!(playback.is_none());
         }
     }
+    #[cfg(target_os = "linux")]
+    fn cancelled_incoming_stream_preserves_installed_source(block: bool) {
+        let (mut current, events, receiver) = prepared_nonzero_frames(8193);
+        if block {
+            let observed = current.observe().unwrap();
+            let (settings, activation, pipeline) = prepare_activation(&current.settings, &observed);
+            current
+                .activate_graph(settings, activation, pipeline, &events)
+                .unwrap();
+            current.settings.snapshot.graph_epoch = 1;
+        }
+        current.settings.snapshot.muted = false;
+        current.settings.snapshot.software_gain_db = -48.0;
+        current.set_gain().unwrap();
+        current.step(&events).unwrap();
+        let before = current.failure_observation();
+        let epochs = current.epochs();
+        assert!(before.submitted_frames > 0);
+        assert!(
+            current
+                .pipeline
+                .as_ref()
+                .is_none_or(|pipeline| pipeline.stream_render().is_none())
+        );
+        let port = serde_json::json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":2048});
+        let mut middle = port.clone();
+        middle["sample_rate_hz"] = serde_json::json!(44100);
+        let graph = serde_json::from_value(serde_json::json!({"schema_version":1,"output":"out","nodes":[
+            {"id":"in","kind":{"kind":"input"},"format":port},
+            {"id":"down","kind":{"kind":"src","input_rate_hz":48000,"preset":"responsive","chunk_frames":64},"format":middle},
+            {"id":"up","kind":{"kind":"src","input_rate_hz":44100,"preset":"responsive","chunk_frames":64},"format":port},
+            {"id":"out","kind":{"kind":"output"},"format":port}],
+            "edges":[{"from":"in","to":"down","from_port":0,"to_port":0},{"from":"down","to":"up","from_port":0,"to_port":0},{"from":"up","to":"out","from_port":0,"to_port":0}]})).unwrap();
+        let observed = current.observe().unwrap();
+        let (settings, activation, pipeline) =
+            prepare_activation_graph(&current.settings, &observed, graph, current.cancel.clone());
+        assert!(pipeline.stream_render().is_some());
+        current.cancel.store(true, Ordering::Release);
+        current
+            .activate_graph(settings, activation, pipeline, &events)
+            .expect("queued cancelled incoming SRC must leave the installed source for Stop");
+        assert_eq!(current.epochs(), epochs);
+        assert_eq!(current.failure_observation(), before);
+        assert_eq!(
+            current.output.progress().unwrap().submitted,
+            before.submitted_frames
+        );
+        assert!(
+            current
+                .pipeline
+                .as_ref()
+                .is_none_or(|pipeline| pipeline.stream_render().is_none())
+        );
+        let view = current.view.clone();
+        let mut stop = current.settings.clone();
+        stop.snapshot.epochs = stop.snapshot.epochs.next_stream().unwrap();
+        receiver.try_iter().for_each(drop);
+        let mut playback = Some(current);
+        let mut stopped = None;
+        let mut terminal = None;
+        stop_source(
+            StopRequest {
+                request_id: RequestId::new("stop-cancelled-incoming-src").unwrap(),
+                settings: stop,
+            },
+            &mut playback,
+            &mut stopped,
+            &mut terminal,
+            &view,
+            &events,
+        )
+        .unwrap();
+        match receiver.recv_timeout(Duration::from_secs(1)).unwrap() {
+            Event::Stopped {
+                observation: Some(observation),
+                ..
+            } => assert_eq!(observation, before),
+            _ => panic!("Stop lost the installed native prefix"),
+        }
+        assert!(playback.is_none());
+        assert!(terminal.is_none());
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn cancelled_incoming_stream_preserves_integer_source_until_stop() {
+        cancelled_incoming_stream_preserves_installed_source(false);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn cancelled_incoming_stream_preserves_block_source_until_stop() {
+        cancelled_incoming_stream_preserves_installed_source(true);
+    }
+    #[cfg(target_os = "linux")]
+    fn cancelled_successful_hold_preserves_native_prefix(notify: bool) {
+        let (mut current, events, receiver, _) = staged_streaming_playback();
+        let before = current.failure_observation();
+        assert!(before.submitted_frames > 0);
+        let view = current.view.clone();
+        let mut pause = current.settings.clone();
+        pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+        pause.snapshot.muted = true;
+        pause.playing = false;
+        current
+            .reposition(pause.clone(), None, &events, notify)
+            .unwrap();
+        assert_eq!(current.failure_observation().submitted_frames, 0);
+        assert_eq!(current.output.progress().unwrap().submitted, 0);
+        let mut stop = pause;
+        stop.snapshot.epochs = stop.snapshot.epochs.next_stream().unwrap();
+        current.cancel.store(true, Ordering::Release);
+        receiver.try_iter().for_each(drop);
+        let mut playback = Some(current);
+        let mut stopped = None;
+        let mut terminal = None;
+        stop_source(
+            StopRequest {
+                request_id: RequestId::new("stop-after-successful-stream-hold").unwrap(),
+                settings: stop,
+            },
+            &mut playback,
+            &mut stopped,
+            &mut terminal,
+            &view,
+            &events,
+        )
+        .unwrap();
+        match receiver.recv_timeout(Duration::from_secs(1)).unwrap() {
+            Event::Stopped {
+                observation: Some(observation),
+                ..
+            } => assert_eq!(observation, before),
+            _ => panic!("successful hold lost the pre-control native prefix"),
+        }
+        assert!(playback.is_none());
+        assert!(terminal.is_none());
+        assert!(view.lock().unwrap().active.is_none());
+        assert!(view.lock().unwrap().reserved.is_none());
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn stop_after_successful_stream_hold_keeps_native_prefix_before_observe() {
+        cancelled_successful_hold_preserves_native_prefix(false);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn stop_after_successful_stream_hold_keeps_native_prefix_after_observe() {
+        cancelled_successful_hold_preserves_native_prefix(true);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn failed_step_after_cancelled_hold_clears_the_retained_control_reservation() {
+        let (mut current, events, receiver, _) = staged_streaming_playback();
+        let before = current.failure_observation();
+        let origin = current.epochs();
+        assert!(before.submitted_frames > 0);
+        let view = current.view.clone();
+        {
+            let mut view = view.lock().unwrap();
+            assert_eq!(view.epochs, Some(origin));
+            assert!(view.active.is_some());
+            view.reserved = Some(current.current.entry.id.clone());
+        }
+        let mut pause = current.settings.clone();
+        pause.snapshot.epochs = origin.next_stream().unwrap();
+        pause.snapshot.muted = true;
+        pause.playing = false;
+        current.reposition(pause, None, &events, true).unwrap();
+        assert_ne!(current.epochs(), origin);
+        assert_eq!(view.lock().unwrap().epochs, Some(origin));
+        current.cancel.store(true, Ordering::Release);
+        receiver.try_iter().for_each(drop);
+        let mut stopped = None;
+        let mut terminal = None;
+        // This injects the returned error at retirement, not a fake native stop failure.
+        let error = EngineError::new(ErrorCode::OutputFault, "retirement boundary test fault");
+        playback_step_failure(&mut current, error, &mut stopped, &mut terminal, &events);
+        let (settings, observation, failure) = stopped.unwrap();
+        assert_eq!(settings.snapshot.epochs, origin);
+        assert_eq!(observation, before);
+        assert_eq!(failure, Some(error));
+        assert!(terminal.is_some());
+        match receiver.recv_timeout(Duration::from_secs(1)).unwrap() {
+            Event::Failed {
+                epochs,
+                error: actual,
+                observation: Some(observation),
+                ..
+            } => {
+                assert_eq!(epochs, origin);
+                assert_eq!(actual, error);
+                assert_eq!(observation, before);
+            }
+            _ => panic!("retirement lost the real held source context"),
+        }
+        let view = view.lock().unwrap();
+        assert!(view.active.is_none());
+        assert!(view.reserved.is_none());
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn cancelled_new_source_progress_after_hold_cannot_reuse_the_old_control_snapshot() {
+        let (mut current, events, _receiver, _) = staged_streaming_playback();
+        for _ in 0..128 {
+            let positions = current
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .output_positions();
+            if positions.next_submission == positions.generated {
+                break;
+            }
+            current.step(&events).unwrap();
+        }
+        let positions = current
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .output_positions();
+        assert_eq!(positions.next_submission, positions.generated);
+        assert!(current.stream_position > 0);
+        let mut pause = current.settings.clone();
+        pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
+        pause.snapshot.muted = true;
+        pause.playing = false;
+        current.reposition(pause, None, &events, true).unwrap();
+        let before = current.source_position;
+        current.settings.snapshot.muted = false;
+        current.settings.playing = true;
+        current.set_gain().unwrap();
+        current
+            .pipeline
+            .as_mut()
+            .unwrap()
+            .stream_render_mut()
+            .unwrap()
+            .cancel_after_next_pump();
+        assert!(current.step(&events).unwrap());
+        let accepted = current
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .stream()
+            .stats()
+            .source_frames;
+        assert!(accepted > before);
+        let observation = current.failure_observation();
+        assert_eq!(observation.source_position_frames, accepted);
+        assert_eq!(observation.submitted_frames, 0);
+        assert_eq!(
+            current.failure_context(None).snapshot.epochs,
+            current.epochs()
+        );
+    }
     #[test]
     #[cfg(target_os = "linux")]
     fn in_flight_stream_controls_keep_coherent_progress_when_stop_cancels_after_suspend() {
@@ -2901,62 +3237,34 @@ pub(crate) mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn cancelled_stream_pump_reconciles_the_actual_accepted_source_prefix() {
-        use std::{sync::Barrier, time::Instant};
-        let mut witnessed = false;
-        for delay in [25, 50, 100, 200, 25, 50, 100, 200] {
-            let (mut playback, events, _receiver) = streaming_playback_chunk(8193, 1024, "quality");
-            for _ in 0..31 {
-                playback.step(&events).unwrap();
-            }
-            let before = playback
-                .pipeline
-                .as_ref()
-                .unwrap()
-                .stream_render()
-                .unwrap()
-                .stream()
-                .stats()
-                .source_frames;
-            let barrier = Arc::new(Barrier::new(2));
-            let worker_barrier = barrier.clone();
-            let cancel = playback.cancel.clone();
-            let cancelling = std::thread::spawn(move || {
-                worker_barrier.wait();
-                let start = Instant::now();
-                while start.elapsed() < Duration::from_micros(delay) {
-                    std::hint::spin_loop();
-                }
-                cancel.store(true, Ordering::Release);
-            });
-            barrier.wait();
-            let result = playback.step(&events);
-            cancelling.join().unwrap();
-            let accepted = playback
-                .pipeline
-                .as_ref()
-                .unwrap()
-                .stream_render()
-                .unwrap()
-                .stream()
-                .stats()
-                .source_frames;
-            if result.unwrap() && accepted > before {
-                witnessed = true;
-                assert_eq!(
-                    playback.source_position, accepted,
-                    "failed pump accepted source without advancing its real packet frontier"
-                );
-                assert_eq!(
-                    playback.failure_observation().source_position_frames,
-                    accepted
-                );
-                break;
-            }
-        }
+        let (mut playback, events, _receiver) = streaming_playback_chunk(8193, 1024, "quality");
+        let render = playback
+            .pipeline
+            .as_mut()
+            .unwrap()
+            .stream_render_mut()
+            .unwrap();
+        let before = render.stream().stats().source_frames;
+        render.cancel_after_next_pump();
+        // DSP succeeds first; the bridge then rejects publication using the real source token.
+        assert!(playback.step(&events).unwrap());
+        let render = playback.pipeline.as_ref().unwrap().stream_render().unwrap();
+        let accepted = render.stream().stats().source_frames;
+        assert!(playback.cancel.load(Ordering::Acquire));
         assert!(
-            witnessed,
-            "actual cancellation never landed after source acceptance during a library call"
+            accepted > before,
+            "the actual DSP call accepted no source prefix"
         );
+        assert_eq!(
+            playback.source_position, accepted,
+            "failed pump accepted source without advancing its real packet frontier"
+        );
+        assert_eq!(
+            playback.failure_observation().source_position_frames,
+            accepted
+        );
+        assert_eq!(render.output_positions().generated, 0);
+        assert_eq!(playback.failure_observation().submitted_frames, 0);
     }
     #[cfg(target_os = "linux")]
     fn prepared_nonzero_source() -> (Playback, SyncSender<Event>, Receiver<Event>) {

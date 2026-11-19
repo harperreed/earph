@@ -118,14 +118,15 @@ fn directory(runtime_path: &Path, create: bool) -> Result<PathBuf, EngineError> 
 /// Import without replacing any source or existing object. Interrupted files remain inspectable.
 pub fn import(runtime_path: &Path, source: &Path) -> Result<FirAssetReference, EngineError> {
     let runtime_path = runtime::directory(runtime_path, true)?;
-    let owner_lock = runtime::open_lock(&runtime_path.join("owner.lock"))?;
-    owner_lock.try_lock().map_err(|error| match error {
-        std::fs::TryLockError::WouldBlock => EngineError::new(
-            ErrorCode::SourceBusy,
-            "the owner must import corrections while its runtime is locked",
-        ),
-        std::fs::TryLockError::Error(_) => runtime::IO,
-    })?;
+    let _owner_lock =
+        runtime::OwnerLock::try_acquire(runtime::open_lock(&runtime_path.join("owner.lock"))?)
+            .map_err(|error| match error {
+                std::fs::TryLockError::WouldBlock => EngineError::new(
+                    ErrorCode::SourceBusy,
+                    "the owner must import corrections while its runtime is locked",
+                ),
+                std::fs::TryLockError::Error(_) => runtime::IO,
+            })?;
     import_with_sync(&runtime_path, source, &mut File::sync_all)
 }
 pub(crate) fn import_owned(
