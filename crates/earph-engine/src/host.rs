@@ -37,7 +37,7 @@ pub(crate) fn serve(
 ) -> Result<(), EngineError> {
     let server = ipc::Server::spawn(listener)?;
     let mut graphs = GraphJobs::spawn(directory.clone())?;
-    let mut profiles = crate::profiles::ProfileJobs::spawn(directory.clone());
+    let mut artifacts = crate::profiles::ArtifactJobs::spawn(directory.clone());
     let mut devices = crate::devices::DeviceJobs::spawn(device_helper)?;
     // Worker pipelines must retire before the preparation service shuts down.
     let mut worker = Worker::spawn();
@@ -108,7 +108,9 @@ pub(crate) fn serve(
         devices.poll(&mut session, monotonic(&clock));
         if session.shutdown_requested() {
             devices.cancel();
-            if devices.is_idle() {
+            artifacts.cancel(&mut session);
+            artifacts.poll(&mut session, monotonic(&clock), &directory, &token)?;
+            if devices.is_idle() && artifacts.is_idle() {
                 return Ok(());
             }
         }
@@ -126,7 +128,7 @@ pub(crate) fn serve(
             );
         }
         graphs.poll(&mut session, monotonic(&clock))?;
-        profiles.poll(&mut session, monotonic(&clock), &directory, &token)?;
+        artifacts.poll(&mut session, monotonic(&clock), &directory, &token)?;
         match server.requests.recv_timeout(Duration::from_millis(1)) {
             Ok(pending) => {
                 let command = pending.command;
@@ -143,9 +145,10 @@ pub(crate) fn serve(
                 let mut persistence_error = None;
                 let mut dispatched_early = false;
                 let mut admission_failure = None;
+                let submitted_ns = monotonic(&clock);
                 let mut receipt = session.submit_with_graph_effects(
                     command.clone(),
-                    monotonic(&clock),
+                    submitted_ns,
                     directory::paths,
                     |staged| {
                         actual_check?;
@@ -155,8 +158,10 @@ pub(crate) fn serve(
                         ) {
                             return devices.submit(staged);
                         }
-                        if command.payload.is_profile_save() {
-                            return profiles.submit(staged);
+                        if command.payload.is_profile_save()
+                            || command.payload.starts_diagnostic_work()
+                        {
+                            return artifacts.submit(staged, monotonic(&clock));
                         }
                         if command.payload.prepares_graph() {
                             return graphs.submit(staged, &worker);
@@ -278,7 +283,8 @@ pub(crate) fn serve(
                 }
                 if session.shutdown_requested() {
                     devices.cancel();
-                    if devices.is_idle() {
+                    artifacts.cancel(&mut session);
+                    if devices.is_idle() && artifacts.is_idle() {
                         return Ok(());
                     }
                 }

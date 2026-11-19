@@ -572,7 +572,9 @@ impl Session {
             revision: self.state.revision,
             epochs: self.state.epochs,
             activation_frame: None,
-            result: if status == ReceiptStatus::Applied {
+            result: if status == ReceiptStatus::Accepted && c.payload.starts_diagnostic_work() {
+                self.diagnostic_artifact_reply(&c.request_id)
+            } else if status == ReceiptStatus::Applied {
                 match c.payload {
                     Command::SourcesGet {} | Command::SourceStageUri { .. } => {
                         Some(QueryResult::Sources(self.sources.snapshot()))
@@ -586,6 +588,9 @@ impl Session {
                         .ok()
                         .map(|read| QueryResult::Events(Arc::new(read))),
                     Command::DiagnosticsPreview {} => self.diagnostic_preview_reply(&c.request_id),
+                    Command::DiagnosticsCancel { .. } => {
+                        self.diagnostic_cancel_reply(&c.request_id)
+                    }
                     Command::QueueGet { offset, limit } => {
                         self.queue.page(offset, limit).ok().map(QueryResult::Queue)
                     }
@@ -744,7 +749,11 @@ impl Session {
     ) -> Receipt {
         self.expire_graph_work(now_ns);
         self.expire_profile_work(now_ns);
+        self.expire_diagnostic_work(now_ns);
         self.expire_diagnostic_candidate(now_ns);
+        if let Some(record) = self.diagnostic_record(&command.request_id) {
+            return self.replay_graph_record(&command, record);
+        }
         if let Some(record) = self.device_receipt(&command.request_id) {
             return self.replay_graph_record(&command, record);
         }
@@ -796,6 +805,7 @@ impl Session {
                 let persisted = if staged.state.revision != self.state.revision
                     || command.payload.prepares_graph()
                     || command.payload.is_profile_save()
+                    || command.payload.starts_diagnostic_work()
                     || matches!(
                         command.payload,
                         Command::DevicesList { .. } | Command::DevicesInspect { .. }
@@ -809,7 +819,14 @@ impl Session {
                         *self = staged;
                         proposed
                     }
-                    Err(error) => self.receipt(&command, ReceiptStatus::Failed, Some(error)),
+                    Err(error) => {
+                        let mut receipt =
+                            self.receipt(&command, ReceiptStatus::Failed, Some(error));
+                        if command.payload.starts_diagnostic_work() {
+                            receipt.result = staged.refused_diagnostic_dispatch(now_ns);
+                        }
+                        receipt
+                    }
                 }
             }
             Err(error) => self.receipt(&command, ReceiptStatus::Rejected, Some(error)),
@@ -842,6 +859,7 @@ impl Session {
         }
         let record = Arc::new((command, receipt.clone()));
         self.retain_diagnostic_observation(&record.0.payload);
+        self.retain_diagnostic_record(record.clone());
         self.retain_graph_record(record.clone());
         self.retain_profile_receipt(record.clone());
         self.retain_device_record(record.clone());
@@ -863,7 +881,27 @@ impl Session {
         if command.zone_id != self.state.zone_id {
             return Err(STALE);
         }
-        if command.payload.is_diagnostic()
+        if command.payload.is_diagnostic_artifact()
+            && (self.state.owner_id.is_none()
+                || command.session_id.is_some() && command.session_id != self.state.session_id)
+        {
+            return Err(STALE);
+        }
+        if self.state.shutdown_requested
+            && (command.payload.starts_diagnostic_work()
+                || command.payload.is_profile_save()
+                || command.payload.prepares_graph()
+                || matches!(
+                    command.payload,
+                    Command::DevicesList { .. } | Command::DevicesInspect { .. }
+                ))
+        {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "owner shutdown has stopped job admission",
+            ));
+        }
+        if (command.payload.is_diagnostic() || command.payload.is_diagnostic_artifact())
             && command.owner_id.is_some()
             && command.owner_id != self.state.owner_id
         {
@@ -896,6 +934,9 @@ impl Session {
                 | Command::MetricsGet {}
                 | Command::EventsGet { .. }
                 | Command::DiagnosticsPreview {}
+                | Command::DiagnosticsExport { .. }
+                | Command::DiagnosticsInspect { .. }
+                | Command::DiagnosticsCancel { .. }
                 | Command::Capabilities
                 | Command::DevicesList { .. }
                 | Command::DevicesInspect { .. }
@@ -921,6 +962,12 @@ impl Session {
             && (command.session_id.is_none() || command.session_id != self.state.session_id)
         {
             return Err(STALE);
+        }
+        if command.payload.starts_diagnostic_work() {
+            return self.admit_diagnostic_artifact(command, now_ns);
+        }
+        if matches!(command.payload, Command::DiagnosticsCancel { .. }) {
+            return self.apply_diagnostic_cancel(command);
         }
         if command.payload.is_query() {
             if let Command::EventsGet { cursor } = &command.payload {
@@ -968,7 +1015,7 @@ impl Session {
         if command.payload.is_profile_save() {
             return self.apply_profile_save(command, now_ns);
         }
-        if self.profile_worker_busy()
+        if self.artifact_worker_busy()
             && matches!(
                 command.payload,
                 Command::GraphPrepare { .. }
@@ -1350,6 +1397,9 @@ impl Session {
         }
         self.state = next;
         self.cancel_profile_work();
+        if self.state.shutdown_requested {
+            self.cancel_artifact_work();
+        }
         if invalidated || clear_active {
             self.invalidate_graph_work(EngineError::new(
                 ErrorCode::OperationCancelled,

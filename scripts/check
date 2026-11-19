@@ -6,6 +6,6 @@ cd "$(dirname "$0")/.."
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo build --locked -p earph-engine --bin earph-engine
-cargo test --workspace --locked
+cargo test --workspace --locked --no-fail-fast
 cargo run --quiet --locked -p earph-harness -- catalog-check --catalog docs/requirements.json
 cargo run --quiet --locked -p earph-harness -- dependency-check --inventory docs/dependency-lock.json

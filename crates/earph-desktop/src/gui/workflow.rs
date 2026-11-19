@@ -1,5 +1,6 @@
 // ABOUTME: Coordinates bounded native workflows using actual owner snapshots and receipts.
 // ABOUTME: Fences queue pages and captured edits without repairing stale targets.
+use super::diagnostics::Views as DiagnosticViews;
 use super::profile_files::{CorrectionPreview, CorrectionPreviewRequest, CorrectionWorker};
 use super::{HostStatus, host::OwnerHost, request_id};
 use super::{
@@ -54,6 +55,12 @@ pub enum UiIntent {
         basis: Arc<StateView>,
         command: Command,
     },
+    DiagnosticAction {
+        basis: Arc<StateView>,
+        command: Command,
+    },
+    DiagnosticDestination(String),
+    ReviewDiagnosticPreview,
     PreviewCorrection {
         basis: Arc<StateView>,
         request: CorrectionPreviewRequest,
@@ -224,6 +231,11 @@ enum Task {
         command: Command,
         owner: OwnerId,
     },
+    Diagnostic {
+        basis: Arc<StateView>,
+        command: Command,
+    },
+    Reconcile(RequestId),
     ProfileBefore {
         basis: Option<Arc<StateView>>,
         command: Command,
@@ -242,6 +254,8 @@ impl Task {
             Self::Preflight { .. }
                 | Self::Mutation { .. }
                 | Self::Discovery { .. }
+                | Self::Diagnostic { .. }
+                | Self::Reconcile(_)
                 | Self::LocalPreview { .. }
                 | Self::PackageFiles { .. }
         ) || match self {
@@ -281,6 +295,7 @@ pub struct GuiController {
     host_error_reported: bool,
     runtime: Option<String>,
     pub(super) profiles: ProfileViews,
+    pub(super) diagnostics: DiagnosticViews,
     draft_epoch: u64,
     local_work: Option<LocalWork>,
     local_preview: Option<CapturedCorrection>,
@@ -330,6 +345,7 @@ impl GuiController {
             host_error_reported: false,
             runtime: None,
             profiles: ProfileViews::default(),
+            diagnostics: DiagnosticViews::default(),
             draft_epoch: 0,
             local_work: None,
             local_preview: None,
@@ -1126,8 +1142,15 @@ impl GuiController {
             Some(
                 Task::Preflight { command, .. }
                 | Task::Discovery { command, .. }
+                | Task::Diagnostic { command, .. }
                 | Task::ProfileBefore { command, .. },
             ) => Some(command),
+            _ => None,
+        }
+    }
+    pub fn waiting_reconciliation(&self) -> Option<&RequestId> {
+        match self.waiting_edit.as_ref() {
+            Some(Task::Reconcile(id)) => Some(id),
             _ => None,
         }
     }
@@ -1141,13 +1164,7 @@ impl GuiController {
                 .is_some_and(|(basis, current)| same_context(basis, current))
     }
     pub fn control_edit_available(&self) -> bool {
-        self.connected
-            && self.client.is_some()
-            && !self.queue_edit_pending()
-            && !self.closing
-            && self.shutdown.is_none()
-            && self.cleanup.is_none()
-            && !self.host.launching()
+        self.foreground_available()
             && !self.model().records().iter().any(|record| {
                 !record.owner_changed
                     && !record.request.envelope().payload.is_query()
@@ -1156,6 +1173,52 @@ impl GuiController {
                             && !is_transport_operation(&record.request.envelope().payload)
                             && record.request.lane() == Lane::Ordinary))
             })
+    }
+    fn foreground_available(&self) -> bool {
+        self.connected
+            && self.client.is_some()
+            && !self.queue_edit_pending()
+            && !self.closing
+            && self.shutdown.is_none()
+            && self.cleanup.is_none()
+            && !self.host.launching()
+    }
+    fn ordinary_in_flight(&self) -> bool {
+        self.model()
+            .records()
+            .iter()
+            .any(|record| record.in_flight && record.request.lane() == Lane::Ordinary)
+    }
+    pub fn diagnostic_read_available(&self) -> bool {
+        self.foreground_available() && self.capabilities.is_some()
+    }
+    pub fn diagnostic_signal_path(&self) -> Option<&earph_core::diagnostics::SignalPathRead> {
+        self.diagnostics
+            .signal_path
+            .as_ref()
+            .map(|(_, read)| read.as_ref())
+    }
+    pub fn diagnostic_metrics(&self) -> Option<&earph_core::diagnostics::MetricsRead> {
+        self.diagnostics
+            .metrics
+            .as_ref()
+            .map(|(_, read)| read.as_ref())
+    }
+    pub fn diagnostic_events(&self) -> Option<&earph_core::diagnostics::EventsRead> {
+        self.diagnostics
+            .events
+            .as_ref()
+            .map(|(_, read)| read.as_ref())
+    }
+    pub fn diagnostic_preview(&self) -> Option<&earph_core::diagnostics::PreviewRead> {
+        self.diagnostics
+            .preview
+            .as_ref()
+            .map(|(_, read)| read.as_ref())
+    }
+    pub fn diagnostic_preview_reviewed(&self) -> bool {
+        self.state()
+            .is_some_and(|state| self.diagnostics.export_command(state).is_ok())
     }
     pub fn capabilities(&self) -> Option<&CapabilitiesView> {
         self.capabilities.as_ref()
@@ -1383,6 +1446,83 @@ impl GuiController {
                 self.invalidate_packages();
                 Ok(())
             }
+            UiIntent::DiagnosticDestination(directory) => {
+                if self.diagnostics.set_destination(directory) {
+                    self.cancel_unsent_diagnostic_export();
+                }
+                Ok(())
+            }
+            UiIntent::ReviewDiagnosticPreview => {
+                if !self.diagnostic_read_available() {
+                    return Err(
+                        "Observe the owner and finish pending foreground work before review".into(),
+                    );
+                }
+                let state = self
+                    .state()
+                    .cloned()
+                    .ok_or("Observe an owner before review")?;
+                self.diagnostics.mark_review(&state)
+            }
+            UiIntent::DiagnosticAction { basis, command } => {
+                if !command.is_diagnostic() && !command.is_diagnostic_artifact() {
+                    return Err("Only shared diagnostic commands belong to this action".into());
+                }
+                if !self.diagnostic_read_available() {
+                    return Err(
+                        "A foreground action is waiting, pending, or the owner is unavailable"
+                            .into(),
+                    );
+                }
+                if self.state().is_none_or(|state| {
+                    state.owner_id != basis.owner_id || state.zone_id != basis.zone_id
+                }) {
+                    return Err("Diagnostic owner or zone changed before capture".into());
+                }
+                if matches!(command, Command::DiagnosticsExport { .. }) {
+                    if !self.control_edit_available() {
+                        return Err(
+                            "Reconcile pending or uncertain actions before another export".into(),
+                        );
+                    }
+                    self.validate_diagnostic_export(&basis, &command)?;
+                    return self.capture(basis, command);
+                }
+                if let Command::DiagnosticsInspect { directory, .. } = &command {
+                    earph_core::diagnostics::validate_diagnostic_directory(directory)
+                        .map_err(|error| error.to_string())?;
+                }
+                if let Command::DiagnosticsCancel { request_id } = &command {
+                    let record = self
+                        .model()
+                        .record(request_id)
+                        .ok_or("Choose a retained diagnostic operation before cancellation")?;
+                    let envelope = record.request.envelope();
+                    if record.owner_changed
+                        || envelope.owner_id != basis.owner_id
+                        || envelope.zone_id != basis.zone_id
+                        || !envelope.payload.starts_diagnostic_work()
+                    {
+                        return Err(
+                            "Cancellation target belongs to a different diagnostic owner or zone"
+                                .into(),
+                        );
+                    }
+                }
+                if matches!(command, Command::DiagnosticsPreview {}) {
+                    self.diagnostics.begin_preview();
+                }
+                let task = Task::Diagnostic {
+                    basis,
+                    command: command.clone(),
+                };
+                if self.pending.is_some() || self.ordinary_in_flight() {
+                    self.waiting_edit = Some(task);
+                    Ok(())
+                } else {
+                    self.start_query(command, task)
+                }
+            }
             UiIntent::ProfileAction { basis, command } => {
                 validate_profile_command(&command)?;
                 self.validate_correction_action(&basis, &command)?;
@@ -1417,7 +1557,7 @@ impl GuiController {
                         command,
                         foreground: true,
                     };
-                    if self.pending.is_some() {
+                    if self.pending.is_some() || self.ordinary_in_flight() {
                         self.waiting_edit = Some(task);
                         Ok(())
                     } else {
@@ -1524,7 +1664,7 @@ impl GuiController {
                         .and_then(|s| s.owner_id.clone())
                         .ok_or("Observe an owner before discovery")?,
                 };
-                if self.pending.is_some() {
+                if self.pending.is_some() || self.ordinary_in_flight() {
                     self.waiting_edit = Some(task);
                     Ok(())
                 } else {
@@ -1533,7 +1673,7 @@ impl GuiController {
             }
             UiIntent::Mute => self.safety_command(Command::Mute { muted: true }),
             UiIntent::Stop => self.safety_command(Command::Stop),
-            UiIntent::Reconcile(id) => self.reconcile(&id),
+            UiIntent::Reconcile(id) => self.capture_reconciliation(id),
             UiIntent::ShutdownAndQuit => {
                 self.invalidate_correction();
                 self.waiting_edit = None;
@@ -1575,11 +1715,59 @@ impl GuiController {
             session,
             draft_epoch: self.draft_epoch,
         };
-        if self.pending.is_some() {
+        if self.pending.is_some() || self.ordinary_in_flight() {
             self.waiting_edit = Some(task);
             Ok(())
         } else {
             self.start_query(Command::State, task)
+        }
+    }
+    fn validate_diagnostic_export(
+        &self,
+        state: &StateView,
+        command: &Command,
+    ) -> Result<(), String> {
+        let Command::DiagnosticsExport {
+            directory,
+            expected_sha256,
+        } = command
+        else {
+            return Ok(());
+        };
+        let Command::DiagnosticsExport {
+            directory: reviewed_directory,
+            expected_sha256: reviewed_digest,
+        } = self.diagnostics.export_command(state)?
+        else {
+            unreachable!("reviewed diagnostic export")
+        };
+        if directory != &reviewed_directory || expected_sha256 != &reviewed_digest {
+            return Err("Diagnostic preview or destination changed before export".into());
+        }
+        Ok(())
+    }
+    fn cancel_unsent_diagnostic_export(&mut self) {
+        if self.waiting_edit.as_ref().is_some_and(|task| {
+            matches!(
+                task,
+                Task::Preflight {
+                    command: Command::DiagnosticsExport { .. },
+                    ..
+                }
+            )
+        }) {
+            self.waiting_edit = None;
+        }
+        if let Some((_, task)) = self.pending.as_mut()
+            && matches!(
+                task,
+                Task::Preflight {
+                    command: Command::DiagnosticsExport { .. },
+                    ..
+                }
+            )
+        {
+            *task = Task::Before;
         }
     }
     pub fn seek_bounds(&self) -> Option<(&earph_core::ids::QueueEntryId, u64)> {
@@ -1660,7 +1848,18 @@ impl GuiController {
         {
             return Err("Discovery owner changed before submission; refresh explicitly".into());
         }
-        let request = if matches!(task, Task::Discovery { .. }) {
+        let request = if let Task::Diagnostic { basis, .. } = &task {
+            if self.state().is_none_or(|state| {
+                state.owner_id != basis.owner_id || state.zone_id != basis.zone_id
+            }) {
+                return Err("Diagnostic owner or zone changed before submission".into());
+            }
+            if command.is_diagnostic() {
+                Request::diagnostic_query(request_id()?, basis, command)
+            } else {
+                Request::diagnostic_artifact(request_id()?, basis, command)
+            }
+        } else if matches!(task, Task::Discovery { .. }) {
             Request::device_query(
                 request_id()?,
                 self.state().ok_or("Observe an owner before discovery")?,
@@ -1691,6 +1890,27 @@ impl GuiController {
         let id = self.submit(request)?;
         self.safety.push(id);
         Ok(())
+    }
+    fn capture_reconciliation(&mut self, id: RequestId) -> Result<(), String> {
+        let record = self
+            .model()
+            .record(&id)
+            .ok_or("Retained request is unavailable")?;
+        if record.request.lane() == Lane::Safety {
+            return self.reconcile(&id);
+        }
+        if record.owner_changed {
+            return self.reconcile(&id);
+        }
+        if self.queue_edit_pending() {
+            return Err("A foreground action is already waiting or pending".into());
+        }
+        if self.pending.is_some() || self.ordinary_in_flight() {
+            self.waiting_edit = Some(Task::Reconcile(id));
+            Ok(())
+        } else {
+            self.reconcile(&id)
+        }
     }
     fn reconcile(&mut self, id: &RequestId) -> Result<(), String> {
         if let Some(record) = self.model().record(id)
@@ -1730,6 +1950,7 @@ impl GuiController {
     }
     fn disconnect(&mut self, close: bool) {
         self.invalidate_correction();
+        self.diagnostics.clear_owner();
         self.closing |= close;
         self.shutdown = None;
         if !close {
@@ -1786,14 +2007,14 @@ impl GuiController {
                 self.discovery = None;
                 self.inspection = None;
                 self.profiles = ProfileViews::default();
-                if self
-                    .pending
-                    .as_ref()
-                    .is_some_and(|(_, task)| matches!(task, Task::Discovery { .. }))
-                {
+                self.diagnostics.clear_owner();
+                if self.pending.as_ref().is_some_and(|(_, task)| {
+                    matches!(task, Task::Discovery { .. } | Task::Diagnostic { .. })
+                }) {
                     self.pending = None;
-                    self.error =
-                        Some("Discovery owner changed; its sent receipt remains in history".into());
+                    self.error = Some(
+                        "Observation owner changed; its sent receipt remains in history".into(),
+                    );
                 }
                 if self.waiting_edit.is_some()
                     || self.pending.as_ref().is_some_and(|(_, t)| {
@@ -1842,16 +2063,16 @@ impl GuiController {
         if self.closing {
             return;
         }
-        // Muted transport may stay Accepted after readiness. Release the send workflow,
-        // while the same bounded model record retains the exact operation identity.
-        if let Some((id, Task::Mutation { .. })) = self.pending.as_ref()
+        // Long operations retain their exact model identity after the send workflow finishes.
+        // Artifact cancellation and observation must remain available during worker completion.
+        if let Some((id, Task::Mutation { .. } | Task::Diagnostic { .. })) = self.pending.as_ref()
             && self
                 .outcome(id)
                 .is_some_and(|(p, _)| p == Presentation::Accepted)
-            && self
-                .model()
-                .record(id)
-                .is_some_and(|r| is_transport_operation(&r.request.envelope().payload))
+            && self.model().record(id).is_some_and(|r| {
+                is_transport_operation(&r.request.envelope().payload)
+                    || r.request.envelope().payload.starts_diagnostic_work()
+            })
         {
             self.pending = None;
             self.refresh = true;
@@ -1935,8 +2156,18 @@ impl GuiController {
         }
         self.poll_accepted(now);
         self.observe_package_issues();
-        if self.client.is_some() && self.pending.is_none() && self.local_work.is_none() {
+        if self.client.is_some()
+            && self.pending.is_none()
+            && self.local_work.is_none()
+            && !self.ordinary_in_flight()
+        {
             if let Some(task) = self.waiting_edit.take() {
+                if let Task::Reconcile(id) = task {
+                    if let Err(error) = self.reconcile(&id) {
+                        self.error = Some(error);
+                    }
+                    return;
+                }
                 if matches!(task, Task::PackageFiles { .. }) {
                     if let Err(error) = self.start_package_files(task) {
                         self.error = Some(error);
@@ -1950,7 +2181,9 @@ impl GuiController {
                     return;
                 }
                 let command = match &task {
-                    Task::Discovery { command, .. } => command.clone(),
+                    Task::Discovery { command, .. } | Task::Diagnostic { command, .. } => {
+                        command.clone()
+                    }
                     _ => Command::State,
                 };
                 if let Err(error) = self.start_query(command, task) {
@@ -2053,6 +2286,14 @@ impl GuiController {
             let Some(id) = &slots[slot] else {
                 continue;
             };
+            if self
+                .model()
+                .record(id)
+                .is_some_and(|record| record.request.lane() == Lane::Ordinary)
+                && (self.ordinary_in_flight() || self.waiting_edit.is_some())
+            {
+                continue;
+            }
             if !self
                 .outcome(id)
                 .is_some_and(|(presentation, _)| presentation == Presentation::Accepted)
@@ -2094,6 +2335,9 @@ impl GuiController {
         command: &Command,
     ) -> Result<(), String> {
         match task {
+            Task::Reconcile(_) => {
+                Err("Reconciliation observes the original retained request".into())
+            }
             Task::PackageFiles { .. } => {
                 Err("Local package review cannot consume an owner receipt".into())
             }
@@ -2230,8 +2474,12 @@ impl GuiController {
                     self.validate_package_action(&command)?;
                     self.validate_prepared_action(&state, &command)?;
                 }
+                self.validate_diagnostic_export(&state, &command)?;
                 let request = match session {
                     Some(session) => Request::start(super::request_id()?, &state, session, command),
+                    None if command.is_diagnostic_artifact() => {
+                        Request::diagnostic_artifact(super::request_id()?, &state, command)
+                    }
                     None => Request::mutation(super::request_id()?, &state, command),
                 }
                 .map_err(|e| format!("{e:?}"))?;
@@ -2276,6 +2524,20 @@ impl GuiController {
                 Ok(())
             }
             Task::Discovery { .. } => Ok(()),
+            Task::Diagnostic { basis, command } => {
+                if self.state().is_none_or(|state| {
+                    state.owner_id != basis.owner_id || state.zone_id != basis.zone_id
+                }) {
+                    return Err("Diagnostic owner or zone changed before adoption".into());
+                }
+                if command.is_diagnostic() {
+                    let result = receipt.result.ok_or("Diagnostic result unavailable")?;
+                    self.diagnostics
+                        .adopt(request_id.clone(), &command, result, &basis)
+                } else {
+                    Ok(())
+                }
+            }
             Task::ProfileBefore {
                 basis,
                 command,
@@ -2435,7 +2697,8 @@ fn operation_replayable(
             && (matches!(
                 envelope.payload,
                 Command::DevicesList { .. } | Command::DevicesInspect { .. }
-            ) || is_profile_mutation(&envelope.payload)))
+            ) || is_profile_mutation(&envelope.payload)
+                || envelope.payload.is_diagnostic_artifact()))
 }
 fn correction_unsent(task: &Task) -> bool {
     matches!(
@@ -2781,6 +3044,10 @@ fn preview_matches_state(preview: &GraphPreviewView, state: &StateView) -> bool 
 }
 
 #[cfg(test)]
+#[path = "../../tests/gui_diagnostics_admission/mod.rs"]
+mod diagnostic_admission_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::OwnerClient;
@@ -2827,6 +3094,44 @@ mod tests {
             Some(&replaced),
             true
         ));
+    }
+
+    #[test]
+    fn accepted_diagnostic_work_keeps_exact_polling_only_for_its_connected_owner_and_zone() {
+        let state = correction_state();
+        let request = Request::diagnostic_artifact(
+            request_id().unwrap(),
+            &state,
+            Command::DiagnosticsExport {
+                directory: "/owned/diagnostic-artifact".into(),
+                expected_sha256: "0".repeat(64).try_into().unwrap(),
+            },
+        )
+        .unwrap();
+        assert!(
+            operation_replayable(request.envelope(), Some(&state), true),
+            "Accepted diagnostic work lost its fair exact-poll slot"
+        );
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&state),
+            false
+        ));
+        let mut replaced = (*state).clone();
+        replaced.owner_id = Some(OwnerId::new("replacement-owner").unwrap());
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&replaced),
+            true
+        ));
+        replaced = (*state).clone();
+        replaced.zone_id = ZoneId::new("another-zone").unwrap();
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&replaced),
+            true
+        ));
+        assert!(!operation_replayable(request.envelope(), None, true));
     }
     #[test]
     fn unchanged_package_inspection_preserves_the_actual_earlier_unresolved_write_facts() {

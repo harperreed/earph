@@ -21,6 +21,7 @@ pub enum RequestError {
     NotQuery,
     NotDeviceQuery,
     NotDiagnosticQuery,
+    NotDiagnosticArtifact,
     NotMutation,
     NotStart,
     MissingOwner,
@@ -67,6 +68,28 @@ impl Request {
         }
         let owner = state.owner_id.clone().ok_or(RequestError::MissingOwner)?;
         Self::query_envelope(id, state.zone_id.clone(), Some(owner), payload)
+    }
+    /// Captures owner scope and only the revision required for reviewed export.
+    pub fn diagnostic_artifact(
+        id: RequestId,
+        state: &StateView,
+        payload: Command,
+    ) -> Result<Self, RequestError> {
+        if !payload.is_diagnostic_artifact() {
+            return Err(RequestError::NotDiagnosticArtifact);
+        }
+        let owner = state.owner_id.clone().ok_or(RequestError::MissingOwner)?;
+        let revision =
+            matches!(payload, Command::DiagnosticsExport { .. }).then_some(state.revision);
+        Self::encode(CommandEnvelope {
+            schema_version: 1,
+            request_id: id,
+            zone_id: state.zone_id.clone(),
+            owner_id: Some(owner),
+            session_id: None,
+            expected_revision: revision,
+            payload,
+        })
     }
     fn query_envelope(
         id: RequestId,
@@ -208,6 +231,44 @@ impl OwnerClient {
                 && receipt.zone_id == envelope.zone_id
                 && receipt.session_id == envelope.session_id;
             let result_matches = match (&envelope.payload, &receipt.result) {
+                (
+                    Command::DiagnosticsExport {
+                        directory,
+                        expected_sha256,
+                    }
+                    | Command::DiagnosticsInspect {
+                        directory,
+                        expected_sha256,
+                    },
+                    Some(ResultView::DiagnosticArtifact(value)),
+                ) => {
+                    use earph_core::diagnostics::DiagnosticArtifactOperation;
+                    envelope.owner_id.is_some()
+                        && matches!(
+                            (&envelope.payload, value.operation),
+                            (
+                                Command::DiagnosticsExport { .. },
+                                DiagnosticArtifactOperation::Export
+                            ) | (
+                                Command::DiagnosticsInspect { .. },
+                                DiagnosticArtifactOperation::Inspect
+                            )
+                        )
+                        && value.directory == *directory
+                        && value.expected_sha256 == *expected_sha256
+                        && diagnostic_target_matches(&value.binding, envelope)
+                }
+                (
+                    Command::DiagnosticsCancel { request_id },
+                    Some(ResultView::DiagnosticCancel(value)),
+                ) => {
+                    envelope.owner_id.is_some()
+                        && value.request_id == *request_id
+                        && diagnostic_target_matches(&value.binding, envelope)
+                }
+                (payload, _) if payload.is_diagnostic_artifact() => {
+                    receipt.status == ReplyStatus::Rejected && receipt.result.is_none()
+                }
                 (Command::SignalPathGet {}, Some(ResultView::SignalPath(value))) => {
                     receipt.status == ReplyStatus::Applied
                         && diagnostic_target_matches(&value.binding, envelope)

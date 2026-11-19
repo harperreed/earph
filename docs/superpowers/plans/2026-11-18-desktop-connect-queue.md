@@ -492,3 +492,85 @@ See [the preview receipt](../../evidence/diagnostics/preview-linux-20261119.json
 Mac Clippy exposed ungated support for existing Linux-only GUI tests.
 The guards are fixed in source; after-fix Mac qualification remains pending.
 Diagnostic export, inspection, cancellation, shared artifact-worker integration and native presentation remain the next units.
+
+## Diagnostic export and presentation work
+
+This unit extends the existing diagnostic reads with explicit artifact publication and native presentation.
+Each qualification result names its exact source and limits.
+The existing diagnostic reads and the accepted artifact result contract remain authoritative.
+Core and Engine own capture, candidate pins, filesystem effects and worker completion.
+Desktop owns strict projection, request matching, presentation and explicit user actions.
+Keep the existing dispatcher, receipt model and single artifact worker.
+
+### Shared client boundary
+
+Root owns `src/client.rs`, `src/projection.rs` and their diagnostic tests under `crates/earph-desktop`.
+Add `Request::diagnostic_artifact(id, state, payload)` for the three artifact commands.
+Capture the owner and zone for every artifact command.
+Export also captures the current revision.
+Inspection and cancellation do not depend on a fresh revision.
+Leave the session target empty because these operations belong to the owner.
+Do not classify artifact inspection as a product snapshot.
+
+Add `ResultView::DiagnosticArtifact` and `ResultView::DiagnosticCancel` using the Core DTOs.
+Validate artifact effects against the outer receipt status through Core's validator.
+Require agreement with the outer request ID, zone, revision and epochs where applicable.
+Match the command's operation, directory, expected digest and cancellation target before accepting a reply.
+Preserve historical terminal receipts and exact reply bytes.
+Retain delivery uncertainty and exact request bytes for reconciliation.
+
+- [x] Watch actual Core artifact replies fail the missing Desktop projection.
+- [x] Add strict projection and owner-scoped request construction.
+- [x] Reject missing nulls, unknown fields, wrong status, forged bindings and mismatched command results.
+- [x] Pass real owner export and inspection through the shared client without opening output.
+- [x] Drop an actual export reply and prove exact reconciliation avoids a second publication.
+
+### Native presentation boundary
+
+The GUI owner changes `gui/app.rs`, `gui/mod.rs`, `gui/signal_path.rs`, `gui/workflow.rs` and `gui/diagnostics.rs`.
+Saved correction presentation remains a separate owner's bounded change in `gui/profiles.rs`.
+Present requested, resolved, observed and unavailable facts separately.
+Keep unsupported metrics unavailable rather than displaying a measured zero.
+Expose scoped event paging and gap recovery without replacing newer product state with historical events.
+Use explicit actions to capture and review the exact redacted preview before exporting it.
+Show its digest, byte count, capture cut and incomplete evidence coverage.
+Keep private outer receipt details separate from the shareable payload.
+
+Use an explicit absolute destination for export and inspection.
+Never replace a reviewed preview with an automatic capture during export.
+Owner refusal decides stale revision, expired candidate and replaced candidate outcomes.
+Changing the owner, preview or destination invalidates the corresponding export acknowledgment.
+Accepted export means effects may have begun; it does not prove installation.
+Show retained stages and uncertain sync outcomes with their exact local locators.
+Offer read-only inspection after uncertain delivery or effects.
+Keep cancellation available while the original operation remains pending.
+Cancellation acknowledgment does not prove the worker stopped or no files were written.
+Never automatically retry publication or repair the destination.
+
+- [x] Add failing renderer and real-owner workflow cases for preview review and explicit export.
+- [x] Cover changed drafts, cancellation races, disconnect and replacement owners.
+- [ ] Exercise preview expiry through an actual GUI export.
+- [x] Verify real destination contents after lost replies and read-only inspection.
+- [ ] Qualify the actual Linux window using retained source and product hashes.
+- [ ] Run applicable Mac software checks against a new immutable integrated source.
+- [x] Keep Mac window qualification pending until its existing access blocker is resolved.
+
+Run the canonical check after integration and one independent review before publication.
+Retain fixtures, partial exports and previous evidence throughout the unit.
+These slices do not complete the remaining observability, network or release requirements.
+
+### Verified software checkpoint
+
+The current integrated Linux source passes 1157 canonical tests, with zero failures and five existing skips.
+One independent review pass covers the backend, client, safety queue and GUI changes, including actual regression followups.
+Both existing owner-change rejection paths remain authoritative.
+Test fixtures resolve owned parent aliases before constructing absent artifact destinations.
+No production symlink policy changed.
+See [the software receipt](../../evidence/diagnostics/artifacts-linux-software-20261119.json).
+
+The first native attempt preserves its failure, two saved-correction images and all partial evidence.
+Its harness wrongly required successful diagnostic reads to remain in the receipt panel.
+Those reads retire after adoption into current typed views.
+The replacement harness must observe those views and label reconstructed read envelopes explicitly.
+It must never replay previews through an observer.
+Native diagnostic acceptance, actual GUI expiry and current-source Mac software checks remain open.

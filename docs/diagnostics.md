@@ -113,10 +113,75 @@ Unknown compiler, target, profile, and Git facts stay explicitly unavailable.
 The preview runs no Git or build command.
 Test inventory remains `not_attached`; reproduction remains `incomplete`.
 
-Export, pinning, artifact workers, cancellation, and filesystem effects remain unimplemented.
-Actual pinned-candidate refusal remains a later worker-integration requirement.
-These reads do not complete T17, OBS-03, AC-34, AC-38, or AC-39.
-Use exact producer, consumer, integration, and platform evidence before extending those claims.
+## Explicit artifact publication
+
+Review `diagnostics.preview`, then send `diagnostics.export` with its SHA256 and an explicit absolute `directory`.
+Export requires the current owner and revision.
+The worker writes the retained bytes; it never gathers another preview.
+The active export pins that candidate and refuses new previews until the worker retires.
+Profile and diagnostic artifacts share one bounded worker slot.
+Cancellation and expiry preserve that slot until actual completion.
+
+The destination must not exist.
+Its parent must be private and owned by the current account.
+Every path component uses a nofollow directory descriptor.
+The worker stages exactly `manifest.json` and `diagnostics.json` in a private sibling directory.
+It checks regular files, private permissions, single links, exact inventory, lengths and digests before installation.
+It rechecks named parent and stage identities before the exclusive no-replace rename.
+It syncs the files and directories, then validates the installed directory through bounded readback.
+The aggregate file bound is 589824 bytes.
+
+Artifact results are local and contain private paths and request identities.
+Their binding retains the admission cut, even if product state changes during work.
+The completion clock does not claim a current product snapshot.
+Effects distinguish `unchanged`, `stage_retained`, `installed_verified`, `installed_sync_uncertain`, and `inspect_required`.
+An accepted export uses `inspect_required` because filesystem work can begin before its reply arrives.
+Only a verified installed export reports successful publication.
+Failed and cancelled jobs retain their known effect phase and original staging locator.
+Renamed paths can make that locator uncertain; inspect the explicit destination before deciding what happened.
+The worker never deletes stages or published directories.
+
+Send `diagnostics.inspect` with the explicit destination and expected bundle digest to reconcile uncertain outcomes.
+Inspection uses the same bounded worker, reads without repair, and reports `missing`, `matching`, `conflicting`, or `unreadable`.
+A missing destination says nothing about retained stages elsewhere.
+Repeat the original retained envelope to obtain its pending or terminal receipt without repeating publication.
+An owner replacement requires a fresh inspection request bound to the replacement owner.
+
+Send `diagnostics.cancel` with the target request ID to request cancellation from the current owner.
+The cancellation result distinguishes `requested`, `already_terminal`, and `unknown_operation`.
+It does not claim that filesystem effects were undone.
+An already verified installation can win the cancellation race.
+The five-second deadline is cooperative; a blocked filesystem syscall can delay cancellation and normal thread joining.
+Shutdown requests cancellation and drains worker completions before joining outside the UI thread.
+
+The native export workflow still needs platform qualification.
+This backend does not complete T17, OBS-03, AC-34, AC-38, or AC-39 by itself.
+
+## Desktop workflow and Linux software checkpoint
+
+The desktop presents current signal-path, metrics, event and preview observations with their owner cuts.
+Successful diagnostic reads retire their receipt rows after adoption into those current views.
+Read the visible observation identity rather than assuming its receipt remains in the history panel.
+Artifact publication and inspection retain their original local receipts for reconciliation.
+Raw local receipts contain private identities and paths; only the reviewed redacted payload is shareable.
+
+Preview acknowledgment binds its request identity and explicit destination.
+Destination edits, another capture and owner changes clear that acknowledgment.
+The owner decides expiry and candidate replacement when export reaches admission.
+An accepted operation keeps its exact polling identity while freeing foreground delivery.
+Ordinary delivery pressure preserves captured intent and reconciliation in the existing waiting slot.
+Mute and Stop have two independent bounded safety admissions.
+
+The integrated Linux source passes 1157 canonical tests with zero failures and five existing skips.
+Actual owners, files, CLI, Rust foreign-client and desktop workflows exercise export and uncertain delivery recovery.
+The canonical test command collects failures from every test target before reporting failure.
+See [the software receipt](evidence/diagnostics/artifacts-linux-software-20261119.json).
+
+The first native diagnostic run stopped because its harness expected retired read receipts.
+It does not establish diagnostic action delivery or native diagnostic acceptance.
+Native verification must use current observation identities and distinguish reconstructed reads from original wire bytes.
+Observer tools must not replay preview commands; an evicted receipt identity can gather another candidate.
+Current-source Mac software checks and Mac window qualification remain pending.
 
 ## D1 Linux qualification
 

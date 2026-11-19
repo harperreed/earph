@@ -59,7 +59,7 @@ impl Dispatcher {
     pub fn attach(runtime: String) -> Result<Self, DeliveryFailure> {
         let client = OwnerClient::attach(runtime)?;
         let (ordinary, ordinary_rx) = mpsc::sync_channel(1);
-        let (safety, safety_rx) = mpsc::sync_channel(1);
+        let (safety, safety_rx) = mpsc::sync_channel(2);
         let (completed, completions) = mpsc::sync_channel(4);
         let stop = Arc::new(AtomicBool::new(false));
         let mut result = Self {

@@ -143,7 +143,10 @@ fn advertised_read_bounds_match_actual_method_support() {
             "signal_path.get",
             "metrics.get",
             "events.get",
-            "diagnostics.preview"
+            "diagnostics.preview",
+            "diagnostics.export",
+            "diagnostics.inspect",
+            "diagnostics.cancel"
         ])
     );
     assert_eq!(capability["value"]["diagnostics"]["max_events_page"], 128);
@@ -154,6 +157,14 @@ fn advertised_read_bounds_match_actual_method_support() {
     assert_eq!(
         capability["value"]["diagnostics"]["max_retained_bytes"],
         8388608
+    );
+    assert_eq!(
+        capability["value"]["diagnostics"]["job_deadline_ns"],
+        5000000000u64
+    );
+    assert_eq!(
+        capability["value"]["diagnostics"]["max_artifact_bytes"],
+        589824
     );
 }
 

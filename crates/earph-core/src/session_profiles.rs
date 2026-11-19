@@ -376,7 +376,7 @@ impl Session {
         now_ns: u64,
     ) -> Result<ReceiptStatus, EngineError> {
         self.require_profile_catalog()?;
-        if self.profile_worker_busy()
+        if self.artifact_worker_busy()
             || self.profiles.pending.is_some()
             || self.graph_job().is_some()
             || self.graph_activation().is_some()

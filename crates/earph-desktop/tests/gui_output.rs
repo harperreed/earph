@@ -499,7 +499,11 @@ fn old_discovery_uncertainty_cannot_be_reconciled_against_a_replacement_owner() 
     });
     let before = transport.for_id(&id).len();
     gui.handle(UiIntent::Reconcile(id.clone()));
-    assert!(gui.error().is_some_and(|e| e.contains("owner changed")));
+    assert!(
+        gui.error().is_some_and(|e| e.contains("owner changed")),
+        "replacement-owner reconciliation error: {:?}",
+        gui.error()
+    );
     assert_eq!(transport.for_id(&id).len(), before);
     assert!(gui.discovery().is_none());
     a.stop().unwrap();

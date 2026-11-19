@@ -435,7 +435,7 @@ pub(crate) fn publish_immutable_file_at(
         &mut |file, chunk| file.write_all(chunk),
     )
 }
-fn publish_immutable_at_with_writer(
+pub(crate) fn publish_immutable_at_with_writer(
     directory: &File,
     name: &std::ffi::OsStr,
     bytes: &[u8],

@@ -2,6 +2,8 @@
 // ABOUTME: Excludes authored identifiers and keeps missing sample provenance and metrics explicit.
 use super::*;
 use crate::{diagnostics::*, graph::Transformation};
+#[path = "session_diagnostic_artifacts.rs"]
+mod artifacts;
 
 impl Session {
     pub(super) fn diagnostic_query(
@@ -324,6 +326,12 @@ pub(super) struct DiagnosticState {
     initialized: bool,
     observed: bool,
     candidate: Option<DiagnosticCandidate>,
+    work: Option<Arc<DiagnosticWorkRequest>>,
+    cancel_requested: bool,
+    cancel_recorded: bool,
+    pending_record: Option<DiagnosticRecord>,
+    terminal_record: Option<DiagnosticRecord>,
+    cancel_reply: Option<(RequestId, Arc<DiagnosticCancelReceipt>)>,
 }
 impl Default for DiagnosticState {
     fn default() -> Self {
@@ -334,6 +342,12 @@ impl Default for DiagnosticState {
             initialized: false,
             observed: false,
             candidate: None,
+            work: None,
+            cancel_requested: false,
+            cancel_recorded: false,
+            pending_record: None,
+            terminal_record: None,
+            cancel_reply: None,
         }
     }
 }
@@ -358,7 +372,7 @@ impl Session {
         Ok(self)
     }
     pub(super) fn retain_diagnostic_observation(&mut self, command: &Command) {
-        self.diagnostics.observed |= command.is_diagnostic();
+        self.diagnostics.observed |= command.is_diagnostic() || command.is_diagnostic_artifact();
     }
     fn diagnostic_binding(&self) -> DiagnosticBinding {
         DiagnosticBinding {
@@ -446,6 +460,17 @@ impl Session {
         id: &RequestId,
         now_ns: u64,
     ) -> Result<(), EngineError> {
+        if self
+            .diagnostics
+            .work
+            .as_ref()
+            .is_some_and(|w| w.operation == DiagnosticArtifactOperation::Export)
+        {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "diagnostic preview is pinned by an export",
+            ));
+        }
         let expires_monotonic_ns = now_ns
             .checked_add(DIAGNOSTIC_CANDIDATE_LIFETIME_NS)
             .ok_or(DIAGNOSTIC_BUDGET)?;
@@ -510,6 +535,14 @@ impl Session {
     pub(super) fn expire_diagnostic_candidate(&mut self, now_ns: u64) {
         if self
             .diagnostics
+            .work
+            .as_ref()
+            .is_some_and(|w| w.operation == DiagnosticArtifactOperation::Export)
+        {
+            return;
+        }
+        if self
+            .diagnostics
             .candidate
             .as_ref()
             .is_some_and(|c| now_ns >= c.read.report.expires_monotonic_ns)
@@ -519,13 +552,35 @@ impl Session {
     }
     fn diagnostic_storage_bytes(&self) -> Result<usize, EngineError> {
         let mut bytes = self.diagnostics.build.retained_capacity_bytes();
+        if let Some(work) = &self.diagnostics.work {
+            // Reserve the first scoped cancel's cache and receipt before reads can saturate history.
+            let metadata = if self.diagnostics.cancel_recorded {
+                3
+            } else {
+                8
+            } * MAX_PREVIEW_METADATA_BYTES;
+            bytes = bytes
+                .checked_add(work.preview.as_ref().map_or(0, |p| p.report.bytes.len()) + metadata)
+                .ok_or(DIAGNOSTIC_BUDGET)?;
+        }
+        // The active job reservation already covers its pending record and completion.
+        for record in [&self.diagnostics.terminal_record].into_iter().flatten() {
+            bytes = bytes
+                .checked_add(diagnostic_receipt_bytes(&record.1)?)
+                .ok_or(DIAGNOSTIC_BUDGET)?;
+        }
+        if self.diagnostics.cancel_reply.is_some() {
+            bytes = bytes
+                .checked_add(MAX_PREVIEW_METADATA_BYTES)
+                .ok_or(DIAGNOSTIC_BUDGET)?;
+        }
         if let Some(candidate) = &self.diagnostics.candidate {
             bytes = bytes
                 .checked_add(candidate.read.report.bytes.len() + MAX_PREVIEW_METADATA_BYTES)
                 .ok_or(DIAGNOSTIC_BUDGET)?;
         }
         for record in &self.receipts {
-            if record.0.payload.is_diagnostic() {
+            if record.0.payload.is_diagnostic() || record.0.payload.is_diagnostic_artifact() {
                 bytes = bytes
                     .checked_add(diagnostic_receipt_bytes(&record.1)?)
                     .ok_or(DIAGNOSTIC_BUDGET)?;
@@ -539,7 +594,7 @@ impl Session {
         command: &CommandEnvelope,
         receipt: &Receipt,
     ) -> Result<(), EngineError> {
-        if !command.payload.is_diagnostic() {
+        if !command.payload.is_diagnostic() && !command.payload.is_diagnostic_artifact() {
             return Ok(());
         }
         if serde_json::to_vec(receipt).map_err(|_| STATE)?.len() > self.limits.message_bytes {
@@ -553,7 +608,11 @@ impl Session {
             .ok_or(DIAGNOSTIC_BUDGET)?
             .max(staged_bytes.checked_mul(2).ok_or(DIAGNOSTIC_BUDGET)?);
         let bytes = copies
-            .checked_add(diagnostic_receipt_bytes(receipt)?)
+            .checked_add(
+                diagnostic_receipt_bytes(receipt)?
+                    .checked_mul(2)
+                    .ok_or(DIAGNOSTIC_BUDGET)?,
+            )
             .ok_or(DIAGNOSTIC_BUDGET)?;
         if bytes > MAX_DIAGNOSTIC_RETAINED_BYTES {
             return Err(DIAGNOSTIC_BUDGET);
@@ -569,6 +628,9 @@ fn diagnostic_receipt_bytes(receipt: &Receipt) -> Result<usize, EngineError> {
         Some(QueryResult::Events(_)) => MAX_EVENTS_READ_BYTES,
         Some(QueryResult::DiagnosticPreview(read)) => {
             read.report.bytes.len() + MAX_PREVIEW_METADATA_BYTES
+        }
+        Some(QueryResult::DiagnosticArtifact(_) | QueryResult::DiagnosticCancel(_)) => {
+            MAX_PREVIEW_METADATA_BYTES
         }
         _ => 0,
     };

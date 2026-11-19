@@ -173,6 +173,8 @@ pub enum ResultView {
     Metrics(Arc<earph_core::diagnostics::MetricsRead>),
     Events(Arc<earph_core::diagnostics::EventsRead>),
     DiagnosticPreview(Arc<earph_core::diagnostics::PreviewRead>),
+    DiagnosticArtifact(Arc<earph_core::diagnostics::DiagnosticArtifactReceipt>),
+    DiagnosticCancel(Arc<earph_core::diagnostics::DiagnosticCancelReceipt>),
     Sources(Arc<earph_core::source::SourceStagingSnapshot>),
     State(Arc<StateView>),
     Capabilities(CapabilitiesView),
@@ -274,6 +276,16 @@ pub fn decode_reply(bytes: Vec<u8>) -> Result<Reply, ProjectionError> {
                     ResultView::Metrics(value) => diagnostic_matches(value, &receipt),
                     ResultView::Events(value) => diagnostic_matches(value, &receipt),
                     ResultView::DiagnosticPreview(value) => diagnostic_matches(value, &receipt),
+                    ResultView::DiagnosticArtifact(value) => {
+                        value.validate_for_status(receipt.status.into()).is_ok()
+                            && value.request_id == receipt.request_id
+                            && diagnostic_binding_matches(&value.binding, &receipt)
+                    }
+                    ResultView::DiagnosticCancel(value) => {
+                        receipt.status == ReplyStatus::Applied
+                            && value.validate().is_ok()
+                            && diagnostic_binding_matches(&value.binding, &receipt)
+                    }
                     ResultView::Capabilities(value) => {
                         value.schema_version == 1
                             && value.profiles.package.schema_version == 1
@@ -316,7 +328,26 @@ fn diagnostic_matches<T: earph_core::diagnostics::DiagnosticReport>(
 ) -> bool {
     receipt.status == ReplyStatus::Applied
         && value.validate().is_ok()
-        && value.binding.zone_id == receipt.zone_id
-        && value.binding.revision == receipt.revision
-        && value.binding.epochs == receipt.epochs
+        && diagnostic_binding_matches(&value.binding, receipt)
+}
+
+fn diagnostic_binding_matches(
+    binding: &earph_core::diagnostics::DiagnosticBinding,
+    receipt: &ReceiptView,
+) -> bool {
+    binding.zone_id == receipt.zone_id
+        && binding.revision == receipt.revision
+        && binding.epochs == receipt.epochs
+}
+
+impl From<ReplyStatus> for earph_core::control::ReceiptStatus {
+    fn from(status: ReplyStatus) -> Self {
+        match status {
+            ReplyStatus::Accepted => Self::Accepted,
+            ReplyStatus::Applied => Self::Applied,
+            ReplyStatus::Rejected => Self::Rejected,
+            ReplyStatus::Cancelled => Self::Cancelled,
+            ReplyStatus::Failed => Self::Failed,
+        }
+    }
 }

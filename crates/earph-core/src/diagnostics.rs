@@ -17,6 +17,9 @@ mod history;
 mod preview;
 pub use history::*;
 pub use preview::*;
+#[path = "diagnostics_artifacts.rs"]
+mod artifacts;
+pub use artifacts::*;
 
 pub const MAX_DIAGNOSTIC_READ_BYTES: usize = 64 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,7 +34,9 @@ pub struct DiagnosticCapabilities {
     pub max_retained_bytes: usize,
     pub max_events_page: usize,
     pub candidate_lifetime_ns: u64,
-    pub methods: [DiagnosticMethod; 4],
+    pub job_deadline_ns: u64,
+    pub max_artifact_bytes: usize,
+    pub methods: [DiagnosticMethod; 7],
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiagnosticMethod {
@@ -43,6 +48,12 @@ pub enum DiagnosticMethod {
     Events,
     #[serde(rename = "diagnostics.preview")]
     Preview,
+    #[serde(rename = "diagnostics.export")]
+    Export,
+    #[serde(rename = "diagnostics.inspect")]
+    Inspect,
+    #[serde(rename = "diagnostics.cancel")]
+    Cancel,
 }
 impl Default for DiagnosticCapabilities {
     fn default() -> Self {
@@ -56,11 +67,16 @@ impl Default for DiagnosticCapabilities {
             max_retained_bytes: MAX_DIAGNOSTIC_RETAINED_BYTES,
             max_events_page: MAX_EVENTS_PAGE,
             candidate_lifetime_ns: DIAGNOSTIC_CANDIDATE_LIFETIME_NS,
+            job_deadline_ns: DIAGNOSTIC_JOB_DEADLINE_NS,
+            max_artifact_bytes: MAX_DIAGNOSTIC_ARTIFACT_BYTES,
             methods: [
                 DiagnosticMethod::SignalPath,
                 DiagnosticMethod::Metrics,
                 DiagnosticMethod::Events,
                 DiagnosticMethod::Preview,
+                DiagnosticMethod::Export,
+                DiagnosticMethod::Inspect,
+                DiagnosticMethod::Cancel,
             ],
         }
     }
@@ -99,6 +115,21 @@ pub struct DiagnosticCut {
     pub monotonic_ns: u64,
 }
 impl DiagnosticBinding {
+    pub fn validate(&self) -> Result<(), EngineError> {
+        if self.zone_id.capacity_bytes() > 128
+            || self
+                .owner_id
+                .as_ref()
+                .is_some_and(|v| v.capacity_bytes() > 128)
+            || self
+                .session_id
+                .as_ref()
+                .is_some_and(|v| v.capacity_bytes() > 128)
+        {
+            return Err(BUDGET);
+        }
+        Ok(())
+    }
     pub fn cut(&self) -> DiagnosticCut {
         DiagnosticCut {
             revision: self.revision,

@@ -33,7 +33,7 @@ fn discovery_receipts(
     )
 }
 
-// This controlled peer tests wire corruption, not native discovery behavior.
+// This controlled peer tests wire corruption, rather than native or filesystem behavior.
 fn request_with_reply(
     request: &Request,
     bytes: Vec<u8>,
@@ -104,6 +104,174 @@ fn request_with_reply(
         .request(request);
     peer.join().unwrap();
     result
+}
+
+fn pending_diagnostic_export() -> (
+    earph_core::session::Session,
+    Request,
+    Vec<u8>,
+    earph_desktop::StateView,
+) {
+    use earph_core::{control::*, ids::*, session::Session};
+    let mut owner = Session::new_owner(
+        ZoneId::new("main").unwrap(),
+        OwnerId::new("controlled-owner").unwrap(),
+        ControlLimits::default(),
+    );
+    let initial = owner.submit(CommandEnvelope {
+        schema_version: 1,
+        request_id: RequestId::new("state").unwrap(),
+        zone_id: ZoneId::new("main").unwrap(),
+        owner_id: None,
+        session_id: None,
+        expected_revision: None,
+        payload: Command::State,
+    });
+    let Reply::Receipt(initial) = earph_desktop::decode_reply(
+        serde_json::to_vec(&serde_json::json!({"receipt":initial})).unwrap(),
+    )
+    .unwrap() else {
+        panic!("Core state")
+    };
+    let state = initial.state().unwrap().clone();
+    let preview = Request::diagnostic_query(
+        RequestId::new("preview").unwrap(),
+        &state,
+        Command::DiagnosticsPreview {},
+    )
+    .unwrap();
+    let Some(QueryResult::DiagnosticPreview(preview)) =
+        owner.submit(preview.envelope().clone()).result
+    else {
+        panic!("Core preview")
+    };
+    let request = Request::diagnostic_artifact(
+        RequestId::new("artifact").unwrap(),
+        &state,
+        Command::DiagnosticsExport {
+            directory: "/owned/evidence".into(),
+            expected_sha256: preview.report.sha256,
+        },
+    )
+    .unwrap();
+    let receipt = owner.submit(request.envelope().clone());
+    assert_eq!(receipt.status, ReceiptStatus::Accepted);
+    let bytes = serde_json::to_vec(&serde_json::json!({"receipt":receipt})).unwrap();
+    (owner, request, bytes, state)
+}
+
+#[test]
+fn diagnostic_artifact_replies_match_the_exact_owner_operation_destination_and_digest() {
+    use earph_desktop::DeliveryFailure;
+    use serde_json::{Value, json};
+    let (_, request, bytes, _) = pending_diagnostic_export();
+    assert_eq!(
+        request_with_reply(&request, bytes.clone()).unwrap().bytes(),
+        bytes
+    );
+    let original: Value = serde_json::from_slice(&bytes).unwrap();
+    for (field, replacement) in [
+        ("directory", json!("/owned/another-destination")),
+        ("expected_sha256", json!("b".repeat(64))),
+        ("operation", json!("inspect")),
+        ("binding", {
+            let mut b = original["receipt"]["result"]["value"]["binding"].clone();
+            b["owner_id"] = json!("other-owner");
+            b
+        }),
+    ] {
+        let mut corrupt = original.clone();
+        corrupt["receipt"]["result"]["value"][field] = replacement;
+        if field == "operation" {
+            corrupt["receipt"]["result"]["value"]["effect"] = json!("unchanged");
+        }
+        let raw = serde_json::to_vec(&corrupt).unwrap();
+        earph_desktop::decode_reply(raw.clone()).expect("independently valid artifact shape");
+        let Err(DeliveryFailure::Protocol(error)) = request_with_reply(&request, raw.clone())
+        else {
+            panic!("mismatched artifact {field} admitted")
+        };
+        assert_eq!(&*error.bytes, raw);
+    }
+    let Command::DiagnosticsExport {
+        directory,
+        expected_sha256,
+    } = &request.envelope().payload
+    else {
+        unreachable!()
+    };
+    let unbound = Request::query(
+        request.envelope().request_id.clone(),
+        request.envelope().zone_id.clone(),
+        Command::DiagnosticsInspect {
+            directory: directory.clone(),
+            expected_sha256: *expected_sha256,
+        },
+    )
+    .unwrap();
+    let mut inspection = original.clone();
+    inspection["receipt"]["result"]["value"]["operation"] = json!("inspect");
+    inspection["receipt"]["result"]["value"]["effect"] = json!("unchanged");
+    let raw = serde_json::to_vec(&inspection).unwrap();
+    earph_desktop::decode_reply(raw.clone()).expect("valid inspection shape");
+    assert!(
+        matches!(
+            request_with_reply(&unbound, raw),
+            Err(DeliveryFailure::Protocol(_))
+        ),
+        "an unbound request cannot accept an owner-scoped artifact result"
+    );
+    let mut missing = original;
+    missing["receipt"]["result"] = Value::Null;
+    assert!(matches!(
+        request_with_reply(&request, serde_json::to_vec(&missing).unwrap()),
+        Err(DeliveryFailure::Protocol(_))
+    ));
+}
+
+#[test]
+fn diagnostic_cancel_replies_match_the_target_and_keep_real_admission_refusals() {
+    use earph_core::control::{QueryResult, ReceiptStatus};
+    use earph_desktop::DeliveryFailure;
+    use serde_json::json;
+    let (mut owner, request, _, state) = pending_diagnostic_export();
+    let busy = Request::diagnostic_artifact(
+        RequestId::new("busy").unwrap(),
+        &state,
+        request.envelope().payload.clone(),
+    )
+    .unwrap();
+    let refused = owner.submit(busy.envelope().clone());
+    assert_eq!(refused.status, ReceiptStatus::Rejected);
+    assert!(refused.result.is_none());
+    request_with_reply(
+        &busy,
+        serde_json::to_vec(&json!({"receipt":refused})).unwrap(),
+    )
+    .expect("actual admission refusal");
+    let request = Request::diagnostic_artifact(
+        RequestId::new("cancel").unwrap(),
+        &state,
+        Command::DiagnosticsCancel {
+            request_id: RequestId::new("artifact").unwrap(),
+        },
+    )
+    .unwrap();
+    let receipt = owner.submit(request.envelope().clone());
+    assert!(matches!(
+        receipt.result,
+        Some(QueryResult::DiagnosticCancel(_))
+    ));
+    let mut value = json!({"receipt":receipt});
+    request_with_reply(&request, serde_json::to_vec(&value).unwrap())
+        .expect("actual scoped cancellation");
+    value["receipt"]["result"]["value"]["request_id"] = json!("another-operation");
+    let raw = serde_json::to_vec(&value).unwrap();
+    earph_desktop::decode_reply(raw.clone()).expect("valid cancellation shape");
+    let Err(DeliveryFailure::Protocol(error)) = request_with_reply(&request, raw.clone()) else {
+        panic!("wrong cancellation target admitted")
+    };
+    assert_eq!(&*error.bytes, raw);
 }
 
 #[test]

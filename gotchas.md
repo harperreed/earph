@@ -62,3 +62,13 @@
   Exact reconciliation can advance that revision before an explicit refresh starts.
   Keep the initial owner and zone checks, full Before/After fence, and complete mutation preflight.
   See [the real-owner regression](crates/earph-desktop/tests/gui_profiles.rs).
+
+- AccessKit TextRun values can repeat their parent label's text.
+  Select the semantic node before checking a field's label relationship.
+  Reuse the [widget helper](crates/earph-desktop/tests/gui_widgets.rs); tree iteration order does not establish a node's role.
+
+- Successful GUI diagnostic reads retire after adoption into current typed views.
+  Inspect those views instead of requiring receipt-history rows.
+  Preview commands change candidate authority; replay after receipt eviction can capture again.
+  Observer tools must never replay previews.
+  See the [diagnostic workflow](docs/diagnostics.md).

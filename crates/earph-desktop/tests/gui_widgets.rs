@@ -144,16 +144,12 @@ fn disconnected_window_exposes_labeled_connect_actions_without_playback_controls
     );
     assert!(!output.shapes.is_empty());
     for name in ["Runtime directory", "Owner executable"] {
-        let label_id = tree
-            .nodes
-            .iter()
-            .find(|(_, n)| n.label().or_else(|| n.value()) == Some(name))
-            .unwrap()
-            .0;
+        let label_id = named(&tree, name);
         assert!(
             tree.nodes
                 .iter()
-                .any(|(_, n)| n.labelled_by().contains(&label_id))
+                .any(|(_, n)| n.labelled_by().contains(&label_id)),
+            "missing field label association for {name} at {label_id:?}"
         );
     }
 }

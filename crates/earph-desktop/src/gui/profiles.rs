@@ -5,11 +5,15 @@ use super::{
 };
 use crate::ProfileRecordView;
 use earph_core::{
+    audio::ChannelLayout,
     control::{Command, OutputBackend, OutputRoute},
     ids::{DeviceId, OwnerId, ProfileId},
-    profile_control::{ProfileCatalogReference, ProfileDraft, ProfileVolumeDraft},
+    profile_control::{
+        CorrectionNormalization, ProfileCatalogReference, ProfileDraft, ProfileVolumeDraft,
+    },
     profiles::{
-        ProfileLatencyIntent, ProfileLatencyMode, ProfileOutputSelector, ProfileSourcePolicy,
+        ProfileCorrectionKind, ProfileLatencyIntent, ProfileLatencyMode, ProfileOutputSelector,
+        ProfileSourcePolicy,
     },
     safety::{FidelityPolicy, VolumeMode},
 };
@@ -612,10 +616,51 @@ fn saved_facts(ui: &mut egui::Ui, record: &ProfileRecordView) {
         }
     ));
     ui.collapsing("Saved correction details", |ui| {
-        ui.label(format!(
-            "Corrections: {:?}; offline preview {:?}",
-            record.corrections, record.correction_preview
-        ));
+        for (index, object) in record.corrections.iter().enumerate() {
+            let kind = match object.kind {
+                ProfileCorrectionKind::TextReport => "Text report",
+                ProfileCorrectionKind::FirManifest => "FIR manifest",
+            };
+            ui.label(format!(
+                "Saved correction: {kind}; SHA-256 {}",
+                object.object_sha256.as_str()
+            ));
+            ui.push_id(index, |ui| {
+                ui.collapsing(format!("Exact saved JSON: {kind}"), |ui| {
+                    ui.label(object.document_json.as_ref());
+                });
+            });
+        }
+        if let Some(preview) = &record.correction_preview {
+            let channels = match preview.context.channels {
+                ChannelLayout::Mono => "mono",
+                ChannelLayout::Stereo => "stereo",
+            };
+            ui.label(format!(
+                "Offline preview context: {} Hz; {channels}; quantum {} frames",
+                preview.context.sample_rate_hz, preview.context.quantum_frames
+            ));
+            ui.label(format!(
+                "Offline preview preamp: {} dB",
+                preview.preamp_db.get()
+            ));
+            for (index, peak) in preview.channel_peak_bounds.iter().enumerate() {
+                ui.label(format!(
+                    "Offline preview channel {} peak bound (linear): {}",
+                    index + 1,
+                    peak.get()
+                ));
+            }
+            ui.label(format!(
+                "Offline preview required headroom: {} dB",
+                preview.required_headroom_db.get()
+            ));
+            let normalization = match preview.normalization {
+                CorrectionNormalization::Preserved => "preserved",
+            };
+            ui.label(format!("Offline preview normalization: {normalization}"));
+            ui.label("Offline preview does not prove active processing or native qualification.");
+        }
     });
 }
 
@@ -823,8 +868,223 @@ mod tests {
                 .any(|s| s.starts_with("Saved latency intent:") && s.contains("Balanced"))
         );
         assert!(labels.contains(&"Saved graph intent (read-only)"));
+        assert!(labels.contains(&"Saved corrections: 0; offline preview unavailable"));
+        assert!(
+            !labels
+                .iter()
+                .any(|label| label.starts_with("Offline preview context:"))
+        );
         assert!(draft.loaded.is_none());
         assert_eq!(draft.name, "Owned read-only profile");
         assert_eq!(record.graph, graph);
+    }
+
+    #[test]
+    fn saved_corrections_show_exact_documents_and_labeled_offline_facts() {
+        use earph_core::{
+            audio::ChannelLayout,
+            control::QueryResult,
+            graph::FiniteGraphScalar,
+            profile_control::{
+                CorrectionNormalization, ProfileCorrectionContext, ProfileCorrectionObject,
+                ProfileCorrectionPreview, ProfileRecord,
+            },
+            profiles::{ProfileCorrectionKind, ProfileCorrectionReference, ProfileObjectHash},
+        };
+        use earph_media::correction_text::{
+            CorrectionFormat, ImportContext, ImportMetadata, import_correction_text,
+        };
+        use sha2::{Digest, Sha256};
+        let context = ImportContext {
+            sample_rate_hz: 48000,
+            channels: ChannelLayout::Mono,
+            quantum_frames: 64,
+        };
+        let report = import_correction_text(
+            b"Preamp: -6 dB\nFilter 1: ON PK Fc 100 Hz Gain 2 dB Q 1\n",
+            CorrectionFormat::AutoEq,
+            context,
+            ImportMetadata::default(),
+        )
+        .unwrap();
+        let wav = [
+            b"RIFF".as_slice(),
+            &52_u32.to_le_bytes(),
+            b"WAVEfmt ",
+            &16_u32.to_le_bytes(),
+            &3_u16.to_le_bytes(),
+            &1_u16.to_le_bytes(),
+            &48000_u32.to_le_bytes(),
+            &384000_u32.to_le_bytes(),
+            &8_u16.to_le_bytes(),
+            &64_u16.to_le_bytes(),
+            b"data",
+            &16_u32.to_le_bytes(),
+            &0.5_f64.to_le_bytes(),
+            &0.0_f64.to_le_bytes(),
+        ]
+        .concat();
+        let fir = earph_media::decode_fir_wav(&wav).unwrap();
+        let manifest = earph_media::FirCorrectionManifest::new(
+            fir.reference,
+            wav.len(),
+            context,
+            ImportMetadata::default(),
+            FiniteGraphScalar::new(-6.0).unwrap(),
+        )
+        .unwrap();
+        let objects: Vec<_> = [
+            (
+                ProfileCorrectionKind::TextReport,
+                serde_json::to_string_pretty(&report).unwrap(),
+            ),
+            (
+                ProfileCorrectionKind::FirManifest,
+                serde_json::to_string_pretty(&manifest).unwrap(),
+            ),
+        ]
+        .into_iter()
+        .map(|(kind, document)| {
+            let document = format!(" \n{document}\n ");
+            ProfileCorrectionObject {
+                kind,
+                object_sha256: Sha256::digest(document.as_bytes())
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+                    .try_into()
+                    .unwrap(),
+                document_json: document.into(),
+            }
+        })
+        .collect();
+        let mut draft = Draft {
+            name: "Controlled saved correction presentation".into(),
+            backend: Some(OutputBackend::Alsa),
+            device: "configured-only".into(),
+            ..Draft::default()
+        }
+        .document()
+        .unwrap();
+        draft.corrections = objects
+            .iter()
+            .map(|object| ProfileCorrectionReference {
+                kind: object.kind,
+                object_sha256: object.object_sha256,
+            })
+            .collect();
+        let hash = ProfileObjectHash::try_from("0".repeat(64)).unwrap();
+        let record = Arc::new(ProfileRecord {
+            profile: Arc::new(
+                draft
+                    .document(ProfileId::new("saved-corrections").unwrap(), 1, hash)
+                    .unwrap(),
+            ),
+            profile_sha256: hash,
+            graph: Arc::new(GraphIntentEditor::default().intent().clone()),
+            corrections: Arc::new(objects),
+            correction_preview: Some(Arc::new(ProfileCorrectionPreview {
+                context: ProfileCorrectionContext {
+                    sample_rate_hz: 48000,
+                    channels: ChannelLayout::Mono,
+                    quantum_frames: 64,
+                },
+                preamp_db: FiniteGraphScalar::new(-6.0).unwrap(),
+                channel_peak_bounds: vec![FiniteGraphScalar::new(2.0).unwrap()],
+                required_headroom_db: FiniteGraphScalar::new(20.0 * 2.0_f64.log10()).unwrap(),
+                normalization: CorrectionNormalization::Preserved,
+            })),
+        });
+        record.validate().unwrap();
+        let mut session = Session::new(ZoneId::new("main").unwrap(), ControlLimits::default());
+        let mut receipt = session.submit(CommandEnvelope {
+            schema_version: 1,
+            request_id: RequestId::new("saved-facts").unwrap(),
+            zone_id: ZoneId::new("main").unwrap(),
+            owner_id: None,
+            session_id: None,
+            expected_revision: None,
+            payload: Command::State,
+        });
+        // Controlled Core serialization qualifies presentation, not an owner import or DSP compilation.
+        receipt.result = Some(QueryResult::Profile(record));
+        let crate::Reply::Receipt(receipt) = crate::decode_reply(
+            serde_json::to_vec(&serde_json::json!({"receipt": receipt})).unwrap(),
+        )
+        .unwrap() else {
+            panic!("Core receipt")
+        };
+        let Some(crate::ResultView::Profile(record)) = receipt.result else {
+            panic!("saved record")
+        };
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        context.all_styles_mut(|style| style.animation_time = 0.0);
+        let draw = |events| {
+            let mut output = context.run_ui(
+                egui::RawInput {
+                    events,
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1800.0, 10000.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| saved_facts(ui, &record),
+            );
+            output.textures_delta.clear();
+            output.platform_output.accesskit_update.unwrap()
+        };
+        let mut tree = draw(vec![]);
+        for label in [
+            "Saved correction details",
+            "Exact saved JSON: Text report",
+            "Exact saved JSON: FIR manifest",
+        ] {
+            let target = tree
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some(label))
+                .unwrap_or_else(|| panic!("missing disclosure {label}"))
+                .0;
+            tree = draw(vec![egui::Event::AccessKitActionRequest(
+                egui::accesskit::ActionRequest {
+                    action: egui::accesskit::Action::Click,
+                    target_tree: tree.tree_id,
+                    target_node: target,
+                    data: None,
+                },
+            )]);
+        }
+        let labels: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter_map(|(_, node)| node.label().or_else(|| node.value()))
+            .collect();
+        for (object, kind) in record
+            .corrections
+            .iter()
+            .zip(["Text report", "FIR manifest"])
+        {
+            let label = format!(
+                "Saved correction: {kind}; SHA-256 {}",
+                object.object_sha256.as_str()
+            );
+            assert!(labels.contains(&label.as_str()));
+            assert!(
+                labels.contains(&object.document_json.as_ref()),
+                "saved document bytes changed or missing"
+            );
+        }
+        for label in [
+            "Offline preview context: 48000 Hz; mono; quantum 64 frames",
+            "Offline preview preamp: -6 dB",
+            "Offline preview channel 1 peak bound (linear): 2",
+            "Offline preview required headroom: 6.020599913279624 dB",
+            "Offline preview normalization: preserved",
+            "Offline preview does not prove active processing or native qualification.",
+        ] {
+            assert!(labels.contains(&label), "missing {label}");
+        }
     }
 }

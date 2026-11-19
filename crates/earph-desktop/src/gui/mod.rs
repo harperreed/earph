@@ -3,6 +3,7 @@
 mod app;
 mod connect;
 mod correction;
+mod diagnostics;
 mod dsp;
 mod graph_editor;
 mod host;

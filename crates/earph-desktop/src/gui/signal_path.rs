@@ -35,6 +35,7 @@ pub(super) fn show(ui: &mut egui::Ui, controller: &mut GuiController) {
         ));
         super::dsp::inspection(ui, &observed.value);
     }
+    super::diagnostics::show(ui, controller);
 }
 
 fn observation(ui: &mut egui::Ui, state: &StateView) {

@@ -120,6 +120,18 @@ pub enum Command {
     },
     #[serde(rename = "diagnostics.preview")]
     DiagnosticsPreview {},
+    #[serde(rename = "diagnostics.export")]
+    DiagnosticsExport {
+        directory: String,
+        expected_sha256: crate::profiles::ProfileObjectHash,
+    },
+    #[serde(rename = "diagnostics.inspect")]
+    DiagnosticsInspect {
+        directory: String,
+        expected_sha256: crate::profiles::ProfileObjectHash,
+    },
+    #[serde(rename = "diagnostics.cancel")]
+    DiagnosticsCancel { request_id: RequestId },
     #[serde(rename = "devices.list")]
     DevicesList { backend: OutputBackend },
     #[serde(rename = "devices.inspect")]
@@ -333,6 +345,7 @@ impl Command {
                 | Self::MetricsGet {}
                 | Self::EventsGet { .. }
                 | Self::DiagnosticsPreview {}
+                | Self::DiagnosticsInspect { .. }
                 | Self::QueueGet { .. }
                 | Self::SourcesGet { .. }
                 | Self::GraphInspect { .. }
@@ -348,6 +361,20 @@ impl Command {
                 | Self::MetricsGet {}
                 | Self::EventsGet { .. }
                 | Self::DiagnosticsPreview {}
+        )
+    }
+    pub fn is_diagnostic_artifact(&self) -> bool {
+        matches!(
+            self,
+            Self::DiagnosticsExport { .. }
+                | Self::DiagnosticsInspect { .. }
+                | Self::DiagnosticsCancel { .. }
+        )
+    }
+    pub fn starts_diagnostic_work(&self) -> bool {
+        matches!(
+            self,
+            Self::DiagnosticsExport { .. } | Self::DiagnosticsInspect { .. }
         )
     }
 }
@@ -527,6 +554,9 @@ impl CommandEnvelope {
                 | Command::MetricsGet {}
                 | Command::EventsGet { .. }
                 | Command::DiagnosticsPreview {}
+                | Command::DiagnosticsExport { .. }
+                | Command::DiagnosticsInspect { .. }
+                | Command::DiagnosticsCancel { .. }
         ) && [
             self.request_id.capacity_bytes(),
             self.zone_id.capacity_bytes(),
@@ -557,6 +587,16 @@ impl CommandEnvelope {
             ));
         }
         match &self.payload {
+            Command::DiagnosticsExport { directory, .. }
+            | Command::DiagnosticsInspect { directory, .. } => {
+                if directory.capacity() > 1024 {
+                    return Err(BUDGET);
+                }
+                Ok(())
+            }
+            Command::DiagnosticsCancel { request_id } if request_id.capacity_bytes() > 128 => {
+                Err(BUDGET)
+            }
             Command::SourceStageUri { uri, metadata } => {
                 crate::source::validate_storage(uri, metadata)
             }
@@ -655,6 +695,8 @@ pub enum QueryResult {
     Metrics(Arc<crate::diagnostics::MetricsRead>),
     Events(Arc<crate::diagnostics::EventsRead>),
     DiagnosticPreview(Arc<crate::diagnostics::PreviewRead>),
+    DiagnosticArtifact(Arc<crate::diagnostics::DiagnosticArtifactReceipt>),
+    DiagnosticCancel(Arc<crate::diagnostics::DiagnosticCancelReceipt>),
     Sources(crate::source::SourceStagingSnapshot),
     Devices(Arc<crate::devices::DeviceQueryResult>),
     State(Box<crate::session::SessionSnapshot>),

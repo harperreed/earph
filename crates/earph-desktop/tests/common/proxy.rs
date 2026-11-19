@@ -49,6 +49,9 @@ impl Proxy {
     pub fn drop_first_package_export(owner: PathBuf) -> Self {
         Self::start(owner, Some("profiles.export"), false)
     }
+    pub fn drop_first_diagnostic_export(owner: PathBuf) -> Self {
+        Self::start(owner, Some("diagnostics.export"), false)
+    }
     pub fn package_export_recovery(owner: PathBuf) -> Self {
         Self::configured(owner, Some("profiles.export"), false, false, true)
     }
