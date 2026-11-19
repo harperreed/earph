@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "ndk-context"
+  ],
+  "version": "0.1.1",
+  "repository": "https://github.com/rust-windowing/android-ndk-rs",
+  "revision": "10f2ba388fca20f7349996ebae26ccda7a6fda5c",
+  "license_expression": "MIT OR Apache-2.0",
+  "license_file": "LICENSE-MIT",
+  "license_sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1",
+  "source_url": "https://github.com/rust-mobile/ndk/blob/10f2ba388fca20f7349996ebae26ccda7a6fda5c/LICENSE-MIT",
+  "verified_on": "2026-11-18",
+  "sources": [
+    {
+      "repository": "rust-mobile/ndk",
+      "revision": "10f2ba388fca20f7349996ebae26ccda7a6fda5c",
+      "path": "LICENSE-MIT",
+      "git_blob_sha1": "9cf106272ac3b56b0c4c80218e8fc10a664ca5f4",
+      "sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1",
+      "source_url": "https://github.com/rust-mobile/ndk/blob/10f2ba388fca20f7349996ebae26ccda7a6fda5c/LICENSE-MIT"
+    }
+  ]
+}

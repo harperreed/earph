@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "accesskit_windows"
+  ],
+  "version": "0.35.2",
+  "repository": "https://github.com/AccessKit/accesskit",
+  "revision": "f3026222559c7f5f46d8f25cb7404de68eb149f0",
+  "license_expression": "MIT OR Apache-2.0",
+  "license_file": "LICENSE-MIT",
+  "license_sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+  "source_url": "https://github.com/AccessKit/accesskit/blob/f3026222559c7f5f46d8f25cb7404de68eb149f0/LICENSE-MIT",
+  "verified_on": "2026-11-18",
+  "sources": [
+    {
+      "repository": "AccessKit/accesskit",
+      "revision": "f3026222559c7f5f46d8f25cb7404de68eb149f0",
+      "path": "LICENSE-MIT",
+      "git_blob_sha1": "31aa79387f27e730e33d871925e152e35e428031",
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "source_url": "https://github.com/AccessKit/accesskit/blob/f3026222559c7f5f46d8f25cb7404de68eb149f0/LICENSE-MIT"
+    }
+  ]
+}

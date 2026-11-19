@@ -1,9 +1,73 @@
-# Desktop client and presentation model
+# Native desktop controller
 
-This package attaches to the existing local owner through `earph-ffi::LocalClient`.
-It creates no engine, source, output, or owner process.
-Its current scope is the control adapter, worker lanes, projections, and presentation history.
-Native views, owner launching, dialogs, and packaging remain later units.
+This package controls the existing owner through `earph-ffi::LocalClient`.
+The native window provides Connect, Queue, actual state, safety actions, and receipt details.
+Its explicit Start local engine action launches the existing standalone executable.
+It never hosts a second engine or duplicates owner policy.
+Native dialogs, packaging, output setup, playback, profiles, and detailed signal-path views remain later units.
+
+## Launch and use
+
+Build the owner and controller from the shared workspace:
+
+```sh
+cargo build --locked -p earph-engine -p earph-desktop
+target/debug/earph-desktop
+```
+
+In Connect, enter an absolute private runtime path with at most 60 UTF-8 bytes.
+Its parent must already exist and satisfy the owner's private-directory checks.
+Use Attach for an existing owner or Start local engine for the displayed absolute executable path.
+The initial executable path names the controller's sibling `earph-engine`.
+The controller does not launch an owner merely because its window opens.
+Launch logs remain in a new private directory beside the selected runtime.
+Startup error details identify those logs when launch fails.
+The UI reads bounded startup prefixes; it does not impose a disk quota on owner logs.
+
+In Queue, enter literal file or folder paths and use the explicit Add buttons.
+Queue edits do not decode media or start playback.
+Select, move, and remove use stable entry identities and a captured owner/revision context.
+An external edit requires refreshing and reviewing the draft before another submission.
+Path entry works without a native dialog or shell expansion.
+Unprepared is a real preparation state, not a playable-media claim.
+
+The status strip shows actual state and local observation freshness.
+Mute and Stop use the existing safety lane independently of ordinary reads.
+There is no Unmute, Start, output-selection, or fixed-arming control in this unit.
+Light and Dark paint an opaque central panel with a matching clear color.
+No appearance choice changes OS settings.
+
+Closing the controller leaves the local engine running.
+Disconnect retires client workers without cancelling commands already sent.
+Stop engine and quit requires an explicit confirmation and sends the existing owner command.
+The controller verifies actual exit only when it owns that same child and owner identity.
+It never kills a process to acquire a runtime or to resolve an uncertain shutdown.
+Rejected or uncertain shutdown ends the active quit workflow and keeps its exact historical receipt.
+Refresh, Disconnect, and reattachment remain available.
+An uncertain shutdown requires explicit reconciliation before another shutdown intent.
+Reconciling that historical request does not automatically quit the controller.
+
+Receipt details preserve Accepted, Applied, Rejected, Cancelled, Failed, owner errors, and Outcome unknown.
+Reconcile resends exact retained bytes, including after disconnect and reattachment to the same owner.
+Owner changes block old-target replay.
+One presentation model holds sixteen records across disconnect and reconnect.
+It preserves request order, latest observation, exact envelopes, and owner-change flags.
+Admission retains fourteen ordinary slots and two safety reservations.
+Completed records may retire; unresolved outcomes are never silently discarded.
+Reconnection waits for old request workers to finish without blocking the UI.
+Accepted work shares one replay cadence across ordinary, safety, and shutdown workflows.
+The scheduler admits at most one exact replay per 100 ms and rotates across fixed workflow slots.
+Permanent refusal stops automatic polling while preserving the retained record.
+Uncertain outcomes still require explicit reconciliation.
+Explicit safety reconciliation restores its bounded polling slot after admission succeeds.
+Historical shutdown reconciliation never restores quit intent.
+Raw paths and replies remain local details, not a redacted support bundle.
+
+The widget-tree tests supplement native validation.
+Controlled receipt-producer tests exercise the real Unix client and Core receipt serialization.
+Their scripted Accepted safety statuses prove consumer scheduling, not Stop during playback.
+They do not establish AT-SPI, NSAccessibility, screen-reader sessions, packaging, or dialog support.
+The retained toolkit proofs qualify only their documented native controls and environments.
 
 ## View API
 
@@ -123,7 +187,7 @@ Raw local replies are not redacted support bundles.
 
 The package belongs to the shared workspace and uses its authoritative root lock.
 Build provenance includes the desktop manifest and production source.
-No GUI toolkit dependency enters this unit.
+The native shell uses the pinned workspace eframe dependency and approved feature set.
 
 Use the installed Rust toolchain directly and run:
 

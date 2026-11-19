@@ -1,0 +1,1381 @@
+{
+  "release_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+  "packages": [
+    {
+      "name": "eframe",
+      "version": "0.37.0",
+      "published_revision": "3c6eb8261c3293ad9c7ea1ed58487e038860ebef",
+      "license_source_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "rust_file_count": 30,
+      "records": [
+        {
+          "path": "crates/eframe/src/epi.rs",
+          "git_blob_sha1": "3b618be66938a1cb4b01cdf5df8b2fad142a928e",
+          "sha256": "8b7a16af6cf7654bfb0c829b5bb52fb75f417f5af231292614c1c7a821173734"
+        },
+        {
+          "path": "crates/eframe/src/icon_data.rs",
+          "git_blob_sha1": "4851bee64b326b682094bf6cccdfe4a7d80c5560",
+          "sha256": "73f4e8c114c45e5da3906446a3018caad6bdf2fbc2a02b823f6df135eaf1f8e9"
+        },
+        {
+          "path": "crates/eframe/src/lib.rs",
+          "git_blob_sha1": "55caffdd6333a9d5d989e53f92a5a5fa33fb4f5a",
+          "sha256": "104f16618665b690070e692a1954e2c7439b2363c59c972ee07bb1ddf691be30"
+        },
+        {
+          "path": "crates/eframe/src/native/app_icon.rs",
+          "git_blob_sha1": "ef6c967213e12ef4451505d6d1226583acdacc59",
+          "sha256": "564497fe78a187e7c01e0b3a00648df5667f5798a38f054714dd2cd6fc7daa76"
+        },
+        {
+          "path": "crates/eframe/src/native/epi_integration.rs",
+          "git_blob_sha1": "951c372659dc150050a0242ef383a138c7810c75",
+          "sha256": "d4d6d19ee8fb9f92cdb0e8ae6702924f360e4ddc40598d25e5bc6afcb42c2bb1"
+        },
+        {
+          "path": "crates/eframe/src/native/event_loop_context.rs",
+          "git_blob_sha1": "d2081543d58c0bf6627cba74cd50f309d9058cf8",
+          "sha256": "6530a614da665b4b2c147c36b2ba86df80dc2450fc8581b2959c49a979fba005"
+        },
+        {
+          "path": "crates/eframe/src/native/file_storage.rs",
+          "git_blob_sha1": "70b4a3cae587d186a9554699cb2f7763f17e8950",
+          "sha256": "a4e86acf8c0298d980972ffb27fa032b9337554cd64e0bca6de70fafce49ec30"
+        },
+        {
+          "path": "crates/eframe/src/native/glow_integration.rs",
+          "git_blob_sha1": "0db54a27eadbe1ca4a95eb437719aeb1b49ac901",
+          "sha256": "126bf05970d14177f885c2e767446576d8721be44bc81e1dead26596bc7880c4"
+        },
+        {
+          "path": "crates/eframe/src/native/macos.rs",
+          "git_blob_sha1": "4ef36540178661a59e89b8e52b2e898facbf12af",
+          "sha256": "95a32ddd36cf282d96b358860cce1ff45eb48351c7be72970576d4dd8c92918b"
+        },
+        {
+          "path": "crates/eframe/src/native/mod.rs",
+          "git_blob_sha1": "771964ae724b8cc8ec3fc7b8ab5e6f1a08c95545",
+          "sha256": "299b8240c7e04c8caa9d5f70338da773bbc2d50aa9274d56a153617c7916d491"
+        },
+        {
+          "path": "crates/eframe/src/native/run.rs",
+          "git_blob_sha1": "e42b45827d5f3e2f1bbd5262bce2b5f33bb71980",
+          "sha256": "c3ac2c5096efccfc7bfad8f3984161002aca61cb28a0cdcb3a6683b8db0185f5"
+        },
+        {
+          "path": "crates/eframe/src/native/wgpu_integration.rs",
+          "git_blob_sha1": "9b2307cffdc372776786fb85c089b71d9fac4eed",
+          "sha256": "658a1283f49ecabc308a8dd69fbe7baa694fd745723c623ecb77836e8e1a39a7"
+        },
+        {
+          "path": "crates/eframe/src/native/winit_integration.rs",
+          "git_blob_sha1": "2774b2a8edb34c8c1efac2ba999747cded214da5",
+          "sha256": "fde55ab55d673a1580ed3f385c54bd6147cc7f4e35d429deac92bb8d4ab3d57f"
+        },
+        {
+          "path": "crates/eframe/src/stopwatch.rs",
+          "git_blob_sha1": "b5f956c822ee4eb315c9cdbb105bbef79450f9a3",
+          "sha256": "aacdfb9a90e7198cf669a317fde5e0136629a3ad6aa3b5b75afec71d512607f7"
+        },
+        {
+          "path": "crates/eframe/src/web/app_runner.rs",
+          "git_blob_sha1": "986a554ee22d3500bf343d0b1a7f4a04a39c36e1",
+          "sha256": "36171dd4d6070745da54aec1f2c7b4589fb1bb86a190a67f7d7bba7bea06732f"
+        },
+        {
+          "path": "crates/eframe/src/web/backend.rs",
+          "git_blob_sha1": "9c092b68d4c62510eab94f62360ae6eabb3d5c00",
+          "sha256": "9d395480f8b7e9b00748aeee699d5dc123329f561eaa561776b787cb1452e512"
+        },
+        {
+          "path": "crates/eframe/src/web/canvas_glyphs.rs",
+          "git_blob_sha1": "ee9b11a9db16f01ec9753d6c562d71e136bf6ee3",
+          "sha256": "0b0888277eee60712746b807bb8cc64856752f1d54198e5373ad53e5ec8f6c91"
+        },
+        {
+          "path": "crates/eframe/src/web/dropped_file.rs",
+          "git_blob_sha1": "e7498dff47389aef0fd48a61aef63a9825aac00b",
+          "sha256": "31f257a2e9083c7bf0113247339314f61b807fec67549674bfc608e268eb4937"
+        },
+        {
+          "path": "crates/eframe/src/web/events.rs",
+          "git_blob_sha1": "ace7ed512123b337d59ae37fa7c284b33377faea",
+          "sha256": "8fd108cf7ba7d645994e6f21fc9d82d2577b87d624afb03b91549d9f230d19c5"
+        },
+        {
+          "path": "crates/eframe/src/web/input.rs",
+          "git_blob_sha1": "44dfaef835ca52bc64f1d0e10ae1e0f7cc1b368c",
+          "sha256": "1bf5bb38b387cf902f7e4c960ffb8f731aaf6a27f90c262fab28b1954e6a5930"
+        },
+        {
+          "path": "crates/eframe/src/web/mod.rs",
+          "git_blob_sha1": "62b2bdc26b652510b1ddc09ecc4bd9d4877cc836",
+          "sha256": "38c61c07ab46d80b634f33bc415cfa537d3869834e6424a89aa4ad4ce0ea739e"
+        },
+        {
+          "path": "crates/eframe/src/web/panic_handler.rs",
+          "git_blob_sha1": "ce9ba844c7df513297eda33528fd38493a67bcf7",
+          "sha256": "757c56a43c2cfd9fcc0231bc7452b2296e65266e6e0031efad08c92212c6429a"
+        },
+        {
+          "path": "crates/eframe/src/web/screen_reader.rs",
+          "git_blob_sha1": "addebcfb85dafd564e7790fe31c75f2c4ded16e3",
+          "sha256": "898d6110b4ddb1a72cbd13404257ee1788f577ffa2a3872ebb37ca660ad93946"
+        },
+        {
+          "path": "crates/eframe/src/web/storage.rs",
+          "git_blob_sha1": "cf9d90dbbc0f4b71fee72861cb4b50cb28cd8dd5",
+          "sha256": "d010a855cc24830fca07fa44666d9912d65cf5f80fde4ec1bb819dd3f772fa33"
+        },
+        {
+          "path": "crates/eframe/src/web/text_agent.rs",
+          "git_blob_sha1": "c15dccb185ba0034155e0ee1a5f96592aea5c8d5",
+          "sha256": "6780eee0f523c6ae35ff001d9ed95088661221e7e14a55c0a91f9ceed99c870d"
+        },
+        {
+          "path": "crates/eframe/src/web/web_logger.rs",
+          "git_blob_sha1": "882f3e5deeea0ab75588890b513ae21d6761647b",
+          "sha256": "6371a94f55feb7d4d112c5ad3302d82a14b3e835b1e4af8d7f33c81839afd5e0"
+        },
+        {
+          "path": "crates/eframe/src/web/web_painter.rs",
+          "git_blob_sha1": "3352d7708a838b8d9d34f7232bdcc0bdc1da1f3a",
+          "sha256": "6f36d134981ddf3e257c5b54a8c57b47140f5182ac17ab6e187b3f479dc02c88"
+        },
+        {
+          "path": "crates/eframe/src/web/web_painter_glow.rs",
+          "git_blob_sha1": "5e88d6bf3884b089a10055a78e806e18af6eb1fd",
+          "sha256": "ca153fa10889cbe3edf8449fc1408a9fab5993010665e91d8f8d8ac973c0f6d4"
+        },
+        {
+          "path": "crates/eframe/src/web/web_painter_wgpu.rs",
+          "git_blob_sha1": "57e54f69302e1851154686ba06c64aff92735a0b",
+          "sha256": "742a86a3935a116cfbe37d5a0ff45a954e8b9c6c2d662980971ccc5a01abb316"
+        },
+        {
+          "path": "crates/eframe/src/web/web_runner.rs",
+          "git_blob_sha1": "528855192fd4bbdfc3a1a1f6f33c705cdddf1c54",
+          "sha256": "38ea5334250dcdd5f7480dd4bf30fbe060ac34d41fa21399c4528dff3d561f5c"
+        }
+      ]
+    },
+    {
+      "name": "egui",
+      "version": "0.37.0",
+      "published_revision": "7c0b40402271e8d40cda69f87cf3c2617c2e4382",
+      "license_source_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "rust_file_count": 132,
+      "records": [
+        {
+          "path": "crates/egui/src/accessibility.rs",
+          "git_blob_sha1": "c6c6ebe638fa3d09a40bbd33662ed5d3f3bff507",
+          "sha256": "cd538432dc20cef6a20ab6c74fac63891c5f4a8e45879f14087e41c105bf4068"
+        },
+        {
+          "path": "crates/egui/src/animation_manager.rs",
+          "git_blob_sha1": "97f8506b09b410485636967b59486a2a90c8870f",
+          "sha256": "22bdeb0ab1f39c038426797bc7e16af9c9b3d3dfe6a8b7f17dba616e30135e3c"
+        },
+        {
+          "path": "crates/egui/src/atomics/atom.rs",
+          "git_blob_sha1": "1b57a152f3215d6f693cd19816551158368a7973",
+          "sha256": "e1a6632a56b08f1db7183f699f34fd4e5c9eb701b58579df1fb66f629dadd057"
+        },
+        {
+          "path": "crates/egui/src/atomics/atom_ext.rs",
+          "git_blob_sha1": "2a5872e1874c7fc7a483027d3f69968dbb627f65",
+          "sha256": "e6e925a30beb9d8578553f5433ec72568374bc23272aa974bf63b88d439f5c80"
+        },
+        {
+          "path": "crates/egui/src/atomics/atom_kind.rs",
+          "git_blob_sha1": "45243b1c3ed2afee181be7baf2fa6be5b0873478",
+          "sha256": "20f6535c22c4c7835078f2fc3f5c2a919daddcbf91d041e28c7eba216165cb47"
+        },
+        {
+          "path": "crates/egui/src/atomics/atoms.rs",
+          "git_blob_sha1": "4ef3e15f4f6dbea9fae10449ae883377a054dda0",
+          "sha256": "6666ada563bd7681c0ecc705aafcd078376859278fe5f2f792b69fbd82f51242"
+        },
+        {
+          "path": "crates/egui/src/atomics/container_atom.rs",
+          "git_blob_sha1": "718502a6626bb7512f823392fa72d8e72e0a445f",
+          "sha256": "b81945ec619dc74ead2e287960cfe54ece8f6b6302ee8811625e66aa79d80662"
+        },
+        {
+          "path": "crates/egui/src/atomics/mod.rs",
+          "git_blob_sha1": "889dc9314c4774abb54ec0f142005c40206d21cb",
+          "sha256": "785db87ee0cca5ba9501c6b2cc0f507643844f13ccdf26ad6b4e345f46b7c809"
+        },
+        {
+          "path": "crates/egui/src/atomics/sized_atom.rs",
+          "git_blob_sha1": "581ce47fdd7fda34a5cb332d0d144a1b2e703a7d",
+          "sha256": "b673f67a6fd2dda55df7a54851b8ad1811e45cccab140934de031616b213bc28"
+        },
+        {
+          "path": "crates/egui/src/atomics/sized_atom_kind.rs",
+          "git_blob_sha1": "015003090863ff8d745f190f2ac845f9641426cb",
+          "sha256": "323acaae23cec4cdd75471ec2efee7fe21eb52085ee1f95ea2130a7f77aaf0bd"
+        },
+        {
+          "path": "crates/egui/src/atomics/widget_atom.rs",
+          "git_blob_sha1": "3d6040a7f771ea1b90a8461a620474ee7ebdd9d0",
+          "sha256": "52f20a87cf1139e96e6fbd3ef00c7b86f04bb5a8bf5bf8c08ad838aed64e1c5e"
+        },
+        {
+          "path": "crates/egui/src/cache/cache_storage.rs",
+          "git_blob_sha1": "b3533f4cfbda29a6a27c06b6dd0d9511c18aa7a5",
+          "sha256": "e0eeed6c22e5f97a812c327f9e5b0abcaacf84e496aeebd37723080630d0cb0b"
+        },
+        {
+          "path": "crates/egui/src/cache/cache_trait.rs",
+          "git_blob_sha1": "f05713d66454148da9cd081a0cf887d21bb467d9",
+          "sha256": "77678ef855c8ed9ca8d142c7964eb5115ab8ce23c27a0a82eaf683bba6d57ba1"
+        },
+        {
+          "path": "crates/egui/src/cache/frame_cache.rs",
+          "git_blob_sha1": "76a58c461ceef2ab91649c4df7392ad6c2a195b1",
+          "sha256": "83d2890569d0bf42b8cfc9e28ef5c07b306f97f3368faf6b839bca16179fa06b"
+        },
+        {
+          "path": "crates/egui/src/cache/frame_publisher.rs",
+          "git_blob_sha1": "9ca576f29882734c663bf56cf27d90e9c8c33a69",
+          "sha256": "213343980fbd6abec842285fa517208cd9078d3f6c2d6c425be00b4f7f62ed8f"
+        },
+        {
+          "path": "crates/egui/src/cache/mod.rs",
+          "git_blob_sha1": "68469ef3907ace8acb7ad7abd25cf3451904d7a7",
+          "sha256": "405a558bc37e85653f20cae7cfb6c10e8eed2394f65d2b3ecbc630e10333a849"
+        },
+        {
+          "path": "crates/egui/src/callstack.rs",
+          "git_blob_sha1": "9ec42660402243ee249060cbfd51a27c83fa67e5",
+          "sha256": "ea61c7e17914b90af608ae6449b5ac8e7e1d215157a7c207195dbc333b700710"
+        },
+        {
+          "path": "crates/egui/src/class/class_name.rs",
+          "git_blob_sha1": "b9cd1a106949fc93824e6b042ac5ba3e99abda29",
+          "sha256": "c5ecbbbb711ce3184444674c9a06936803035ef74c5f5c8d6d25df1fe27e08e0"
+        },
+        {
+          "path": "crates/egui/src/class/classes.rs",
+          "git_blob_sha1": "9f8fdd4ea16c2665acce397f072142f9b79c4ae6",
+          "sha256": "d07d9bec6eaa9135f46e6f0891d8d0318d52cd972635f966982f442236328e6a"
+        },
+        {
+          "path": "crates/egui/src/class/has_classes.rs",
+          "git_blob_sha1": "43b13636f3afcfe960aadf1c374a455f2dd56333",
+          "sha256": "9277681c114ee4aafed8637a472a4fc36847af7789f604280c991e2d6b9e4f18"
+        },
+        {
+          "path": "crates/egui/src/class/mod.rs",
+          "git_blob_sha1": "912ac4d9e7f9c3397c89da921ec097e3ec0187fc",
+          "sha256": "551f179cf51cecf3a1ca31b2452deb62cda3cb783f76276356f697ed6d5d38e9"
+        },
+        {
+          "path": "crates/egui/src/containers/aligned.rs",
+          "git_blob_sha1": "9b8afe71b339c5b841e4cf96426b33acb22c37d2",
+          "sha256": "3de422147c84a9ca50266e395205cd16903312721859cf894583dd90b8727899"
+        },
+        {
+          "path": "crates/egui/src/containers/area.rs",
+          "git_blob_sha1": "447ad3f5ef00a41f9523e031676e2136971abbac",
+          "sha256": "9187faf01fed1a159e312caa981005e4384859921ef331dbd1b4f5e67e1f915c"
+        },
+        {
+          "path": "crates/egui/src/containers/close_tag.rs",
+          "git_blob_sha1": "273d9e251227f0b64e1a5beea6ad6e77dcfd5b3e",
+          "sha256": "5d394c529af4ccd523fc53f985d86375012caf366720c115bca941837f0ca6fe"
+        },
+        {
+          "path": "crates/egui/src/containers/collapsing_header.rs",
+          "git_blob_sha1": "006a9ec76cbb65a82a74f74d0af0feab4a20bdaa",
+          "sha256": "0769c7b0369f740fecc2cb19cd1a863b60a9eb30c9c98e667ea45dc238e604ad"
+        },
+        {
+          "path": "crates/egui/src/containers/combo_box.rs",
+          "git_blob_sha1": "baebd8ef0a2bb01da4f856ae8006c80391f73a98",
+          "sha256": "c80b8597d65ffbc0c6ed639bb6e46ab62123671c233b22d9183654b1c74faf27"
+        },
+        {
+          "path": "crates/egui/src/containers/frame.rs",
+          "git_blob_sha1": "78da72cdcc9d44b03968807dc21eb2ea6f282a1d",
+          "sha256": "612c21ff94274202253ce04d89ee50719e1306dde0915830e7f337406925aa3c"
+        },
+        {
+          "path": "crates/egui/src/containers/menu.rs",
+          "git_blob_sha1": "fcaaa050f6fc00cb03dcdbd313536bccd3eaa38f",
+          "sha256": "5a374170d1fa7c4a83b7b27c6d99601fc60a9d3ed5f2a916fd46b1a767e48ad7"
+        },
+        {
+          "path": "crates/egui/src/containers/mod.rs",
+          "git_blob_sha1": "5915273bf1110d38ff56729c36f922aecc263801",
+          "sha256": "5ea8982a867c11f91b9ecc8f8c966d5ebcd4e6927144a37a323fab91ef0031c4"
+        },
+        {
+          "path": "crates/egui/src/containers/modal.rs",
+          "git_blob_sha1": "23190ddf6ee6efcff6ef645e5befbe396440c3b6",
+          "sha256": "63f33d914cc1f0a3fbcbc63b9e894ebca633bf2499110a842bdb3f0d4c02f7ff"
+        },
+        {
+          "path": "crates/egui/src/containers/panel.rs",
+          "git_blob_sha1": "07b07c531405712345081aa56c96f8afa9f6fde7",
+          "sha256": "f2ccea15bc5990dcaf79a4a600f4347ff7da1fc79a568279d221c35f6a5f5b81"
+        },
+        {
+          "path": "crates/egui/src/containers/popup.rs",
+          "git_blob_sha1": "59433520e798cfce598b7f160b8b1e4fd8a7f2e3",
+          "sha256": "0a1a99000f8db1038e89be87dccbb5ae7c8b19d7a79fac138cbdfb24442b17f1"
+        },
+        {
+          "path": "crates/egui/src/containers/resize.rs",
+          "git_blob_sha1": "80a40454f8661610fc227281ff10c848eb8a2005",
+          "sha256": "a639aafe8d7fd71810443d699e79c66c4d9b6880946949f466b325f83465b8ab"
+        },
+        {
+          "path": "crates/egui/src/containers/scene.rs",
+          "git_blob_sha1": "3ed2d8c1cbd78e14b6b4831cfea72c60593f8556",
+          "sha256": "7a5b3dc806fc1cac73ed2cf0b4bccb719409abc8427ca6a5780203add9065a76"
+        },
+        {
+          "path": "crates/egui/src/containers/scroll_area.rs",
+          "git_blob_sha1": "a7f5f7fba834f71f486e18ca45b46fe289e8a85d",
+          "sha256": "c7ca18425e8edcef2f31df1ebedcd7bc256004e15c752212e07d9b070aea5160"
+        },
+        {
+          "path": "crates/egui/src/containers/scroll_physics.rs",
+          "git_blob_sha1": "52254e7f890b5d6bdebd01e9ff37866b0271a894",
+          "sha256": "1df4070153c1d7a1d1ed8b0e4c97ee1e200bbb1d7344e24ac379a0c8ae0e10b9"
+        },
+        {
+          "path": "crates/egui/src/containers/sides.rs",
+          "git_blob_sha1": "709c1b64541305338f4b6773921bf195a3f7843d",
+          "sha256": "fb34fb1f2dedaf0ce5352594fcd185a65509cf26efad5139d628b17d73ada992"
+        },
+        {
+          "path": "crates/egui/src/containers/tooltip.rs",
+          "git_blob_sha1": "72518f0927d6d6050f5e96ed214c5238ca1ea8cc",
+          "sha256": "b3f6877f97ea2acc769e68ab343cf873f616f61ef58cfeadee2776384ea2d04a"
+        },
+        {
+          "path": "crates/egui/src/containers/window.rs",
+          "git_blob_sha1": "9b64d311fdc4efed19ba3a921286a2a04cc4fd9a",
+          "sha256": "f5c6748f45b58ec7473c7a65647f35457d818a5a02b86ad9a2578b7c84f750e2"
+        },
+        {
+          "path": "crates/egui/src/context.rs",
+          "git_blob_sha1": "9f6518cdee796b708848075452f80fecfc0974c1",
+          "sha256": "1ec304daf855c03bdfafa902d034f4307e7df7382bba96b7cf403e71dbd085de"
+        },
+        {
+          "path": "crates/egui/src/data/input/dropped_file.rs",
+          "git_blob_sha1": "d6b9bcfab9f4ef7f1e5e58f0550395485b42f16d",
+          "sha256": "937a8d81eceb546f4c201b0e2f7e50bceb675cdcc3d7a9f8f1a4945ba4a7e97b"
+        },
+        {
+          "path": "crates/egui/src/data/input/event.rs",
+          "git_blob_sha1": "623a3af025feb141d35a2cc2954fc70867744538",
+          "sha256": "2ccc57d2e9c806f68c2f30f328c882ff64db70c6083089ec4cace1347034fda5"
+        },
+        {
+          "path": "crates/egui/src/data/input/event_filter.rs",
+          "git_blob_sha1": "6f0a813162c659c531945e00f6c75d1ca2a14101",
+          "sha256": "79958a7fe1cf0674352c2a3787df28ab2b6ca3f5ef336b38875725e8e52b45fd"
+        },
+        {
+          "path": "crates/egui/src/data/input/hovered_file.rs",
+          "git_blob_sha1": "0c558bf792a9bf40d5369f2cd6f43b0f918db54d",
+          "sha256": "c2d39852d8f403f199b3c7a70c6342eb745b1548679aaeacff23476961ae41e0"
+        },
+        {
+          "path": "crates/egui/src/data/input/ime_event.rs",
+          "git_blob_sha1": "2075b2fb9657c0882e723033cede1ec9db7caf0d",
+          "sha256": "8ec44f0bc90c68e3d932b96193a5f1145358fb94ce113448fb789aae294a812a"
+        },
+        {
+          "path": "crates/egui/src/data/input/keyboard_shortcut.rs",
+          "git_blob_sha1": "704db65b523772d1e67f83cc4b9211b036c89725",
+          "sha256": "10a380f83c04d3c0fb113ef47c5692b705a1b1e85dfa8709b431a69452b26514"
+        },
+        {
+          "path": "crates/egui/src/data/input/mod.rs",
+          "git_blob_sha1": "4f53269894535fdb15fe8033ad710eeccc3aac0f",
+          "sha256": "6f23500b9de94f57a54ae34ab5176db44c378ca7bfd7f4f290578f658494b32b"
+        },
+        {
+          "path": "crates/egui/src/data/input/modifier_names.rs",
+          "git_blob_sha1": "5858025309d07b8606fbc0b304f2c581048e16dc",
+          "sha256": "c1db3060f1c8ebeb8d6c2ad6a1d38cd0a933914c7ee49129128b617f0bf88916"
+        },
+        {
+          "path": "crates/egui/src/data/input/modifiers.rs",
+          "git_blob_sha1": "35f895950a1b537811d1f1b2c2a034a73d6b3671",
+          "sha256": "7d0496ac90ab75f6af31f53048cf1c8b6080a6a889ee6fd453369a2394947924"
+        },
+        {
+          "path": "crates/egui/src/data/input/mouse_wheel_source.rs",
+          "git_blob_sha1": "657ad43ef0e4e9a098fe0364806612995d79cbb2",
+          "sha256": "a59f95c78e92310a9d090a7950985578e5209fddc7fe41b74c1c2132154014cf"
+        },
+        {
+          "path": "crates/egui/src/data/input/mouse_wheel_unit.rs",
+          "git_blob_sha1": "d543d01a8724f6aeb5443ecb6d99f332d0cace12",
+          "sha256": "46f048860d83d884a47f9b69e2a37a14c386997c7bea45880d2c95fd5ae54377"
+        },
+        {
+          "path": "crates/egui/src/data/input/pointer_button.rs",
+          "git_blob_sha1": "cfab22a098d531f49f6bad3bcebbbf995e146321",
+          "sha256": "6447fcf5394e8751bce2726dbc41571269fbe485746813ff478f7e79d19f0559"
+        },
+        {
+          "path": "crates/egui/src/data/input/raw_input.rs",
+          "git_blob_sha1": "e1272dcd3d394917ed11183dfd5eda52c361c188",
+          "sha256": "ec369855cf1e98d41519ddce3fb76d5e5d8083a7fbff3640ff8986e71c1d3f55"
+        },
+        {
+          "path": "crates/egui/src/data/input/safe_area_insets.rs",
+          "git_blob_sha1": "a170ec8200431ef9f1563287ffda85ec7d612232",
+          "sha256": "1e309270cac6589de6da3fbf9c9b1496014107636b385a853e99c7efe5584d05"
+        },
+        {
+          "path": "crates/egui/src/data/input/touch.rs",
+          "git_blob_sha1": "e269e437c2de2da3a878c25ea29dc9eb6c4dbfe2",
+          "sha256": "7ba9cb0508ba25fa3e9e931294805565947b1f6f111e6f98c6431c9c59bb1829"
+        },
+        {
+          "path": "crates/egui/src/data/input/viewport_info.rs",
+          "git_blob_sha1": "8f8a688e42211427e89684d5e647c6a5e711efd1",
+          "sha256": "5f3003228307154ac1600ceb50b5e2a4434e470594d9dd4e2dd8d7d30551a591"
+        },
+        {
+          "path": "crates/egui/src/data/key.rs",
+          "git_blob_sha1": "a109974e89449327d0933c1fc5599a257923c718",
+          "sha256": "24fda5236947777b7ad1ec84ef1028563ba970a86d153f466f56e0f2e78f42a8"
+        },
+        {
+          "path": "crates/egui/src/data/mod.rs",
+          "git_blob_sha1": "99a40eb191366da4e5cbe8f2d02f13753f7d8403",
+          "sha256": "9ad3a561044a539f82d9c2ef60192b72010c2f485547419aa1e21eec920840a8"
+        },
+        {
+          "path": "crates/egui/src/data/output.rs",
+          "git_blob_sha1": "d450c5887bf0c1b68810fe042e9a94ee43c06773",
+          "sha256": "9a82797143852d8ca89c54a4741ba01685f1c39259b7f2a2327a924425c0a12d"
+        },
+        {
+          "path": "crates/egui/src/data/screenshot_callback.rs",
+          "git_blob_sha1": "95e88eb89e21d09a3d2f3f69cc25e4a82904ad48",
+          "sha256": "0b01f6c81400d4f306a28ad8940518850886d237ff191eb96cd18a5eb2a3099e"
+        },
+        {
+          "path": "crates/egui/src/debug_text.rs",
+          "git_blob_sha1": "17c3d69903e8ecf0a0fb77c7c096b8f536bd6ecd",
+          "sha256": "5f8e95de7387219cfc8e8df60f14f05399fd5eb71c49b21962169c338955a636"
+        },
+        {
+          "path": "crates/egui/src/drag_and_drop.rs",
+          "git_blob_sha1": "8655c5cb0fdffb0d349ef009bd4abd3401d35a4d",
+          "sha256": "4d976398bbca4e87761b09d7916b7f2e150fd4b57641982fc84777e861088e50"
+        },
+        {
+          "path": "crates/egui/src/grid.rs",
+          "git_blob_sha1": "2f1c54d7e431faa611d1ef98c82b21f260a4b465",
+          "sha256": "6d319142ae33a5fd5d0da264365de9c05f1384b11ad63e3735f1cd0a2f59a6d3"
+        },
+        {
+          "path": "crates/egui/src/gui_zoom.rs",
+          "git_blob_sha1": "4242d927baba3e43b31bfdb43f2d24774a0f6933",
+          "sha256": "be6d30dc78816dad5b6822d25bd2f33b72a5f4a4b0e0a7ef162dea88fd21adc7"
+        },
+        {
+          "path": "crates/egui/src/hit_test.rs",
+          "git_blob_sha1": "9b43de4120e809da71c520fd3ee07d1a199f94eb",
+          "sha256": "0c8baf822fc03867e2922231a8934b3f0fb58da08405ce4e987195a05d6c4f4f"
+        },
+        {
+          "path": "crates/egui/src/id.rs",
+          "git_blob_sha1": "0bdec70b6184f5c40f308ab40b0c432173bb6c58",
+          "sha256": "32e7b9f194ee6d6eadf1bba0aee72701421f143f024b13a29dc4eb65c7a9dcb0"
+        },
+        {
+          "path": "crates/egui/src/id_salt.rs",
+          "git_blob_sha1": "684d0e7b8600aae4b2217083256e4eb45818ed8e",
+          "sha256": "cd44111da10bde140f64ba664c4f30e01dc3bae541c480d159f7c16ef27a7937"
+        },
+        {
+          "path": "crates/egui/src/input_state/mod.rs",
+          "git_blob_sha1": "1aeecc764f877391a433e781c8de601a906e6777",
+          "sha256": "c0ef7a0553b20e677578e17c848ff89c64a015e89a3fc1eb7459d49c34008394"
+        },
+        {
+          "path": "crates/egui/src/input_state/touch_state.rs",
+          "git_blob_sha1": "44c276742406e45fd8912480b632630cbec0f7f7",
+          "sha256": "b71aa50bf11e9029242038c57e8013d761fca0c87a6a5e3a5f1b26f851030809"
+        },
+        {
+          "path": "crates/egui/src/input_state/wheel_state.rs",
+          "git_blob_sha1": "9692e2d856233ef1d0543f81174a0e7aaacdaa2a",
+          "sha256": "b29a4059940f7625ae44a47f948728b8f13a6714eaa22dde2e8a5d762c7a3bcd"
+        },
+        {
+          "path": "crates/egui/src/interaction.rs",
+          "git_blob_sha1": "cac08f595133b0890fc52a22ae7c12d28ad099e7",
+          "sha256": "869cd3a52b70b128338e398007cb6cc7bb198a657462c80f51a57ede41a2b201"
+        },
+        {
+          "path": "crates/egui/src/introspection.rs",
+          "git_blob_sha1": "613e10820fd8fead11abdd1281b021c372cf3572",
+          "sha256": "4261f6023122de24a5e743d7b52dc4f6667b4bead634cbb417fd4edd69583770"
+        },
+        {
+          "path": "crates/egui/src/layers.rs",
+          "git_blob_sha1": "238d7df1e96a21587a4e8fb966ef63f01dead973",
+          "sha256": "820c768c37c5a44592914ce54586757ae953f4a73a73714aabdd2306be1c96bd"
+        },
+        {
+          "path": "crates/egui/src/layout.rs",
+          "git_blob_sha1": "603dd5cc94aa200b391271d2c65e6d996ef0a917",
+          "sha256": "c0ae4bd194338b03505df126cd968bc99d09abc0c3c18f88ffe6d4bab6e7133f"
+        },
+        {
+          "path": "crates/egui/src/lib.rs",
+          "git_blob_sha1": "e86e6ef3403ce65c6590b4dd072a1afcbb16cfaa",
+          "sha256": "0d039232d76be0611ba80117fd2ef0145c46a5035ef370e4e685dcef8090cb7b"
+        },
+        {
+          "path": "crates/egui/src/load.rs",
+          "git_blob_sha1": "6150862097a5448ef211ea9a5711fa9e2fb9f85f",
+          "sha256": "655849a88a825d65ad61b074ff0f67e546567664ac186794f9e05cfcf21e4515"
+        },
+        {
+          "path": "crates/egui/src/load/bytes_loader.rs",
+          "git_blob_sha1": "6547a1e1d770ec202854edcc1fb9b3332db7ec77",
+          "sha256": "65e7deeffe9b19be191524f0cf64788249db7d369748c51a5660781b40be5fcd"
+        },
+        {
+          "path": "crates/egui/src/load/texture_loader.rs",
+          "git_blob_sha1": "eb9b4503bfd7f8583b2ac60abb976944afe13447",
+          "sha256": "6ae3e7b9f67b67c1b63f9177c2870778d7430665efd2d8c96b4c2648fa86282b"
+        },
+        {
+          "path": "crates/egui/src/memory/mod.rs",
+          "git_blob_sha1": "8d8c854fc0be9bc50e5caf3eb337d483a971161d",
+          "sha256": "4f3c93b90c6fb1c745169a42b838e2a516fbf5f798014469187ceeb35b92197b"
+        },
+        {
+          "path": "crates/egui/src/memory/theme.rs",
+          "git_blob_sha1": "d1c5e1a99cbf1bd95c1262c4e88535959bd80536",
+          "sha256": "4f799cbea060481ce843320fd726ab603ba16160d0629e7e5c25ecc97dddec54"
+        },
+        {
+          "path": "crates/egui/src/os.rs",
+          "git_blob_sha1": "407a5335b000e6d86f26f2c40a92f7afe8569274",
+          "sha256": "442839a9bf52059e5eb7119a935d7092abc36ab2dc5c509e8e4d065594ec8683"
+        },
+        {
+          "path": "crates/egui/src/painter.rs",
+          "git_blob_sha1": "6b35de247df5ca7528111cf6d72c55dc4834fc12",
+          "sha256": "703f82f1722deedf963d12f8d888181bbc34347931a507043db68e7976b19e65"
+        },
+        {
+          "path": "crates/egui/src/pass_state.rs",
+          "git_blob_sha1": "862454622ec608194c3d544a735ddef2911bac1c",
+          "sha256": "8f169a761e8894bdc58cd7104bf17ee3b7d2545fea8d3ae9fb432e97588294ae"
+        },
+        {
+          "path": "crates/egui/src/placer.rs",
+          "git_blob_sha1": "8c54204b9e79151e358f66e1c02956d8a0f43022",
+          "sha256": "a89069db47c5fbd6b79184e888d2b78cb658c7fa3e8789d9c496dee653d7ec33"
+        },
+        {
+          "path": "crates/egui/src/plugin.rs",
+          "git_blob_sha1": "ffdc56325ca827e072c8e082bd0cf634783f9344",
+          "sha256": "7bc52a9390d896c74f516dd440a6f45a6571302737e50b12b90acf4472cdbd46"
+        },
+        {
+          "path": "crates/egui/src/response.rs",
+          "git_blob_sha1": "5948f2134282f2ca7257e761212d5d441b8d5982",
+          "sha256": "8a79d6f6bd5582ac117f5569faff15edb0084c15b175deb45abc07124b066169"
+        },
+        {
+          "path": "crates/egui/src/sense.rs",
+          "git_blob_sha1": "1283f320e2d627a67ed826bfb2dd60667dfb90ca",
+          "sha256": "b1e30541693ab2502ea372bd79af27aff9c31ac754105a350c9bbebab39c7420"
+        },
+        {
+          "path": "crates/egui/src/style.rs",
+          "git_blob_sha1": "5048807f5209bdcb394031211a1fe2f655ba3796",
+          "sha256": "3dfe5844f32b84da4b92594a5e1691026802568014f0a95e5e521b9e78e289b5"
+        },
+        {
+          "path": "crates/egui/src/text_selection/accesskit_text.rs",
+          "git_blob_sha1": "f4a374596653019c7d62702a3d5be8194cec844d",
+          "sha256": "5db002bb770ebeda54b5062c822e9126081e89abf26eb267980ac5a4946eb43c"
+        },
+        {
+          "path": "crates/egui/src/text_selection/cursor_range.rs",
+          "git_blob_sha1": "4d76207e211d88d6cce89629b48bae6c17988abb",
+          "sha256": "45fccb844a538425e22415a53b8958881279e39c40a818ddc8c488cfeba1b519"
+        },
+        {
+          "path": "crates/egui/src/text_selection/label_text_selection.rs",
+          "git_blob_sha1": "2934b1599e209b16dbd7b27e2787316131798c4e",
+          "sha256": "771750b51ca02f76b023971165d383505b1c2c2dd5e688ff47cee24d501b5881"
+        },
+        {
+          "path": "crates/egui/src/text_selection/mod.rs",
+          "git_blob_sha1": "cbd51c31a364bcdfc246f42962c44f5feedad1ca",
+          "sha256": "09d2771a59ed56a0070ed26799d07ce7ddca05de5603f9092dfcf9bfd781e502"
+        },
+        {
+          "path": "crates/egui/src/text_selection/text_cursor_state.rs",
+          "git_blob_sha1": "da34de042c1d3110818d710007be122d722c461c",
+          "sha256": "2c9e9cbf103bb0d5506c56c8fd3604799da8529e35ffcd8545edc236a01a21a9"
+        },
+        {
+          "path": "crates/egui/src/text_selection/visuals.rs",
+          "git_blob_sha1": "cc3e5891933bba9cd595cc7539d4239530d16491",
+          "sha256": "44290cac269ad9bf589ba9081b6c44c2c94ddcc33e77b58114f172595b0a80f5"
+        },
+        {
+          "path": "crates/egui/src/theme/default_style.rs",
+          "git_blob_sha1": "fc8aac145c4b0a0e85fabdd721f2f1e2da659133",
+          "sha256": "9da0b0067b8a4f6fec85cfc1698f04c9fe8bf585de42c3490bebe8d372020df1"
+        },
+        {
+          "path": "crates/egui/src/theme/mod.rs",
+          "git_blob_sha1": "45f6cc9d27a3488730a8855abf6218f1145dbf96",
+          "sha256": "7b3c727039fec9e0b7cc3c2c08ee8e09fce33ac7a08fb189f41ced831a3d8a8f"
+        },
+        {
+          "path": "crates/egui/src/theme/style_provider.rs",
+          "git_blob_sha1": "5f9205a85cbf542f11b29584ed61d55c8c0629e0",
+          "sha256": "ac3e3fef356cb4957b4768aa27d12d632e080c724a3e1ee299e19ac6cbe5155a"
+        },
+        {
+          "path": "crates/egui/src/theme/themes.rs",
+          "git_blob_sha1": "c297513c8768becc50768974ddb6b649109aea12",
+          "sha256": "09921d8e86bceea5e1a38f19ae25470916b796d5d8e4f628df4564b778103fd0"
+        },
+        {
+          "path": "crates/egui/src/ui.rs",
+          "git_blob_sha1": "3e23bf9d1dc810f44b71e93f8ebcb3618e024631",
+          "sha256": "462f8e767c3313c5bc1c7384355e7a27b5fa3f5e8a20f3acd78c36944e6453e1"
+        },
+        {
+          "path": "crates/egui/src/ui_builder.rs",
+          "git_blob_sha1": "07f53ec29347e8b8c8fd36cbc1c515185b7d2328",
+          "sha256": "f73679df49f92cfaf275c07cec818bd83eda0183ee5cd668c984b97cb4461b0b"
+        },
+        {
+          "path": "crates/egui/src/ui_stack.rs",
+          "git_blob_sha1": "5d0003da8bf02565db1a69c0490b884c72c56625",
+          "sha256": "754c5f01d5a18975300198207ea8f055b29bb225f155bbbabff0049e342c8280"
+        },
+        {
+          "path": "crates/egui/src/util/fixed_cache.rs",
+          "git_blob_sha1": "b2d2e45dd6f7eedfcd31d9e234da78705e2d082a",
+          "sha256": "9d65ba6a98679119d9e819653d1612be0e98e1eed5ee9ddc2450696273775a3c"
+        },
+        {
+          "path": "crates/egui/src/util/id_type_map.rs",
+          "git_blob_sha1": "eb7153565ac28ff159fb22a11c29373e0ce0fa96",
+          "sha256": "8f939d2f22e6513a63041558c2f45ad7b95d6b849bb0efb26a7a58409f2986c3"
+        },
+        {
+          "path": "crates/egui/src/util/mod.rs",
+          "git_blob_sha1": "ad634d78628b7563c2926f62a10483425d5cfad3",
+          "sha256": "0924f2f34fc438defc207939c8cec3cc89e4600baf1e4a69ea6b826aa828e5b9"
+        },
+        {
+          "path": "crates/egui/src/util/undoer.rs",
+          "git_blob_sha1": "b11202bbe736f3c67f978164b22935018b2e52ec",
+          "sha256": "2fb4d6c2ab8c786e076cb2db38bcde13659b78bce549280e9952e52fd9ef2312"
+        },
+        {
+          "path": "crates/egui/src/viewport.rs",
+          "git_blob_sha1": "2dda4cf956be3e2e2fcce5509df0259cbeffb145",
+          "sha256": "27008a03fc65e91418aba739c675ac42e5484b91612ebc329b49b26937e20804"
+        },
+        {
+          "path": "crates/egui/src/widget_rect.rs",
+          "git_blob_sha1": "79ed19818cead27e853f42e2ef42b26f6e5a8d0a",
+          "sha256": "d304409e3f3d64157a00c5ccc5b4548a45a665c6a1dc8d1e4c28bad192c5fbe0"
+        },
+        {
+          "path": "crates/egui/src/widget_style/mod.rs",
+          "git_blob_sha1": "918705914d1772f8c86bdb3a65f18003e8f5006c",
+          "sha256": "558348976725a01771d62bdb833c4f75686f9b82d54cbfeb23c3dd8c40587329"
+        },
+        {
+          "path": "crates/egui/src/widget_text.rs",
+          "git_blob_sha1": "261a9f790e8319f4997bc3a5fd895a5cc4af9213",
+          "sha256": "c80b66c41bc15a035333a87b8b4751c08164c62a9e9ab2df136bf420104485b3"
+        },
+        {
+          "path": "crates/egui/src/widgets/button.rs",
+          "git_blob_sha1": "1bbdcb92a306b157339f964a65199ba56af8ca9a",
+          "sha256": "c2900f83e3dcf0900a776f501175826a6ccc0bb90e38e8b319b21c8be757f394"
+        },
+        {
+          "path": "crates/egui/src/widgets/checkbox.rs",
+          "git_blob_sha1": "57e4980f1ccbecbf470c8b5d37391093dd8e8738",
+          "sha256": "af51d6b78c24ddee6ba979efe44b1690edec9c77e68d5e2683247743ba4a36d4"
+        },
+        {
+          "path": "crates/egui/src/widgets/color_picker.rs",
+          "git_blob_sha1": "250b95ae2f3f5585f5eb93c8c933dc75313cde6b",
+          "sha256": "0c50702b813edada0d05c5c7bbd887c4dafbc633aed53e55022b2259ff71110a"
+        },
+        {
+          "path": "crates/egui/src/widgets/drag_value.rs",
+          "git_blob_sha1": "6c4a536da175d93fd44c67f8e620224a2783b08b",
+          "sha256": "6194b309f43de5c46a79c0c89b6d3b218696dcff0eee5c66a04192748c476981"
+        },
+        {
+          "path": "crates/egui/src/widgets/hyperlink.rs",
+          "git_blob_sha1": "2464828a9b07e40888bc608f0a7b528200a36a64",
+          "sha256": "ede9b11472c59654f300d1ee7a2fe2a4bd7362e17543540e840ba767dc247740"
+        },
+        {
+          "path": "crates/egui/src/widgets/image.rs",
+          "git_blob_sha1": "748a9f3f5f7d84f256e77ce7839b29ffedd62059",
+          "sha256": "e680edcfbc83d3b220dfecf9d3b76bfb36dd2158d0ee39f1eb076031dba22a58"
+        },
+        {
+          "path": "crates/egui/src/widgets/label.rs",
+          "git_blob_sha1": "5a916c7e0efd95e1a86802f0ae391fe1db33c430",
+          "sha256": "b63d11e57b24f0b0e5d1827b3f87dd04eec9ac180def3067559fe4b041b4028a"
+        },
+        {
+          "path": "crates/egui/src/widgets/mod.rs",
+          "git_blob_sha1": "0dc0537b89271dabdc522c2db5c3d364e8f6f8e8",
+          "sha256": "0d95167437567a9e9b55f3ecb05eb56bac8e6493e7e93ec2005e104b531b573b"
+        },
+        {
+          "path": "crates/egui/src/widgets/progress_bar.rs",
+          "git_blob_sha1": "3027230b3ab9a707ba9befda2ba0e14aa591f7ce",
+          "sha256": "032915c1a05b25f034730a1f019685bb3048baf85c57227d0efda26694dc28f9"
+        },
+        {
+          "path": "crates/egui/src/widgets/radio_button.rs",
+          "git_blob_sha1": "c7cebaf981fa2693f6b84fa825fdfc35790636a6",
+          "sha256": "591269683a271794c22530edd88e22ea7f74245dfba78999be43ed9025c291e3"
+        },
+        {
+          "path": "crates/egui/src/widgets/range_slider.rs",
+          "git_blob_sha1": "f7b378444e5ceec5edba76f21878cc188aed4a11",
+          "sha256": "7fbf0e5dc77d04e3b328015f3b931434ad33e61a398336adb514beb8e91c07e0"
+        },
+        {
+          "path": "crates/egui/src/widgets/separator.rs",
+          "git_blob_sha1": "daef53157b118bf0b24598be71a8117ea4cdd66a",
+          "sha256": "28409f4aed5a13ae1fab9692bc8d8e7662ce32a8c2ec50066630106571bf8e4a"
+        },
+        {
+          "path": "crates/egui/src/widgets/slider.rs",
+          "git_blob_sha1": "fa7606f3a4230385ce200225bb13dbc14b9f95ab",
+          "sha256": "86c944293d3828f2e91587218174da9e60c8f34d86d94f51d37aafd3aed891cd"
+        },
+        {
+          "path": "crates/egui/src/widgets/slider_core.rs",
+          "git_blob_sha1": "605acdfd11990b57154ecb1cbc10336964261f2c",
+          "sha256": "767dce0ccca330f8103735122bcb8983301c4e7823d401279a797e263814fc09"
+        },
+        {
+          "path": "crates/egui/src/widgets/spinner.rs",
+          "git_blob_sha1": "9366dec647e20a46e8c06b443c661610eb419722",
+          "sha256": "6fadc071ee151a43468e958430466701b08e734e53e7289340e5430b63954637"
+        },
+        {
+          "path": "crates/egui/src/widgets/text_edit/builder.rs",
+          "git_blob_sha1": "44236a69e2c70bb8bde498258430a590a32c9fa3",
+          "sha256": "c5039f88d253af50aa9496f1b934c2ccc7fbe3b6da813b4b34f19e1d3efb4a04"
+        },
+        {
+          "path": "crates/egui/src/widgets/text_edit/completion.rs",
+          "git_blob_sha1": "19a762ab492f2564c88a5e39675c4233a44befb8",
+          "sha256": "132ba6d2f35a0da1dd43457313ae7deddfab38fb63c317f803cc2e13b58b327d"
+        },
+        {
+          "path": "crates/egui/src/widgets/text_edit/mod.rs",
+          "git_blob_sha1": "dc042d1e153edf94942e3314af05f59e9a8642c7",
+          "sha256": "0e2a945775d985882af4c39b75d033d7007108098e55fc6a98fd701c93f517fd"
+        },
+        {
+          "path": "crates/egui/src/widgets/text_edit/output.rs",
+          "git_blob_sha1": "04bf8b4a20d17b9bab6e7d6c8238c61f44fddd96",
+          "sha256": "48367b9e7c2472471e79ed8a94635f7d22fc5534ba0ee60ac89ed690b0d4a0f1"
+        },
+        {
+          "path": "crates/egui/src/widgets/text_edit/state.rs",
+          "git_blob_sha1": "255b7bdb7fde29a848b184f211896d3eed34ee15",
+          "sha256": "1b410848a69c501733f0b9108220c659e73d272e5bd5a8e8caa7f91e9f7e7be8"
+        },
+        {
+          "path": "crates/egui/src/widgets/text_edit/text_buffer.rs",
+          "git_blob_sha1": "f0d577c42ab690be6f33107c8aca5836702ffcd2",
+          "sha256": "bc075551149cb7dbc4f88d57b5d09b79aa88e78794624a6ccb8b3dde397bed8c"
+        },
+        {
+          "path": "crates/egui/src/widgets/value_format.rs",
+          "git_blob_sha1": "7d7d9f1f67e472740daeb512ec56f3145de40204",
+          "sha256": "8b81c775ce85ac69163334266eae9726c97d810d0c872036e1c0a3fdfe8b293e"
+        },
+        {
+          "path": "crates/egui/tests/drop_zone.rs",
+          "git_blob_sha1": "85f586c0e3ba302674e09b4559021c9cbd03264a",
+          "sha256": "e8680e654c03e0f07724b7dede10d10dd3286355bbab31d8757e34bb58f7c280"
+        }
+      ]
+    },
+    {
+      "name": "epaint",
+      "version": "0.37.0",
+      "published_revision": "7c0b40402271e8d40cda69f87cf3c2617c2e4382",
+      "license_source_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "rust_file_count": 52,
+      "records": [
+        {
+          "path": "crates/epaint/benches/benchmark.rs",
+          "git_blob_sha1": "a0bcdb7750a65e4f4ff014d61d61106c41932ced",
+          "sha256": "9a1a8f843ddf63e04fbdfca135d4c3f233ade95a820ca0b4cbdffc5e6ed2c0a8"
+        },
+        {
+          "path": "crates/epaint/src/brush.rs",
+          "git_blob_sha1": "a414194a15e85c5de1258d0ee88b8ffba3288028",
+          "sha256": "cfefc5f28bd387c822e4be248495dbbe093f918691eb4aad8a0a22392a75e1db"
+        },
+        {
+          "path": "crates/epaint/src/color.rs",
+          "git_blob_sha1": "e55f28f6cadbcdd2e733d70f146c92f5732f4637",
+          "sha256": "42cd9e7c552646f286f1f61f99fef119d76b872ea9e923574013ef01d1cc95af"
+        },
+        {
+          "path": "crates/epaint/src/corner_radius.rs",
+          "git_blob_sha1": "56e6e5e9af31cd0c70de88fcab88036facc553d4",
+          "sha256": "32cd2ee9693f75108c3352378ab3731af8e374c59b0fb45a54537c55ee72213f"
+        },
+        {
+          "path": "crates/epaint/src/corner_radius_f32.rs",
+          "git_blob_sha1": "75210b744c0ab67f09eaac38ff7e289a69a448f0",
+          "sha256": "49f3f9e6b3821cb55f0939ce027e632be6cd353e546c9658143685ee18e5cfe9"
+        },
+        {
+          "path": "crates/epaint/src/direction.rs",
+          "git_blob_sha1": "b2f317c3724f68ce4733fbae967d85b7ebc77705",
+          "sha256": "ffa0aa03693216f5e0b4876168c3abd7c6f9923124d8df76d13f3eeb3a4a299d"
+        },
+        {
+          "path": "crates/epaint/src/image.rs",
+          "git_blob_sha1": "1e2f38676eef56fb571c9736750c8b088f8b7f8e",
+          "sha256": "5a3cecf3e2bcbe1a0d4f104ba933c26ad9a8f9a2e041e1fc7e938fbcf61763f3"
+        },
+        {
+          "path": "crates/epaint/src/lib.rs",
+          "git_blob_sha1": "08f4204a17861acbbf6eb326637cdf292da0ecf1",
+          "sha256": "aaf0973bf90f4abcba49510b797229b8a5ccca899cc1dbc93938ffd447c50955"
+        },
+        {
+          "path": "crates/epaint/src/margin.rs",
+          "git_blob_sha1": "42cb687088367b8e5ff681c7e4def9ae30035a97",
+          "sha256": "c514cfb2e63d03793f8d8d5a9f4479084fdadf43a204f87b461b0c4b444e7cd7"
+        },
+        {
+          "path": "crates/epaint/src/margin_f32.rs",
+          "git_blob_sha1": "793e5de478f2f76a6c6a9c83ce7fe0c2accc5d48",
+          "sha256": "9f68a013e53568bc328ab08bbfa30902e8623a1b844e161f9382df6b3df1d686"
+        },
+        {
+          "path": "crates/epaint/src/mesh.rs",
+          "git_blob_sha1": "5ef978ff3c302fed856de0215d9e54ec014a8829",
+          "sha256": "c2d6f86a759bd2157b5b787ab03e8eae981b243988ecf4e19c45312c8d9ee3ef"
+        },
+        {
+          "path": "crates/epaint/src/mutex.rs",
+          "git_blob_sha1": "74afbcec87d72e74da8041bd20b343c8df040931",
+          "sha256": "513cd7d225e129ad659e46ccd9ba1028f4d023d210b2dd75a548906757aa2155"
+        },
+        {
+          "path": "crates/epaint/src/rounded_rect.rs",
+          "git_blob_sha1": "07de5f1cbdab6bbbbff470bd1b3fb2d0a38b2f04",
+          "sha256": "8199ce43645b30d0ab9a578c838ec53aee9270aef0b92faae088fca8f7f4a114"
+        },
+        {
+          "path": "crates/epaint/src/shadow.rs",
+          "git_blob_sha1": "11dd3f1d1c465e12211f9c31f76d18e2c6f9bad9",
+          "sha256": "f721610ce7295d90ce9113c12bf5935d96420cc56accb6220acc9958ddf20735"
+        },
+        {
+          "path": "crates/epaint/src/shape_transform.rs",
+          "git_blob_sha1": "130740923c392d8d3593adc1ecbabb69b967a9c1",
+          "sha256": "8731af1ef407b624cedac34c50573a6e5c28d5d730469108228d5efefe9f17a4"
+        },
+        {
+          "path": "crates/epaint/src/shapes/band_shape.rs",
+          "git_blob_sha1": "aec0de7ba0557b8016d996511ea9bb2a15f3b605",
+          "sha256": "52d6a45389ecedfcba4e6c2a4173069fafa8035f743c28e454fd580816150b60"
+        },
+        {
+          "path": "crates/epaint/src/shapes/bezier_shape.rs",
+          "git_blob_sha1": "a32d5f8d2b7b183e4800407fb19f639956fb0db7",
+          "sha256": "92b4fce6d8b37778476eb0f4e07f7d019cde5153d579d1fa74aa3ec2300a6ee3"
+        },
+        {
+          "path": "crates/epaint/src/shapes/circle_shape.rs",
+          "git_blob_sha1": "a86ae3f6d8fbd04bef862e91f20c8f251e942c23",
+          "sha256": "e227a8c5830667373aa524e4752682ca40b901f2376215a88a3657e89a8f6269"
+        },
+        {
+          "path": "crates/epaint/src/shapes/ellipse_shape.rs",
+          "git_blob_sha1": "b436eb841b3fc20696fbfac668849992c3ba9352",
+          "sha256": "c5714b9fbab50012c23c0590a10826367e6c5a52c8e0a6648d36834d2b892043"
+        },
+        {
+          "path": "crates/epaint/src/shapes/mod.rs",
+          "git_blob_sha1": "60197ac9c8f8080cab1b0fdb5751d6b11d5457c4",
+          "sha256": "f832083fafcc38fd9f34369a67acb0a70de7b456167d17cc57c6b9abc1497781"
+        },
+        {
+          "path": "crates/epaint/src/shapes/paint_callback.rs",
+          "git_blob_sha1": "43d7740573db2ec1c971f99fb417b65d47b337d3",
+          "sha256": "ddfd4acb05c79d2450242c241434ecbcb31b617864602c451821d90200a23a2b"
+        },
+        {
+          "path": "crates/epaint/src/shapes/path_shape.rs",
+          "git_blob_sha1": "d677a123c102a3c7e264ff68d5ecdec9915ada2c",
+          "sha256": "6b294523605d6065af11b205b0f23ca82800ac23c829bc113f75f7df5b29fc41"
+        },
+        {
+          "path": "crates/epaint/src/shapes/rect_shape.rs",
+          "git_blob_sha1": "54a9fac44c37f8744c0233d92ece3ff0e21464f5",
+          "sha256": "b136dc78d9770b015e53e1dff9410f1681c85698af52694f9c9dd9197e2a2dd2"
+        },
+        {
+          "path": "crates/epaint/src/shapes/shape.rs",
+          "git_blob_sha1": "bb4367188bca0efe9d37fba6086d8c46b88ed57c",
+          "sha256": "84cee6dc5076320dd777fdc37b769ad5601c993c12160dfd2f4a9f3c24688b3c"
+        },
+        {
+          "path": "crates/epaint/src/shapes/text_shape.rs",
+          "git_blob_sha1": "96ad1e7fefa5603b24df7570c108fc17ffe7d347",
+          "sha256": "0bfb90507010b6ff11be9fa9bf29c958b54282cf22f22db6aed9748308d8dbcf"
+        },
+        {
+          "path": "crates/epaint/src/stats.rs",
+          "git_blob_sha1": "4eeb1112203b2768cca4d755824f9322807fb51f",
+          "sha256": "b09368d5b1c6d8eace91f7dc3805a08a0a49970684017148b8e8ebf0fa16a5d4"
+        },
+        {
+          "path": "crates/epaint/src/stroke.rs",
+          "git_blob_sha1": "14969063f57c6dda80dfba967cc159fcf51504b2",
+          "sha256": "8d2b6a8bf29245c6878b9a84c65992bdb967a706af5044116961bf50210f76f3"
+        },
+        {
+          "path": "crates/epaint/src/tessellator.rs",
+          "git_blob_sha1": "22ba5c8146f99b39621b248e856e1bba0d44fb22",
+          "sha256": "f476c33168458f5b39bdae40680c7539a553286cc0807ba9ea80ba0ae7ed6cfe"
+        },
+        {
+          "path": "crates/epaint/src/text/cursor.rs",
+          "git_blob_sha1": "d54bf1d4f79c76415596beb608aa6c15010f6364",
+          "sha256": "440cecd659bcd347aa6261b7bf2eb178882e4c838a87ca0a013740f5f2b08ca6"
+        },
+        {
+          "path": "crates/epaint/src/text/face_store.rs",
+          "git_blob_sha1": "d3117f4e55e8333dbb41fa04e60a96e93092ba1e",
+          "sha256": "1a30a55eed0fae3aaa24329e1a2a34cf210d13510c63cdd2cb86be66e917c512"
+        },
+        {
+          "path": "crates/epaint/src/text/family.rs",
+          "git_blob_sha1": "3f7d07103d25a1ad1cf3470ce21e2f5da951e70f",
+          "sha256": "b573142f77d552c50072d624f609414da80f524d1bcaec82101782d5ed25d389"
+        },
+        {
+          "path": "crates/epaint/src/text/font_data.rs",
+          "git_blob_sha1": "708d84f5cffb33bef3fc54076f386483da01b2fb",
+          "sha256": "4020e025278131d8327e8c81d3853a9a0d47bf3087a54457bfcd1ef46fb1baf1"
+        },
+        {
+          "path": "crates/epaint/src/text/font_definitions.rs",
+          "git_blob_sha1": "37e24d8d9c1fa83584797879c407a9d1a4110feb",
+          "sha256": "85cf695ff334eff4dba46aeb14b0bc8a780aaa3f04dba2cede3512d3283cd418"
+        },
+        {
+          "path": "crates/epaint/src/text/font_face.rs",
+          "git_blob_sha1": "d0666592ce09b0a5881c5a42c261f603977c1495",
+          "sha256": "8f134085e271c4a7fd94d36d3d019f3343e24d8daf5df2fe6d10aebdedc65a6a"
+        },
+        {
+          "path": "crates/epaint/src/text/font_id.rs",
+          "git_blob_sha1": "2e04ea2b648fa82d730a37f698c7110b37fc1ba7",
+          "sha256": "847e677c536d647353435e2e03682400b779e26576f17d78c8d6d2a84242802f"
+        },
+        {
+          "path": "crates/epaint/src/text/font_provider.rs",
+          "git_blob_sha1": "f7dbab5c7da7c859e61c9c5acf844018fb8add42",
+          "sha256": "1c214ded217a5233b20e50f009f9b4d371708ac7ce559fec0ef74d10b64581ac"
+        },
+        {
+          "path": "crates/epaint/src/text/font_tweak.rs",
+          "git_blob_sha1": "29958ed32e59507c39cb62aced020dd6d5b5bff7",
+          "sha256": "5fe3178cb2f219a87326ed7363394ca0e8b5075e73760281e78b4373939bb2f0"
+        },
+        {
+          "path": "crates/epaint/src/text/fonts.rs",
+          "git_blob_sha1": "b5ea20e6fe898da0eda6226c65fc922b8be9380e",
+          "sha256": "1feb5e3e930f0efa80026b2d835b43badb2a053c629902ddfd7f9a0bfd293b33"
+        },
+        {
+          "path": "crates/epaint/src/text/galley_cache.rs",
+          "git_blob_sha1": "d59a27968328b44539f57be4f70334ecc0b38d65",
+          "sha256": "524ab53053571f1ad3a3c68a64f5a34657f759eaeff25c90bb673cbd5813c62c"
+        },
+        {
+          "path": "crates/epaint/src/text/glyph_atlas.rs",
+          "git_blob_sha1": "a24c5732acc9c2433dd623529d86eec14407d887",
+          "sha256": "47e0f86a263255a3c1381f113f01e45bd66223e432f07dba3595948b5bdd7392"
+        },
+        {
+          "path": "crates/epaint/src/text/glyph_rasterizer.rs",
+          "git_blob_sha1": "bae08e865e5940cc84acb6997ac845d1717e3712",
+          "sha256": "d91518e15336103ed85643bc414633b8b5918d7d1b2ca21eebeae7ddcc2009ca"
+        },
+        {
+          "path": "crates/epaint/src/text/index.rs",
+          "git_blob_sha1": "0f1450740417c32f4f064066d9794206da77bea7",
+          "sha256": "7328065322c01027f46d307ed8c92772985faccc9ecddb1118ab0e098119d1bb"
+        },
+        {
+          "path": "crates/epaint/src/text/mod.rs",
+          "git_blob_sha1": "2d188fd295e46b7203496618855f4b42ff58b379",
+          "sha256": "a82ae20a0f1ada88ee07acdaef1267d9838ac981da43463d614f2bbce2bb9c05"
+        },
+        {
+          "path": "crates/epaint/src/text/styled_metrics.rs",
+          "git_blob_sha1": "41c1209b5f41c856df8532af2234d94e9a161f79",
+          "sha256": "05191198bfec169d677102e8572225fd02950280bb7fa345baa9bf003af7724a"
+        },
+        {
+          "path": "crates/epaint/src/text/text_layout.rs",
+          "git_blob_sha1": "3482c80f8f0c02a623806552dda220b910e9d4c2",
+          "sha256": "e10632548033faa2628747e553c9b2519ded3852cae1ef8478a02a89de52926c"
+        },
+        {
+          "path": "crates/epaint/src/text/text_layout_types.rs",
+          "git_blob_sha1": "8d07864aa0de787fb69de695840fa3af84b460e1",
+          "sha256": "7bc2c270e5fd6b10e8f3e9a010e25c16ef5ccd1a4d6700970b4fd9fe14013f0c"
+        },
+        {
+          "path": "crates/epaint/src/text/unicode.rs",
+          "git_blob_sha1": "16c888a42f5082367dbf074f7dbcd34dc50b837c",
+          "sha256": "d0ede1ba4d979ff929a3448b76d4a6a8c173f8064f05feefb7add751e7de2b1b"
+        },
+        {
+          "path": "crates/epaint/src/texture_atlas.rs",
+          "git_blob_sha1": "b482fe4f07af66e7a1661c881b1fd62d5cbe7d49",
+          "sha256": "d37790610dd761c1fbd813d22b88aa0a7c9df91860b4b8356d3b61879ef87937"
+        },
+        {
+          "path": "crates/epaint/src/texture_handle.rs",
+          "git_blob_sha1": "e2049d210a9da79b78efe336067a8d746e498262",
+          "sha256": "0c1fee49f6e58146099ad7794a3b51b054fde5023813ac7b39ceb9803092bad9"
+        },
+        {
+          "path": "crates/epaint/src/textures.rs",
+          "git_blob_sha1": "594cada75c98e5a4bf3246464e0689a32f66f630",
+          "sha256": "ef2ccc4ceb221c49e65f702a11efb0980a55d2073ddb4d89d1e3f9bb637f9e62"
+        },
+        {
+          "path": "crates/epaint/src/util/mod.rs",
+          "git_blob_sha1": "ad324adcf79a17e043d65fcef77fba8a694d0ae4",
+          "sha256": "4d24b78f50b3f089276071cc58b4affdf28722e12cb469b8269203749f9bb28f"
+        },
+        {
+          "path": "crates/epaint/src/viewport.rs",
+          "git_blob_sha1": "01011b5c8ea16ad0dff5eac506391a0422264905",
+          "sha256": "e9aa21f945ff4982934565edbb8bdb47b0c6ca3a0ede9068525b7402dcb6b47f"
+        }
+      ]
+    },
+    {
+      "name": "epaint_default_fonts",
+      "version": "0.37.0",
+      "published_revision": "7c0b40402271e8d40cda69f87cf3c2617c2e4382",
+      "license_source_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "rust_file_count": 2,
+      "records": [
+        {
+          "path": "crates/epaint_default_fonts/src/lib.rs",
+          "git_blob_sha1": "c345d20081aa3df74a1fb45279f38b0049e45720",
+          "sha256": "9dc242e0caa598a62e3a03b7ad1035b22771f7107d08d6a2aa358bc2e728c89b"
+        },
+        {
+          "path": "crates/epaint_default_fonts/src/special_emojis.rs",
+          "git_blob_sha1": "57fa9c2c5c7e7b82d7be249bc7ff7f49743348e3",
+          "sha256": "224bd21126bfe96e3fe6805a990be5e23a52e05a4b1403ccce8a1b867ca07726"
+        }
+      ]
+    },
+    {
+      "name": "ecolor",
+      "version": "0.37.0",
+      "published_revision": "7c0b40402271e8d40cda69f87cf3c2617c2e4382",
+      "license_source_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "rust_file_count": 8,
+      "records": [
+        {
+          "path": "crates/ecolor/src/cint_impl.rs",
+          "git_blob_sha1": "3d9c9d2a6ebde3ffd4188605395047d1ec2ed4c1",
+          "sha256": "b6f89b6f4283c7bebcb49c05de5a0038f4ee861d575135b568fd9a4593f2726c"
+        },
+        {
+          "path": "crates/ecolor/src/color32.rs",
+          "git_blob_sha1": "7a9cf72b7321d4d3a5be37405c735a3a6ddd52ee",
+          "sha256": "d1e7315446cbd715927a84e729084c264f2c2adb391c594bb7fe02a4fcbc6fa1"
+        },
+        {
+          "path": "crates/ecolor/src/hex_color_macro.rs",
+          "git_blob_sha1": "cda00a513c04b526f72d0ad4a8b5870be3111f10",
+          "sha256": "5a4275ed16d28510720d975eb8169d016ded9f8811c144ebc11e2cdc479de187"
+        },
+        {
+          "path": "crates/ecolor/src/hex_color_runtime.rs",
+          "git_blob_sha1": "5acca2ef782dbbb95151465a07ae966f6cdea123",
+          "sha256": "5eece8c59b37e73af89749340c3eeea02cd12fc11b77f881aeb19991dcb631f8"
+        },
+        {
+          "path": "crates/ecolor/src/hsva.rs",
+          "git_blob_sha1": "8d92d40b8cad0b3d82821d74fd25519b064062c2",
+          "sha256": "8bbc19afbe44fd0ea33e0523fdc20510b1f343e90c7b210c0849284406297177"
+        },
+        {
+          "path": "crates/ecolor/src/hsva_gamma.rs",
+          "git_blob_sha1": "19e31f337b61bf98a25a711d5746db3e48d05029",
+          "sha256": "af3764f1f47379d0fe351bf0d2334cd24a1d068c1dc7ba119541b62bebed818a"
+        },
+        {
+          "path": "crates/ecolor/src/lib.rs",
+          "git_blob_sha1": "43047091d4f34c77235ac0933b53d968232407b2",
+          "sha256": "0cbf266aac4153986c686cd9685b9ba2213dd94f50705d073a6d955d1b9def31"
+        },
+        {
+          "path": "crates/ecolor/src/rgba.rs",
+          "git_blob_sha1": "ecb8cb1d0515188be53769d7ce8ae59cd6e13a1d",
+          "sha256": "8242b5c342f5f539eac26a421cda876471e9a64036d8848ba023157861d3c4df"
+        }
+      ]
+    },
+    {
+      "name": "emath",
+      "version": "0.37.0",
+      "published_revision": "7c0b40402271e8d40cda69f87cf3c2617c2e4382",
+      "license_source_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "rust_file_count": 17,
+      "records": [
+        {
+          "path": "crates/emath/src/align.rs",
+          "git_blob_sha1": "baa633b7b34fa7a66f0bfe1eb050edb3bf843aaf",
+          "sha256": "1780414fe32026a7c1d238cecde52f85191e2fcaf3ae2bcbaf3a9f12bba05a9c"
+        },
+        {
+          "path": "crates/emath/src/easing.rs",
+          "git_blob_sha1": "57c439f27c2f048347306d1f64c712059f1b574a",
+          "sha256": "a571f0d30f1d73d3495f4479ea6e0da7f5d44f57e1a35ae48ab39c6f21d6210d"
+        },
+        {
+          "path": "crates/emath/src/gui_rounding.rs",
+          "git_blob_sha1": "ac624792a27cf9ed5f053b2f62add340c6f45a56",
+          "sha256": "ca9bc358706eb3b15147f23ad003361a76d14bd4ba788edcbb45898c4769a523"
+        },
+        {
+          "path": "crates/emath/src/history.rs",
+          "git_blob_sha1": "fa86e9cba01010a423c9a867f2c7bf0020d28588",
+          "sha256": "23ba1fc1e26a440705e8541e558c0ad90fbc9b9199e8c0693358cd88a2ccb41e"
+        },
+        {
+          "path": "crates/emath/src/lib.rs",
+          "git_blob_sha1": "0ea3986a27f12d1724e06018609c60324a7d8111",
+          "sha256": "54e83d23b50bce8a290afe25e7c9b17df92a7979ff7209421879cd3faea8fc4a"
+        },
+        {
+          "path": "crates/emath/src/numeric.rs",
+          "git_blob_sha1": "a94cfbe6d23b28f5ff7313c3573aab1ae3af366a",
+          "sha256": "16121d8cb9831c6e02f199a3e17fe11927d9aa02aec66ffad9ee2c6e3e9672eb"
+        },
+        {
+          "path": "crates/emath/src/ordered_float.rs",
+          "git_blob_sha1": "dc86e2472bc558c8ea5641c190701dbef2d5448e",
+          "sha256": "da17c199073e2afc8116e5331e802728bb733aa101b22df7bb9efe523e1bd038"
+        },
+        {
+          "path": "crates/emath/src/pos2.rs",
+          "git_blob_sha1": "ce56bddd11645d2316855c33ed06f7198addbe0d",
+          "sha256": "13d546378488f7f7b8f915dab6ced7658455c4fd6a1cb49f303b565366c9a0e6"
+        },
+        {
+          "path": "crates/emath/src/range.rs",
+          "git_blob_sha1": "909b0432969d3242b88f01505bc17896bd34b02b",
+          "sha256": "6da3ec9910e6b9752e7bc46b0ca5ef6cb25f55800aeef65578e8fa601257e8ee"
+        },
+        {
+          "path": "crates/emath/src/rect.rs",
+          "git_blob_sha1": "444fca44b0f8802e18f63c01f69a7715b264dd1e",
+          "sha256": "a4d96875c30e3095d68ea8a946dd096df97d19fe3ee34e82467a398450c64df5"
+        },
+        {
+          "path": "crates/emath/src/rect_align.rs",
+          "git_blob_sha1": "a42bb8cb249663ad5aa13866d29b077ecf80a1be",
+          "sha256": "0cb4d9985f7e801fb4c84abcee60a7a16b52ef9158e64f2cb2cbb0ec727442b6"
+        },
+        {
+          "path": "crates/emath/src/rect_transform.rs",
+          "git_blob_sha1": "05355620adf9acbe5583da0d18af54a164e89e3e",
+          "sha256": "c9c5f8ebef147ea01b948996ffdd81678d875d1a92cee1ff4dab23a555d8a540"
+        },
+        {
+          "path": "crates/emath/src/rot2.rs",
+          "git_blob_sha1": "9aa4b52d7dd33edd9120570213785b83986837be",
+          "sha256": "911a0b5659ab19c4f5c1c2d0d9084c839fabf9150e7044e0e0e7ce6d3cbe60af"
+        },
+        {
+          "path": "crates/emath/src/smart_aim.rs",
+          "git_blob_sha1": "5d6a3e0fcec1087d55e698dc4fd2f99c72205993",
+          "sha256": "aba185cd3a8f60e8d9aa61e8f6cab63b0afa710ad7032f52e2352fc0fed3489d"
+        },
+        {
+          "path": "crates/emath/src/ts_transform.rs",
+          "git_blob_sha1": "5d36911ede9118200847c361d9523ea84c08a340",
+          "sha256": "a8623fb33070f3d2eab5e6327c974eea7ac7cc94198ca382bfb664cf9191c6b7"
+        },
+        {
+          "path": "crates/emath/src/vec2.rs",
+          "git_blob_sha1": "caffa64bd54db4e966e2beea82eb05f1860b0f79",
+          "sha256": "ad88745edb755b80e03347e4eeba3da96cb3e82d16d1b1c179d624ed1445c7ef"
+        },
+        {
+          "path": "crates/emath/src/vec2b.rs",
+          "git_blob_sha1": "be5c36f783b358a6e6fc65dc3386d87fb77d6bc6",
+          "sha256": "ac22f8622e7cf840751d4808ce5edd3cd3b58c5742aaf4402ccc01b02cf61fdd"
+        }
+      ]
+    },
+    {
+      "name": "egui-wgpu",
+      "version": "0.37.0",
+      "published_revision": "7c0b40402271e8d40cda69f87cf3c2617c2e4382",
+      "license_source_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "rust_file_count": 5,
+      "records": [
+        {
+          "path": "crates/egui-wgpu/src/capture.rs",
+          "git_blob_sha1": "23e7932b013727921532c9d49b756679a897cace",
+          "sha256": "545075e0543804ae2a8efc87fc71d355c1de40f4284afc671f5874cf84703a58"
+        },
+        {
+          "path": "crates/egui-wgpu/src/lib.rs",
+          "git_blob_sha1": "cb2b3a422310e2a83997f32a649738fb8a329867",
+          "sha256": "5e8b591cafa794b106bb3fdb6bdefb4644f220ec5b95396503ccfb65feb7c33e"
+        },
+        {
+          "path": "crates/egui-wgpu/src/renderer.rs",
+          "git_blob_sha1": "382d8749e24213757a4ceb31d17e055d549a2619",
+          "sha256": "f0c9b669f71d6eec03731e5eeafdd25ab9f20f64216c730d94776435e48f57cc"
+        },
+        {
+          "path": "crates/egui-wgpu/src/setup.rs",
+          "git_blob_sha1": "3c9ceae5d3f2e32ddf875148de66d0e5eea98ae2",
+          "sha256": "c438389fc2b4e8a4d5dfe2eef57c76caed3cb2c199f9f15d7f80b105cf4246bf"
+        },
+        {
+          "path": "crates/egui-wgpu/src/winit.rs",
+          "git_blob_sha1": "59fb62673d53168864a10d1833e51d4f9c70069b",
+          "sha256": "3f9f39150119a4ef071ab9e0ed9384edbebad36cc72bc35a90ac1639d165be51"
+        }
+      ]
+    },
+    {
+      "name": "egui-winit",
+      "version": "0.37.0",
+      "published_revision": "7c0b40402271e8d40cda69f87cf3c2617c2e4382",
+      "license_source_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "rust_file_count": 6,
+      "records": [
+        {
+          "path": "crates/egui-winit/src/clipboard.rs",
+          "git_blob_sha1": "702e1e54ef1107a899ce994651b8b9f86f705989",
+          "sha256": "4c8f063b905aed4476a38c96af72cd325be39ba9b7a91d05b165ae48c9a53751"
+        },
+        {
+          "path": "crates/egui-winit/src/dropped_file.rs",
+          "git_blob_sha1": "43f8960fc8df9e2903945f415164a3d952d58c0a",
+          "sha256": "8c5b2e67f09233bea2b515d94215d9f699f787d94461576422fd8356420804c9"
+        },
+        {
+          "path": "crates/egui-winit/src/lib.rs",
+          "git_blob_sha1": "019de98865155ac605c3d36c38c3b6d27ba2b21a",
+          "sha256": "d742b0d35e6b1248329f11fdc6d267c3f04cb93f1729fbe7b7ac074172d91c45"
+        },
+        {
+          "path": "crates/egui-winit/src/macos_scroll_momentum.rs",
+          "git_blob_sha1": "cd72e910ce104ec83c0774324610060616ca1cae",
+          "sha256": "7caa14e6d3be216db13a596e40e1c8edac3e7da17aa6bfefd215f81455b211ad"
+        },
+        {
+          "path": "crates/egui-winit/src/safe_area.rs",
+          "git_blob_sha1": "378f44a945580ca876fb06ee481141e73e84f289",
+          "sha256": "7d6efc7d283814d6dcb5e0938225bea19a479a452aa85377092b33e8bd11bb8b"
+        },
+        {
+          "path": "crates/egui-winit/src/window_settings.rs",
+          "git_blob_sha1": "1145023bec307e22c5a4599516e1bdf0b96983ea",
+          "sha256": "08ee88b3a25425fc31c6ec57f60f1747408968174fda6ea86af905618b621751"
+        }
+      ]
+    },
+    {
+      "name": "egui_glow",
+      "version": "0.37.0",
+      "published_revision": "7c0b40402271e8d40cda69f87cf3c2617c2e4382",
+      "license_source_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "rust_file_count": 7,
+      "records": [
+        {
+          "path": "crates/egui_glow/examples/pure_glow.rs",
+          "git_blob_sha1": "17fa95b73afef02f28e402dc8557ad46145b0faa",
+          "sha256": "b0148400017588905089ac6f088d87d0e243755f1e5e2947a46f5a6297419425"
+        },
+        {
+          "path": "crates/egui_glow/src/lib.rs",
+          "git_blob_sha1": "704c8137a05c88e14a24b30582b7122404ff9eab",
+          "sha256": "671df91c2f99cd7784892819007cefac2c737e2279450506a1e8cf1f218aef51"
+        },
+        {
+          "path": "crates/egui_glow/src/misc_util.rs",
+          "git_blob_sha1": "4b154cea7652cd7c19f19e715be145d49ce988c8",
+          "sha256": "e11c70e50f84468875805394b640381ccaf8f9fac152f59785e0d36781c1e7d9"
+        },
+        {
+          "path": "crates/egui_glow/src/painter.rs",
+          "git_blob_sha1": "8a68de1f83adfddc580abe956d9368cb7319fe47",
+          "sha256": "fbebbfb983c2100993a2351a8513c675fe3ec6a099067993a192bedc5030140d"
+        },
+        {
+          "path": "crates/egui_glow/src/shader_version.rs",
+          "git_blob_sha1": "e34e44c6809cc62f68edc87c26de36399ea3f571",
+          "sha256": "450c2cc0cd3efd8aad788ad2f047409973101916998631dec72d53ce721e6d0a"
+        },
+        {
+          "path": "crates/egui_glow/src/vao.rs",
+          "git_blob_sha1": "bb95293222bbf95583944311a3c3a8ed0bc385a2",
+          "sha256": "132716ca5268b66caf76f1767de00b31380abf8ff054dd26c790747284ccccf1"
+        },
+        {
+          "path": "crates/egui_glow/src/winit.rs",
+          "git_blob_sha1": "6ec9b8215ff9184a82c15f17313fd764d06081aa",
+          "sha256": "3bed8a69e267cf1dec015770f8c00a5d07425ac204477470946652ce2a96b197"
+        }
+      ]
+    }
+  ]
+}

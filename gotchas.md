@@ -40,3 +40,8 @@
   Use [the private-dispatcher gate](docs/ffi-bindings.md) with child-only no-unpack, no-classpath, and no-system settings.
   Verify the loaded dispatcher path and bytes, and preserve all task artifacts.
   See the [foundation receipt](docs/evidence/ffi/foundation-20261118.json) for the unresolved historical limit.
+
+- AT-SPI root cache clearing follows cached child links and can miss separately queried descendants.
+  Refresh the exact failed Text accessible or counted parent, then restart the complete read.
+  Keep mutations outside retries and preserve deadlines and process identity checks.
+  See the [native desktop checkpoint](docs/superpowers/plans/2026-11-18-desktop-connect-queue.md).

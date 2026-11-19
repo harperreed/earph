@@ -9,3 +9,4 @@ mod dispatcher;
 pub use dispatcher::*;
 mod model;
 pub use model::*;
+pub mod gui;

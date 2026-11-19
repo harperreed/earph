@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "dispatch"
+  ],
+  "version": "0.2.0",
+  "repository": "http://github.com/SSheldon/rust-dispatch",
+  "revision": "82d6c7a5b75dc0c71c3f46f87bb6c16a476f7748",
+  "license_expression": "MIT",
+  "license_file": "LICENSE-BUNDLE",
+  "license_sha256": "958a467e0ac07904a9a3d82b7e3b0bb3f2ecc55916e9c460705cd24ba5617323",
+  "source_url": "https://github.com/SSheldon/rust-dispatch/blob/82d6c7a5b75dc0c71c3f46f87bb6c16a476f7748/Cargo.toml",
+  "verified_on": "2026-11-18",
+  "sources": [
+    {
+      "repository": "SSheldon/rust-dispatch",
+      "revision": "82d6c7a5b75dc0c71c3f46f87bb6c16a476f7748",
+      "path": "Cargo.toml",
+      "git_blob_sha1": "8cc82a81526484217820b15c59af4bae8fb924fd",
+      "sha256": "05c60b829931ef7f1f130735843c11f5cf9cc69546eca5fc941d014781c68e31",
+      "source_url": "https://github.com/SSheldon/rust-dispatch/blob/82d6c7a5b75dc0c71c3f46f87bb6c16a476f7748/Cargo.toml",
+      "role": "exact_upstream_license_declaration_and_author_attribution"
+    },
+    {
+      "repository": "spdx/license-list-data",
+      "revision": "ab9b0904b43db6f4b67431efd8821feb821f1c8b",
+      "path": "text/MIT.txt",
+      "git_blob_sha1": "d817195dad53ec992418c28ffca5fbd1cd86502a",
+      "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+      "source_url": "https://github.com/spdx/license-list-data/blob/ab9b0904b43db6f4b67431efd8821feb821f1c8b/text/MIT.txt",
+      "role": "standard_spdx_terms_not_an_upstream_copyright_notice"
+    }
+  ],
+  "distribution_status": "requires_original_license_notice_review",
+  "notice_status": "upstream_declares_spdx_mit_original_notice_missing",
+  "upstream_notice_issue": "https://github.com/SSheldon/rust-dispatch/issues/18"
+}

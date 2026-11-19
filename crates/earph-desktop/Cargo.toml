@@ -8,6 +8,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+eframe.workspace = true
 earph-core = { version = "=0.1.0", path = "../earph-core" }
 earph-engine = { version = "=0.1.0", path = "../earph-engine" }
 earph-ffi = { version = "=0.1.0", path = "../earph-ffi" }

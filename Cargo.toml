@@ -16,3 +16,4 @@ serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
 sha2 = "=0.11.1"
 rubato = { version = "=5.1.0", default-features = false }
 audioadapter-buffers = "=5.2.0"
+eframe = { version = "=0.37.0", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }

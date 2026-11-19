@@ -162,13 +162,20 @@ pub struct DesktopClient {
 impl DesktopClient {
     pub fn attach(runtime: String) -> Result<Self, DeliveryFailure> {
         // Attachment constructs a handle and workers; it does not prove that an owner is available.
-        let dispatcher = Dispatcher::attach(runtime)?;
+        Self::resume(runtime, PresentationModel::default()).map_err(|(error, _)| error)
+    }
+    pub(crate) fn resume(
+        runtime: String,
+        mut model: PresentationModel,
+    ) -> Result<Self, (DeliveryFailure, Box<PresentationModel>)> {
+        let dispatcher = match Dispatcher::attach(runtime) {
+            Ok(dispatcher) => dispatcher,
+            Err(error) => return Err((error, Box::new(model))),
+        };
+        model.attached = true;
         Ok(Self {
             dispatcher: Some(dispatcher),
-            model: PresentationModel {
-                attached: true,
-                ..Default::default()
-            },
+            model,
         })
     }
     pub fn model(&self) -> &PresentationModel {
@@ -298,6 +305,137 @@ impl DesktopClient {
 mod tests {
     use super::*;
     use earph_core::{EngineError, ids::ZoneId};
+
+    fn query(id: &str) -> Request {
+        Request::query(
+            RequestId::new(id).unwrap(),
+            ZoneId::new("main").unwrap(),
+            Command::State,
+        )
+        .unwrap()
+    }
+    fn settle(client: &mut DesktopClient, id: &RequestId) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            client.poll();
+            if !client.model().record(id).unwrap().in_flight {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+    struct Owner {
+        runtime: std::path::PathBuf,
+        serve: Option<std::thread::JoinHandle<Result<(), EngineError>>>,
+    }
+    impl Owner {
+        fn start() -> Self {
+            let time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let runtime =
+                std::path::PathBuf::from(format!("/tmp/erm-{}-{time:x}", std::process::id()));
+            let owner = earph_engine::EngineOwner::bind(&runtime).unwrap();
+            Self {
+                runtime,
+                serve: Some(std::thread::spawn(move || owner.serve())),
+            }
+        }
+        fn client(&self) -> crate::OwnerClient {
+            crate::OwnerClient::attach(self.runtime.to_str().unwrap().into()).unwrap()
+        }
+    }
+    impl Drop for Owner {
+        fn drop(&mut self) {
+            let client = self.client();
+            if let Ok(Reply::Receipt(reply)) = client.request(&query("resume-cleanup-state")) {
+                let request = Request::mutation(
+                    RequestId::new("resume-cleanup-shutdown").unwrap(),
+                    reply.state().unwrap(),
+                    Command::OwnerShutdown,
+                )
+                .unwrap();
+                client.request(&request).unwrap();
+            }
+            self.serve.take().unwrap().join().unwrap().unwrap();
+        }
+    }
+
+    #[test]
+    fn resume_preserves_owner_b_when_an_uncertain_owner_a_read_replays() {
+        let a = Owner::start();
+        let b = Owner::start();
+        let old = query("resume-old-a");
+        let Reply::Receipt(a_reply) = a.client().request(&old).unwrap() else {
+            panic!("A state")
+        };
+        let missing = format!("{}-x", a.runtime.to_str().unwrap());
+        let mut client = DesktopClient::attach(missing).unwrap();
+        client.submit(old.clone()).unwrap();
+        settle(&mut client, &old.envelope().request_id);
+        assert_eq!(
+            client
+                .model()
+                .record(&old.envelope().request_id)
+                .unwrap()
+                .presentation,
+            Presentation::Uncertain
+        );
+        let (model, shutdown) = client.disconnect();
+        shutdown.join().unwrap();
+        let mut client = DesktopClient::resume(b.runtime.to_str().unwrap().into(), model)
+            .unwrap_or_else(|(e, _)| panic!("{e:?}"));
+        let fresh = query("resume-fresh-b");
+        client.submit(fresh.clone()).unwrap();
+        settle(&mut client, &fresh.envelope().request_id);
+        let b_state = client.model().latest_state().unwrap().state.clone();
+        assert_ne!(b_state.owner_id, a_reply.state().unwrap().owner_id);
+        let mutation = Request::mutation(
+            RequestId::new("resume-b-mute").unwrap(),
+            &b_state,
+            Command::Mute { muted: true },
+        )
+        .unwrap();
+        client.submit(mutation.clone()).unwrap();
+        settle(&mut client, &mutation.envelope().request_id);
+        let ordinal = client.model.next_ordinal;
+        let (model, shutdown) = client.disconnect();
+        shutdown.join().unwrap();
+        let mut client = DesktopClient::resume(a.runtime.to_str().unwrap().into(), model)
+            .unwrap_or_else(|(e, _)| panic!("{e:?}"));
+        client.reconcile(&old.envelope().request_id).unwrap();
+        settle(&mut client, &old.envelope().request_id);
+        assert_eq!(
+            client.model().latest_state().unwrap().state.owner_id,
+            b_state.owner_id
+        );
+        assert!(
+            !client
+                .model()
+                .record(&mutation.envelope().request_id)
+                .unwrap()
+                .owner_changed
+        );
+        assert_eq!(client.model.next_ordinal, ordinal);
+        let old_record = client.model().record(&old.envelope().request_id).unwrap();
+        assert_eq!(old_record.request.bytes(), old.bytes());
+        let Some(Ok(Reply::Receipt(replay))) = &old_record.outcome else {
+            panic!("actual replay")
+        };
+        assert_eq!(
+            replay.state().unwrap().owner_id,
+            a_reply.state().unwrap().owner_id
+        );
+        let (model, shutdown) = client.disconnect();
+        shutdown.join().unwrap();
+        let (error, retained) = DesktopClient::resume("x".repeat(61), model).err().unwrap();
+        assert!(matches!(error, DeliveryFailure::Local { .. }));
+        assert_eq!(retained.next_ordinal, ordinal);
+        assert!(retained.record(&old.envelope().request_id).is_some());
+        assert!(!retained.attached);
+    }
 
     #[test]
     fn owner_serialization_failure_preserves_uncertainty_and_the_original_request() {
