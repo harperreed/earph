@@ -53,6 +53,38 @@ fn observed(format: &StreamFormat) -> ObservedStreamFormat {
 }
 
 const FAULT_DIAGNOSTICS: usize = 32;
+struct FaultReporter {
+    sender: std::sync::OnceLock<std::sync::mpsc::SyncSender<FaultDiagnostic>>,
+    initialization: std::sync::Mutex<()>,
+}
+impl FaultReporter {
+    const fn new() -> Self {
+        Self {
+            sender: std::sync::OnceLock::new(),
+            initialization: std::sync::Mutex::new(()),
+        }
+    }
+    fn get(&self) -> Option<&std::sync::mpsc::SyncSender<FaultDiagnostic>> {
+        self.sender.get()
+    }
+    fn get_or_start(
+        &self,
+        start: impl FnOnce() -> std::io::Result<std::sync::mpsc::SyncSender<FaultDiagnostic>>,
+    ) -> std::io::Result<&std::sync::mpsc::SyncSender<FaultDiagnostic>> {
+        if let Some(sender) = self.get() {
+            return Ok(sender);
+        }
+        let _initialization = self
+            .initialization
+            .lock()
+            .map_err(|_| std::io::Error::other("native diagnostics initialization lock failed"))?;
+        if let Some(sender) = self.get() {
+            return Ok(sender);
+        }
+        let sender = start()?;
+        Ok(self.sender.get_or_init(|| sender))
+    }
+}
 #[derive(Debug, Clone, Copy)]
 struct FaultDiagnostic {
     operation: &'static str,
@@ -104,6 +136,92 @@ mod tests {
         ids::{DeviceId, ProfileId},
         safety::{FidelityPolicy, VolumeMode},
     };
+    #[test]
+    fn reporter_recovers_after_start_failure_and_keeps_its_successful_writer() {
+        use std::{io::Read, os::unix::net::UnixStream};
+        let reporter = FaultReporter::new();
+        assert!(
+            reporter
+                .get_or_start(|| Err(std::io::Error::other("controlled start failure")))
+                .is_err()
+        );
+        assert!(reporter.get().is_none());
+        let (writer, mut reader) = UnixStream::pair().unwrap();
+        reader
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let sender = reporter
+            .get_or_start(|| spawn_fault_reporter(writer))
+            .unwrap();
+        sender
+            .try_send(FaultDiagnostic {
+                operation: "recovered",
+                error: None,
+                progress: None,
+            })
+            .unwrap();
+        assert!(reporter.get().is_some());
+        reporter
+            .get_or_start(|| panic!("successful reporter must be retained"))
+            .unwrap();
+        drop(reporter);
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["backend_fault"]["operation"], "recovered");
+    }
+    #[test]
+    fn concurrent_reporter_start_owns_one_real_writer() {
+        use std::{
+            io::Read,
+            os::unix::net::UnixStream,
+            sync::{Arc, Mutex},
+        };
+        let reporter = Arc::new(FaultReporter::new());
+        let (writer, mut reader) = UnixStream::pair().unwrap();
+        reader
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let writer = Arc::new(Mutex::new(Some(writer)));
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let reporter = reporter.clone();
+                let writer = writer.clone();
+                std::thread::spawn(move || {
+                    let sender = reporter
+                        .get_or_start(|| {
+                            spawn_fault_reporter(
+                                writer.lock().unwrap().take().expect("writer started twice"),
+                            )
+                        })
+                        .unwrap();
+                    sender
+                        .try_send(FaultDiagnostic {
+                            operation: "concurrent",
+                            error: None,
+                            progress: None,
+                        })
+                        .unwrap();
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        drop(reporter);
+        let mut bytes = String::new();
+        reader.read_to_string(&mut bytes).unwrap();
+        let records: Vec<serde_json::Value> = bytes
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(records.len(), 8);
+        assert!(
+            records
+                .iter()
+                .all(|record| record["backend_fault"]["operation"] == "concurrent")
+        );
+    }
     fn config() -> OutputConfiguration {
         OutputConfiguration {
             backend: OutputBackend::CoreAudio,

@@ -420,3 +420,55 @@ This is a local Linux checkpoint, with no new Mac owner-package qualification.
 Later Root round2 CLI, Worker, native, and short-path integrations remain pending.
 Supported-platform and shipping gates remain open.
 Full Task4, completed T12, and public release are not claimed.
+
+### Owner package and PR3 round2 integration in progress
+
+Root authorizes merging reviewed round2 commit `2d10d01909d37c5fb0922116fd46593e453e69b9` into Owner package commit `7377b9bd6e9fb5ff76b29fa3e1ee9d2e9fb83a2d`.
+The existing task branch retains both histories; the merge remains uncommitted for coupling review.
+All earlier package and round2 receipts describe their own historical source snapshots.
+They do not qualify this combined candidate.
+
+Conflict resolution preserves exact package bytes, cumulative FIR admission, storage classification, and the shared directory-descriptor publisher.
+It retains the round2 UTF-8 forwarding refusal before source I/O and the package-specific prepared bank lookup.
+Both additive Core test groups remain present.
+Linux-only native non-UTF-8 file coverage and the portable argument-refusal case retain round2 scope.
+The prepared-FIR fixtures use round2 short runtime roots and the package-aware source access.
+No public wire or security-control change is required by these resolutions.
+
+Combined scoped checks pass 327 tests: Core 42, Media 41, and Engine 244, with no failure or ignored case.
+The actual CLIs build and real package producer/consumer and owner/request executable cases pass.
+The combined canonical check, independent coupling review, and supported-platform qualification remain pending.
+Use the installed Rust toolchain directly and disable Cargo cache auto-cleaning for these checks.
+Freeze exact combined source, dependency lock, runtime, logs, actual exits, and merge delta before one independent coupling review.
+Root assigns that main-model review and performs any later normal commit.
+No combined Mac, current-source physical playback, full Task4, completed T12, PR3 merge, or public release claim follows here.
+
+### Owner package and PR3 round2 local merge checkpoint
+
+Root accepts the independent coupling review for this local merge checkpoint.
+The package parent is `7377b9bd6e9fb5ff76b29fa3e1ee9d2e9fb83a2d`.
+The round2 parent is `2d10d01909d37c5fb0922116fd46593e453e69b9`.
+The reviewed staged tree is `b5de71d6098fd7add65f058dd8d052bfdc419c27`.
+The review binds 1580 source files and 42 artifact entries, with no open material finding.
+Its receipt hash is `c9a715d1bccc8fe6a1b7319bbd54baafe7920c4002f263e16350246c29d167a2`.
+Its evidence hash is `91d3b8eb9f7878d151cb8fa12fbba88deaca4c6a8da644583d658164df79146e`.
+
+Combined scoped checks pass 327 tests: Core 42, Media 41, and Engine 244.
+The one combined canonical check passes 783 tests, with zero failures and four existing ignored tests.
+Each check records its actual exit as zero.
+Scoped tests overlap the canonical suite; do not add their counts as separate coverage.
+Strict Clippy, formatting, catalog validation, dependency validation, and actual CLI builds pass.
+Real package producers, consumers, owner/request executable roundtrip, restart, and file-to-null playback cases pass.
+The runtime truthfully records the package parent, dirty combined source, Linux x86_64, and debug profile.
+
+The public receipt is [the integration precommit verification](../../evidence/profiles/owner-package-round2-integration-precommit-20261118.json).
+Its SHA256 is `135ce015f5254076b15982b52e2732caee948d1f796c97b98734b9f3e163eaa2`.
+It binds exact source, parent deltas, manual resolutions, runtime, lock, logs, actual exits, and review hashes.
+The original zero-count receipt and corrected receipt remain preserved with their parser and logs.
+The correction reads numeric Cargo columns instead of labels and changes no actual result.
+Historical receipts keep their original source and platform scope.
+
+Only this appended checkpoint and its public receipt change after the reviewed source gate.
+No runtime source change or suite rerun occurs in this documentation checkpoint.
+Root performs any later normal merge commit after verifying the final staged tree.
+Combined Mac, physical output, clean release, full Task4, completed T12, and release qualification remain pending.

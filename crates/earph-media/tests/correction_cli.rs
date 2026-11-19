@@ -389,3 +389,95 @@ fn exported_source_delivery_failure_reports_the_existing_cli_error() {
     let error: Value = serde_json::from_slice(&output.stderr).unwrap();
     assert_eq!(error["error"]["code"], "OUTPUT_UNAVAILABLE");
 }
+
+fn child_file_limit(command: &mut Command, bytes: u64) {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: Only the child calls the resource-limit syscalls, without allocation or signal changes.
+    unsafe {
+        command.pre_exec(move || {
+            let mut limit = rustix::process::getrlimit(rustix::process::Resource::Fsize);
+            limit.current = Some(bytes);
+            rustix::process::setrlimit(rustix::process::Resource::Fsize, limit)
+                .map_err(std::io::Error::from)
+        });
+    }
+}
+
+#[test]
+fn actual_cli_file_limit_returns_output_error_and_preserves_the_kernel_limit() {
+    use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt, process::Stdio};
+    let dir = directory();
+    let path = dir.join("stdout.txt");
+    let out = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&path)
+        .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"));
+    command
+        .arg("--help")
+        .stdout(Stdio::from(out))
+        .current_dir(&dir);
+    child_file_limit(&mut command, 1);
+    let result = command.output().unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(2),
+        "file limit terminated correction CLI: {:?}",
+        result.status
+    );
+    let error: Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "OUTPUT_UNAVAILABLE");
+    assert_eq!(fs::metadata(path).unwrap().len(), 1);
+}
+
+#[test]
+fn failed_error_delivery_keeps_correction_cli_exit_two_without_panicking() {
+    use std::{
+        os::{fd::OwnedFd, unix::net::UnixStream},
+        process::Stdio,
+    };
+    let dir = directory();
+    let (consumer, writer) = UnixStream::pair().unwrap();
+    drop(consumer);
+    let result = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"))
+        .arg("--unknown")
+        .current_dir(dir)
+        .stderr(Stdio::from(OwnedFd::from(writer)))
+        .output()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(2),
+        "failed stderr changed correction CLI exit: {:?}",
+        result.status
+    );
+}
+
+#[test]
+fn zero_limit_on_error_stderr_keeps_correction_cli_exit_two() {
+    use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt, process::Stdio};
+    let dir = directory();
+    let path = dir.join("stderr.json");
+    let err = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&path)
+        .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_earph-correction-import"));
+    command
+        .arg("--unknown")
+        .stderr(Stdio::from(err))
+        .current_dir(&dir);
+    child_file_limit(&mut command, 0);
+    let result = command.output().unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(2),
+        "stderr limit terminated correction CLI: {:?}",
+        result.status
+    );
+    assert_eq!(fs::metadata(path).unwrap().len(), 0);
+}

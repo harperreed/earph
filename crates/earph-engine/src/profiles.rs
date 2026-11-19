@@ -987,7 +987,7 @@ mod tests {
 
     #[test]
     fn cancelled_prepared_fir_keeps_all_dependencies_unpublished() {
-        let runtime = std::env::temp_dir().join(format!(
+        let runtime = PathBuf::from("/tmp").join(format!(
             "epc-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
@@ -1021,7 +1021,7 @@ mod tests {
 
     #[test]
     fn admitted_fir_publishes_the_original_prepared_bytes_after_source_change() {
-        let runtime = std::env::temp_dir().join(format!(
+        let runtime = PathBuf::from("/tmp").join(format!(
             "epf-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()

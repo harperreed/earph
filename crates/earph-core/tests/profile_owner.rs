@@ -858,3 +858,32 @@ fn cancelled_package_completion_retains_cancelled_receipt_and_diagnostic() {
         Some(QueryResult::ProfilePackageIssue(_))
     ));
 }
+
+#[test]
+fn failed_dispatch_never_publishes_a_profile_worker_reservation() {
+    for code in [
+        ErrorCode::SourceBusy,
+        ErrorCode::OperationCancelled,
+        ErrorCode::InternalFault,
+    ] {
+        let mut s = session();
+        let request = create(&s, "dispatch-failure", false);
+        let failed = s.submit_with_graph_effects(
+            request,
+            1,
+            |_| unreachable!(),
+            |staged| {
+                assert!(staged.profile_work().is_some());
+                assert!(staged.profile_worker_busy());
+                Err(EngineError::new(code, "controlled dispatch failure"))
+            },
+        );
+        assert_eq!(failed.status, ReceiptStatus::Failed);
+        assert_eq!(failed.error.unwrap().code, code);
+        assert!(s.profile_work().is_none());
+        assert!(!s.profile_worker_busy());
+        assert!(s.profile_references().is_empty());
+        let next = create(&s, "next-dispatch", false);
+        assert_eq!(s.submit_graph(next, 2).status, ReceiptStatus::Accepted);
+    }
+}

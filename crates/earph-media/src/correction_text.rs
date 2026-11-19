@@ -751,11 +751,16 @@ mod report_tests {
         .unwrap();
         imported.source.format = CorrectionFormat::CamillaDsp;
         imported.semantic_sha256 = semantic_hash(&imported).unwrap();
+        assert_eq!(semantic_hash(&imported).unwrap(), imported.semantic_sha256);
+        let grammar = build_graph(&imported).unwrap_err();
+        assert_eq!(grammar.code, "INVALID_REPORT");
         assert_eq!(
-            read_correction_report(&serde_json::to_vec(&imported).unwrap())
-                .unwrap_err()
-                .code,
-            "INVALID_REPORT"
+            grammar.message,
+            "CamillaDSP definitions require a typed filter"
         );
+        let produced = serde_json::to_vec(&imported).unwrap();
+        let consumed = read_correction_report(&produced).unwrap_err();
+        assert_eq!(consumed.code, grammar.code);
+        assert_eq!(consumed.message, grammar.message);
     }
 }

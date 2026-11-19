@@ -1,0 +1,299 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "PR3 round2 silent Mac source qualification",
+  "build_mode": {
+    "profile": "debug",
+    "incremental": false,
+    "cargo_incremental": "0",
+    "cargo_cache_auto_clean_frequency": "never",
+    "cpu_margin_qualified": false
+  },
+  "source": {
+    "base_commit": "c0e27b93d8f0ee875dee054d7eef7e6901df424a",
+    "dirty": true,
+    "profile": "debug",
+    "runtime_sha256": "9f7f6060ea33221bb4575c5f89c2ebfe672267db787b063ddd87231a2ba92934",
+    "manifest_sha256": "14869083b9ef862747b414631fce1d71c022e8b799cbc268a4d6fc6f54251a50",
+    "patch_sha256": "51e856e3dd89d42a69d85d4d11a35f2a0765fcafa3e8c584f84101e1d3e8ee28",
+    "lock_sha256": "c71c1719cc616146274253131e2ea99d21046dcb100c05581591a379b15ed87c",
+    "files": 1565,
+    "phases": 53
+  },
+  "actual": {
+    "tests": [
+      {
+        "label": "fd-writer-append-policy",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "fd-writer-signal-policy",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "media-cli",
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "correction-cli",
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "correction-import",
+        "passed": 24,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "native-denied-prefix",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "native-diagnostics",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "profile-publication-units",
+        "passed": 9,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "asset-publication-units",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "offline-finalizer-units",
+        "passed": 9,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "stream-bridge-units",
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "owner-cli",
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "offline-graph-cli",
+        "passed": 16,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "profile-owner",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "fir-cli",
+        "passed": 6,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "public-render-bridge",
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "public-stream-bridge",
+        "passed": 6,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "sdk-native",
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "sdk-playback-denied",
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      },
+      {
+        "label": "core-profile-owner",
+        "passed": 17,
+        "failed": 0,
+        "ignored": 0,
+        "nested_summaries_excluded": 0
+      }
+    ],
+    "passing_outer_tests": 152,
+    "operations": 41,
+    "ordered_events": 115,
+    "direct_child_exit_zero_and_fresh_absence": 41,
+    "owned_executable_absence_checks": 22,
+    "native_fault_records": 1,
+    "append_child_fixture_sets": 2,
+    "explicit_signal_child_fixture_sets": 2
+  },
+  "settings_unchanged": true,
+  "source_unchanged": true,
+  "products_unchanged": true,
+  "safety": {
+    "permission": "Denied",
+    "granted_start": false,
+    "unmute": false,
+    "audio_signal": false,
+    "device_settings_change": false
+  },
+  "binaries": [
+    {
+      "label": "earph-engine",
+      "sha256": "e1e7df684c817e01c405dd7ffb63be3ac681121cf11a7410bd117cfdd6701d09"
+    },
+    {
+      "label": "earph-media",
+      "sha256": "346c07542712e1bbb4d85db18a968266a2cdacaf9fb1e12a4f7ff61d585f6526"
+    },
+    {
+      "label": "earph-correction-import",
+      "sha256": "240f781948682055b3fc5d64fcc0d35982f8574d57b16f410932ab2c1d2c9e3b"
+    },
+    {
+      "label": "earph-coreaudio",
+      "sha256": "bee17a2e8cf32ab29130fce4a1c9c55c76abba1e08b41730dc1f1b4c56db12bb"
+    },
+    {
+      "label": "media-tests-earph_media",
+      "sha256": "f1eb7eaeb2d3a649342d798fa2845fe8af0ef7feb3b028e7d110bc4230f90d81"
+    },
+    {
+      "label": "media-tests-cli",
+      "sha256": "d0cdf21c36c77ce1a866ea83c4019d91204ae542036d9bd09a988e8aa982e60c"
+    },
+    {
+      "label": "media-tests-correction_cli",
+      "sha256": "435d46050ca41c90f4c06ced3ab166860c890d927ed524b4dd35ed3c7834a8c1"
+    },
+    {
+      "label": "media-tests-correction_import",
+      "sha256": "de9625999508e29ba7c99bda6cae076a91bc82978a901069496e21040952daf0"
+    },
+    {
+      "label": "engine-tests-earph_engine",
+      "sha256": "840b2b468d41ec585349e9fcd3feb6ddf0eb504652670b6e807422f44ee73632"
+    },
+    {
+      "label": "engine-tests-cli",
+      "sha256": "0f6b319deb72f43d27947355fd431daeb3f1cb90484a77652a3f6477e6c73c7d"
+    },
+    {
+      "label": "engine-tests-offline_graph",
+      "sha256": "a08e1caca2867b5367f8ed4ae97593599fa7508a1ce7d4ebbd3e06ec432a1bb6"
+    },
+    {
+      "label": "engine-tests-profiles",
+      "sha256": "ee5c0f00664b27d15f1ac1e02c3540ee3c3d462ff1345003e32019db4fe362ba"
+    },
+    {
+      "label": "engine-tests-fir_assets",
+      "sha256": "a3bdc89b024562d50bc34e213f73d9c19a8ab17549f2f8a8250a4c5361432c93"
+    },
+    {
+      "label": "engine-tests-render_bridge",
+      "sha256": "87aa58d36422a21b1c2381fe651a4124054938859b39e320226e98109bd6ccbb"
+    },
+    {
+      "label": "engine-tests-stream_render",
+      "sha256": "0b6bca1e71cadc3588f3c7986ec44555e972765831a9ccedb78524577a384ade"
+    },
+    {
+      "label": "sdk-tests-native",
+      "sha256": "ad14063dbfca96a21e058cd7145f55facbab5397c2ddf9cf31623b9815cad5b2"
+    },
+    {
+      "label": "sdk-tests-playback_native",
+      "sha256": "3b56a7305c56d33e21df243b90593e8fee1e2a65d96481698073188721b09ef7"
+    },
+    {
+      "label": "core-tests-profile_owner",
+      "sha256": "ef3c3027e38417160e2417b97fb26f78b3c7d660d6999575bc6c0dbc0e9fbc9a"
+    }
+  ],
+  "tools": [
+    {
+      "kind": "rustc",
+      "sha256": "766eda9d8f53afd6fc7f27b3cd2e444dd22afacb5afa710a5625fc8e45b8c941"
+    },
+    {
+      "kind": "cargo",
+      "sha256": "6e17e865f3a20dd55a1d212f849f58b77124179f0de7c52973096d84ba34118d"
+    },
+    {
+      "kind": "node",
+      "sha256": "91ed66b8cd139609427a3e9d93518dd3b0d5407c737fc9a265bfd991ec623d8a"
+    },
+    {
+      "kind": "clang",
+      "sha256": "fc5e3cbba6ad54059295cad716aacb05ace8235f5f7a6031f1d8c15d24bd6d66"
+    }
+  ],
+  "evidence": {
+    "artifacts": 306,
+    "archive_sha256": "bad16494e403f03391f12dc0730d03e774e2e711748de2e008b92d31eddf7ad4",
+    "manifest_sha256": "7f591de5252e0be462e0893e73ef2f8887db02e18f57568c1ed24ba99b74392b"
+  },
+  "limits": [
+    "Nonincremental debug qualification of the exact released dirty-precommit source. CARGO_INCREMENTAL=0 and cache cleanup never apply only to task children; no CPU-margin or unchanged-binary claim.",
+    "Linux-only ALSA Worker regressions retain separate Linux evidence.",
+    "Internal test-owned child PIDs are not separately exposed; outer harness exits and fresh task-executable absence are verified.",
+    "SDK and Engine queue owned PCM under Denied starts. No DAC, physical playback, audibility or physical callback claim.",
+    "The first attempt stopped before tests after a Cargo dev-feature rebuild. The second failed an overlong new test fixture; controlled short child TMPDIR passed unchanged code. Both remain separate historical evidence. The third attempt failed before FIR import because the Mac filesystem rejected a non-UTF8 fixture filename; Linux keeps actual file coverage and the portable owner-wire test is qualified by the final source gate. The fourth attempt exposed success beyond a sampled file limit during Mac append. A separate C probe observed offset0 append reaching8195 and EOF8192 append returning EFBIG; it does not prove kernel internals. The final writer detects post-write progress and preserves the prefix; it does not promise prevention or rollback. Explicit SIGXFSZ handling and Linux kernel coverage remain separate actual tests. The fifth attempt stopped during Media codegen with ENOSPC before product binding or tests. Its settings result was null and its product-unchanged flag had no bound products; it is not an app qualification.",
+    "No CPU margin, full Task3/Task4, or full Mac canonical qualification.",
+    "Settings comparisons cover sampled endpoint identity, nominal rate, buffer size, hog ownership, and stream formats; they do not certify all OS settings.",
+    "Later public receipts and the plan add documentation only; the tested code and runtime inputs remain unchanged.",
+    "Current-source clean-release physical playback remains pending."
+  ],
+  "verification": {
+    "kind": "root_independent_retained_packet_verification",
+    "actual_exit_code": 0,
+    "original_candidate_sha256": "610f19546f8cf54516eeb96b7c8bfe1f190691dd4e3095b27c028bbe98f106de",
+    "verifier_sha256": "7b07b14ee04501a51e07899a63f0f086136e0ac03bd9c50068d075e82bdbc223"
+  }
+}

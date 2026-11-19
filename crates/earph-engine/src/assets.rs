@@ -239,14 +239,13 @@ pub fn import_via_owner(
         ids::{OwnerId, RequestId, SessionId, ZoneId},
     };
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+    let non_utf8 = EngineError::new(
+        ErrorCode::AssetInvalid,
+        "owner FIR forwarding requires UTF-8 paths",
+    );
+    source.to_str().ok_or(non_utf8)?;
     let selected = source.canonicalize().map_err(|_| INVALID)?;
-    let path = selected
-        .to_str()
-        .ok_or(EngineError::new(
-            ErrorCode::AssetInvalid,
-            "owner FIR forwarding requires UTF-8 paths",
-        ))?
-        .to_owned();
+    let path = selected.to_str().ok_or(non_utf8)?.to_owned();
     let generation = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| runtime::IO)?

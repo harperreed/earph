@@ -47,6 +47,26 @@ It emits a typed JSON report on standard output.
 Exit zero means the capture and report completed successfully.
 Every failure returns a nonzero exit status.
 
+A stored `"status": "pass"` is a provisional artifact until the command exits zero.
+Consumers must keep the command's exit status and final JSON receipt with the stored report.
+A nonzero exit or any `finalization_errors` entry means finalization did not complete.
+The primary `error` retains the first render failure; `finalization_errors` records later I/O failures.
+
+On finalization failure, repair first preserves the original bytes as `report.before-finalization.json`.
+It writes and syncs a complete `report.correction.json` stage before replacing its owned final report.
+Failed stages and unrelated existing artifacts remain preserved.
+Preservation or repair can fail, leaving an earlier provisional pass on disk.
+Those failures remain explicit in the final receipt; arbitrary I/O faults prevent universal disk/stdout agreement.
+
+The Engine and correction-import CLIs initialize safe `SIGXFSZ` handling before their I/O or worker threads.
+The kernel file-size limit remains active, and failed writes return normal delivery errors.
+Stable offset and append-mode admission still precede every regular-fd write.
+After flushing, the writer checks the actual descriptor position against its sampled finite limit.
+On the tested Mac, a concurrent append can exceed that limit before the kernel rejects a write.
+The writer then reports a file-limit failure and preserves the written prefix.
+This check detects that outcome; it does not promise prevention or rollback of concurrent writes.
+Embedded library calls retain the host process's signal policy; they do not initialize CLI handling.
+
 The report separates accepted source frames, generated DSP output, acknowledged file output, and actual capture bytes.
 It hashes a readback of the actual capture, including any prefix left by a failed write.
 It reports complete capture frames and any remaining partial-frame bytes.

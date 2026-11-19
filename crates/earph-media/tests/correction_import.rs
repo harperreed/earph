@@ -733,7 +733,7 @@ fn tiny_numeric_controls_export_within_the_parser_token_bound() {
 }
 
 #[test]
-fn camilla_reports_reject_untyped_definition_slots_even_when_unused() {
+fn reports_reject_a_dialect_change_without_a_matching_fingerprint() {
     let mut imported = import_correction_text(
         b"Filter 1: OFF None\n",
         CorrectionFormat::Rew,

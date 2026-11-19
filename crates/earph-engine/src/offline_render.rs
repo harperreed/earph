@@ -18,11 +18,8 @@ use std::{
     collections::BTreeMap,
     ffi::OsString,
     fs::{self, File, OpenOptions},
-    io::{Read, Seek, Write},
-    os::{
-        fd::AsFd,
-        unix::fs::{DirBuilderExt, OpenOptionsExt},
-    },
+    io::{Read, Seek},
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::{Arc, atomic::AtomicBool},
 };
@@ -558,7 +555,7 @@ fn finalize(
             return;
         }
     };
-    if write_file(&mut file, &bytes).is_err() {
+    if earph_media::cli_io::write_bytes(&mut file, &bytes).is_err() {
         finalization_error(report, ReportWrite);
         return;
     }
@@ -574,13 +571,31 @@ fn finalize(
         repair_report(report, &mut file, &bytes, directory, sync_directory);
     }
 }
-// Repair once through the owned handle. Arbitrary I/O faults can still prevent disk/stdout agreement.
+// Publish one complete correction after preserving prior bytes and verifying the owned destination.
+// Arbitrary I/O faults can still leave a provisional report; command completion remains authoritative.
 fn repair_report(
     report: &mut OfflineGraphReport,
     file: &mut File,
     original: &[u8],
     directory: &Path,
     sync_directory: &mut impl FnMut(&Path) -> std::io::Result<()>,
+) {
+    repair_report_with_writer(
+        report,
+        file,
+        original,
+        directory,
+        sync_directory,
+        &mut |file, bytes| earph_media::cli_io::write_bytes(file, bytes).map_err(|_| IO),
+    );
+}
+fn repair_report_with_writer(
+    report: &mut OfflineGraphReport,
+    file: &mut File,
+    original: &[u8],
+    directory: &Path,
+    sync_directory: &mut impl FnMut(&Path) -> std::io::Result<()>,
+    write_correction: &mut impl FnMut(&mut File, &[u8]) -> Result<(), EngineError>,
 ) {
     use OfflineFinalizationStage::*;
     let preserve = (|| -> Result<(), EngineError> {
@@ -590,7 +605,7 @@ fn repair_report(
             .mode(0o600)
             .open(directory.join("report.before-finalization.json"))
             .map_err(|_| IO)?;
-        write_file(&mut backup, original)?;
+        earph_media::cli_io::write_bytes(&mut backup, original).map_err(|_| IO)?;
         backup.sync_all().map_err(|_| IO)?;
         sync_directory(directory).map_err(|_| IO)
     })();
@@ -598,19 +613,40 @@ fn repair_report(
         finalization_error(report, ReportRepairPreserve);
         return;
     }
-    let correction = (|| -> Result<(), EngineError> {
+    let stage = directory.join("report.correction.json");
+    let correction = (|| -> Result<File, EngineError> {
         let bytes = serde_json::to_vec_pretty(&report).map_err(|_| IO)?;
-        file.rewind().map_err(|_| IO)?;
-        write_file(file, &bytes)?;
-        // This handle belongs to the create-new report. Its complete prior bytes are preserved above.
-        file.set_len(bytes.len() as u64).map_err(|_| IO)
+        let mut corrected = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&stage)
+            .map_err(|_| IO)?;
+        write_correction(&mut corrected, &bytes)?;
+        Ok(corrected)
     })();
-    if correction.is_err() {
-        finalization_error(report, ReportRepairWrite);
+    let corrected = match correction {
+        Ok(corrected) => corrected,
+        Err(_) => {
+            finalization_error(report, ReportRepairWrite);
+            return;
+        }
+    };
+    if corrected.sync_all().is_err() {
+        finalization_error(report, ReportRepairSync);
         return;
     }
-    if file.sync_all().is_err() {
-        finalization_error(report, ReportRepairSync);
+    let publish = (|| -> Result<(), EngineError> {
+        let owned = file.metadata().map_err(|_| IO)?;
+        let path = directory.join("report.json");
+        let current = fs::symlink_metadata(&path).map_err(|_| IO)?;
+        if !current.is_file() || (owned.dev(), owned.ino()) != (current.dev(), current.ino()) {
+            return Err(IO);
+        }
+        fs::rename(&stage, path).map_err(|_| IO)
+    })();
+    if publish.is_err() {
+        finalization_error(report, ReportRepairWrite);
         return;
     }
     if sync_directory(directory).is_err() {
@@ -624,52 +660,7 @@ pub fn write_json_report(
     report: &impl serde::Serialize,
     output: &mut (impl std::io::Write + std::os::fd::AsFd),
 ) -> Result<(), EngineError> {
-    let mut bytes = serde_json::to_vec(report).map_err(|_| IO)?;
-    bytes.push(b'\n');
-    write_file(output, &bytes)?;
-    output.flush().map_err(|_| IO)
-}
-
-// Check the actual fd offset, append flag, and soft limit before every write or retry.
-fn write_file(output: &mut (impl Write + AsFd), mut bytes: &[u8]) -> Result<(), EngineError> {
-    while !bytes.is_empty() {
-        let metadata = rustix::fs::fstat(output.as_fd()).map_err(|_| IO)?;
-        let regular = rustix::fs::FileType::from_raw_mode(metadata.st_mode).is_file();
-        let admitted = if regular {
-            let position = rustix::fs::seek(output.as_fd(), rustix::fs::SeekFrom::Current(0))
-                .map_err(|_| IO)?;
-            let flags = rustix::fs::fcntl_getfl(output.as_fd()).map_err(|_| IO)?;
-            let offset = if flags.contains(rustix::fs::OFlags::APPEND) {
-                u64::try_from(metadata.st_size).map_err(|_| IO)?
-            } else {
-                position
-            };
-            rustix::process::getrlimit(rustix::process::Resource::Fsize)
-                .current
-                .map_or(bytes.len(), |limit| {
-                    usize::try_from(limit.saturating_sub(offset))
-                        .unwrap_or(usize::MAX)
-                        .min(bytes.len())
-                })
-        } else {
-            bytes.len()
-        };
-        if admitted == 0 {
-            return Err(IO);
-        }
-        let written = match output.write(&bytes[..admitted]) {
-            Ok(0) => return Err(IO),
-            Ok(written) => written,
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => return Err(IO),
-        };
-        // Commit each regular-file chunk before inspecting its next actual offset.
-        if regular {
-            output.flush().map_err(|_| IO)?;
-        }
-        bytes = &bytes[written..];
-    }
-    Ok(())
+    earph_media::cli_io::write_json_line(report, output).map_err(|_| IO)
 }
 
 fn write_periods(
@@ -681,7 +672,7 @@ fn write_periods(
     let mut wrote = false;
     while let Some(period) = renderer.stage()? {
         let bytes = renderer.period().pack_le(packed)?;
-        write_file(file, &packed[..bytes])?;
+        earph_media::cli_io::write_bytes(file, &packed[..bytes]).map_err(|_| IO)?;
         renderer.accepted(period.frames)?;
         report.acknowledged_output_frames = report
             .acknowledged_output_frames
@@ -734,6 +725,7 @@ fn readback(file: &mut File, report: &mut OfflineGraphReport) -> Result<(), Engi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{io::Write, os::fd::AsFd};
 
     fn directory() -> PathBuf {
         let directory = std::env::temp_dir().join(format!(
@@ -916,5 +908,118 @@ mod tests {
             ErrorCode::OutputFault
         );
         assert_eq!(fs::read(path).unwrap(), expected);
+    }
+    #[test]
+    fn interrupted_correction_preserves_the_complete_prior_report_and_partial_stage() {
+        let directory = directory();
+        let path = directory.join("report.json");
+        let prior = OfflineGraphReport {
+            status: "pass",
+            ..Default::default()
+        };
+        let original = serde_json::to_vec_pretty(&prior).unwrap();
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        file.write_all(&original).unwrap();
+        file.sync_all().unwrap();
+        let mut failed = OfflineGraphReport::default();
+        finalization_error(&mut failed, OfflineFinalizationStage::ReportDirectorySync);
+        let mut prefix_bytes = 0;
+        repair_report_with_writer(
+            &mut failed,
+            &mut file,
+            &original,
+            &directory,
+            &mut |path| File::open(path)?.sync_all(),
+            &mut |file, bytes| {
+                prefix_bytes = bytes.len() - 17;
+                file.write_all(&bytes[..prefix_bytes]).map_err(|_| IO)?;
+                Err(IO)
+            },
+        );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            original,
+            "partial correction changed the final report"
+        );
+        assert_eq!(
+            fs::read(directory.join("report.before-finalization.json")).unwrap(),
+            original
+        );
+        let partial = fs::read(directory.join("report.correction.json")).unwrap();
+        assert_eq!(partial.len(), prefix_bytes);
+        let report = serde_json::to_value(failed).unwrap();
+        assert_eq!(
+            report["finalization_errors"][1]["stage"],
+            "report_repair_write"
+        );
+    }
+
+    #[test]
+    fn correction_stage_collision_preserves_both_existing_objects() {
+        let directory = directory();
+        let path = directory.join("report.json");
+        let original = serde_json::to_vec_pretty(&OfflineGraphReport {
+            status: "pass",
+            ..Default::default()
+        })
+        .unwrap();
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        file.write_all(&original).unwrap();
+        let stage = directory.join("report.correction.json");
+        fs::write(&stage, b"unrelated existing stage").unwrap();
+        let mut report = OfflineGraphReport::default();
+        finalization_error(&mut report, OfflineFinalizationStage::ReportDirectorySync);
+        repair_report(&mut report, &mut file, &original, &directory, &mut |path| {
+            File::open(path)?.sync_all()
+        });
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert_eq!(fs::read(&stage).unwrap(), b"unrelated existing stage");
+        assert_eq!(
+            serde_json::to_value(report).unwrap()["finalization_errors"][1]["stage"],
+            "report_repair_write"
+        );
+    }
+    #[test]
+    fn changed_report_identity_is_not_replaced_by_the_correction() {
+        let directory = directory();
+        let path = directory.join("report.json");
+        let original = serde_json::to_vec_pretty(&OfflineGraphReport {
+            status: "pass",
+            ..Default::default()
+        })
+        .unwrap();
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        file.write_all(&original).unwrap();
+        fs::rename(&path, directory.join("owned-prior.json")).unwrap();
+        fs::write(&path, b"unrelated replacement").unwrap();
+        let mut report = OfflineGraphReport::default();
+        finalization_error(&mut report, OfflineFinalizationStage::ReportDirectorySync);
+        repair_report(&mut report, &mut file, &original, &directory, &mut |path| {
+            File::open(path)?.sync_all()
+        });
+        assert_eq!(fs::read(&path).unwrap(), b"unrelated replacement");
+        assert_eq!(
+            fs::read(directory.join("owned-prior.json")).unwrap(),
+            original
+        );
+        assert!(directory.join("report.correction.json").is_file());
     }
 }
