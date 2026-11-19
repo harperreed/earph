@@ -371,11 +371,14 @@ fn executable_pause_seek_and_resume_preserve_paused_intent_and_exact_suffix() {
     select_fixed(controller);
     append_selected(controller, &source);
     start(controller);
-    controller.wait(|state| state["transport"] == "buffering");
+    let opened = controller.wait(|state| state["transport"] == "buffering");
     let pause = controller.document(json!({"method":"sessions.pause"}), None);
     let receipt = controller.send(&pause);
     assert_eq!(receipt["receipt"]["status"], "accepted", "{receipt}");
     controller.settled(&pause);
+    let paused = controller.state();
+    assert_eq!(paused["playback"]["backend"], opened["playback"]["backend"]);
+    assert_eq!(paused["playback"]["submitted_frames"], 0);
     let seek = controller.document(
         json!({"method":"sessions.seek","position_frames":4097}),
         None,
@@ -383,7 +386,10 @@ fn executable_pause_seek_and_resume_preserve_paused_intent_and_exact_suffix() {
     let receipt = controller.send(&seek);
     assert_eq!(receipt["receipt"]["status"], "accepted", "{receipt}");
     controller.settled(&seek);
-    controller.wait(|state| state["transport"] == "paused");
+    let sought = controller.wait(|state| state["transport"] == "paused");
+    assert_eq!(sought["playback"]["backend"], opened["playback"]["backend"]);
+    assert_eq!(sought["playback"]["source_position_frames"], 4097);
+    assert_eq!(sought["playback"]["submitted_frames"], 0);
     controller.apply(json!({"method":"mute.set","muted":false}));
     assert_eq!(controller.state()["transport"], "paused");
     assert_no_capture(&capture);
@@ -1144,6 +1150,8 @@ fn executable_paused_graph_swap_publishes_the_installed_observation() {
         let inspection = controller.query(json!({"method":"graph.inspect"}));
         assert_eq!(state["transport"], "paused");
         assert_eq!(state["muted"], true);
+        assert_eq!(state["playback"]["backend"], ready["preview"]["backend"]);
+        assert_eq!(inspection["active"]["backend"], ready["preview"]["backend"]);
         assert_eq!(state["graph_epoch"], before_epoch + 1);
         assert_eq!(
             state["playback"]["processing"]["graph_hash"],

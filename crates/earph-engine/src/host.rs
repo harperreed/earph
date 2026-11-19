@@ -719,12 +719,13 @@ mod tests {
         activation_at_revision(0)
     }
     fn activation_at_revision(revision: u64) -> (Session, GraphActivationAck) {
-        let (session, ack, _) = activation_resources(revision, "fixture.wav");
+        let (session, ack, _) = activation_resources(revision, "fixture.wav", false);
         (session, ack)
     }
     fn activation_resources(
         revision: u64,
         path: &str,
+        observe_backend: bool,
     ) -> (Session, GraphActivationAck, PreparedPipeline) {
         let mut session = Session::new_owner(
             ZoneId::new("main").unwrap(),
@@ -793,7 +794,7 @@ mod tests {
             "start",
             Command::Start {
                 source: SourceKind::LocalFile,
-                device_id: output.device_id,
+                device_id: output.device_id.clone(),
                 seekable: true,
                 takeover: false,
             },
@@ -803,10 +804,20 @@ mod tests {
             session.submit_graph(start, 2).status,
             ReceiptStatus::Accepted
         );
+        let format =
+            PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
+        let backend = if observe_backend {
+            let mut native =
+                crate::output::open(&output, format, session.snapshot().epochs).unwrap();
+            let observed = native.observation().unwrap();
+            native.stop().unwrap();
+            Some(observed)
+        } else {
+            None
+        };
         let observation = PlaybackObservation {
             processing: None,
-            format: PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16)
-                .unwrap(),
+            format,
             submitted_frames: 0,
             consumed_frames: None,
             backend_delay_frames: None,
@@ -818,7 +829,7 @@ mod tests {
             input_peak: None,
             output_peak: None,
             modified: false,
-            backend: None,
+            backend,
         };
         session
             .advance(EngineEvent {
@@ -1403,7 +1414,7 @@ mod tests {
         bytes.extend(260_u32.to_le_bytes());
         bytes.extend([0_u8; 260]);
         fs::write(&path, bytes).unwrap();
-        let (mut session, _, pipeline) = activation_resources(0, path.to_str().unwrap());
+        let (mut session, _, pipeline) = activation_resources(0, path.to_str().unwrap(), true);
         let activation = session.graph_activation().unwrap();
         let mut settings = Settings {
             snapshot: session.snapshot(),
@@ -1428,6 +1439,9 @@ mod tests {
         let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
         loop {
             let event = worker.events.recv_timeout(Duration::from_secs(5)).unwrap();
+            if let Event::Failed { error, .. } = &event {
+                panic!("real output preparation failed: {error:?}");
+            }
             let ready = matches!(event, Event::Ready { .. });
             observation(&mut session, event, &clock).unwrap();
             if ready {
@@ -1450,6 +1464,9 @@ mod tests {
             .unwrap();
         loop {
             let event = worker.events.recv_timeout(Duration::from_secs(5)).unwrap();
+            if let Event::Failed { error, .. } = &event {
+                panic!("real graph activation failed: {error:?}");
+            }
             if let Event::GraphActivated(ack) = event {
                 assert_eq!(ack.source_total_frames, 65);
                 reconcile_graph_activation(&mut session, ack, monotonic(&clock), |staged| {
@@ -1702,7 +1719,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn stop_cancelled_preparation_settles_without_revoking_consent() {
         let path = crate::worker::tests::owned_silence_waves(1).pop().unwrap();
-        let (mut session, _, pipeline) = activation_resources(0, path.to_str().unwrap());
+        let (mut session, _, pipeline) = activation_resources(0, path.to_str().unwrap(), false);
         drop(pipeline);
         let origin = session.graph_activation().unwrap().previous_binding.epochs;
         let mut settings = Settings {

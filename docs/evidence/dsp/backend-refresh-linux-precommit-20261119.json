@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "status": "pass_for_reviewed_pr3_port",
+  "scope": "current backend facts after suspend and stale graph activation refusal",
+  "source": {
+    "base_commit": "98244f0d913204917fe1b66e3b974f4e6c99d801",
+    "tested_tree": "8b92441d06ce721c8082b72722325d29a0d9c196",
+    "tested_source_dirty": true,
+    "runtime_sha256": "f7d9413bd5385af25a3df25ce4e8898a7c70fac671baa2b9fbdbaee854a1a125",
+    "lock_sha256": "c71c1719cc616146274253131e2ea99d21046dcb100c05581591a379b15ed87c"
+  },
+  "checks": {
+    "canonical": {
+      "command": "scripts/check",
+      "exit": 0,
+      "passed": 737,
+      "failed": 0,
+      "ignored": 5,
+      "summaries": 84,
+      "stdout_sha256": "7bc8767307e7d266f866ef83839d3280862d68f2a8189403765de0834f3b1bda",
+      "stderr_sha256": "bc84576439b532e0bad030bd6e1418034a2ab4b15d9d3762d69503693c66090f"
+    }
+  },
+  "review": {
+    "independent_reviewers": 1,
+    "material_findings": 0,
+    "receipt_sha256": "e55e142cefa79fdce7656a6e8f4a730c9cab51bfb69eba22d6a165764f17d541",
+    "shared_patch_sha256": "69924456e9be6e0ff21db13be84ee2e2b75be9e15782912a2e8ace0981d0e229",
+    "port_applied_without_manual_hunk_changes": true
+  },
+  "limits": [
+    "Linux adapter and owner tests use real owned ALSA null routes.",
+    "Changed backend facts and observation failures use private controlled decorators.",
+    "Current-source muted Mac qualification remains pending. No physical format change was induced.",
+    "Historical hardware proof remains at commit 98244f0 and candidate 80a90e02dd29461987950bdf0a307caa98f9cbe813b24c6ece6a7c8fd0df3807.",
+    "Consumed signal guards remain nonreusable. No lifetime write/start, DAC, audibility or CPU-margin claim.",
+    "Unrelated live dashboard data stays outside this commit."
+  ],
+  "raw_private_values_included": false
+}

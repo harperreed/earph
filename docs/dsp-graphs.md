@@ -85,6 +85,10 @@ One declared quantization rounds ties away and saturates into the native integer
 No dither or hidden attenuation is inserted.
 The ledger also records SDK conversions, including the existing Core Audio Float32 route.
 Native client and physical format observations retain their separate meanings.
+After suspend succeeds, the Worker refreshes backend facts from the output adapter.
+Pause and seek publish those current facts; prepared previews retain their captured facts.
+Activation refuses changed backend facts with `stale_session` before installing or acknowledging the prepared graph.
+Observation failures use the existing source failure and output cleanup path.
 
 `integer_bypass` requires an unchanged integer graph and keeps the existing integer path.
 Strict preservation refuses processing nodes even when their parameters resemble an identity.
