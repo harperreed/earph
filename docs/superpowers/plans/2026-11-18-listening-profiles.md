@@ -298,3 +298,17 @@ Merge the separately qualified OwnerLock and PR3 fixes before the Mac gate.
 Then freeze the combined source and run the actual platform scenarios.
 Full Task3 native associations and fixed/hardware transitions remain incomplete.
 Task4 packages and full desktop workflows also remain incomplete.
+
+### Task 4 pure package contract checkpoint
+
+Root approves the schema-1 declaration and observed-inventory boundary.
+The manifest binds one profile, one graph, and typed content hashes.
+Bounds cover 64 KiB of manifest bytes, 64 objects, and 32 MiB total.
+Owner observations cannot deserialize from imported JSON.
+Owner import must verify original bytes, dependency closure, Media provenance, and directory safety.
+Owner export still requires explicit exact-content and redistribution review.
+This unit implements no filesystem authority, owner command, export, or automatic application.
+The retained canonical check passes 705 tests, with four ignored.
+One independent main-model review approves the three source files.
+The [precommit receipt](../../evidence/profiles/package-contract-precommit-verification-20261118.json) binds source and evidence.
+The package owner workflow remains incomplete.
