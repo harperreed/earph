@@ -432,3 +432,36 @@ fn integrated_owner_fields_and_package_failures_cross_the_same_byte_boundary() {
     assert_eq!(after["muted"], true);
     assert_eq!(after["output_consented"], false);
 }
+
+#[test]
+fn ffi_staging_replays_exact_redacted_receipts_without_starting_playback() {
+    let mut owner = Owner::start();
+    let client = owner.client();
+    let initial = owner.state();
+    let stage = envelope(
+        "ffi-stage-uri",
+        Some(&initial),
+        json!({"method":"sources.stage_uri","uri":"http://example.invalid/?token=private-fixture","metadata":"private metadata"}),
+    );
+    let first = client.request(stage.clone()).unwrap();
+    let receipt: Value = serde_json::from_slice(&first).unwrap();
+    assert_eq!(receipt["receipt"]["status"], "applied");
+    assert_eq!(receipt["receipt"]["result"]["kind"], "sources");
+    assert_eq!(
+        receipt["receipt"]["result"]["value"]["staged"]["media_id"],
+        "staged-1"
+    );
+    assert_eq!(client.request(stage).unwrap(), first);
+    assert!(!String::from_utf8(first).unwrap().contains("private"));
+    let queried = roundtrip(
+        &owner,
+        &client,
+        envelope("ffi-sources", None, json!({"method":"sources.get"})),
+    );
+    assert_eq!(queried["receipt"]["result"], receipt["receipt"]["result"]);
+    let mut expected = initial;
+    expected["revision"] = json!(1);
+    expected["event_sequence"] = json!(1);
+    assert_eq!(owner.state(), expected);
+    owner.stop();
+}

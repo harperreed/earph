@@ -23,6 +23,8 @@ mod associations;
 #[path = "session_devices.rs"]
 mod devices;
 use devices::DeviceControl;
+#[path = "session_sources.rs"]
+mod sources;
 
 // A fresh owner needs room for consent, preparation, activation, and transport acknowledgements.
 const RESTART_REVISION_HEADROOM: u64 = 64;
@@ -359,6 +361,7 @@ pub struct Session {
     graph: GraphControl,
     profiles: ProfileControl,
     devices: DeviceControl,
+    sources: crate::source::SourceStaging,
 }
 impl Session {
     pub fn new(zone_id: ZoneId, limits: ControlLimits) -> Self {
@@ -407,6 +410,7 @@ impl Session {
             graph: GraphControl::default(),
             profiles: ProfileControl::default(),
             devices: DeviceControl::default(),
+            sources: crate::source::SourceStaging::default(),
         }
     }
     pub fn new_owner(zone_id: ZoneId, owner_id: OwnerId, limits: ControlLimits) -> Self {
@@ -563,6 +567,9 @@ impl Session {
             activation_frame: None,
             result: if status == ReceiptStatus::Applied {
                 match c.payload {
+                    Command::SourcesGet {} | Command::SourceStageUri { .. } => {
+                        Some(QueryResult::Sources(self.sources.snapshot()))
+                    }
                     Command::State => Some(QueryResult::State(Box::new(self.snapshot()))),
                     Command::QueueGet { offset, limit } => {
                         self.queue.page(offset, limit).ok().map(QueryResult::Queue)
@@ -836,6 +843,12 @@ impl Session {
         {
             return Err(STALE);
         }
+        if matches!(command.payload, Command::SourceStageUri { .. })
+            && command.session_id.is_some()
+            && command.session_id != self.state.session_id
+        {
+            return Err(STALE);
+        }
         if !matches!(
             command.payload,
             Command::Start { .. }
@@ -845,6 +858,8 @@ impl Session {
                 | Command::DevicesList { .. }
                 | Command::DevicesInspect { .. }
                 | Command::QueueGet { .. }
+                | Command::SourcesGet { .. }
+                | Command::SourceStageUri { .. }
                 | Command::GraphInspect { .. }
                 | Command::QueueAppend { .. }
                 | Command::QueueAppendDirectory { .. }
@@ -885,6 +900,9 @@ impl Session {
                 ErrorCode::StaleRevision,
                 "refresh expected revision",
             ));
+        }
+        if let Command::SourceStageUri { uri, metadata } = &command.payload {
+            return self.stage_uri(command, uri, metadata);
         }
         self.validate_graph_control(&command.payload)?;
         if matches!(command.payload, Command::ProfilesApply { .. })

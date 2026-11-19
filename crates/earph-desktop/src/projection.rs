@@ -168,6 +168,7 @@ pub struct QueueView {
     deny_unknown_fields
 )]
 pub enum ResultView {
+    Sources(Arc<earph_core::source::SourceStagingSnapshot>),
     State(Arc<StateView>),
     Capabilities(CapabilitiesView),
     Queue(QueueView),
@@ -263,6 +264,7 @@ pub fn decode_reply(bytes: Vec<u8>) -> Result<Reply, ProjectionError> {
         (Some(mut receipt), None) => {
             if let Some(result) = &receipt.result {
                 let valid = match result {
+                    ResultView::Sources(_) => receipt.status == ReplyStatus::Applied,
                     ResultView::Capabilities(value) => {
                         value.schema_version == 1 && value.profiles.package.schema_version == 1
                     }

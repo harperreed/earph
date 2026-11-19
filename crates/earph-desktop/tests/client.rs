@@ -739,3 +739,251 @@ fn actual_fir_import_projects_the_owner_computed_reference_without_starting_audi
         owner.state().muted && owner.state().output.is_none() && owner.state().playback.is_none()
     );
 }
+
+fn source_staging_result(reply: &Reply) -> &earph_core::source::SourceStagingSnapshot {
+    let Reply::Receipt(receipt) = reply else {
+        panic!("actual source staging receipt");
+    };
+    assert_eq!(receipt.status, ReplyStatus::Applied);
+    let Some(earph_desktop::ResultView::Sources(sources)) = &receipt.result else {
+        panic!("typed source staging result");
+    };
+    sources
+}
+
+#[test]
+fn actual_owner_client_stages_queries_replays_and_clears_unadmitted_metadata() {
+    use earph_core::source::SourceAdmission;
+    use earph_desktop::ResultView;
+
+    let owner = Owner::start();
+    let first_client = owner.client();
+    let second_client = owner.client();
+    let append = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &owner.state(),
+        Command::QueueAppend {
+            path: "unopened-owned-queue.wav".into(),
+        },
+    )
+    .unwrap();
+    first_client.request(&append).unwrap();
+    let before = owner.state();
+    let Reply::Receipt(queue_before) = first_client
+        .request(&query(Command::QueueGet {
+            offset: 0,
+            limit: 64,
+        }))
+        .unwrap()
+    else {
+        panic!("local queue before staging");
+    };
+    let empty = second_client
+        .request(&query(Command::SourcesGet {}))
+        .unwrap();
+    assert_eq!(source_staging_result(&empty).generation, 0);
+    assert!(source_staging_result(&empty).staged.is_none());
+
+    let staged = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &before,
+        Command::SourceStageUri {
+            uri: "http://example.invalid/?token=private-fixture".into(),
+            metadata: "private fixture metadata".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(staged.lane(), Lane::Ordinary);
+    let exact_request = staged.bytes().to_vec();
+    let applied = first_client.request(&staged).unwrap();
+    let sources = source_staging_result(&applied);
+    assert_eq!(sources.generation, 1);
+    let descriptor = sources.staged.as_ref().unwrap();
+    assert_eq!(descriptor.media_id.as_str(), "staged-1");
+    assert_eq!(descriptor.admission, SourceAdmission::Unadmitted);
+    assert_eq!(descriptor.uri_bytes, 45);
+    assert_eq!(descriptor.metadata_bytes, 24);
+    assert!(
+        !String::from_utf8(applied.bytes().to_vec())
+            .unwrap()
+            .contains("private")
+    );
+    let observed = second_client
+        .request(&query(Command::SourcesGet {}))
+        .unwrap();
+    assert_eq!(source_staging_result(&observed), sources);
+
+    let replace = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &owner.state(),
+        Command::SourceStageUri {
+            uri: "untrusted:replacement".into(),
+            metadata: String::new(),
+        },
+    )
+    .unwrap();
+    let replaced = second_client.request(&replace).unwrap();
+    assert_eq!(source_staging_result(&replaced).generation, 2);
+    assert_eq!(
+        second_client.request(&staged).unwrap().bytes(),
+        applied.bytes()
+    );
+    assert_eq!(staged.bytes(), exact_request);
+    let observed = first_client
+        .request(&query(Command::SourcesGet {}))
+        .unwrap();
+    assert_eq!(
+        source_staging_result(&observed),
+        source_staging_result(&replaced)
+    );
+
+    let Reply::Receipt(queue_after) = second_client
+        .request(&query(Command::QueueGet {
+            offset: 0,
+            limit: 64,
+        }))
+        .unwrap()
+    else {
+        panic!("local queue after staging");
+    };
+    assert!(matches!(queue_after.result, Some(ResultView::Queue(_))));
+    assert_eq!(queue_after.result, queue_before.result);
+    let mut expected = before;
+    expected.revision += 2;
+    expected.event_sequence += 2;
+    assert_eq!(owner.state(), expected);
+
+    let clear = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &owner.state(),
+        Command::SourceStageUri {
+            uri: String::new(),
+            metadata: String::new(),
+        },
+    )
+    .unwrap();
+    let cleared = first_client.request(&clear).unwrap();
+    assert_eq!(source_staging_result(&cleared).generation, 3);
+    assert!(source_staging_result(&cleared).staged.is_none());
+    assert_eq!(
+        second_client.request(&clear).unwrap().bytes(),
+        cleared.bytes()
+    );
+    let observed = second_client
+        .request(&query(Command::SourcesGet {}))
+        .unwrap();
+    assert_eq!(
+        source_staging_result(&observed),
+        source_staging_result(&cleared)
+    );
+    expected.revision += 1;
+    expected.event_sequence += 1;
+    assert_eq!(owner.state(), expected);
+}
+
+#[test]
+fn actual_owner_client_keeps_staging_rejections_and_restart_fences() {
+    let mut owner = Owner::start();
+    let client = owner.client();
+    let initial = owner.state();
+    let stale = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &initial,
+        Command::SourceStageUri {
+            uri: "untrusted:stale".into(),
+            metadata: String::new(),
+        },
+    )
+    .unwrap();
+    let applied_request = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &initial,
+        Command::SourceStageUri {
+            uri: "untrusted:current".into(),
+            metadata: String::new(),
+        },
+    )
+    .unwrap();
+    let applied = client.request(&applied_request).unwrap();
+    assert_eq!(source_staging_result(&applied).generation, 1);
+    let rejected = client.request(&stale).unwrap();
+    let Reply::Receipt(receipt) = &rejected else {
+        panic!("stale staging receipt");
+    };
+    assert_eq!(receipt.status, ReplyStatus::Rejected);
+    assert_eq!(
+        receipt.error.as_ref().unwrap().code,
+        ErrorCode::StaleRevision
+    );
+    assert!(receipt.result.is_none());
+    assert_eq!(client.request(&stale).unwrap().bytes(), rejected.bytes());
+    assert_eq!(stale.envelope().expected_revision, Some(initial.revision));
+
+    let mut old_session = owner.state();
+    old_session.session_id = Some(earph_core::ids::SessionId::new("retired-session").unwrap());
+    let invalid_session = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &old_session,
+        Command::SourceStageUri {
+            uri: "untrusted:old-session".into(),
+            metadata: String::new(),
+        },
+    )
+    .unwrap();
+    let Reply::Receipt(refused) = client.request(&invalid_session).unwrap() else {
+        panic!("stale session receipt");
+    };
+    assert_eq!(refused.status, ReplyStatus::Rejected);
+    assert_eq!(refused.error.unwrap().code, ErrorCode::StaleSession);
+    assert!(refused.result.is_none());
+    let observed = client.request(&query(Command::SourcesGet {})).unwrap();
+    assert_eq!(
+        source_staging_result(&observed),
+        source_staging_result(&applied)
+    );
+
+    let exact_request = applied_request.bytes().to_vec();
+    owner.stop();
+    let replacement = Owner::at(owner.runtime.clone());
+    assert_ne!(replacement.state().owner_id, initial.owner_id);
+    let observed = client.request(&query(Command::SourcesGet {})).unwrap();
+    assert_eq!(source_staging_result(&observed).generation, 0);
+    assert!(source_staging_result(&observed).staged.is_none());
+    let Reply::Receipt(refused) = client.request(&applied_request).unwrap() else {
+        panic!("old owner staging receipt");
+    };
+    assert_eq!(refused.status, ReplyStatus::Rejected);
+    assert_eq!(refused.error.unwrap().code, ErrorCode::StaleSession);
+    assert!(refused.result.is_none());
+    assert_eq!(applied_request.bytes(), exact_request);
+    assert!(replacement.state().source.is_none());
+    assert!(replacement.state().muted);
+    assert!(!replacement.state().output_consented);
+}
+
+#[test]
+fn source_staging_client_rejects_a_clear_result_from_generation_zero() {
+    use earph_desktop::DeliveryFailure;
+    use serde_json::{Value, json};
+
+    let owner = Owner::start();
+    let clear = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &owner.state(),
+        Command::SourceStageUri {
+            uri: String::new(),
+            metadata: String::new(),
+        },
+    )
+    .unwrap();
+    let applied = owner.client().request(&clear).unwrap();
+    assert_eq!(source_staging_result(&applied).generation, 1);
+    assert!(source_staging_result(&applied).staged.is_none());
+    let mut corrupted: Value = serde_json::from_slice(applied.bytes()).unwrap();
+    corrupted["receipt"]["result"]["value"]["generation"] = json!(0);
+    let raw = serde_json::to_vec(&corrupted).unwrap();
+    let Err(DeliveryFailure::Protocol(error)) = request_with_reply(&clear, raw.clone()) else {
+        panic!("an applied clear cannot have the initial query generation");
+    };
+    assert_eq!(&*error.bytes, raw);
+}

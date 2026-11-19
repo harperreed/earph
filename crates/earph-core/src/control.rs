@@ -118,6 +118,10 @@ pub enum Command {
     },
     #[serde(rename = "queue.get")]
     QueueGet { offset: usize, limit: usize },
+    #[serde(rename = "sources.get")]
+    SourcesGet {},
+    #[serde(rename = "sources.stage_uri")]
+    SourceStageUri { uri: String, metadata: String },
     #[serde(rename = "graph.inspect")]
     GraphInspect {},
     #[serde(rename = "profiles.list")]
@@ -315,6 +319,7 @@ impl Command {
                 | Self::DevicesInspect { .. }
                 | Self::State
                 | Self::QueueGet { .. }
+                | Self::SourcesGet { .. }
                 | Self::GraphInspect { .. }
                 | Self::ProfilesList { .. }
                 | Self::ProfilesGet { .. }
@@ -490,10 +495,32 @@ impl CommandEnvelope {
         self.validate_retained_storage()
     }
     pub(crate) fn validate_retained_storage(&self) -> Result<(), EngineError> {
+        if matches!(
+            self.payload,
+            Command::SourceStageUri { .. } | Command::SourcesGet {}
+        ) && [
+            self.request_id.capacity_bytes(),
+            self.zone_id.capacity_bytes(),
+            self.owner_id.as_ref().map_or(0, OwnerId::capacity_bytes),
+            self.session_id
+                .as_ref()
+                .map_or(0, SessionId::capacity_bytes),
+        ]
+        .into_iter()
+        .any(|bytes| bytes > 128)
+        {
+            return Err(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "source request identity exceeds storage limit",
+            ));
+        }
         if self.payload.is_profile() {
             self.profile_capacity_bytes()?;
         }
         match &self.payload {
+            Command::SourceStageUri { uri, metadata } => {
+                crate::source::validate_storage(uri, metadata)
+            }
             Command::DevicesInspect { endpoint, .. } if endpoint.capacity() > 4096 => {
                 Err(crate::devices::DEVICE_BUDGET)
             }
@@ -585,6 +612,7 @@ pub enum ReceiptStatus {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum QueryResult {
+    Sources(crate::source::SourceStagingSnapshot),
     Devices(Arc<crate::devices::DeviceQueryResult>),
     State(Box<crate::session::SessionSnapshot>),
     Capabilities(Capabilities),

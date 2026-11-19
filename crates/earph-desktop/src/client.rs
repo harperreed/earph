@@ -192,6 +192,28 @@ impl OwnerClient {
                 && receipt.session_id == envelope.session_id;
             let result_matches = match (&envelope.payload, &receipt.result) {
                 (
+                    Command::SourcesGet {} | Command::SourceStageUri { .. },
+                    Some(ResultView::Sources(value)),
+                ) => {
+                    receipt.status == ReplyStatus::Applied
+                        && match &envelope.payload {
+                            Command::SourceStageUri { uri, metadata } => {
+                                if uri.is_empty() {
+                                    value.generation > 0 && value.staged.is_none()
+                                } else {
+                                    value.staged.as_ref().is_some_and(|staged| {
+                                        staged.uri_bytes == uri.len()
+                                            && staged.metadata_bytes == metadata.len()
+                                    })
+                                }
+                            }
+                            _ => true,
+                        }
+                }
+                (Command::SourcesGet {} | Command::SourceStageUri { .. }, _) => {
+                    receipt.status != ReplyStatus::Applied && receipt.result.is_none()
+                }
+                (
                     Command::DevicesList { backend } | Command::DevicesInspect { backend, .. },
                     Some(ResultView::Devices(value)),
                 ) => {

@@ -35,7 +35,8 @@ identity!(
     PreparedGraphId,
     RequestId,
     OwnerId,
-    QueueEntryId
+    QueueEntryId,
+    StagedMediaId
 );
 
 impl NodeId {

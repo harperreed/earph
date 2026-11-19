@@ -194,3 +194,83 @@ fn engine_cli_handles_file_limit_signal_and_continues_real_owner_requests() {
     );
     assert!(host.0.wait().unwrap().success());
 }
+
+#[test]
+fn cli_stages_and_clears_unadmitted_metadata_without_persisting_private_input() {
+    let runtime = runtime();
+    let mut host = start(&runtime);
+    let initial = state(&runtime, "staging-initial");
+    let stage = envelope(
+        "cli-stage-uri",
+        initial["owner_id"].clone(),
+        initial["revision"].as_u64().unwrap(),
+        json!({"method":"sources.stage_uri","uri":"http://example.invalid/?token=private-fixture","metadata":"private metadata"}),
+    );
+    let applied = call(&runtime, &stage);
+    assert!(applied.status.success());
+    let value: Value = serde_json::from_slice(&applied.stdout).unwrap();
+    assert_eq!(value["receipt"]["result"]["kind"], "sources");
+    assert_eq!(
+        value["receipt"]["result"]["value"]["staged"]["admission"],
+        "unadmitted"
+    );
+    assert_eq!(call(&runtime, &stage).stdout, applied.stdout);
+    assert!(
+        !String::from_utf8(applied.stdout)
+            .unwrap()
+            .contains("private")
+    );
+    let checkpoint = std::fs::read_to_string(runtime.join("queue.json")).unwrap();
+    assert!(!checkpoint.contains("private-fixture"));
+    assert!(!checkpoint.contains("private metadata"));
+    let query = call(
+        &runtime,
+        &envelope(
+            "cli-sources",
+            Value::Null,
+            0,
+            json!({"method":"sources.get"}),
+        ),
+    );
+    assert!(query.status.success());
+    let query: Value = serde_json::from_slice(&query.stdout).unwrap();
+    assert_eq!(query["receipt"]["result"], value["receipt"]["result"]);
+    let after = state(&runtime, "staging-after");
+    let mut expected = initial;
+    expected["revision"] = json!(1);
+    expected["event_sequence"] = json!(1);
+    assert_eq!(after, expected);
+    let clear = call(
+        &runtime,
+        &envelope(
+            "cli-clear-uri",
+            after["owner_id"].clone(),
+            1,
+            json!({"method":"sources.stage_uri","uri":"","metadata":""}),
+        ),
+    );
+    assert!(clear.status.success());
+    let clear: Value = serde_json::from_slice(&clear.stdout).unwrap();
+    assert_eq!(
+        clear["receipt"]["result"]["value"],
+        json!({"generation":2,"staged":null})
+    );
+    host.0.kill().unwrap();
+    host.0.wait().unwrap();
+    let _replacement = start(&runtime);
+    let query = call(
+        &runtime,
+        &envelope(
+            "cli-sources-restored",
+            Value::Null,
+            0,
+            json!({"method":"sources.get"}),
+        ),
+    );
+    assert!(query.status.success());
+    let query: Value = serde_json::from_slice(&query.stdout).unwrap();
+    assert_eq!(
+        query["receipt"]["result"]["value"],
+        json!({"generation":0,"staged":null})
+    );
+}

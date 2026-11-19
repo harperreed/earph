@@ -15,6 +15,7 @@ pub mod profiles;
 pub mod queue;
 pub mod safety;
 pub mod session;
+pub mod source;
 
 use serde::{Deserialize, Serialize};
 
