@@ -615,3 +615,246 @@ fn correction_request_capacity_refuses_small_content_with_oversized_retained_buf
         assert_eq!(s.profile_storage_bytes(), 0);
     }
 }
+
+#[test]
+fn profile_fir_import_preserves_the_direct_paths_validation_error() {
+    use earph_core::{audio::ChannelLayout, dsp_nodes::FirPurpose, graph::FiniteGraphScalar};
+    for path in ["", "invalid\0name"] {
+        let mut s = session();
+        let direct = command(
+            &s,
+            "direct",
+            Command::FirImport {
+                path: path.into(),
+                purpose: FirPurpose::Correction,
+            },
+        );
+        let expected = s.submit(direct).error.unwrap();
+        assert_eq!(expected.code, ErrorCode::AssetInvalid);
+        let imported = command(
+            &s,
+            "profile",
+            Command::ProfilesImport {
+                id: ProfileId::new("invalid-path").unwrap(),
+                expected_profile_revision: None,
+                draft: draft(),
+                input: Arc::new(ProfileCorrectionInput::Fir {
+                    path: path.into(),
+                    purpose: FirPurpose::Correction,
+                    context: ProfileCorrectionContext {
+                        sample_rate_hz: 48000,
+                        channels: ChannelLayout::Stereo,
+                        quantum_frames: 64,
+                    },
+                    metadata_json: "{}".into(),
+                    preamp_db: FiniteGraphScalar::new(0.0).unwrap(),
+                }),
+            },
+        );
+        assert_eq!(s.submit(imported).error.unwrap(), expected);
+    }
+}
+
+#[test]
+fn correction_preview_cannot_understate_peak_headroom() {
+    use earph_core::{audio::ChannelLayout, graph::FiniteGraphScalar};
+    let scalar = |value| FiniteGraphScalar::new(value).unwrap();
+    let mut preview = ProfileCorrectionPreview {
+        context: ProfileCorrectionContext {
+            sample_rate_hz: 48000,
+            channels: ChannelLayout::Stereo,
+            quantum_frames: 64,
+        },
+        preamp_db: scalar(0.0),
+        channel_peak_bounds: vec![scalar(2.0), scalar(1.0)],
+        required_headroom_db: scalar(0.0),
+        normalization: CorrectionNormalization::Preserved,
+    };
+    for understated in [0.0, 6.0] {
+        preview.required_headroom_db = scalar(understated);
+        assert_eq!(
+            preview.validate().unwrap_err().code,
+            ErrorCode::AssetInvalid
+        );
+    }
+    preview.required_headroom_db = scalar(6.1);
+    preview.validate().unwrap();
+    preview.channel_peak_bounds = vec![scalar(1.0), scalar(0.5)];
+    preview.required_headroom_db = scalar(0.0);
+    preview.validate().unwrap();
+}
+
+#[test]
+fn package_import_preserves_positive_revision_and_waits_for_checkpoint() {
+    let mut s = session();
+    let save = create(&s, "seed", false);
+    s.submit_graph(save, 1);
+    let mut imported = (*record(&s.profile_job().unwrap())).clone();
+    Arc::make_mut(&mut imported.profile).revision = 7;
+    let reference = imported.reference();
+    let mut s = session();
+    let request = command(
+        &s,
+        "package",
+        Command::ProfilesImportPackage {
+            directory: "/owned/package".into(),
+            expected_manifest_sha256: reference.profile_sha256,
+            profile: reference.clone(),
+        },
+    );
+    assert_eq!(
+        s.submit_graph(request.clone(), 1).status,
+        ReceiptStatus::Accepted
+    );
+    let work = s.profile_work().unwrap();
+    let failure = EngineError::new(ErrorCode::InternalFault, "controlled checkpoint failure");
+    assert_eq!(
+        s.complete_profile_work(
+            &work.request_id,
+            &work.binding,
+            2,
+            Ok(ProfileWorkOutput::Profile(Arc::new(imported.clone()))),
+            |staged| {
+                assert_eq!(
+                    staged.profile_references(),
+                    std::slice::from_ref(&reference)
+                );
+                Err(failure)
+            }
+        ),
+        Err(failure)
+    );
+    assert!(s.profile_references().is_empty());
+    let mut s = session();
+    let request = command(
+        &s,
+        "package",
+        Command::ProfilesImportPackage {
+            directory: "/owned/package".into(),
+            expected_manifest_sha256: reference.profile_sha256,
+            profile: reference.clone(),
+        },
+    );
+    assert_eq!(
+        s.submit_graph(request.clone(), 1).status,
+        ReceiptStatus::Accepted
+    );
+    let work = s.profile_work().unwrap();
+    s.complete_profile_work(
+        &work.request_id,
+        &work.binding,
+        2,
+        Ok(ProfileWorkOutput::Profile(Arc::new(imported))),
+        |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(s.profile_references(), std::slice::from_ref(&reference));
+    let collision = command(&s, "collision", request.payload);
+    assert!(matches!(
+        s.submit_graph(collision.clone(), 3).result,
+        Some(QueryResult::ProfilePackageIssue(ProfilePackageIssue {
+            reason: ProfilePackageReason::IdentityCollision,
+            filesystem_state: PackageFilesystemState::Unchanged,
+            ..
+        }))
+    ));
+    assert_eq!(
+        s.submit_graph(collision, 3).error.unwrap().code,
+        ErrorCode::AssetInvalid
+    );
+    assert!(s.snapshot().muted);
+    assert!(!s.snapshot().output_consented);
+}
+
+#[test]
+fn cancelled_package_keeps_the_worker_slot_until_actual_completion() {
+    let mut s = session();
+    let request = command(
+        &s,
+        "inspect",
+        Command::ProfilesPackageInspect {
+            directory: "/owned/package".into(),
+        },
+    );
+    assert_eq!(
+        s.submit_graph(request.clone(), 1).status,
+        ReceiptStatus::Accepted
+    );
+    let work = s.profile_work().unwrap();
+    let mute = command(&s, "mute", Command::Mute { muted: true });
+    assert_eq!(s.submit(mute).status, ReceiptStatus::Applied);
+    assert_eq!(s.submit(request).status, ReceiptStatus::Cancelled);
+    assert!(s.profile_worker_busy());
+    let replacement = command(
+        &s,
+        "replacement",
+        Command::ProfilesPackageInspect {
+            directory: "/owned/package".into(),
+        },
+    );
+    assert_eq!(
+        s.submit_graph(replacement, 3).error.unwrap().code,
+        ErrorCode::SourceBusy
+    );
+    assert!(
+        s.complete_profile_work(
+            &work.request_id,
+            &work.binding,
+            4,
+            Err(EngineError::new(ErrorCode::OperationCancelled, "retired")),
+            |_| panic!("cancelled package reached checkpoint")
+        )
+        .is_err()
+    );
+    assert!(!s.profile_worker_busy());
+    assert!(s.profile_references().is_empty());
+    let replacement = command(
+        &s,
+        "replacement-after-retirement",
+        Command::ProfilesPackageInspect {
+            directory: "/owned/package".into(),
+        },
+    );
+    assert_eq!(
+        s.submit_graph(replacement, 5).status,
+        ReceiptStatus::Accepted
+    );
+}
+
+#[test]
+fn cancelled_package_completion_retains_cancelled_receipt_and_diagnostic() {
+    let mut s = session();
+    let request = command(
+        &s,
+        "inspect",
+        Command::ProfilesPackageInspect {
+            directory: "/owned/package".into(),
+        },
+    );
+    s.submit_graph(request.clone(), 1);
+    let work = s.profile_work().unwrap();
+    let error = EngineError::new(ErrorCode::OperationCancelled, "package read cancelled");
+    assert_eq!(
+        s.complete_profile_work(
+            &work.request_id,
+            &work.binding,
+            2,
+            Ok(ProfileWorkOutput::PackageIssue {
+                error,
+                issue: ProfilePackageIssue {
+                    reason: ProfilePackageReason::InvalidObject,
+                    object: None,
+                    filesystem_state: PackageFilesystemState::Unchanged
+                }
+            }),
+            |_| panic!("cancelled work persisted")
+        ),
+        Err(error)
+    );
+    let receipt = s.submit(request);
+    assert_eq!(receipt.status, ReceiptStatus::Cancelled);
+    assert!(matches!(
+        receipt.result,
+        Some(QueryResult::ProfilePackageIssue(_))
+    ));
+}

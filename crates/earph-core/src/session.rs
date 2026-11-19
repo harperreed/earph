@@ -551,7 +551,8 @@ impl Session {
                                 finite_aggregate_src_latency: false,
                             },
                             correction_import: true,
-                            packages: false,
+                            packages: true,
+                            package: crate::profile_control::ProfilePackageCapabilities::default(),
                             max_profiles: crate::profiles::MAX_PROFILES,
                             max_page: crate::profile_control::MAX_PROFILE_PAGE,
                             max_profile_bytes: crate::profiles::MAX_PROFILE_BYTES,
@@ -563,6 +564,23 @@ impl Session {
                     }
                     _ => self.profile_query(&c.payload).ok().flatten(),
                 }
+            } else if c.payload.is_package() && error.is_some() {
+                Some(QueryResult::ProfilePackageIssue(
+                    crate::profile_control::ProfilePackageIssue {
+                        reason: if error
+                            .is_some_and(|e| e.message == "profile package ID already exists")
+                        {
+                            crate::profile_control::ProfilePackageReason::IdentityCollision
+                        } else if error.is_some_and(|e| e.code == ErrorCode::ResourceBudgetExceeded)
+                        {
+                            crate::profile_control::ProfilePackageReason::ResourceLimit
+                        } else {
+                            crate::profile_control::ProfilePackageReason::InvalidObject
+                        },
+                        object: None,
+                        filesystem_state: crate::profile_control::PackageFilesystemState::Unchanged,
+                    },
+                ))
             } else {
                 None
             },

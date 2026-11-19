@@ -163,6 +163,25 @@ pub enum Command {
         draft: Arc<ProfileDraft>,
         input: Arc<ProfileCorrectionInput>,
     },
+    #[serde(rename = "profiles.package_inspect")]
+    ProfilesPackageInspect { directory: String },
+    #[serde(rename = "profiles.package_preview")]
+    ProfilesPackagePreview { profile: ProfileCatalogReference },
+    #[serde(rename = "profiles.import_package")]
+    ProfilesImportPackage {
+        directory: String,
+        expected_manifest_sha256: crate::profiles::ProfileObjectHash,
+        profile: ProfileCatalogReference,
+    },
+    #[serde(rename = "profiles.export")]
+    ProfilesExport {
+        directory: String,
+        profile: ProfileCatalogReference,
+        expected_manifest_sha256: crate::profiles::ProfileObjectHash,
+        export_review: PackageExportReview,
+        content_review: PackageContentReview,
+        redistribution: PackageRedistribution,
+    },
     #[serde(rename = "assets.import_fir")]
     FirImport {
         path: String,
@@ -238,6 +257,15 @@ pub enum Command {
     Unsupported,
 }
 impl Command {
+    pub fn is_package(&self) -> bool {
+        matches!(
+            self,
+            Self::ProfilesPackageInspect { .. }
+                | Self::ProfilesPackagePreview { .. }
+                | Self::ProfilesImportPackage { .. }
+                | Self::ProfilesExport { .. }
+        )
+    }
     pub fn prepares_graph(&self) -> bool {
         matches!(
             self,
@@ -254,6 +282,10 @@ impl Command {
                 | Self::ProfilesUpdate { .. }
                 | Self::ProfilesImport { .. }
                 | Self::FirImport { .. }
+                | Self::ProfilesPackageInspect { .. }
+                | Self::ProfilesPackagePreview { .. }
+                | Self::ProfilesImportPackage { .. }
+                | Self::ProfilesExport { .. }
         )
     }
     pub fn is_profile(&self) -> bool {
@@ -312,13 +344,34 @@ impl CommandEnvelope {
         }
         let mut bytes = size_of::<Self>() + 128 + ids.iter().sum::<usize>();
         let id = match &self.payload {
+            Command::ProfilesPackageInspect { directory } => {
+                validate_package_path(directory)?;
+                bytes = bytes.checked_add(directory.capacity()).ok_or(BUDGET)?;
+                None
+            }
+            Command::ProfilesPackagePreview { profile } => {
+                validate_catalog(std::slice::from_ref(profile), 1)?;
+                Some(&profile.id)
+            }
+            Command::ProfilesImportPackage {
+                directory, profile, ..
+            }
+            | Command::ProfilesExport {
+                directory, profile, ..
+            } => {
+                validate_package_path(directory)?;
+                validate_catalog(std::slice::from_ref(profile), 1)?;
+                bytes = bytes.checked_add(directory.capacity()).ok_or(BUDGET)?;
+                Some(&profile.id)
+            }
             Command::ProfilesImport {
                 id, draft, input, ..
             } => {
                 draft.validate_storage()?;
+                let input_bytes = input.retained_capacity_bytes()?;
                 bytes = bytes
                     .checked_add(draft.retained_capacity_bytes()?)
-                    .and_then(|n| n.checked_add(input.retained_capacity_bytes().ok()?))
+                    .and_then(|n| n.checked_add(input_bytes))
                     .ok_or(BUDGET)?;
                 Some(id)
             }
@@ -528,6 +581,8 @@ pub enum QueryResult {
     Profile(Arc<ProfileRecord>),
     Profiles(ProfilePage),
     ProfileResolution(ProfileResolution),
+    ProfilePackage(Arc<ProfilePackageResult>),
+    ProfilePackageIssue(ProfilePackageIssue),
     FirAsset(crate::dsp_nodes::FirAssetReference),
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]

@@ -159,3 +159,58 @@ Interrupted saves can leave partial stages or unreferenced objects, which remain
 Checkpoint persistence failures retire the owner through the existing recovery path.
 Restart verifies all reachable objects and refuses missing or corrupt references.
 Successful restart remains paused and muted without consent, arming, or prepared tokens.
+
+## Directory packages
+
+Use `profiles.package_preview` with an exact `ProfileCatalogReference` in `profile`.
+The reference contains `id`, positive `revision`, and `profile_sha256`.
+The result shows the complete manifest, manifest hash, bounds, and local original source locations.
+Read those original sources and review their exact content before exporting.
+Local review paths stay in the authenticated response; they never enter package objects.
+
+Use `profiles.export` with `profile`, an absent `directory`, and the preview's `expected_manifest_sha256`.
+Send `export_review: "reviewed_exact_candidate"` and `content_review: "reviewed_no_private_data"` explicitly.
+Send `redistribution: "refuse_measurement_bytes"` or `"reviewed_required_measurements"` explicitly.
+The refusal choice rejects a package requiring original text or FIR bytes; it does not omit dependencies.
+License strings never grant redistribution rights automatically.
+The owner rejects known private content and unsupported WAV metadata instead of rewriting original hashes.
+These fixed checks do not prove arbitrary bytes contain no private data.
+A concrete export still requires the caller's exact-content and redistribution acknowledgments.
+
+Select an absolute UTF-8 directory path without dot or parent components.
+Export requires a private current-owner parent and a nonexistent destination.
+It refuses nested packages and overlap with owner storage.
+The owner writes a private sibling stage through the shared immutable publisher.
+It publishes the manifest last, validates the completed directory, and synchronizes files and directories.
+It installs the directory with exclusive rename and synchronizes the parent.
+It never replaces or merges an existing destination.
+
+Use `profiles.package_inspect` with `directory` to validate a selected package.
+Use `profiles.import_package` with that directory, exact `profile`, and inspection's `expected_manifest_sha256`.
+Import rereads and validates the actual original bytes, complete reachable closure, types, and provenance.
+It creates a new catalog ID only and preserves the package's positive revision and hashes.
+An occupied ID fails, including an equal reference; replay the same request ID for idempotency.
+Ordinary later updates increment the imported revision through the existing checked update path.
+Import never applies intent, selects output, changes consent/arming, or trusts native device context.
+
+The format is schema-1 `manifest.json` beside fixed typed hash filenames.
+It contains exactly one profile and graph, plus their required correction/source/WAV objects.
+Limits are 64 KiB of manifest bytes, 64 objects, and 32 MiB including original manifest bytes.
+Existing per-type and profile resource limits still apply.
+One correction chain remains supported per profile; plain graphs may reference multiple supported FIR banks.
+The consumer rejects symlinks, hard links, special/executable files, extra entries, and unused declarations.
+The consumer reconstructs text reports from their original source and verifies FIR geometry and byte identity.
+It never fetches URLs, executes content, extracts archives, or decompresses packages.
+
+All four operations use the existing pending/retiring profile worker and standard receipt polling.
+Inspect and preview also advance the Session control revision when their terminal receipt checkpoints.
+No saved or active intent changes during those reads.
+Cancellation releases the pending request before the actual worker may retire.
+Blocking kernel I/O and individual decoder/compiler calls have no forced interruption guarantee.
+Every partial stage and complete unreachable object remains preserved.
+A sync, cancellation, or checkpoint failure can leave a complete final export directory.
+A failed receipt never proves filesystem rollback; inspect the selected destination before choosing a fresh retry path.
+`profile_package_issue` distinguishes missing, invalid, inventory, collision, review, resource, and I/O failures.
+Its `filesystem_state: "inspect_required"` reports possible retained filesystem effects.
+Capabilities report directory bounds, new-ID-only import, review requirements, and absent archive/automatic-application support.
+Supported-platform qualification remains a separate evidence gate.

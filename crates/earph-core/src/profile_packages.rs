@@ -1,7 +1,7 @@
 // ABOUTME: Bounds declared profile package manifests and exact typed object references.
 // ABOUTME: Compares owner-observed inventories without claiming byte, provenance, or export authorization checks.
 //! Owner import preserves verified original object bytes through shared immutable publication, then reloads and validates them.
-//! `crates/earph-engine/src/profiles.rs::persist_record` reserializes graphs before checking their hashes.
+//! `crates/earph-engine/src/profiles.rs::persist_record` publishes retained original graph and profile bytes.
 //! Do not retain imported hashes across reserialization or introduce another normalization or identity path.
 //! Publish exact bytes through `crates/earph-engine/src/runtime.rs::publish_immutable_file`.
 //! Reload with `crates/earph-engine/src/profiles.rs::read_object` and `crates/earph-engine/src/profiles.rs::restore`.

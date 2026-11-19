@@ -366,13 +366,22 @@ pub struct ProfileCorrectionPreview {
     pub normalization: CorrectionNormalization,
 }
 impl ProfileCorrectionPreview {
+    /// Computes conservative attenuation from the largest declared channel peak.
+    pub fn minimum_headroom_db(bounds: &[FiniteGraphScalar]) -> f64 {
+        20.0 * bounds
+            .iter()
+            .map(|peak| peak.get())
+            .fold(1.0_f64, f64::max)
+            .log10()
+    }
     pub fn validate(&self) -> Result<(), EngineError> {
         self.context.validate()?;
         if self.preamp_db.get().abs() > 150.0
             || self.channel_peak_bounds.len() != self.context.channels.count()
             || self.channel_peak_bounds.capacity() > 2
             || self.channel_peak_bounds.iter().any(|p| p.get() < 0.0)
-            || self.required_headroom_db.get() < 0.0
+            || self.required_headroom_db.get()
+                < Self::minimum_headroom_db(&self.channel_peak_bounds)
         {
             return Err(INVALID);
         }
@@ -381,6 +390,7 @@ impl ProfileCorrectionPreview {
 }
 #[derive(Debug, Clone)]
 pub enum ProfileWorkOperation {
+    Package(ProfilePackageOperation),
     Save {
         id: ProfileId,
         revision: u64,
@@ -408,6 +418,7 @@ pub struct ProfileWorkRequest {
 impl ProfileWorkRequest {
     pub fn retained_capacity_bytes(&self) -> Result<usize, EngineError> {
         let bytes = match &self.operation {
+            ProfileWorkOperation::Package(operation) => operation.retained_capacity_bytes()?,
             ProfileWorkOperation::Save {
                 id, draft, graph, ..
             } => {
@@ -429,6 +440,11 @@ impl ProfileWorkRequest {
 }
 #[derive(Debug, Clone)]
 pub enum ProfileWorkOutput {
+    Package(Arc<ProfilePackageResult>),
+    PackageIssue {
+        error: EngineError,
+        issue: ProfilePackageIssue,
+    },
     Profile(Arc<ProfileRecord>),
     FirAsset(FirAssetReference),
 }
@@ -441,10 +457,44 @@ pub struct ProfileCapabilities {
     pub application: ProfileApplicationCapabilities,
     pub correction_import: bool,
     pub packages: bool,
+    pub package: ProfilePackageCapabilities,
     pub max_profiles: usize,
     pub max_page: usize,
     pub max_profile_bytes: usize,
     pub max_graph_bytes: usize,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProfilePackageCapabilities {
+    pub schema_version: u32,
+    pub format: &'static str,
+    pub max_manifest_bytes: usize,
+    pub max_objects: usize,
+    pub max_total_bytes: u64,
+    pub new_ids_only: bool,
+    pub preserves_imported_revision: bool,
+    pub max_correction_chains: usize,
+    pub requires_export_review: bool,
+    pub automatic_privacy_proof: bool,
+    pub automatic_application: bool,
+    pub archives: bool,
+}
+impl Default for ProfilePackageCapabilities {
+    fn default() -> Self {
+        Self {
+            schema_version: 1,
+            format: "directory",
+            max_manifest_bytes: crate::profile_packages::MAX_PACKAGE_MANIFEST_BYTES,
+            max_objects: crate::profile_packages::MAX_PACKAGE_OBJECTS,
+            max_total_bytes: crate::profile_packages::MAX_PACKAGE_BYTES,
+            new_ids_only: true,
+            preserves_imported_revision: true,
+            max_correction_chains: 1,
+            requires_export_review: true,
+            automatic_privacy_proof: false,
+            automatic_application: false,
+            archives: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -455,4 +505,168 @@ pub struct ProfileApplicationCapabilities {
     pub requires_matching_fidelity: bool,
     pub live_selected_profile_update: bool,
     pub finite_aggregate_src_latency: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PackageExportReview {
+    ReviewedExactCandidate,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PackageContentReview {
+    ReviewedNoPrivateData,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PackageRedistribution {
+    RefuseMeasurementBytes,
+    ReviewedRequiredMeasurements,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfilePackageStage {
+    Inspected,
+    Previewed,
+    Exported,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PackageReviewSource {
+    pub object: crate::profile_packages::PackageObject,
+    pub local_path: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProfilePackageResult {
+    pub operation: ProfilePackageStage,
+    pub manifest: crate::profile_packages::PackageManifest,
+    pub manifest_sha256: ProfileObjectHash,
+    pub manifest_bytes: u64,
+    pub total_bytes: u64,
+    pub measurement_review_required: bool,
+    pub content_review_required: bool,
+    pub review_sources: Vec<PackageReviewSource>,
+}
+impl ProfilePackageResult {
+    pub fn retained_capacity_bytes(&self) -> Result<usize, EngineError> {
+        let bytes = size_of::<Self>()
+            .checked_add(self.manifest.retained_capacity_bytes()?)
+            .and_then(|n| {
+                n.checked_add(
+                    self.review_sources
+                        .capacity()
+                        .checked_mul(size_of::<PackageReviewSource>())?,
+                )
+            })
+            .ok_or(BUDGET)?;
+        self.review_sources.iter().try_fold(bytes, |n, s| {
+            n.checked_add(s.local_path.capacity()).ok_or(BUDGET)
+        })
+    }
+    pub fn validate(&self) -> Result<(), EngineError> {
+        use crate::profile_packages::*;
+        self.manifest.validate()?;
+        if self.manifest_bytes > MAX_PACKAGE_MANIFEST_BYTES as u64
+            || self.total_bytes > MAX_PACKAGE_BYTES
+            || self
+                .manifest
+                .total_object_bytes()?
+                .checked_add(self.manifest_bytes)
+                != Some(self.total_bytes)
+            || self.review_sources.capacity() > MAX_PACKAGE_OBJECTS
+            || self.review_sources.len() != self.manifest.objects.len()
+            || self.retained_capacity_bytes()? > 256 * 1024
+        {
+            return Err(BUDGET);
+        }
+        for (index, source) in self.review_sources.iter().enumerate() {
+            validate_package_path(&source.local_path)?;
+            if !self.manifest.objects.contains(&source.object)
+                || self.review_sources[..index]
+                    .iter()
+                    .any(|p| p.object == source.object)
+            {
+                return Err(INVALID);
+            }
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfilePackageReason {
+    MissingObject,
+    InvalidObject,
+    InventoryMismatch,
+    IdentityCollision,
+    ContentReviewRequired,
+    RedistributionReviewRequired,
+    DestinationExists,
+    UnsupportedContent,
+    ResourceLimit,
+    IoFailure,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PackageFilesystemState {
+    Unchanged,
+    InspectRequired,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProfilePackageIssue {
+    pub reason: ProfilePackageReason,
+    pub object: Option<crate::profile_packages::PackageObject>,
+    pub filesystem_state: PackageFilesystemState,
+}
+#[derive(Debug, Clone)]
+pub enum ProfilePackageOperation {
+    Inspect {
+        directory: String,
+    },
+    Preview {
+        profile: ProfileCatalogReference,
+    },
+    Import {
+        directory: String,
+        expected_manifest_sha256: ProfileObjectHash,
+        profile: ProfileCatalogReference,
+    },
+    Export {
+        directory: String,
+        profile: ProfileCatalogReference,
+        expected_manifest_sha256: ProfileObjectHash,
+        redistribution: PackageRedistribution,
+    },
+}
+impl ProfilePackageOperation {
+    pub fn retained_capacity_bytes(&self) -> Result<usize, EngineError> {
+        let (path, profile) = match self {
+            Self::Inspect { directory } => (Some(directory), None),
+            Self::Preview { profile } => (None, Some(profile)),
+            Self::Import {
+                directory, profile, ..
+            }
+            | Self::Export {
+                directory, profile, ..
+            } => (Some(directory), Some(profile)),
+        };
+        size_of::<Self>()
+            .checked_add(path.map_or(0, String::capacity))
+            .and_then(|n| n.checked_add(profile.map_or(0, |p| p.id.capacity_bytes())))
+            .ok_or(BUDGET)
+    }
+    pub fn writes_files(&self) -> bool {
+        matches!(self, Self::Import { .. } | Self::Export { .. })
+    }
+}
+pub fn validate_package_path(path: &String) -> Result<(), EngineError> {
+    if path.capacity() > 1024 {
+        return Err(BUDGET);
+    }
+    if !path.starts_with('/')
+        || path.chars().any(char::is_control)
+        || path.split('/').any(|c| c == "." || c == "..")
+    {
+        return Err(INVALID);
+    }
+    Ok(())
 }

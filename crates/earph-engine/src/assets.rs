@@ -18,6 +18,67 @@ const INVALID: EngineError = EngineError::new(
     "correction store is missing, corrupt, or differs from its reference",
 );
 
+/// Owns the original WAV and the coefficients verified from those exact bytes.
+#[derive(Debug)]
+pub(crate) struct PreparedFirSource {
+    bytes: Vec<u8>,
+    coefficients: earph_dsp::FirCoefficients,
+}
+impl PreparedFirSource {
+    pub(crate) fn read(path: &Path) -> Result<Self, EngineError> {
+        let bytes = read_fir_source(path)?;
+        Self::from_bytes(bytes)
+    }
+    pub(crate) fn from_bytes(bytes: Vec<u8>) -> Result<Self, EngineError> {
+        let correction = decode_fir_wav(&bytes)?;
+        let coefficients = earph_dsp::FirCoefficients::new(correction.reference, correction.taps)
+            .map_err(|error| EngineError::new(error.code, error.message))?;
+        Ok(Self {
+            bytes,
+            coefficients,
+        })
+    }
+    pub(crate) fn coefficients(&self) -> &earph_dsp::FirCoefficients {
+        &self.coefficients
+    }
+    pub(crate) fn source_bytes(&self) -> usize {
+        self.bytes.len()
+    }
+    pub(crate) fn original_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub(crate) fn retained_bytes(&self) -> Result<u64, EngineError> {
+        (self.bytes.capacity() as u64)
+            .checked_add(self.coefficients.resident_bytes())
+            .and_then(|bytes| bytes.checked_add(size_of::<Self>() as u64))
+            .ok_or(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "correction storage overflow",
+            ))
+    }
+    pub(crate) fn publish(
+        &self,
+        runtime: &Path,
+        check: &mut impl FnMut() -> Result<(), EngineError>,
+    ) -> Result<FirAssetReference, EngineError> {
+        self.publish_with_sync(runtime, check, &mut File::sync_all)
+    }
+    fn publish_with_sync(
+        &self,
+        runtime: &Path,
+        check: &mut impl FnMut() -> Result<(), EngineError>,
+        sync_file: &mut impl FnMut(&File) -> std::io::Result<()>,
+    ) -> Result<FirAssetReference, EngineError> {
+        check()?;
+        let directory = directory(runtime, true)?;
+        let reference = self.coefficients.reference();
+        let path = directory.join(format!("{}.wav", reference.sha256.as_str()));
+        runtime::publish_immutable_file(&path, &self.bytes, check, sync_file)?;
+        check()?;
+        Ok(reference.clone())
+    }
+}
+
 /// Shared asset admission for live preparation and offline profile validation.
 pub struct GraphAssets<'a> {
     references: BTreeMap<FirSha256, &'a FirAssetReference>,
@@ -39,24 +100,34 @@ impl<'a> GraphAssets<'a> {
                 }
             }
         }
-        let declared_bytes = references
-            .values()
-            .try_fold(0_u64, |n, a| {
-                n.checked_add(
-                    (a.taps_per_channel as u64)
-                        .checked_mul(a.channels.count() as u64)?
-                        .checked_mul(8)?
-                        .checked_add(1024)?,
-                )
-            })
-            .ok_or(EngineError::new(
-                ErrorCode::ResourceBudgetExceeded,
-                "correction storage exceeds admission",
-            ))?;
+        let declared_bytes = references.values().try_fold(0_u64, |n, a| {
+            n.checked_add(Self::coefficient_bytes(a)?)
+                .ok_or(EngineError::new(
+                    ErrorCode::ResourceBudgetExceeded,
+                    "correction storage exceeds admission",
+                ))
+        })?;
         Ok(Self {
             references,
             declared_bytes,
         })
+    }
+    pub(crate) fn coefficient_bytes(reference: &FirAssetReference) -> Result<u64, EngineError> {
+        reference.validate()?;
+        (reference.taps_per_channel as u64)
+            .checked_mul(reference.channels.count() as u64)
+            .and_then(|n| n.checked_mul(8))
+            .and_then(|n| n.checked_add(1024))
+            .ok_or(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "correction storage exceeds admission",
+            ))
+    }
+    pub(crate) fn declared_bytes(&self) -> u64 {
+        self.declared_bytes
+    }
+    pub(crate) fn references(&self) -> impl Iterator<Item = &'a FirAssetReference> + '_ {
+        self.references.values().copied()
     }
     /// One bounded source, packet, decoder buffer, and metadata during sequential resolution.
     pub fn scratch_bytes(&self) -> u64 {
@@ -70,7 +141,19 @@ impl<'a> GraphAssets<'a> {
         &self,
         runtime_path: Option<&Path>,
         allowance: u64,
+        check: impl FnMut() -> Result<(), EngineError>,
+    ) -> Result<Vec<earph_dsp::FirCoefficients>, EngineError> {
+        self.resolve_with(allowance, check, |reference| {
+            coefficients(runtime_path.ok_or(INVALID)?, reference)
+        })
+    }
+    pub(crate) fn resolve_with(
+        &self,
+        allowance: u64,
         mut check: impl FnMut() -> Result<(), EngineError>,
+        mut resolve_asset: impl FnMut(
+            &FirAssetReference,
+        ) -> Result<earph_dsp::FirCoefficients, EngineError>,
     ) -> Result<Vec<earph_dsp::FirCoefficients>, EngineError> {
         if self.declared_bytes > allowance {
             return Err(EngineError::new(
@@ -81,15 +164,24 @@ impl<'a> GraphAssets<'a> {
         let mut resolved = Vec::with_capacity(self.references.len());
         for reference in self.references.values() {
             check()?;
-            let correction = resolve(runtime_path.ok_or(INVALID)?, reference)?;
-            resolved.push(
-                earph_dsp::FirCoefficients::new(correction.reference, correction.taps)
-                    .map_err(|e| EngineError::new(e.code, e.message))?,
-            );
+            let coefficients = resolve_asset(reference)?;
+            if coefficients.reference() != *reference {
+                return Err(INVALID);
+            }
+            resolved.push(coefficients);
         }
         check()?;
         Ok(resolved)
     }
+}
+
+pub(crate) fn coefficients(
+    runtime: &Path,
+    reference: &FirAssetReference,
+) -> Result<earph_dsp::FirCoefficients, EngineError> {
+    let correction = resolve(runtime, reference)?;
+    earph_dsp::FirCoefficients::new(correction.reference, correction.taps)
+        .map_err(|error| EngineError::new(error.code, error.message))
 }
 
 fn directory(runtime_path: &Path, create: bool) -> Result<PathBuf, EngineError> {
@@ -148,7 +240,13 @@ pub fn import_via_owner(
     };
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
     let selected = source.canonicalize().map_err(|_| INVALID)?;
-    let path = selected.to_str().ok_or(INVALID)?.to_owned();
+    let path = selected
+        .to_str()
+        .ok_or(EngineError::new(
+            ErrorCode::AssetInvalid,
+            "owner FIR forwarding requires UTF-8 paths",
+        ))?
+        .to_owned();
     let generation = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| runtime::IO)?
@@ -221,12 +319,8 @@ fn import_with_sync(
     source: &Path,
     sync_file: &mut impl FnMut(&File) -> std::io::Result<()>,
 ) -> Result<FirAssetReference, EngineError> {
-    let directory = directory(runtime_path, true)?;
-    let bytes = read_fir_source(source)?;
-    let reference = decode_fir_wav(&bytes)?.reference;
-    let path = directory.join(format!("{}.wav", reference.sha256.as_str()));
-    runtime::publish_immutable_file(&path, &bytes, &mut || Ok(()), sync_file)?;
-    Ok(reference)
+    directory(runtime_path, true)?;
+    PreparedFirSource::read(source)?.publish_with_sync(runtime_path, &mut || Ok(()), sync_file)
 }
 
 /// Resolve immutable bytes on the preparation worker, never during processing or activation.

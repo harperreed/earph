@@ -130,6 +130,39 @@ fn direct_fir_import_cannot_write_beside_a_locked_owner() {
 }
 
 #[test]
+fn non_utf8_fir_paths_keep_direct_import_and_explain_the_owner_wire_limit() {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+    let runtime = support::runtime();
+    fs::create_dir(&runtime).unwrap();
+    fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
+    let source = runtime.join(OsString::from_vec(b"owned-\xff.wav".to_vec()));
+    let original = wave();
+    fs::write(&source, &original).unwrap();
+    let first = import(&runtime, &source);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let expected: Value = serde_json::from_slice(&first.stdout).unwrap();
+    let owner = earph_engine::EngineOwner::bind(&runtime).unwrap();
+    let forwarded = import(&runtime, &source);
+    drop(owner);
+    assert_eq!(forwarded.status.code(), Some(3));
+    let error: Value = serde_json::from_slice(&forwarded.stderr).unwrap();
+    assert_eq!(error["error"]["code"], "ASSET_INVALID");
+    assert_eq!(
+        error["error"]["message"],
+        "owner FIR forwarding requires UTF-8 paths"
+    );
+    assert_eq!(fs::read(&source).unwrap(), original);
+    let direct_retry = import(&runtime, &source);
+    assert!(direct_retry.status.success());
+    let retried: Value = serde_json::from_slice(&direct_retry.stdout).unwrap();
+    assert_eq!(retried["asset"], expected["asset"]);
+}
+
+#[test]
 fn existing_fir_cli_forwards_to_the_running_owner() {
     use serde_json::json;
     let runtime = support::runtime();

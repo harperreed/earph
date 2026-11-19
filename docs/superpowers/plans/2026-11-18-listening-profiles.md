@@ -347,3 +347,76 @@ No signal, unmute, callback, private arming, DAC, or acoustic claim follows from
 These receipts bind the dirty precommit integration of source24e9970 with parentc0e27b9.
 Keep this integration local until PR3 merges and its later review corrections are integrated and verified.
 The broader Task3 and Task4 work remains open.
+
+### Task 4 Owner implementation scope
+
+Doctor Biz approved the concrete Owner proposal v2 and its four shared commands.
+Root approved bounded package results/diagnostics and new-ID imports preserving positive revisions.
+Exact-content export review requires explicit export, content, and redistribution acknowledgments.
+Known-content checks never claim automatic privacy proof.
+The approved proposal remains under `target/profile-package-owner/approved-contract.md`.
+
+Worktree 7ba8 uses branch `feat/profile-package-owner`.
+Composition merge `a4595bf` joins pure schema commit `6f703e7` and qualified integration `dea1e08`.
+The listening profile plan conflict preserves both checkpoints as a union.
+Root seed `67b895385589a2129ea23196666386f474ac321a4afca28017f8c87b14440676` applies cleanly.
+Approved publication patch `0aacb4a60c3866a1da05314fc8ecd88e5ee79239d480a81dbf27d1918dd14393` also applies cleanly.
+Later Root Worker, CLI, and native corrections remain separate integration work.
+No implementation commit or push occurs before the independent review.
+
+Owner package work shares ProfileJobs, prospective catalog admission, prepared original bytes/banks, and immutable publication.
+Import preserves exact JSON/text/WAV hashes and revalidates normal consumers before catalog checkpoint publication.
+Export carries only required saved intent and provenance objects, with local source review outside the package.
+The descriptor reader checks actual reachability and rejects unused declarations and hostile inventory.
+The staged producer preserves every partial and reports post-install uncertainty truthfully.
+Real owner/request executables and Media consumers supply local evidence.
+Final canonical verification, independent review, and supported-platform gates must bind the final frozen source.
+No Mac, native-output, physical-failure, full Task4 release, or automatic privacy claim follows from local source work.
+
+### Task 4 same-review corrections
+
+Root accepts two concrete P2 findings from the independent review of frozen revision-v2.
+The review receipt is `9fae60dd7d8667d8c8a9b254d927f4bcd463833a37af56dbdd62a9966bd4a2a7`.
+The same reviewer will reconcile the corrected revision3; no new panel is required.
+
+FIR admission must count declared geometry, decoder scratch, original source buffers, and accumulated banks before reads or allocations.
+The correction reuses GraphAssets geometry and deduplicates shared references.
+It intersects profile and owner allowances before FIR reads, then replaces estimates with actual retained capacities.
+The large-bank regression requires Budget when documents fit but the declared bank cannot fit preparation.
+Cumulative-bank, owner-boundary, and actual shared-coefficient checks cover that accounting.
+
+Package I/O must preserve missing, EOF, changed bytes, type, link, and traversal refusals.
+Unexpected read, metadata, open, and enumeration failures must report InternalFault/io_failure.
+A real write-only File tests a kernel read failure.
+A private controlled reader injects EIO after an actual prefix and verifies retained uncertainty diagnostics.
+That injection establishes the code path, not a physical filesystem or disk failure.
+All earlier frozen source, runtime, logs, and partial artifacts remain preserved.
+Revision3 requires focused and canonical verification before reconciliation.
+Later Root CLI, Worker, native, short-path, Mac, and shipping gates remain separate.
+
+### Verified Owner package local checkpoint
+
+The [Owner package precommit receipt](../../evidence/profiles/owner-package-precommit-verification-20261118.json) binds the reviewed dirty Linux source.
+Its canonical child exits zero: 761 passed, zero failed, four existing ignored.
+Focused checks exit zero: 292 passed, zero failed, zero ignored.
+Formatting, strict workspace Clippy, requirements, and dependency checks pass without compiler warnings or errors.
+
+The reviewed source contains 1576 files and uses merge `a4595bf3cba59d3086dce376f76feeacc5696375`.
+That merge combines pure package commit `6f703e739b9093805a21b8a23ad02e6bb9549cc1` and qualified profile integration `dea1e0878aa7fb966c3187bd196d4ccde2bc6a58`.
+The approved Root seed and publication patch retain their exact separate hashes in the receipt.
+The source manifest is `dceea5c4d7bea0ddf715d434a8cbf2baeff1493604d3064c4b69744ed713b37d`.
+The runtime input digest is `5b464e2a9f5d750b53225506ada4333d25ae40de1dec19c23a0fb3d91b8cc919`.
+The lockfile remains unchanged.
+
+One independent review requests two bounded corrections, then the same reviewer approves their reconciliation.
+FIR geometry, decoder scratch, source buffers, and cumulative banks now preflight before allocation or byte reads.
+Unexpected storage errors now report InternalFault/io_failure while content refusals retain their meaning.
+The reconciliation receipt is `0c30c8ae03553c26ae6c0c7367ad7210c63e5d82ddfb5275097cabe70873d10a`.
+Its evidence verifies all 1576 source hashes and 55 bound artifact entries, with no material finding remaining.
+Behavioral REDs, corrected GREENs, compilation attempts, source snapshots, and partial artifacts remain preserved.
+Only this checkpoint and its public-safe receipt change after the reviewed source gate.
+
+This is a local Linux checkpoint, with no new Mac owner-package qualification.
+Later Root round2 CLI, Worker, native, and short-path integrations remain pending.
+Supported-platform and shipping gates remain open.
+Full Task4, completed T12, and public release are not claimed.

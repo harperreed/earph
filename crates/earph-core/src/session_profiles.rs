@@ -279,12 +279,29 @@ impl Session {
         error: Option<EngineError>,
         result: Option<QueryResult>,
     ) {
+        let package_filesystem = self.profiles.pending.as_ref().and_then(|job| {
+            if let ProfileWorkOperation::Package(operation) = &job.operation {
+                Some(if operation.writes_files() {
+                    PackageFilesystemState::InspectRequired
+                } else {
+                    PackageFilesystemState::Unchanged
+                })
+            } else {
+                None
+            }
+        });
         self.profiles.pending = None;
         if let Some(prior) = self.profiles.pending_receipt.take() {
             let mut receipt = prior.1.clone();
             receipt.status = status;
             receipt.error = error;
-            receipt.result = result;
+            receipt.result = result.or(package_filesystem.map(|filesystem_state| {
+                QueryResult::ProfilePackageIssue(ProfilePackageIssue {
+                    reason: ProfilePackageReason::InvalidObject,
+                    object: None,
+                    filesystem_state,
+                })
+            }));
             receipt.revision = self.state.revision;
             receipt.epochs = self.state.epochs;
             let updated = Arc::new((prior.0.clone(), receipt));
@@ -333,7 +350,63 @@ impl Session {
         if command.session_id != self.state.session_id {
             return Err(STALE);
         }
-        let operation = if let Command::FirImport { path, purpose } = &command.payload {
+        let package = match &command.payload {
+            Command::ProfilesPackageInspect { directory } => {
+                Some(ProfilePackageOperation::Inspect {
+                    directory: directory.clone(),
+                })
+            }
+            Command::ProfilesPackagePreview { profile } => {
+                self.profile_record(profile)?;
+                Some(ProfilePackageOperation::Preview {
+                    profile: profile.clone(),
+                })
+            }
+            Command::ProfilesImportPackage {
+                directory,
+                profile,
+                expected_manifest_sha256,
+            } => {
+                if self
+                    .profiles
+                    .records
+                    .iter()
+                    .any(|r| r.profile.id == profile.id)
+                {
+                    return Err(EngineError::new(
+                        ErrorCode::AssetInvalid,
+                        "profile package ID already exists",
+                    ));
+                }
+                if self.profiles.records.len() >= profiles::MAX_PROFILES {
+                    return Err(BUDGET);
+                }
+                Some(ProfilePackageOperation::Import {
+                    directory: directory.clone(),
+                    profile: profile.clone(),
+                    expected_manifest_sha256: *expected_manifest_sha256,
+                })
+            }
+            Command::ProfilesExport {
+                directory,
+                profile,
+                expected_manifest_sha256,
+                redistribution,
+                ..
+            } => {
+                self.profile_record(profile)?;
+                Some(ProfilePackageOperation::Export {
+                    directory: directory.clone(),
+                    profile: profile.clone(),
+                    expected_manifest_sha256: *expected_manifest_sha256,
+                    redistribution: *redistribution,
+                })
+            }
+            _ => None,
+        };
+        let operation = if let Some(operation) = package {
+            ProfileWorkOperation::Package(operation)
+        } else if let Command::FirImport { path, purpose } = &command.payload {
             ProfileWorkOperation::FirAsset {
                 path: path.clone(),
                 purpose: *purpose,
@@ -468,6 +541,75 @@ impl Session {
             let mut staged = self.clone();
             staged.profiles.pending = None;
             let query = match (output, &job.operation) {
+                (
+                    ProfileWorkOutput::PackageIssue { error, issue },
+                    ProfileWorkOperation::Package(_),
+                ) => {
+                    self.settle_profile(
+                        if matches!(
+                            error.code,
+                            ErrorCode::OperationCancelled
+                                | ErrorCode::StaleRevision
+                                | ErrorCode::StaleSession
+                        ) {
+                            ReceiptStatus::Cancelled
+                        } else {
+                            ReceiptStatus::Failed
+                        },
+                        Some(error),
+                        Some(QueryResult::ProfilePackageIssue(issue)),
+                    );
+                    return Err(error);
+                }
+                (ProfileWorkOutput::Package(package), ProfileWorkOperation::Package(operation)) => {
+                    package.validate()?;
+                    let expected = match operation {
+                        ProfilePackageOperation::Inspect { .. } => ProfilePackageStage::Inspected,
+                        ProfilePackageOperation::Preview { .. } => ProfilePackageStage::Previewed,
+                        ProfilePackageOperation::Export { .. } => ProfilePackageStage::Exported,
+                        _ => return Err(INVALID),
+                    };
+                    if package.operation != expected {
+                        return Err(INVALID);
+                    }
+                    match operation {
+                        ProfilePackageOperation::Preview { profile }
+                            if package.manifest.profile != *profile =>
+                        {
+                            return Err(INVALID);
+                        }
+                        ProfilePackageOperation::Export {
+                            profile,
+                            expected_manifest_sha256,
+                            ..
+                        } if package.manifest.profile != *profile
+                            || package.manifest_sha256 != *expected_manifest_sha256 =>
+                        {
+                            return Err(INVALID);
+                        }
+                        _ => {}
+                    }
+                    QueryResult::ProfilePackage(package)
+                }
+                (
+                    ProfileWorkOutput::Profile(record),
+                    ProfileWorkOperation::Package(ProfilePackageOperation::Import {
+                        profile, ..
+                    }),
+                ) => {
+                    record.validate()?;
+                    if record.reference() != *profile
+                        || self
+                            .profiles
+                            .records
+                            .iter()
+                            .any(|r| r.profile.id == profile.id)
+                    {
+                        return Err(INVALID);
+                    }
+                    staged.stage_profile_record(record.clone())?;
+                    QueryResult::ProfileSaved(record)
+                }
                 (ProfileWorkOutput::FirAsset(reference), ProfileWorkOperation::FirAsset { .. }) => {
                     reference.validate()?;
                     QueryResult::FirAsset(reference)
@@ -827,6 +969,10 @@ impl Session {
                     Some(QueryResult::Profile(r) | QueryResult::ProfileSaved(r)) => {
                         r.retained_capacity_bytes()?
                     }
+                    Some(QueryResult::ProfilePackage(package)) => {
+                        package.retained_capacity_bytes()?
+                    }
+                    Some(QueryResult::ProfilePackageIssue(_)) => size_of::<ProfilePackageIssue>(),
                     Some(QueryResult::Profiles(page)) => {
                         size_of::<ProfilePage>()
                             + page
