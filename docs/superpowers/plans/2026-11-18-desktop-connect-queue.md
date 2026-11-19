@@ -433,6 +433,38 @@ The failed attempt created no profile or package and required scoped process cle
 
 This native gate covers plain profile and graph objects.
 Measurement packages, uncertain writes and in-flight cancellation have separate workflow tests, without native parity claims.
-The theme images show the top profile viewport; package-panel screenshots remain pending.
+The plain gate's theme images show the top profile viewport.
+The later FIR checkpoint supplies package-panel screenshots.
 Saved correction details still need presentation polish.
 Diagnostics, networks, Mac windows, positive native association and full GUI parity remain incomplete.
+
+## Native FIR package checkpoint
+
+The exact `ff1cb536` source passes the FIR package gate with 176 actions and nine exact receipts.
+Fifty-one independent owner queries check the resulting state and records.
+An actual owner imports the public FIR fixture and exports all four original package objects.
+Every object requires an original-byte read and an explicit review mark.
+The default measurement refusal returns `redistribution_review_required` with `inspect_required`.
+A fresh preview and explicit measurement review permit the complete export.
+A distinct empty owner imports the exact saved record and rejects an occupied identity.
+All six GUI/consumer processes exit naturally zero.
+Both owners are freshly absent; their numeric exits remain unavailable.
+Both owners stay idle and muted, without a source, output or applied processing.
+The capture contains zero bytes and frames.
+
+Root viewed twelve opaque images across both themes and owners.
+The package overview and review panels are visible in their dedicated captures.
+Normal captures retain the actual scroll position; Dark captures retain the review position.
+See [the FIR package receipt](../../evidence/desktop/native-fir-packages-linux-20261119.json).
+
+The first attempt exported successfully, then exhausted its unchanged 600-second budget before completing captures and import.
+The harness now reuses one complete pre-Mark accessibility read instead of seven redundant observations.
+The actual-caller regression fails before the fix; all 95 pure checks pass afterward.
+The same reviewer approved that delta before the second native run.
+Both attempts and the original bytes remain retained.
+
+Source, products, tools and fixtures remain hash-bound and unchanged.
+The released runner also checks configuration equality.
+Its before-configuration hash has no separate archived artifact; independent verification records that limit.
+Native uncertain writes, in-flight cancellation, hardware and Mac windows remain separate gates.
+Saved correction details still need presentation polish.
