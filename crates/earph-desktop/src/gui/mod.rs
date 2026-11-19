@@ -7,6 +7,8 @@ mod dsp;
 mod graph_editor;
 mod host;
 mod output;
+mod package_files;
+mod packages;
 mod profile_files;
 mod profiles;
 mod queue;

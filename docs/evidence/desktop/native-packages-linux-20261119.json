@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-11-19",
+  "scope": "Plain package export/import with explicit reviews, refusal cases and manual/unsupported association checks",
+  "status": "pass",
+  "source": {
+    "base_commit": "66a0856eb006a5e74a4e04fd0907ab202e333cc1",
+    "dirty_precommit": true,
+    "files": 1813,
+    "checksum_text_manifest_sha256": "89dd763b103114dc7d29d26ca9ed54fdf6d702a0af036db301eef4b2eb95f32a",
+    "unchanged_during_canonical_and_native": true,
+    "post_check_changes": [
+      "this evidence document",
+      "desktop plan checkpoint",
+      "desktop state machine notes"
+    ]
+  },
+  "products": [
+    {
+      "artifact": "earph-engine",
+      "sha256": "921f352fd7d9b82b73febbbe777c5b941ef2ab575f52ab3ec95548c60a66179d"
+    },
+    {
+      "artifact": "earph-desktop",
+      "sha256": "1624e64387731a549bec0f566c3db4f3630845616be002726d5457ee10a152d0"
+    }
+  ],
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "passed": 1045,
+    "failed": 0,
+    "ignored": 5,
+    "groups": 119,
+    "log_sha256": "e750b55ef8c6b696fc5f919518b792b4bda46ddade4b3a642a2bc219862a6ceb"
+  },
+  "desktop_tests": {
+    "passed": 179,
+    "failed": 0,
+    "ignored": 0,
+    "groups": 26,
+    "log_sha256": "f9d4894700048f63340e5aafb6334812186d24c79a15cb58cd8f558766aadcad",
+    "strict_workspace_clippy_exit": 0
+  },
+  "native": {
+    "exit": 0,
+    "actions": 145,
+    "harness_sha256": "4290a06e7951e46e51fdd8c3ac2a63da7a2633cac63b78c9b3cb5e5752e0bc90",
+    "binding_sha256": "89503d825986aa27f2bce84570f467209039f02a57c2401380ad9cfe5552f29d",
+    "root_proof_sha256": "f6f8ada527540934751db765c55bcc2e0685c3ff416855afb8029a3ad82dabe6",
+    "root_visual_proof_sha256": "44d120293e15c87f97b56f5d8d9eadd2f02e8d5836d92fe0bd0be81f7b540fe7",
+    "gui_exits": [
+      0,
+      0,
+      0
+    ],
+    "consumer_exits": [
+      0,
+      0,
+      0
+    ],
+    "owners": 2,
+    "owner_numeric_exits": [
+      null,
+      null
+    ],
+    "owner_exit_limit": "The GUI owns child handles; fresh absence is verified.",
+    "owner_fresh_absence": true,
+    "owned_processes_remaining": 0,
+    "source_products_tools_fixtures_configuration_unchanged": true,
+    "unmute_actions": 0,
+    "capture": {
+      "bytes": 0,
+      "frames": 0,
+      "muted_throughout": true
+    },
+    "exact_receipts": [
+      {
+        "mode": "package-export",
+        "method": "profiles.create",
+        "status": "applied",
+        "sha256": "c286c906b47049eb53b9eaaa2de0c8fc7bb868834828f5e5b0a5976d9042c006",
+        "raw_reply_sha256": "692c766589f5bcf2e13ce4ebed55ad2c6863cfb044fddce01083380aa77332aa"
+      },
+      {
+        "mode": "package-export",
+        "method": "profiles.package_preview",
+        "status": "applied",
+        "sha256": "746387f67a760231b4ee77c20f3d96e53e0643fcbdec125a1a9def3fc8c8e7fa",
+        "raw_reply_sha256": "3ddf817c66a14509e50151e8cabbd35bec06d593f92b6b3916137e025ae32351"
+      },
+      {
+        "mode": "package-export",
+        "method": "profiles.export",
+        "status": "failed",
+        "sha256": "fdd9898c7ee1d06061fcc0b4ffad9c808d970d48b41638e3d60f0ac9c27abaf2",
+        "raw_reply_sha256": "802d1e1be9f1d46690477ee53625e234c4e3f901ebf8280dafaf5d9877ed8b1d"
+      },
+      {
+        "mode": "package-export",
+        "method": "profiles.package_preview",
+        "status": "applied",
+        "sha256": "6c3a9052e09fcf7b96c538c6fee4395d963206d5933c6cff1f9bd85e86d93422",
+        "raw_reply_sha256": "869ffb59a6ddb4660e301d72d93c58e01f0dc80831238d8762dc8a5f91348256"
+      },
+      {
+        "mode": "package-export",
+        "method": "profiles.export",
+        "status": "applied",
+        "sha256": "5d522f8066a130fcd10e49d1f0f3ad56c1044628641175adae3654c3ad2ba14b",
+        "raw_reply_sha256": "150ed67d7ea88e996279737995eed2b22a54f486ed2cb6d8acc664b836e1e9f0"
+      },
+      {
+        "mode": "package-export",
+        "method": "profiles.package_inspect",
+        "status": "applied",
+        "sha256": "3fb05d44f3900737c99760d2c970dd036a087b8c57d0939aba78720997ad24ee",
+        "raw_reply_sha256": "eb4e245589507a3fea31ecf3677369cada881aad3c54f474d1dca07351434c6b"
+      },
+      {
+        "mode": "package-import",
+        "method": "profiles.package_inspect",
+        "status": "applied",
+        "sha256": "f6e6d34afa6e8697a79631c08b9af0eef17edf1d80eac137f99aca8e7a07ca0e",
+        "raw_reply_sha256": "0dc90411f4348e57948882aad6270bf79fc24fd1f587675e6c97d1dc1ddc8c21"
+      },
+      {
+        "mode": "package-import",
+        "method": "profiles.import_package",
+        "status": "applied",
+        "sha256": "83d9410bc56e00d4c546b1482eb98f06aa44a67b1d2736db36f64f61cb97fc4d",
+        "raw_reply_sha256": "054563044f2246068c8ceb7a2f832a67f4586148feb85b898b52f5e1fda39095"
+      },
+      {
+        "mode": "package-import",
+        "method": "profiles.package_inspect",
+        "status": "applied",
+        "sha256": "2244f8e67a2ed8fecf86953ad5c0aba7800b2bad8f5bb4e545a7de614f81b1b5",
+        "raw_reply_sha256": "609ac17486c41078051728a5a8965dead90c160977346f3874541fb7973e5ba2"
+      },
+      {
+        "mode": "package-import",
+        "method": "profiles.import_package",
+        "status": "rejected",
+        "sha256": "9aa70b0b498feda2a8222bbc0185500432466da251428785a0780eafe503e8ac",
+        "raw_reply_sha256": "81cf47f99ccb491e4f63697da3cd1d3ba5642bb36f27b5c713e5fbf4653afaf1"
+      }
+    ],
+    "independent_owner_queries": 53,
+    "package_manifest_sha256": "837de646cfad0a891b419c7da3f308cbc4c6e4e3f9bc4d2273ae09be29f751fc",
+    "images": [
+      {
+        "mode": "package-export",
+        "theme": "light",
+        "sha256": "75ec51e5183f77527660fc14732ab90d6d634422ad7bfcc33a103b58d809c707",
+        "opaque": true,
+        "root_viewed": true,
+        "scope": "Actual owned native X11 window; top Profiles / DSP viewport"
+      },
+      {
+        "mode": "package-export",
+        "theme": "dark",
+        "sha256": "fedbae0f29b6a550addf3ec818f6e9658b79cc210aeb9e11976ebe7e114dc9b8",
+        "opaque": true,
+        "root_viewed": true,
+        "scope": "Actual owned native X11 window; top Profiles / DSP viewport"
+      },
+      {
+        "mode": "package-import",
+        "theme": "light",
+        "sha256": "55c33e563fe244a7f682f569e0ee52d9f2823fc538bce611a2f4481771bab1ea",
+        "opaque": true,
+        "root_viewed": true,
+        "scope": "Actual owned native X11 window; top Profiles / DSP viewport"
+      },
+      {
+        "mode": "package-import",
+        "theme": "dark",
+        "sha256": "859c0837156875a2a4923c94ab370afb77ac3277123eb6db41cd17153684b4cf",
+        "opaque": true,
+        "root_viewed": true,
+        "scope": "Actual owned native X11 window; top Profiles / DSP viewport"
+      }
+    ],
+    "private_corpus_used": false,
+    "physical_output_used": false
+  },
+  "review": {
+    "source": "f675e52a2d1867e640529167070f8e0ce86d0324dce43c1def0c5cc893a322eb",
+    "test_readiness": "0ed2f240c5db87b6c0f85f57e8c97eb8ac8b6d5c13ff66316c4100c38e137c4d",
+    "storage": "83fd4daa232b80ebfcd307fb859ceccd06266e80ab0556e3a4c256321a0f6fc2",
+    "harness_findings_reconciliation_sha256": "a18de74dd825681083277ff74c4dfbf3c6ce835f47f52e263b13073457c4a47c",
+    "navigation_reconciliation_sha256": "8bdcf6ee38033b2a3399dc49bef863428e9566db6ea9b8350bf25ebef8c68034",
+    "material_findings": 0
+  },
+  "verified": [
+    "Every original profile and graph object requires explicit byte review and marking.",
+    "Destination changes reset all local reviews and acknowledgments.",
+    "Occupied export refuses with destination_exists and inspect_required while preserving its sentinel.",
+    "An actual owner produces the exported package and inspects its captured destination.",
+    "A distinct empty owner imports the exact saved record without applying processing.",
+    "Occupied import refuses with identity_collision and unchanged filesystem state.",
+    "Manual resolution and unavailable ALSA binding remain separate from opened native identity."
+  ],
+  "retained_attempts": [
+    {
+      "attempt": 1,
+      "status": "failed",
+      "cause": "The harness read a package control immediately after its tab action, before observing the panel.",
+      "profile_package_mutations": 0,
+      "source_products_tools_fixtures_configuration_unchanged": true,
+      "owned_processes_remaining": 0,
+      "natural_export_success": false
+    },
+    {
+      "attempt": 2,
+      "status": "passed",
+      "whole_owner_seconds": 600,
+      "close_smoke_seconds": 180,
+      "product_and_per_action_deadlines_unchanged": true
+    }
+  ],
+  "limits": [
+    "No measurement or correction package",
+    "No native uncertain-export or inflight-cancellation claim",
+    "No positive native association or acoustic qualification",
+    "Theme images cover the top Profiles / DSP viewport; package-panel layout still needs direct screenshots.",
+    "No positive Mac association, Mac windows, Wayland, hardware, acoustics or full GUI parity claim."
+  ]
+}

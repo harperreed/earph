@@ -23,6 +23,7 @@ pub struct Proxy {
     pub frames: Arc<Mutex<Vec<Vec<u8>>>>,
     stop: Arc<AtomicBool>,
     gate: Arc<(Mutex<bool>, Condvar)>,
+    terminal_held: Arc<AtomicBool>,
     pub entered: Receiver<()>,
     join: Option<JoinHandle<()>>,
 }
@@ -45,6 +46,12 @@ impl Proxy {
     pub fn drop_first_correction_import(owner: PathBuf) -> Self {
         Self::start(owner, Some("profiles.import_correction"), false)
     }
+    pub fn drop_first_package_export(owner: PathBuf) -> Self {
+        Self::start(owner, Some("profiles.export"), false)
+    }
+    pub fn package_export_recovery(owner: PathBuf) -> Self {
+        Self::configured(owner, Some("profiles.export"), false, false, true)
+    }
     pub fn drop_first_graph_prepare(owner: PathBuf) -> Self {
         Self::start(owner, Some("graph.prepare"), false)
     }
@@ -52,16 +59,17 @@ impl Proxy {
         Self::start(owner, None, true)
     }
     pub fn hold_first_queue_reply(owner: PathBuf) -> Self {
-        Self::configured(owner, None, false, true)
+        Self::configured(owner, None, false, true, false)
     }
     fn start(owner: PathBuf, drop_method: Option<&'static str>, hold_capabilities: bool) -> Self {
-        Self::configured(owner, drop_method, hold_capabilities, false)
+        Self::configured(owner, drop_method, hold_capabilities, false, false)
     }
     fn configured(
         owner: PathBuf,
         drop_method: Option<&'static str>,
         hold_capabilities: bool,
         hold_queue_reply: bool,
+        package_recovery: bool,
     ) -> Self {
         let runtime = PathBuf::from("/tmp").join(unique());
         fs::create_dir(&runtime).unwrap();
@@ -86,6 +94,8 @@ impl Proxy {
         let stop = Arc::new(AtomicBool::new(false));
         let frames = Arc::new(Mutex::new(Vec::new()));
         let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let terminal_held = Arc::new(AtomicBool::new(false));
+        let holding_terminal = terminal_held.clone();
         let (entered_tx, entered) = mpsc::sync_channel(1);
         let stopping = stop.clone();
         let captured = frames.clone();
@@ -95,6 +105,7 @@ impl Proxy {
             let first_append = Arc::new(AtomicBool::new(drop_method.is_some()));
             let first_capabilities = Arc::new(AtomicBool::new(hold_capabilities));
             let first_queue_reply = Arc::new(AtomicBool::new(hold_queue_reply));
+            let accepted_export = Arc::new(Mutex::new(None));
             let mut handlers = Vec::new();
             while !stopping.load(Ordering::Acquire) {
                 match listener.accept() {
@@ -106,6 +117,8 @@ impl Proxy {
                         let first_append = first_append.clone();
                         let first_capabilities = first_capabilities.clone();
                         let first_queue_reply = first_queue_reply.clone();
+                        let accepted_export = accepted_export.clone();
+                        let terminal_held = holding_terminal.clone();
                         let retained = retained.clone();
                         handlers.push(thread::spawn(move || {
                             stream
@@ -136,7 +149,7 @@ impl Proxy {
                                     })
                                     .unwrap();
                             }
-                            let reply = earph_engine::request(&owner, &bytes).unwrap();
+                            let mut reply = earph_engine::request(&owner, &bytes).unwrap();
                             fs::write(retained.join(format!("reply-{index}.json")), &reply)
                                 .unwrap();
                             if method == "queue.get"
@@ -154,7 +167,31 @@ impl Proxy {
                             if Some(method) == drop_method
                                 && first_append.swap(false, Ordering::AcqRel)
                             {
+                                if package_recovery && method == "profiles.export" {
+                                    let actual: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+                                    assert_eq!(actual["receipt"]["status"], "accepted", "recovery fixture requires the actual owner's initial Accepted reply");
+                                    *accepted_export.lock().unwrap() = Some(reply);
+                                }
                                 return;
+                            }
+                            if package_recovery && method == "profiles.export" {
+                                if let Some(accepted) = accepted_export.lock().unwrap().take() {
+                                    // Delay the real initial Accepted frame once; never synthesize a receipt.
+                                    let actual: serde_json::Value = serde_json::from_slice(&accepted).unwrap();
+                                    assert_eq!(actual["receipt"]["request_id"], value["request_id"]);
+                                    reply = accepted;
+                                } else {
+                                    let actual: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+                                    if actual["receipt"]["status"] != "accepted" {
+                                        terminal_held.store(true, Ordering::Release);
+                                        entered.send(()).unwrap();
+                                        let (lock, changed) = &*waiting;
+                                        let guard = lock.lock().unwrap();
+                                        let _ = changed.wait_timeout_while(guard, Duration::from_secs(10), |released| !*released).unwrap();
+                                        terminal_held.store(false, Ordering::Release);
+                                    }
+                                }
+                                fs::write(retained.join(format!("delivered-reply-{index}.json")), &reply).unwrap();
                             }
                             let _ = stream
                                 .write_all(&(reply.len() as u32).to_be_bytes())
@@ -176,6 +213,7 @@ impl Proxy {
             frames,
             stop,
             gate,
+            terminal_held,
             entered,
             join: Some(join),
         }
@@ -183,6 +221,9 @@ impl Proxy {
     pub fn release(&self) {
         *self.gate.0.lock().unwrap() = true;
         self.gate.1.notify_all();
+    }
+    pub fn terminal_held(&self) -> bool {
+        self.terminal_held.load(Ordering::Acquire)
     }
 }
 impl Drop for Proxy {

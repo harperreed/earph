@@ -1,5 +1,7 @@
 # Native Connect and Queue
 
+Latest: [native package checkpoint](#native-package-checkpoint).
+
 Doctor Biz approved the GUI contract retained under `target/desktop-gui-contract`.
 Root released `1bab` on `feat/desktop-gui` at `9bc97128b96315a7e599cad95e4b3e207571ba54`.
 Root added pinned eframe 0.37.0 with AccessKit, default fonts, Glow, Wayland, and X11.
@@ -397,3 +399,40 @@ Both attempts remain retained; the first attempt's missing error bytes remain mi
 Profile summaries now show plain intent values and canonical hashes.
 The saved correction detail disclosure still contains debug text and needs polish before release.
 Packages, diagnostics, networks, Mac windows and full GUI parity remain incomplete.
+
+## Native package checkpoint
+
+The controller previews and inspects immutable package candidates through the owner.
+Each original object requires an explicit byte read and review mark.
+Exact-candidate and privacy acknowledgments start false; measurement redistribution starts refused.
+Destination edits clear object reviews, displayed bytes and acknowledgments.
+One joinable local worker serves package and correction file reads.
+Captured owner, profile, manifest, source bytes and draft generation fence publication.
+Uncertain writes retain their captured destination and require settlement before explicit inspection.
+Manual profile resolution stays separate from exact opened-device association.
+ALSA binding remains unavailable without that native identity contract.
+
+The frozen Linux source passes 1045 canonical tests, with zero failures and five existing skips.
+The complete desktop package passes 179 tests; formatting, strict workspace Clippy and independent review pass.
+The native package gate passes 145 actions, ten exact receipts and 53 independent owner queries.
+An actual owner exports a plain profile; a distinct empty owner imports its exact saved record.
+Occupied export preserves its sentinel and returns destination_exists with inspect_required.
+Occupied import preserves the record and returns identity_collision with unchanged filesystem state.
+All three GUI/consumer pairs exit naturally zero; both owners are freshly absent.
+Numeric owner exits remain unknown because the GUI owns the child handles.
+Source, executables, tools, fixtures and configuration stay unchanged throughout qualification.
+Both owners remain idle and muted, with no source, output or processing application; capture contains zero bytes.
+Root inspected all four opaque Light/Dark images.
+See [the package receipt](../../evidence/desktop/native-packages-linux-20261119.json).
+
+The first attempt read a package control before observing the newly selected panel.
+The repaired harness waits within its existing read bound after one tab action.
+Its regression fails before the fix, and all 85 pure harness checks pass afterward.
+Both attempts and the same reviewer's reconciliations remain retained.
+The failed attempt created no profile or package and required scoped process cleanup.
+
+This native gate covers plain profile and graph objects.
+Measurement packages, uncertain writes and in-flight cancellation have separate workflow tests, without native parity claims.
+The theme images show the top profile viewport; package-panel screenshots remain pending.
+Saved correction details still need presentation polish.
+Diagnostics, networks, Mac windows, positive native association and full GUI parity remain incomplete.

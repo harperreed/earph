@@ -38,7 +38,9 @@ fn until(gui: &mut GuiController, predicate: impl Fn(&GuiController) -> bool) {
     }
 }
 fn profile(gui: &mut GuiController, command: Command) {
-    until(gui, |g| !g.busy() && g.control_edit_available());
+    until(gui, |g| {
+        !g.busy() && g.control_edit_available() && !g.queue_stale()
+    });
     gui.handle(UiIntent::ProfileAction {
         basis: Arc::new(gui.state().unwrap().clone()),
         command,
@@ -46,7 +48,9 @@ fn profile(gui: &mut GuiController, command: Command) {
     assert!(gui.error().is_none(), "{:?}", gui.error());
 }
 fn control(gui: &mut GuiController, command: Command) {
-    until(gui, |g| !g.busy() && g.control_edit_available());
+    until(gui, |g| {
+        !g.busy() && g.control_edit_available() && !g.queue_stale()
+    });
     gui.handle(UiIntent::ControlEdit {
         basis: Arc::new(gui.state().unwrap().clone()),
         command,

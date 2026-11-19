@@ -559,7 +559,7 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
         app.controller.handle(UiIntent::InvalidateCorrection);
     }
     correction::show(ui, app);
-    ui.label("Packages and associations: unavailable in this desktop unit");
+    super::packages::show(ui, app);
     if let Some(command) = command {
         action(app, command);
     }

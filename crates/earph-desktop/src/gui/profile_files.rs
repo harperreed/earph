@@ -103,34 +103,59 @@ impl CorrectionPreview {
 /// One bounded, joinable read/parse job. Cancel never claims the thread has retired.
 #[derive(Debug)]
 pub struct CorrectionWorker {
+    worker: LocalFileWorker<CorrectionPreview>,
+}
+#[derive(Debug)]
+pub(super) struct LocalFileWorker<T> {
     cancel: Arc<AtomicBool>,
-    join: Option<JoinHandle<Result<CorrectionPreview, String>>>,
+    join: Option<JoinHandle<Result<T, String>>>,
 }
 impl CorrectionWorker {
     pub fn start(request: CorrectionPreviewRequest) -> Result<Self, String> {
+        Ok(Self {
+            worker: LocalFileWorker::start("correction preview", move |_| preview(request))?,
+        })
+    }
+    pub fn cancel(&self) {
+        self.worker.cancel();
+    }
+    pub fn retired(&self) -> bool {
+        self.worker.retired()
+    }
+    pub fn poll(&mut self) -> Option<Result<CorrectionPreview, String>> {
+        self.worker.poll()
+    }
+}
+impl<T: Send + 'static> LocalFileWorker<T> {
+    pub(super) fn start(
+        name: &'static str,
+        work: impl FnOnce(&AtomicBool) -> Result<T, String> + Send + 'static,
+    ) -> Result<Self, String> {
         let cancel = Arc::new(AtomicBool::new(false));
         let token = cancel.clone();
         let join = thread::Builder::new()
-            .name("earph-correction-preview".into())
+            .name(format!("earph-{name}"))
             .spawn(move || {
                 check(&token)?;
-                let result = preview(request);
+                let result = work(&token);
                 check(&token)?;
                 result
             })
-            .map_err(|e| format!("Cannot start correction preview: {e}"))?;
+            .map_err(|e| format!("Cannot start {name}: {e}"))?;
         Ok(Self {
             cancel,
             join: Some(join),
         })
     }
-    pub fn cancel(&self) {
+}
+impl<T> LocalFileWorker<T> {
+    pub(super) fn cancel(&self) {
         self.cancel.store(true, Ordering::Release);
     }
-    pub fn retired(&self) -> bool {
+    pub(super) fn retired(&self) -> bool {
         self.join.is_none()
     }
-    pub fn poll(&mut self) -> Option<Result<CorrectionPreview, String>> {
+    pub(super) fn poll(&mut self) -> Option<Result<T, String>> {
         if !self.join.as_ref().is_some_and(|j| j.is_finished()) {
             return None;
         }
@@ -139,15 +164,15 @@ impl CorrectionWorker {
             .take()
             .unwrap()
             .join()
-            .unwrap_or_else(|_| Err("Correction preview worker panicked".into()));
+            .unwrap_or_else(|_| Err("Local file worker panicked".into()));
         Some(if self.cancel.load(Ordering::Acquire) {
-            Err("Correction preview canceled; worker retired".into())
+            Err("Local file work canceled; worker retired".into())
         } else {
             result
         })
     }
 }
-impl Drop for CorrectionWorker {
+impl<T> Drop for LocalFileWorker<T> {
     fn drop(&mut self) {
         self.cancel();
         if let Some(join) = self.join.take() {
@@ -155,9 +180,9 @@ impl Drop for CorrectionWorker {
         }
     }
 }
-fn check(cancel: &AtomicBool) -> Result<(), String> {
+pub(super) fn check(cancel: &AtomicBool) -> Result<(), String> {
     if cancel.load(Ordering::Acquire) {
-        Err("Correction preview canceled; worker retired".into())
+        Err("Local file work canceled; worker retired".into())
     } else {
         Ok(())
     }

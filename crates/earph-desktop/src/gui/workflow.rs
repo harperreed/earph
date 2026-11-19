@@ -2,6 +2,11 @@
 // ABOUTME: Fences queue pages and captured edits without repairing stale targets.
 use super::profile_files::{CorrectionPreview, CorrectionPreviewRequest, CorrectionWorker};
 use super::{HostStatus, host::OwnerHost, request_id};
+use super::{
+    package_files::{self, PackageRead},
+    packages::Review as PackageReview,
+    profile_files::LocalFileWorker,
+};
 use crate::{
     CapabilitiesView, DeliveryFailure, DesktopClient, DeviceQueryResultView, DispatchError,
     GraphDiagnosticView, GraphInspectionView, GraphPreparedView, GraphPreviewView, Lane,
@@ -62,6 +67,21 @@ pub enum UiIntent {
         owner: OwnerId,
         asset: earph_core::dsp_nodes::FirAssetReference,
     },
+    PackageInputs {
+        directory: String,
+        destination: String,
+    },
+    ReadPackageObject {
+        index: usize,
+    },
+    MarkPackageObjectReviewed,
+    PackageAcknowledgments {
+        exact: bool,
+        private: bool,
+        measurements: bool,
+    },
+    ExportReviewedPackage,
+    CancelLocalPackageReview,
     DiscardPreparedGraph,
     Mute,
     Stop,
@@ -123,17 +143,49 @@ pub(super) struct ProfileViews {
     pub prepared: Option<ObservedProfile<GraphPreparedView>>,
     pub diagnostic: Option<(RequestId, Arc<GraphDiagnosticView>)>,
     pub fir_asset: Option<ObservedProfile<Arc<earph_core::dsp_nodes::FirAssetReference>>>,
+    pub package: Option<ObservedProfile<Arc<crate::ProfilePackageResultView>>>,
+    pub package_issue: Option<(RequestId, Arc<crate::ProfilePackageIssueView>)>,
+    pub bound: Option<ObservedProfile<Arc<earph_core::profiles::ProfileAssociation>>>,
 }
-struct LocalCorrection {
+enum FileWorker {
+    Correction(CorrectionWorker),
+    Package(LocalFileWorker<PackageRead>, Option<Command>),
+}
+enum FileResult {
+    Correction(Result<CorrectionPreview, String>),
+    Package(Result<PackageRead, String>, Option<Command>),
+}
+impl FileWorker {
+    fn cancel(&self) {
+        match self {
+            Self::Correction(worker) => worker.cancel(),
+            Self::Package(worker, _) => worker.cancel(),
+        }
+    }
+    fn poll(&mut self) -> Option<FileResult> {
+        match self {
+            Self::Correction(worker) => worker.poll().map(FileResult::Correction),
+            Self::Package(worker, command) => worker
+                .poll()
+                .map(|result| FileResult::Package(result, command.take())),
+        }
+    }
+}
+struct LocalWork {
     basis: Arc<StateView>,
     draft_epoch: u64,
-    worker: CorrectionWorker,
+    worker: FileWorker,
     canceled: bool,
 }
 struct CapturedCorrection {
     basis: Arc<StateView>,
     draft_epoch: u64,
     value: CorrectionPreview,
+}
+struct UnresolvedPackageWrite {
+    request: RequestId,
+    directory: String,
+    issue: Arc<crate::ProfilePackageIssueView>,
 }
 struct ProfileRead {
     basis: Arc<StateView>,
@@ -143,6 +195,13 @@ struct ProfileRead {
     ids: Vec<RequestId>,
 }
 enum Task {
+    PackageFiles {
+        basis: Arc<StateView>,
+        manifest: earph_core::profiles::ProfileObjectHash,
+        index: Option<usize>,
+        operation: Option<Command>,
+        draft_epoch: u64,
+    },
     LocalPreview {
         basis: Arc<StateView>,
         request: CorrectionPreviewRequest,
@@ -184,6 +243,7 @@ impl Task {
                 | Self::Mutation { .. }
                 | Self::Discovery { .. }
                 | Self::LocalPreview { .. }
+                | Self::PackageFiles { .. }
         ) || match self {
             Self::ProfileBefore { foreground, .. } => *foreground,
             Self::ProfileResult(read) | Self::ProfileAfter { read, .. } => read.foreground,
@@ -222,7 +282,7 @@ pub struct GuiController {
     runtime: Option<String>,
     pub(super) profiles: ProfileViews,
     draft_epoch: u64,
-    local_correction: Option<LocalCorrection>,
+    local_work: Option<LocalWork>,
     local_preview: Option<CapturedCorrection>,
     local_status: String,
     correction_review: Option<(
@@ -230,6 +290,8 @@ pub struct GuiController {
         earph_core::profile_control::ProfileCatalogReference,
     )>,
     fir_review: Option<(Arc<StateView>, earph_core::dsp_nodes::FirAssetReference)>,
+    pub(super) package_review: PackageReview,
+    package_inspect_required: Option<UnresolvedPackageWrite>,
 }
 impl Default for GuiController {
     fn default() -> Self {
@@ -269,17 +331,305 @@ impl GuiController {
             runtime: None,
             profiles: ProfileViews::default(),
             draft_epoch: 0,
-            local_correction: None,
+            local_work: None,
             local_preview: None,
             local_status: "No local correction worker".into(),
             correction_review: None,
             fir_review: None,
+            package_review: PackageReview::default(),
+            package_inspect_required: None,
         }
     }
     pub fn state(&self) -> Option<&StateView> {
         self.model()
             .latest_state()
             .map(|observed| observed.state.as_ref())
+    }
+    pub fn package_candidate(&self) -> Option<&crate::ProfilePackageResultView> {
+        self.profiles
+            .package
+            .as_ref()
+            .filter(|p| {
+                self.state()
+                    .is_some_and(|s| s.owner_id == p.basis.owner_id && s.zone_id == p.basis.zone_id)
+            })
+            .map(|p| p.value.as_ref())
+    }
+    pub fn package_files_pending(&self) -> bool {
+        self.local_work
+            .as_ref()
+            .is_some_and(|local| matches!(local.worker, FileWorker::Package(..)))
+            || matches!(self.waiting_edit, Some(Task::PackageFiles { .. }))
+    }
+    pub fn unresolved_package_write(
+        &self,
+    ) -> Option<(&RequestId, &str, &crate::ProfilePackageIssueView)> {
+        self.package_inspect_required.as_ref().map(|pending| {
+            (
+                &pending.request,
+                pending.directory.as_str(),
+                pending.issue.as_ref(),
+            )
+        })
+    }
+    pub fn package_export_available(&self) -> bool {
+        self.control_edit_available()
+            && self.package_candidate().is_some_and(|candidate| {
+                self.package_review
+                    .export(candidate)
+                    .is_ok_and(|command| self.validate_package_action(&command).is_ok())
+            })
+    }
+    pub fn package_import_available(&self, directory: &str) -> bool {
+        self.control_edit_available()
+            && self.package_candidate().is_some_and(|candidate| {
+                self.validate_package_action(&Command::ProfilesImportPackage {
+                    directory: directory.into(),
+                    expected_manifest_sha256: candidate.manifest_sha256,
+                    profile: candidate.manifest.profile.clone(),
+                })
+                .is_ok()
+            })
+    }
+    fn retain_package_issue(
+        &mut self,
+        id: RequestId,
+        command: &Command,
+        issue: Arc<crate::ProfilePackageIssueView>,
+    ) {
+        if self
+            .profiles
+            .package_issue
+            .as_ref()
+            .is_some_and(|(previous, _)| previous == &id)
+        {
+            return;
+        }
+        self.invalidate_packages();
+        if issue.filesystem_state == crate::PackageFilesystemStateView::InspectRequired {
+            let directory = match command {
+                Command::ProfilesPackageInspect { directory }
+                | Command::ProfilesImportPackage { directory, .. }
+                | Command::ProfilesExport { directory, .. } => Some(directory.clone()),
+                _ => None,
+            };
+            if let Some(directory) = directory {
+                self.package_inspect_required = Some(UnresolvedPackageWrite {
+                    request: id.clone(),
+                    directory,
+                    issue: issue.clone(),
+                });
+            }
+        }
+        self.profiles.package_issue = Some((id, issue));
+    }
+    fn observe_package_issues(&mut self) {
+        let owner = self.state().and_then(|state| state.owner_id.as_ref());
+        let issue = self.model().records().iter().rev().find_map(|record| {
+            if record.owner_changed || record.request.envelope().owner_id.as_ref() != owner {
+                return None;
+            }
+            let Some(Ok(Reply::Receipt(receipt))) = &record.outcome else {
+                return None;
+            };
+            if let Some(ResultView::ProfilePackageIssue(issue)) = &receipt.result {
+                Some((
+                    record.request.envelope().request_id.clone(),
+                    record.request.envelope().payload.clone(),
+                    issue.clone(),
+                ))
+            } else {
+                None
+            }
+        });
+        if let Some((id, command, issue)) = issue {
+            self.retain_package_issue(id, &command, issue);
+        }
+    }
+    pub fn association_available(&self) -> bool {
+        self.control_edit_available()
+            && self
+                .capabilities()
+                .zip(self.state())
+                .is_some_and(|(caps, state)| {
+                    let identity = state
+                        .playback
+                        .as_ref()
+                        .and_then(|p| p.backend.as_ref())
+                        .and_then(|b| b.device_identity_sha256);
+                    let backend = state
+                        .playback
+                        .as_ref()
+                        .and_then(|p| p.backend.as_ref())
+                        .map(|b| b.backend);
+                    caps.profiles.exact_associations
+                        && identity.is_some()
+                        && state.output.as_ref().is_some_and(|output| {
+                            backend == Some(output.backend)
+                                && caps
+                                    .profiles
+                                    .exact_association_backends
+                                    .contains(&output.backend)
+                        })
+                })
+    }
+    fn invalidate_packages(&mut self) {
+        self.package_review.reset();
+        if matches!(self.waiting_edit, Some(Task::PackageFiles { .. })) {
+            self.waiting_edit = None;
+        }
+        if let Some(local) = self.local_work.as_mut()
+            && matches!(local.worker, FileWorker::Package(..))
+        {
+            local.canceled = true;
+            local.worker.cancel();
+        }
+    }
+    fn package_files(
+        &mut self,
+        index: Option<usize>,
+        operation: Option<Command>,
+    ) -> Result<(), String> {
+        if !self.control_edit_available() {
+            return Err("A foreground action is waiting, pending, or uncertain".into());
+        }
+        let candidate = self
+            .package_candidate()
+            .ok_or("Inspect or preview an exact package first")?;
+        let task = Task::PackageFiles {
+            basis: Arc::new(self.state().ok_or("Observe an owner first")?.clone()),
+            manifest: candidate.manifest_sha256,
+            index,
+            operation,
+            draft_epoch: self.draft_epoch,
+        };
+        if self.pending.is_some() {
+            self.waiting_edit = Some(task);
+            Ok(())
+        } else {
+            self.start_package_files(task)
+        }
+    }
+    fn start_package_files(&mut self, task: Task) -> Result<(), String> {
+        let Task::PackageFiles {
+            basis,
+            manifest,
+            index,
+            operation,
+            draft_epoch,
+        } = task
+        else {
+            return Err("Package file capture unavailable".into());
+        };
+        if self.local_work.is_some()
+            || draft_epoch != self.draft_epoch
+            || self
+                .state()
+                .is_none_or(|state| !same_context(&basis, state))
+        {
+            return Err("Package review context changed before reading; review again".into());
+        }
+        let candidate = self
+            .package_candidate()
+            .filter(|c| c.manifest_sha256 == manifest)
+            .ok_or("Package candidate changed before reading")?;
+        let worker = match (index, &operation) {
+            (Some(index), None) => {
+                let source = candidate
+                    .review_sources
+                    .get(index)
+                    .ok_or("Select an exact package object")?
+                    .clone();
+                self.package_review.exact = false;
+                self.package_review.private = false;
+                self.package_review.measurements = false;
+                self.package_review
+                    .read
+                    .retain(|object| object != &source.object);
+                self.package_review.displayed = None;
+                package_files::object(source)?
+            }
+            (None, Some(command)) => {
+                self.validate_package_action(command)?;
+                package_files::verify(candidate.review_sources.clone())?
+            }
+            _ => return Err("Invalid package file action capture".into()),
+        };
+        self.local_work = Some(LocalWork {
+            basis,
+            draft_epoch,
+            worker: FileWorker::Package(worker, operation),
+            canceled: false,
+        });
+        self.local_status = "Reading exact package bytes; local worker running".into();
+        Ok(())
+    }
+    fn validate_package_action(&self, command: &Command) -> Result<(), String> {
+        use crate::ProfilePackageStageView;
+        match command {
+            Command::ProfilesImportPackage {
+                directory,
+                expected_manifest_sha256,
+                profile,
+            } => {
+                let observed = self
+                    .profiles
+                    .package
+                    .as_ref()
+                    .ok_or("Inspect the exact package directory first")?;
+                let candidate = self
+                    .package_candidate()
+                    .ok_or("Package owner changed; inspect again")?;
+                if !matches!(&observed.command, Command::ProfilesPackageInspect { directory: captured } if captured == directory)
+                    || candidate.operation != ProfilePackageStageView::Inspected
+                    || candidate.manifest_sha256 != *expected_manifest_sha256
+                    || &candidate.manifest.profile != profile
+                    || !self.package_review.exact
+                    || !self.package_review.all_read(candidate)
+                    || self
+                        .package_inspect_required
+                        .as_ref()
+                        .is_some_and(|pending| &pending.directory == directory)
+                {
+                    return Err("Import requires the exact inspected directory, manifest, reference, and reviewed original bytes".into());
+                }
+            }
+            Command::ProfilesExport { directory, .. } => {
+                let candidate = self
+                    .package_candidate()
+                    .ok_or("Preview the exact saved profile before export")?;
+                if self.package_review.export(candidate)? != *command
+                    || self
+                        .package_inspect_required
+                        .as_ref()
+                        .is_some_and(|pending| &pending.directory == directory)
+                {
+                    return Err("Package review, destination, or filesystem facts changed; inspect and review again".into());
+                }
+            }
+            Command::ProfilesBind {
+                id,
+                expected_profile_revision,
+                profile_sha256,
+                expected_device_epoch,
+            } => {
+                let reference = earph_core::profile_control::ProfileCatalogReference {
+                    id: id.clone(),
+                    revision: *expected_profile_revision,
+                    profile_sha256: *profile_sha256,
+                };
+                if !self.association_available()
+                    || !self.profile_review_available(&reference)
+                    || self
+                        .state()
+                        .is_none_or(|s| s.device_epoch != *expected_device_epoch)
+                {
+                    return Err("Exact binding requires a supported actual opened identity, exact saved reference, and current device epoch".into());
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
     pub fn correction_preview(&self) -> Option<&CorrectionPreview> {
         self.local_preview.as_ref().map(|capture| &capture.value)
@@ -293,7 +643,9 @@ impl GuiController {
         })
     }
     pub fn local_correction_pending(&self) -> bool {
-        self.local_correction.is_some()
+        self.local_work
+            .as_ref()
+            .is_some_and(|local| matches!(local.worker, FileWorker::Correction(_)))
             || matches!(self.waiting_edit, Some(Task::LocalPreview { .. }))
     }
     pub fn local_correction_status(&self) -> &str {
@@ -333,6 +685,7 @@ impl GuiController {
         })
     }
     fn invalidate_correction(&mut self) {
+        self.invalidate_packages();
         self.local_preview = None;
         self.correction_review = None;
         self.fir_review = None;
@@ -347,10 +700,10 @@ impl GuiController {
         {
             *task = Task::Before;
         }
-        if let Some(local) = self.local_correction.as_mut() {
+        if let Some(local) = self.local_work.as_mut() {
             local.worker.cancel();
             local.canceled = true;
-            self.local_status = "Correction preview cancellation requested; worker retiring".into();
+            self.local_status = "Local file cancellation requested; worker retiring".into();
         }
     }
     fn start_local(&mut self, task: Task) -> Result<(), String> {
@@ -362,7 +715,7 @@ impl GuiController {
         else {
             return Err("Missing local correction capture".into());
         };
-        if self.local_correction.is_some()
+        if self.local_work.is_some()
             || draft_epoch != self.draft_epoch
             || self.state().is_none_or(|s| !same_context(&basis, s))
         {
@@ -370,10 +723,10 @@ impl GuiController {
                 "Correction capture changed before preview; review and submit again".into(),
             );
         }
-        self.local_correction = Some(LocalCorrection {
+        self.local_work = Some(LocalWork {
             basis,
             draft_epoch,
-            worker: CorrectionWorker::start(request)?,
+            worker: FileWorker::Correction(CorrectionWorker::start(request)?),
             canceled: false,
         });
         self.local_status = "Reading and parsing correction source; worker running".into();
@@ -381,31 +734,50 @@ impl GuiController {
     }
     fn poll_local(&mut self) {
         let Some(result) = self
-            .local_correction
+            .local_work
             .as_mut()
             .and_then(|local| local.worker.poll())
         else {
             return;
         };
-        let local = self.local_correction.take().unwrap();
+        let local = self.local_work.take().unwrap();
         if local.canceled
             || local.draft_epoch != self.draft_epoch
             || !self.connected()
             || self.state().is_none_or(|s| !same_context(&local.basis, s))
         {
-            self.local_status = "Correction preview discarded; worker retired".into();
+            self.local_status = "Local file result discarded; worker retired".into();
             return;
         }
-        self.local_status = "Correction preview worker retired".into();
+        self.local_status = "Local file worker retired".into();
         match result {
-            Ok(preview) => {
+            FileResult::Correction(Ok(preview)) => {
                 self.local_preview = Some(CapturedCorrection {
                     basis: local.basis,
                     draft_epoch: local.draft_epoch,
                     value: preview,
                 });
             }
-            Err(error) => self.error = Some(error),
+            FileResult::Correction(Err(error)) => self.error = Some(error),
+            FileResult::Package(Ok(PackageRead::Object(bytes)), _) => {
+                self.package_review.displayed = Some(*bytes)
+            }
+            FileResult::Package(Ok(PackageRead::Verified), Some(command)) => {
+                if let Err(error) = self
+                    .validate_package_action(&command)
+                    .and_then(|_| self.capture(local.basis, command))
+                {
+                    self.package_review.reset();
+                    self.error = Some(error);
+                }
+            }
+            FileResult::Package(Ok(PackageRead::Verified), None) => {
+                self.error = Some("Verified package action capture unavailable".into())
+            }
+            FileResult::Package(Err(error), _) => {
+                self.package_review.reset();
+                self.error = Some(error);
+            }
         }
     }
     fn validate_correction_action(
@@ -608,6 +980,26 @@ impl GuiController {
                 .ok_or("Profile action basis unavailable")?
                 .clone(),
         );
+        if let ResultView::ProfileBound(association) = &result {
+            let output = basis
+                .output
+                .as_ref()
+                .ok_or("Association result lacks its opened output context")?;
+            let backend = basis
+                .playback
+                .as_ref()
+                .and_then(|p| p.backend.as_ref())
+                .ok_or("Association result lacks its actual opened identity")?;
+            if association.backend != output.backend
+                || association.route != output.route
+                || backend.backend != output.backend
+                || Some(association.device_identity_sha256) != backend.device_identity_sha256
+            {
+                return Err(
+                    "Association result differs from its captured actual opened identity".into(),
+                );
+            }
+        }
         if let ResultView::GraphPreview(preview) = &result
             && !preview_matches_state(preview, &basis)
         {
@@ -689,6 +1081,19 @@ impl GuiController {
                 self.fir_review = None;
                 self.profiles.fir_asset = Some(observed!(value));
             }
+            ResultView::ProfilePackage(value) => {
+                self.invalidate_packages();
+                if let Command::ProfilesPackageInspect { directory } = &command
+                    && self
+                        .package_inspect_required
+                        .as_ref()
+                        .is_some_and(|pending| &pending.directory == directory)
+                {
+                    self.package_inspect_required = None;
+                }
+                self.profiles.package = Some(observed!(value));
+            }
+            ResultView::ProfileBound(value) => self.profiles.bound = Some(observed!(value)),
             ResultView::ProfileResolution(value) => {
                 self.profiles.resolution = Some(observed!(value))
             }
@@ -709,7 +1114,7 @@ impl GuiController {
         self.queue_stale
     }
     pub fn queue_edit_pending(&self) -> bool {
-        self.local_correction.is_some()
+        self.local_work.is_some()
             || self.waiting_edit.is_some()
             || self
                 .pending
@@ -768,7 +1173,7 @@ impl GuiController {
         self.client.is_some()
     }
     pub fn busy(&self) -> bool {
-        self.local_correction.is_some()
+        self.local_work.is_some()
             || self.pending.is_some()
             || self.waiting_edit.is_some()
             || self.cleanup.is_some()
@@ -793,7 +1198,7 @@ impl GuiController {
         self.closing
             && self.client.is_none()
             && self.cleanup.is_none()
-            && self.local_correction.is_none()
+            && self.local_work.is_none()
             && !self.host.launching()
             && (!self.wait_for_child || !self.host.has_child())
     }
@@ -920,11 +1325,91 @@ impl GuiController {
                 ));
                 Ok(())
             }
+            UiIntent::PackageInputs {
+                directory: _,
+                destination,
+            } => {
+                self.invalidate_packages();
+                self.package_review.destination = destination;
+                self.draft_epoch = self
+                    .draft_epoch
+                    .checked_add(1)
+                    .ok_or("Draft generation exhausted")?;
+                if self.waiting_edit.as_ref().is_some_and(|task| matches!(task, Task::Preflight { command, .. } if package_mutation(command))) { self.waiting_edit = None; }
+                Ok(())
+            }
+            UiIntent::ReadPackageObject { index } => self.package_files(Some(index), None),
+            UiIntent::MarkPackageObjectReviewed => {
+                let displayed = self
+                    .package_review
+                    .displayed
+                    .as_ref()
+                    .ok_or("Read the exact object bytes before marking review")?;
+                if self
+                    .package_candidate()
+                    .is_none_or(|c| !c.manifest.objects.contains(&displayed.object))
+                {
+                    return Err("Package candidate changed; read its actual bytes again".into());
+                }
+                if !self.package_review.read.contains(&displayed.object) {
+                    self.package_review.read.push(displayed.object.clone());
+                }
+                Ok(())
+            }
+            UiIntent::PackageAcknowledgments {
+                exact,
+                private,
+                measurements,
+            } => {
+                let candidate = self
+                    .package_candidate()
+                    .ok_or("Inspect or preview an exact candidate first")?;
+                if !self.package_review.all_read(candidate) {
+                    return Err("Read and explicitly review every exact object first".into());
+                }
+                self.package_review.exact = exact;
+                self.package_review.private = private;
+                self.package_review.measurements = measurements;
+                Ok(())
+            }
+            UiIntent::ExportReviewedPackage => {
+                let command = self.package_review.export(
+                    self.package_candidate()
+                        .ok_or("Preview the exact saved profile before export")?,
+                )?;
+                self.package_files(None, Some(command))
+            }
+            UiIntent::CancelLocalPackageReview => {
+                self.invalidate_packages();
+                Ok(())
+            }
             UiIntent::ProfileAction { basis, command } => {
                 validate_profile_command(&command)?;
                 self.validate_correction_action(&basis, &command)?;
+                self.validate_package_action(&command)?;
                 if !self.control_edit_available() {
                     return Err("A foreground action is waiting, pending, or uncertain".into());
+                }
+                if matches!(
+                    command,
+                    Command::ProfilesExport { .. } | Command::ProfilesImportPackage { .. }
+                ) {
+                    if self
+                        .state()
+                        .is_none_or(|state| !same_context(&basis, state))
+                    {
+                        return Err(
+                            "Package action owner or revision changed; review and submit again"
+                                .into(),
+                        );
+                    }
+                    return self.package_files(None, Some(command));
+                }
+                if matches!(
+                    command,
+                    Command::ProfilesPackageInspect { .. } | Command::ProfilesPackagePreview { .. }
+                ) {
+                    self.invalidate_packages();
                 }
                 if command.is_query() {
                     let task = Task::ProfileBefore {
@@ -1399,6 +1884,11 @@ impl GuiController {
             {
                 self.profiles.diagnostic = Some((id.clone(), diagnostic.clone()));
             }
+            if let Some(Ok(Reply::Receipt(receipt))) = &reply
+                && let Some(ResultView::ProfilePackageIssue(issue)) = &receipt.result
+            {
+                self.retain_package_issue(id.clone(), &command, issue.clone());
+            }
             if presentation == Presentation::Applied {
                 if let Some(Ok(Reply::Receipt(receipt))) = reply {
                     match self.complete(task, receipt, now, &id, &command) {
@@ -1444,8 +1934,15 @@ impl GuiController {
             self.refresh = true;
         }
         self.poll_accepted(now);
-        if self.client.is_some() && self.pending.is_none() && self.local_correction.is_none() {
+        self.observe_package_issues();
+        if self.client.is_some() && self.pending.is_none() && self.local_work.is_none() {
             if let Some(task) = self.waiting_edit.take() {
+                if matches!(task, Task::PackageFiles { .. }) {
+                    if let Err(error) = self.start_package_files(task) {
+                        self.error = Some(error);
+                    }
+                    return;
+                }
                 if matches!(task, Task::LocalPreview { .. }) {
                     if let Err(error) = self.start_local(task) {
                         self.error = Some(error);
@@ -1535,13 +2032,7 @@ impl GuiController {
                         .as_ref()
                         .is_some_and(|(id, _)| id == &r.request.envelope().request_id)
                     && !self.safety.contains(&r.request.envelope().request_id)
-                    && (is_transport_operation(&r.request.envelope().payload)
-                        || (matches!(
-                            r.request.envelope().payload,
-                            Command::DevicesList { .. } | Command::DevicesInspect { .. }
-                        ) && self.connected
-                            && r.request.envelope().owner_id.as_ref()
-                                == self.state().and_then(|s| s.owner_id.as_ref())))
+                    && operation_replayable(r.request.envelope(), self.state(), self.connected)
             })
             .map(|r| r.request.envelope().request_id.clone())
             .collect();
@@ -1603,6 +2094,9 @@ impl GuiController {
         command: &Command,
     ) -> Result<(), String> {
         match task {
+            Task::PackageFiles { .. } => {
+                Err("Local package review cannot consume an owner receipt".into())
+            }
             Task::LocalPreview { .. } => {
                 Err("Local correction preview cannot consume an owner receipt".into())
             }
@@ -1733,6 +2227,7 @@ impl GuiController {
                 }
                 if is_profile_mutation(&command) {
                     self.validate_correction_action(&state, &command)?;
+                    self.validate_package_action(&command)?;
                     self.validate_prepared_action(&state, &command)?;
                 }
                 let request = match session {
@@ -1755,6 +2250,10 @@ impl GuiController {
                             | Command::ProfilesUpdate { .. }
                             | Command::ProfilesImport { .. }
                             | Command::FirImport { .. }
+                            | Command::ProfilesImportPackage { .. }
+                            | Command::ProfilesPackageInspect { .. }
+                            | Command::ProfilesPackagePreview { .. }
+                            | Command::ProfilesExport { .. }
                     ) {
                         Command::ProfilesList {
                             offset: 0,
@@ -1890,7 +2389,7 @@ impl Drop for GuiController {
         if let Some(join) = self.cleanup.take() {
             let _ = join.join();
         }
-        self.local_correction.take();
+        self.local_work.take();
     }
 }
 fn validate_runtime(runtime: &str) -> Result<(), String> {
@@ -1923,6 +2422,21 @@ fn is_transport_operation(command: &Command) -> bool {
         Command::Start { .. } | Command::Resume | Command::Pause | Command::Seek { .. }
     )
 }
+fn operation_replayable(
+    envelope: &earph_core::control::CommandEnvelope,
+    state: Option<&StateView>,
+    connected: bool,
+) -> bool {
+    is_transport_operation(&envelope.payload)
+        || (connected
+            && state.is_some_and(|state| {
+                envelope.owner_id == state.owner_id && envelope.zone_id == state.zone_id
+            })
+            && (matches!(
+                envelope.payload,
+                Command::DevicesList { .. } | Command::DevicesInspect { .. }
+            ) || is_profile_mutation(&envelope.payload)))
+}
 fn correction_unsent(task: &Task) -> bool {
     matches!(
         task,
@@ -1933,19 +2447,30 @@ fn correction_unsent(task: &Task) -> bool {
             }
     )
 }
-fn is_profile_mutation(command: &Command) -> bool {
+fn package_mutation(command: &Command) -> bool {
     matches!(
         command,
-        Command::ProfilesCreate { .. }
-            | Command::ProfilesImport { .. }
-            | Command::FirImport { .. }
-            | Command::ProfilesUpdate { .. }
-            | Command::ProfilesPrepare { .. }
-            | Command::ProfilesApply { .. }
-            | Command::GraphValidate { .. }
-            | Command::GraphPrepare { .. }
-            | Command::GraphCommit { .. }
+        Command::ProfilesPackageInspect { .. }
+            | Command::ProfilesPackagePreview { .. }
+            | Command::ProfilesImportPackage { .. }
+            | Command::ProfilesExport { .. }
+            | Command::ProfilesBind { .. }
     )
+}
+fn is_profile_mutation(command: &Command) -> bool {
+    package_mutation(command)
+        || matches!(
+            command,
+            Command::ProfilesCreate { .. }
+                | Command::ProfilesImport { .. }
+                | Command::FirImport { .. }
+                | Command::ProfilesUpdate { .. }
+                | Command::ProfilesPrepare { .. }
+                | Command::ProfilesApply { .. }
+                | Command::GraphValidate { .. }
+                | Command::GraphPrepare { .. }
+                | Command::GraphCommit { .. }
+        )
 }
 fn validate_profile_command(command: &Command) -> Result<(), String> {
     if matches!(command, Command::ProfilesList { offset, .. } if *offset != 0) {
@@ -1968,6 +2493,35 @@ fn validate_profile_result(command: &Command, result: &ResultView) -> Result<(),
     let valid = match (command, result) {
         (Command::ProfilesList { .. }, ResultView::Profiles(_)) => true,
         (Command::ProfilesGet { id }, ResultView::Profile(record)) => &record.profile.id == id,
+        (Command::ProfilesPackageInspect { .. }, ResultView::ProfilePackage(package)) => {
+            valid_package(package) && package.operation == crate::ProfilePackageStageView::Inspected
+        }
+        (Command::ProfilesPackagePreview { profile }, ResultView::ProfilePackage(package)) => {
+            valid_package(package)
+                && package.operation == crate::ProfilePackageStageView::Previewed
+                && &package.manifest.profile == profile
+        }
+        (
+            Command::ProfilesExport {
+                profile,
+                expected_manifest_sha256,
+                ..
+            },
+            ResultView::ProfilePackage(package),
+        ) => {
+            valid_package(package)
+                && package.operation == crate::ProfilePackageStageView::Exported
+                && &package.manifest.profile == profile
+                && package.manifest_sha256 == *expected_manifest_sha256
+        }
+        (Command::ProfilesImportPackage { profile, .. }, ResultView::ProfileSaved(record)) => {
+            record.profile.id == profile.id
+                && record.profile.revision == profile.revision
+                && record.profile_sha256 == profile.profile_sha256
+        }
+        (Command::ProfilesBind { id, .. }, ResultView::ProfileBound(association)) => {
+            &association.profile_id == id
+        }
         (Command::ProfilesCreate { id, draft, graph }, ResultView::ProfileSaved(record)) => {
             &record.profile.id == id
                 && record.profile.revision == 1
@@ -2048,6 +2602,39 @@ fn validate_profile_result(command: &Command, result: &ResultView) -> Result<(),
     } else {
         Err("Profile/DSP result kind or target does not match the captured command".into())
     }
+}
+fn valid_package(package: &crate::ProfilePackageResultView) -> bool {
+    use earph_core::profile_packages::{
+        MAX_PACKAGE_BYTES, MAX_PACKAGE_MANIFEST_BYTES, PackageManifest,
+    };
+    let manifest = PackageManifest {
+        schema_version: package.manifest.schema_version,
+        profile: package.manifest.profile.clone(),
+        objects: package.manifest.objects.clone(),
+    };
+    manifest.validate().is_ok()
+        && package.manifest_bytes > 0
+        && package.manifest_bytes <= MAX_PACKAGE_MANIFEST_BYTES as u64
+        && package.total_bytes <= MAX_PACKAGE_BYTES
+        && manifest
+            .total_object_bytes()
+            .ok()
+            .and_then(|n| n.checked_add(package.manifest_bytes))
+            == Some(package.total_bytes)
+        && package.review_sources.len() == manifest.objects.len()
+        && package
+            .review_sources
+            .iter()
+            .enumerate()
+            .all(|(index, source)| {
+                manifest.objects.contains(&source.object)
+                    && !package.review_sources[..index]
+                        .iter()
+                        .any(|previous| previous.object == source.object)
+                    && !source.local_path.is_empty()
+                    && source.local_path.len() <= 1024
+                    && !source.local_path.contains('\0')
+            })
 }
 fn prepared_matches_state(prepared: &GraphPreparedView, state: &StateView) -> bool {
     preview_matches_state(&prepared.preview, state)
@@ -2205,6 +2792,107 @@ mod tests {
             earph_core::control::ControlLimits::default(),
         );
         Arc::new(serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap())
+    }
+    #[test]
+    fn accepted_package_reconciliation_remains_pollable_only_for_its_connected_owner_and_zone() {
+        let state = correction_state();
+        let profile = earph_core::profile_control::ProfileCatalogReference {
+            id: earph_core::ids::ProfileId::new("owned-replay").unwrap(),
+            revision: 1,
+            profile_sha256: earph_core::profiles::ProfileObjectHash::try_from("0".repeat(64))
+                .unwrap(),
+        };
+        let command = Command::ProfilesPackagePreview { profile };
+        let request = Request::mutation(request_id().unwrap(), &state, command).unwrap();
+        assert!(
+            operation_replayable(request.envelope(), Some(&state), true),
+            "reconciled Accepted package work must keep its existing exact replay slot"
+        );
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&state),
+            false
+        ));
+        let mut replaced = (*state).clone();
+        replaced.owner_id = Some(OwnerId::new("replacement-owner").unwrap());
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&replaced),
+            true
+        ));
+        replaced = (*state).clone();
+        replaced.zone_id = ZoneId::new("other-zone").unwrap();
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&replaced),
+            true
+        ));
+    }
+    #[test]
+    fn unchanged_package_inspection_preserves_the_actual_earlier_unresolved_write_facts() {
+        let mut gui = GuiController::new();
+        let directory = String::from("/owned/unresolved-export");
+        let write_id = RequestId::new("owned-package-write").unwrap();
+        let hash = earph_core::profiles::ProfileObjectHash::try_from("0".repeat(64)).unwrap();
+        let export = Command::ProfilesExport {
+            directory: directory.clone(),
+            profile: earph_core::profile_control::ProfileCatalogReference {
+                id: earph_core::ids::ProfileId::new("declared-package-review").unwrap(),
+                revision: 1,
+                profile_sha256: hash,
+            },
+            expected_manifest_sha256: hash,
+            export_review: earph_core::profile_control::PackageExportReview::ReviewedExactCandidate,
+            content_review:
+                earph_core::profile_control::PackageContentReview::ReviewedNoPrivateData,
+            redistribution:
+                earph_core::profile_control::PackageRedistribution::RefuseMeasurementBytes,
+        };
+        let issue = |reason, filesystem_state| {
+            Arc::new(
+                serde_json::from_value::<crate::ProfilePackageIssueView>(
+                    serde_json::to_value(earph_core::profile_control::ProfilePackageIssue {
+                        reason,
+                        object: None,
+                        filesystem_state,
+                    })
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+        };
+        gui.retain_package_issue(
+            write_id.clone(),
+            &export,
+            issue(
+                earph_core::profile_control::ProfilePackageReason::RedistributionReviewRequired,
+                earph_core::profile_control::PackageFilesystemState::InspectRequired,
+            ),
+        );
+        let read_id = RequestId::new("owned-package-inspection").unwrap();
+        gui.retain_package_issue(
+            read_id.clone(),
+            &Command::ProfilesPackageInspect {
+                directory: directory.clone(),
+            },
+            issue(
+                earph_core::profile_control::ProfilePackageReason::MissingObject,
+                earph_core::profile_control::PackageFilesystemState::Unchanged,
+            ),
+        );
+        let (request, path, unresolved) = gui.unresolved_package_write().unwrap();
+        assert_eq!(request, &write_id);
+        assert_eq!(path, directory);
+        assert_eq!(
+            unresolved.filesystem_state,
+            crate::PackageFilesystemStateView::InspectRequired
+        );
+        assert_eq!(gui.profiles.package_issue.as_ref().unwrap().0, read_id);
+        gui.handle(UiIntent::PackageInputs {
+            directory: directory.clone(),
+            destination: "/owned/separate-explicit-destination".into(),
+        });
+        assert_eq!(gui.unresolved_package_write().unwrap().0, &write_id);
     }
     #[test]
     fn correction_input_changes_cancel_only_their_unsent_work_and_preserve_a_waiting_queue_edit() {

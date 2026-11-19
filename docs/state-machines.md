@@ -217,7 +217,7 @@ The Mac gate records its dirty precommit source explicitly.
 Both immutable profile objects and FIR retries synchronize the verified regular file before its directory.
 These tests prove successful application synchronization, without simulating power loss or an actual disk-sync failure.
 See [saved profile commands](listening-profile-save.md) and [the profile checkpoint](superpowers/plans/2026-11-18-listening-profiles.md).
-Correction provenance imports, verified device associations, atomic application, and packages remain separate work.
+The desktop checkpoints below track correction imports, device associations, atomic application, and package work.
 
 ## Native desktop control lifecycles
 
@@ -239,6 +239,9 @@ Local drafts grant no output authority.
 | Correction preview | One joinable local worker binds input, metadata, draft generation and owner context. | Cancel late adoption after edits, safety actions, owner replacement or close. |
 | Correction review | Actual saved documents and owner-verified FIR assets require explicit local review. | Advisory path previews grant no import identity; reconstruction creates new source bytes. |
 | FIR insertion | The canonical graph accepts one explicitly reviewed compatible asset. | Preserve existing nodes and processing intent; never apply or add hidden gain. |
+| Package candidate | An owner preview or inspection binds exact saved references, object hashes, sources and manifest. | Reconcile the captured request before adopting a new candidate; retain historical results without publication authority. |
+| Package review | One joinable local worker reads original bytes; each object needs an explicit review mark. | Edits, destination changes, cancellation and owner changes invalidate local acknowledgments. |
+| Package publication | Explicit exact-candidate, privacy and measurement choices bind one import or export. | Preserve uncertain outcomes and filesystem facts; inspect the captured destination instead of retrying a write. |
 
 Fixed arming has no State readback.
 Discovery properties do not prove an opened output or physical presentation.
