@@ -1,5 +1,6 @@
 // ABOUTME: Runs explicit native transport controls against an owned standalone software output.
 // ABOUTME: Verifies Accepted muted operations never block observation or independent safety actions.
+#![cfg(target_os = "linux")]
 mod common;
 use common::process::ProcessOwner;
 use common::*;

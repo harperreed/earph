@@ -3,6 +3,7 @@
 mod common;
 #[path = "gui_receipt_fixture/mod.rs"]
 mod receipt_fixture;
+#[cfg(target_os = "linux")]
 use common::process::ProcessOwner;
 use common::*;
 use earph_core::{
