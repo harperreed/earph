@@ -15,6 +15,26 @@ pub(super) fn show(ui: &mut egui::Ui, controller: &mut GuiController) {
         controller.handle(UiIntent::Refresh);
     }
     ui.label("Reconnect in Connect. Raw receipt details below are local data, not a redacted support bundle.");
+    if ui
+        .add_enabled(
+            controller.control_edit_available(),
+            egui::Button::new("Inspect actual graph"),
+        )
+        .clicked()
+        && let Some(state) = controller.state()
+    {
+        controller.handle(UiIntent::ProfileAction {
+            basis: std::sync::Arc::new(state.clone()),
+            command: earph_core::control::Command::GraphInspect {},
+        });
+    }
+    if let Some(observed) = &controller.profiles.graph {
+        ui.label(format!(
+            "Graph inspection owner {:?}; revision {}; requests {:?}",
+            observed.basis.owner_id, observed.basis.revision, observed.request_ids
+        ));
+        super::dsp::inspection(ui, &observed.value);
+    }
 }
 
 fn observation(ui: &mut egui::Ui, state: &StateView) {

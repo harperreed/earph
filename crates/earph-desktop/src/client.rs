@@ -147,7 +147,13 @@ impl Request {
     pub(crate) fn is_snapshot_query(&self) -> bool {
         matches!(
             self.envelope.payload,
-            Command::State | Command::Capabilities | Command::QueueGet { .. }
+            Command::State
+                | Command::Capabilities
+                | Command::QueueGet { .. }
+                | Command::ProfilesList { .. }
+                | Command::ProfilesGet { .. }
+                | Command::ProfilesResolve { .. }
+                | Command::GraphInspect { .. }
         )
     }
 }

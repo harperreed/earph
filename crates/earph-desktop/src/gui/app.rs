@@ -1,7 +1,8 @@
 // ABOUTME: Renders the native Earph controller with opaque local Light and Dark choices.
 // ABOUTME: Owns local drafts while the workflow retains actual owner observations.
 use super::{
-    GuiController, UiIntent, connect, output, queue, receipts, signal_path, status, transport,
+    GuiController, UiIntent, connect, graph_editor::GraphIntentEditor, output, profiles, queue,
+    receipts, signal_path, status, transport,
 };
 use eframe::egui;
 use std::{
@@ -25,6 +26,8 @@ pub struct GuiApp {
     pub(super) folder: String,
     pub(super) output: output::Draft,
     pub(super) transport: transport::Draft,
+    pub(super) profiles: profiles::Draft,
+    pub(super) graph: GraphIntentEditor,
     view: View,
     dark: bool,
     applied_theme: Option<bool>,
@@ -46,6 +49,8 @@ impl GuiApp {
             folder: String::new(),
             output: output::Draft::default(),
             transport: transport::Draft::default(),
+            profiles: profiles::Draft::default(),
+            graph: GraphIntentEditor::default(),
             view: View::Connect,
             dark: true,
             applied_theme: None,
@@ -62,40 +67,43 @@ impl GuiApp {
             });
             self.applied_theme = Some(self.dark);
         }
-        egui::CentralPanel::default().frame(egui::Frame::central_panel(ui.style()).fill(ui.visuals().panel_fill)).show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.heading("Earph");
-                ui.selectable_value(&mut self.dark, false, "Light");
-                ui.selectable_value(&mut self.dark, true, "Dark");
-                if ui.button("Close controller").clicked() { self.controller.handle(UiIntent::CloseController); }
-            });
-            status::show(ui, &mut self.controller);
-            ui.separator();
-            ui.horizontal_wrapped(|ui| {
-                for (view, title) in [(View::Connect, "Connect"), (View::Queue, "Queue"), (View::Output, "Output / Safety"), (View::Profiles, "Profiles / DSP"), (View::SignalPath, "Signal Path / Recovery")] {
-                    ui.selectable_value(&mut self.view, view, title);
-                }
-            });
-            ui.separator();
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                match self.view {
-                    View::Connect => connect::show(ui, self),
-                    View::Queue => queue::show(ui, self),
-                    View::Output => output::show(ui, self),
-                    View::Profiles => {
-                        ui.heading("Profiles / DSP");
-                        ui.label("Profile, correction-import, and graph views are not implemented in this desktop unit.");
-                        if let Some(caps) = self.controller.capabilities() {
-                            ui.label(format!("Owner capabilities: save {}; manual resolution {}; correction import {}; apply {}; exact associations {}; packages {}.", caps.profiles.save, caps.profiles.manual_resolution, caps.profiles.correction_import, caps.profiles.apply, caps.profiles.exact_associations, caps.profiles.packages));
-                        }
-                        ui.label("Saving intent or importing a correction does not apply a profile or unmute output.");
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(ui.style()).fill(ui.visuals().panel_fill))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.heading("Earph");
+                    ui.selectable_value(&mut self.dark, false, "Light");
+                    ui.selectable_value(&mut self.dark, true, "Dark");
+                    if ui.button("Close controller").clicked() {
+                        self.controller.handle(UiIntent::CloseController);
                     }
-                    View::SignalPath => signal_path::show(ui, &mut self.controller),
-                }
+                });
+                status::show(ui, &mut self.controller);
                 ui.separator();
-                receipts::show(ui, &mut self.controller);
+                ui.horizontal_wrapped(|ui| {
+                    for (view, title) in [
+                        (View::Connect, "Connect"),
+                        (View::Queue, "Queue"),
+                        (View::Output, "Output / Safety"),
+                        (View::Profiles, "Profiles / DSP"),
+                        (View::SignalPath, "Signal Path / Recovery"),
+                    ] {
+                        ui.selectable_value(&mut self.view, view, title);
+                    }
+                });
+                ui.separator();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    match self.view {
+                        View::Connect => connect::show(ui, self),
+                        View::Queue => queue::show(ui, self),
+                        View::Output => output::show(ui, self),
+                        View::Profiles => profiles::show(ui, self),
+                        View::SignalPath => signal_path::show(ui, &mut self.controller),
+                    }
+                    ui.separator();
+                    receipts::show(ui, &mut self.controller);
+                });
             });
-        });
     }
 }
 impl eframe::App for GuiApp {

@@ -332,3 +332,37 @@ Production supervision preserves launch failure codes without retries or private
 A low severity background queue warning remains visible after recovery in this snapshot.
 Its targeted fix passes the isolated Profiles workflow tests and awaits integration.
 Profiles/DSP integration, corrections, packages, diagnostics, networks, Mac windows, and full parity remain incomplete.
+
+## Native Profiles and DSP checkpoint
+
+The controller now exposes profile catalog, Get, explicit Load, resolution, creation, and revisioned updates.
+Saved facts remain separate from local drafts and active processing.
+One canonical graph editor supports common controls and explicit raw-text acceptance.
+Pending raw edits block save and activation without replacing valid intent.
+Ordinary graph Commit and saved-profile Apply consume distinct, fully bound prepared candidates.
+Historical reconciled preparation never becomes a fresh activation candidate automatically.
+
+The full Linux check passes 992 tests, with zero failures and five existing skips.
+The desktop package passes 141 tests; strict workspace Clippy and the independent source review pass.
+The actual native gate passes 135 actions, including both activation paths, Stop, themes, and shutdown.
+Both controllers and consumers exit zero; the owner is freshly absent.
+Its numeric exit remains unknown because the controller owns its child handle.
+The owned software sink receives zero bytes throughout this muted gate.
+Source, products, tools, fixtures, and configuration remain unchanged during qualification.
+See [the exact native receipt](../../evidence/desktop/native-profiles-dsp-linux-20261119.json).
+
+The first native attempt exceeded its inherited 180-second workflow limit after 95 actions.
+The expanded workflow then passes with a 600-second harness limit.
+Product token expiry, preparation deadlines, read limits, and action deadlines remain unchanged.
+Both attempts and all partial evidence remain retained.
+
+A real-owner regression exposed a stale initial revision check during explicit profile refresh.
+Refresh now checks the captured owner and zone before acquiring its fresh read basis.
+Full Before/After observation fences and mutation preflight remain intact.
+Successful profile and graph reads retire after adoption.
+Background recovery clears its own warning while preserving unrelated action errors.
+
+Profile summaries still expose raw debug text; polish remains required before final release.
+Correction U3 is frozen and independently reviewed in its isolated worktree, with 37 scoped tests passing.
+Its integrated checks and native qualification remain pending.
+Packages, diagnostics, networks, Mac windows, and full GUI parity remain incomplete.

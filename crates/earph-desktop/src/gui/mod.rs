@@ -2,8 +2,11 @@
 // ABOUTME: Keeps view workflows and child lifecycle separate from engine policy.
 mod app;
 mod connect;
+mod dsp;
+mod graph_editor;
 mod host;
 mod output;
+mod profiles;
 mod queue;
 mod receipts;
 mod signal_path;

@@ -2,9 +2,10 @@
 // ABOUTME: Fences queue pages and captured edits without repairing stale targets.
 use super::{HostStatus, host::OwnerHost, request_id};
 use crate::{
-    CapabilitiesView, DeliveryFailure, DesktopClient, DeviceQueryResultView, DispatchError, Lane,
-    Presentation, PresentationModel, QueueView, Reply, Request, RequestRecord, ResultView,
-    StateView, SubmitError,
+    CapabilitiesView, DeliveryFailure, DesktopClient, DeviceQueryResultView, DispatchError,
+    GraphDiagnosticView, GraphInspectionView, GraphPreparedView, GraphPreviewView, Lane,
+    Presentation, PresentationModel, ProfilePageView, ProfileRecordView, ProfileResolutionView,
+    QueueView, Reply, Request, RequestRecord, ResultView, StateView, SubmitError,
 };
 use earph_core::{
     control::{Command, OutputBackend},
@@ -43,6 +44,11 @@ pub enum UiIntent {
         backend: OutputBackend,
         endpoint: Option<String>,
     },
+    ProfileAction {
+        basis: Arc<StateView>,
+        command: Command,
+    },
+    DiscardPreparedGraph,
     Mute,
     Stop,
     Reconcile(RequestId),
@@ -76,6 +82,29 @@ fn same_context(a: &StateView, b: &StateView) -> bool {
         && a.graph_epoch == b.graph_epoch
         && a.active_entry_id == b.active_entry_id
 }
+pub(super) struct ObservedProfile<T> {
+    pub basis: Arc<StateView>,
+    pub request_ids: Vec<RequestId>,
+    pub command: Command,
+    pub value: T,
+}
+#[derive(Default)]
+pub(super) struct ProfileViews {
+    pub catalog: Option<ObservedProfile<ProfilePageView>>,
+    pub record: Option<ObservedProfile<Arc<ProfileRecordView>>>,
+    pub resolution: Option<ObservedProfile<ProfileResolutionView>>,
+    pub graph: Option<ObservedProfile<Arc<GraphInspectionView>>>,
+    pub preview: Option<ObservedProfile<Arc<GraphPreviewView>>>,
+    pub prepared: Option<ObservedProfile<GraphPreparedView>>,
+    pub diagnostic: Option<(RequestId, Arc<GraphDiagnosticView>)>,
+}
+struct ProfileRead {
+    basis: Arc<StateView>,
+    command: Command,
+    foreground: bool,
+    pages: Option<ProfilePageView>,
+    ids: Vec<RequestId>,
+}
 enum Task {
     Before,
     Capabilities,
@@ -85,19 +114,36 @@ enum Task {
         basis: Arc<StateView>,
         command: Command,
         session: Option<SessionId>,
+        draft_epoch: u64,
     },
-    Mutation,
+    Mutation {
+        draft_epoch: u64,
+    },
     Discovery {
         command: Command,
         owner: OwnerId,
+    },
+    ProfileBefore {
+        basis: Option<Arc<StateView>>,
+        command: Command,
+        foreground: bool,
+    },
+    ProfileResult(ProfileRead),
+    ProfileAfter {
+        read: ProfileRead,
+        result: ResultView,
     },
 }
 impl Task {
     fn edits_foreground(&self) -> bool {
         matches!(
             self,
-            Self::Preflight { .. } | Self::Mutation | Self::Discovery { .. }
-        )
+            Self::Preflight { .. } | Self::Mutation { .. } | Self::Discovery { .. }
+        ) || match self {
+            Self::ProfileBefore { foreground, .. } => *foreground,
+            Self::ProfileResult(read) | Self::ProfileAfter { read, .. } => read.foreground,
+            _ => false,
+        }
     }
 }
 pub struct GuiController {
@@ -123,11 +169,14 @@ pub struct GuiController {
     replay_cursor: usize,
     connected: bool,
     error: Option<String>,
+    observation_error: Option<String>,
     cleanup: Option<JoinHandle<Result<(), String>>>,
     closing: bool,
     host: OwnerHost,
     host_error_reported: bool,
     runtime: Option<String>,
+    pub(super) profiles: ProfileViews,
+    draft_epoch: u64,
 }
 impl Default for GuiController {
     fn default() -> Self {
@@ -159,11 +208,14 @@ impl GuiController {
             replay_cursor: 0,
             connected: false,
             error: None,
+            observation_error: None,
             cleanup: None,
             closing: false,
             host: OwnerHost::default(),
             host_error_reported: false,
             runtime: None,
+            profiles: ProfileViews::default(),
+            draft_epoch: 0,
         }
     }
     pub fn state(&self) -> Option<&StateView> {
@@ -173,6 +225,182 @@ impl GuiController {
     }
     pub fn queue(&self) -> Option<&QueueView> {
         self.queue.as_ref()
+    }
+    pub fn profile_catalog(&self) -> Option<&ProfilePageView> {
+        self.profiles.catalog.as_ref().map(|o| &o.value)
+    }
+    pub fn profile_record(&self) -> Option<&ProfileRecordView> {
+        self.profiles.record.as_ref().map(|o| o.value.as_ref())
+    }
+    pub fn profile_resolution(&self) -> Option<&ProfileResolutionView> {
+        self.profiles.resolution.as_ref().map(|o| &o.value)
+    }
+    pub fn graph_inspection(&self) -> Option<&GraphInspectionView> {
+        self.profiles.graph.as_ref().map(|o| o.value.as_ref())
+    }
+    pub fn prepared_graph(&self) -> Option<&GraphPreparedView> {
+        self.profiles.prepared.as_ref().map(|o| &o.value)
+    }
+    pub fn prepared_action_available(&self) -> bool {
+        self.control_edit_available()
+            && self
+                .prepared_graph()
+                .zip(self.state())
+                .is_some_and(|(prepared, state)| prepared_matches_state(prepared, state))
+    }
+    fn validate_prepared_action(&self, state: &StateView, command: &Command) -> Result<(), String> {
+        let (token, hash) = match command {
+            Command::GraphCommit { token, graph_hash }
+            | Command::ProfilesApply {
+                token, graph_hash, ..
+            } => (token, graph_hash),
+            _ => return Ok(()),
+        };
+        let prepared = self
+            .prepared_graph()
+            .ok_or("Review a fresh prepared candidate first")?;
+        if token != &prepared.token
+            || hash != prepared.preview.graph_hash.as_str()
+            || !prepared_matches_state(prepared, state)
+        {
+            return Err("Prepared graph token or context changed; prepare and review again".into());
+        }
+        match (command, prepared.preview.profile_application.as_ref()) {
+            (Command::GraphCommit { .. }, None) => Ok(()),
+            (
+                Command::ProfilesApply {
+                    id,
+                    expected_profile_revision,
+                    profile_sha256,
+                    ..
+                },
+                Some(binding),
+            ) if &binding.profile.id == id
+                && binding.profile.revision == *expected_profile_revision
+                && binding.profile.profile_sha256 == *profile_sha256 =>
+            {
+                Ok(())
+            }
+            _ => Err(
+                "Prepared candidate kind or saved profile reference differs from this action"
+                    .into(),
+            ),
+        }
+    }
+    fn adopt_profile_mutation(
+        &mut self,
+        id: &RequestId,
+        command: &Command,
+        receipt: &crate::ReceiptView,
+        draft_epoch: u64,
+    ) -> Result<(), String> {
+        if matches!(
+            command,
+            Command::GraphCommit { .. } | Command::ProfilesApply { .. }
+        ) {
+            if receipt.result.is_some() || receipt.activation_frame.is_none() {
+                return Err(
+                    "Activation acknowledgment lacks its actual frame or has an unexpected result"
+                        .into(),
+                );
+            }
+            self.profiles.prepared = None;
+            return Ok(());
+        }
+        let result = receipt
+            .result
+            .clone()
+            .ok_or("Profile action result unavailable")?;
+        validate_profile_result(command, &result)?;
+        let basis = Arc::new(
+            self.state()
+                .ok_or("Profile action basis unavailable")?
+                .clone(),
+        );
+        if let ResultView::GraphPreview(preview) = &result
+            && !preview_matches_state(preview, &basis)
+        {
+            return Err("Graph validation binding differs from the captured source context".into());
+        }
+        if let ResultView::GraphPrepared(prepared) = &result {
+            if !prepared_matches_state(prepared, &basis) {
+                return Err(
+                    "Prepared candidate owner binding differs from the submitted source context"
+                        .into(),
+                );
+            }
+            if draft_epoch != self.draft_epoch {
+                return Err("Draft or selected profile changed while preparation was pending; its receipt remains retained".into());
+            }
+            if let Some(application) = &prepared.preview.profile_application {
+                let output = basis
+                    .output
+                    .as_ref()
+                    .ok_or("Prepared profile lacks current output context")?;
+                let identity = basis
+                    .playback
+                    .as_ref()
+                    .and_then(|p| p.backend.as_ref())
+                    .and_then(|b| b.device_identity_sha256);
+                if application.volume_mode != output.volume_mode
+                    || application.fidelity != output.fidelity
+                    || application.device_identity_sha256 != identity
+                    || Some(application.source) != basis.source
+                {
+                    return Err("Prepared profile application facts differ from the observed output/source context".into());
+                }
+                if let Some(record) = self.profile_record()
+                    && record.profile.id == application.profile.id
+                    && record.profile.revision == application.profile.revision
+                    && record.profile_sha256 == application.profile.profile_sha256
+                    && record.profile.graph_sha256 != application.graph_sha256
+                {
+                    return Err(
+                        "Prepared profile graph object differs from the reviewed saved record"
+                            .into(),
+                    );
+                }
+            }
+        }
+        self.adopt_profile_result(basis, vec![id.clone()], command.clone(), result)
+    }
+    fn adopt_profile_result(
+        &mut self,
+        basis: Arc<StateView>,
+        request_ids: Vec<RequestId>,
+        command: Command,
+        result: ResultView,
+    ) -> Result<(), String> {
+        validate_profile_result(&command, &result)?;
+        macro_rules! observed {
+            ($value:expr) => {
+                ObservedProfile {
+                    basis,
+                    request_ids,
+                    command,
+                    value: $value,
+                }
+            };
+        }
+        match result {
+            ResultView::Profiles(value) => {
+                self.profiles.catalog = Some(observed!((*value).clone()))
+            }
+            ResultView::Profile(value) | ResultView::ProfileSaved(value) => {
+                self.profiles.record = Some(observed!(value))
+            }
+            ResultView::ProfileResolution(value) => {
+                self.profiles.resolution = Some(observed!(value))
+            }
+            ResultView::GraphInspection(value) => self.profiles.graph = Some(observed!(value)),
+            ResultView::GraphPreview(value) => self.profiles.preview = Some(observed!(value)),
+            ResultView::GraphPrepared(value) => {
+                self.profiles.diagnostic = None;
+                self.profiles.prepared = Some(observed!(value));
+            }
+            _ => return Err("Unexpected profile observation result".into()),
+        }
+        Ok(())
     }
     pub fn queue_basis(&self) -> Option<&StateView> {
         self.queue_basis.as_deref()
@@ -189,9 +417,11 @@ impl GuiController {
     }
     pub fn waiting_queue_edit(&self) -> Option<&Command> {
         match self.waiting_edit.as_ref() {
-            Some(Task::Preflight { command, .. } | Task::Discovery { command, .. }) => {
-                Some(command)
-            }
+            Some(
+                Task::Preflight { command, .. }
+                | Task::Discovery { command, .. }
+                | Task::ProfileBefore { command, .. },
+            ) => Some(command),
             _ => None,
         }
     }
@@ -244,7 +474,7 @@ impl GuiController {
             || self.shutdown.is_some()
     }
     pub fn error(&self) -> Option<&str> {
-        self.error.as_deref()
+        self.error.as_deref().or(self.observation_error.as_deref())
     }
     pub fn observed_at(&self) -> Option<Instant> {
         self.model()
@@ -314,6 +544,36 @@ impl GuiController {
                 self.refresh = true;
                 self.next_poll = Instant::now();
                 Ok(())
+            }
+            UiIntent::DiscardPreparedGraph => {
+                self.profiles.prepared = None;
+                self.draft_epoch = self
+                    .draft_epoch
+                    .checked_add(1)
+                    .ok_or("Graph draft generation exhausted")?;
+                Ok(())
+            }
+            UiIntent::ProfileAction { basis, command } => {
+                validate_profile_command(&command)?;
+                if !self.control_edit_available() {
+                    return Err("A foreground action is waiting, pending, or uncertain".into());
+                }
+                if command.is_query() {
+                    let task = Task::ProfileBefore {
+                        basis: Some(basis),
+                        command,
+                        foreground: true,
+                    };
+                    if self.pending.is_some() {
+                        self.waiting_edit = Some(task);
+                        Ok(())
+                    } else {
+                        self.start_query(Command::State, task)
+                    }
+                } else {
+                    self.validate_prepared_action(&basis, &command)?;
+                    self.capture(basis, command)
+                }
             }
             UiIntent::QueueEdit { basis, command } => {
                 validate_queue(&command)?;
@@ -459,6 +719,7 @@ impl GuiController {
             basis,
             command,
             session,
+            draft_epoch: self.draft_epoch,
         };
         if self.pending.is_some() {
             self.waiting_edit = Some(task);
@@ -488,7 +749,9 @@ impl GuiController {
     }
     fn cancel_unsent(&mut self) {
         self.waiting_edit = None;
-        if let Some((_, task @ Task::Preflight { .. })) = self.pending.as_mut() {
+        if let Some((_, task)) = self.pending.as_mut()
+            && matches!(task, Task::Preflight { .. } | Task::ProfileBefore { .. })
+        {
             *task = Task::Before;
         }
     }
@@ -624,6 +887,7 @@ impl GuiController {
         self.safety.clear();
         self.discovery = None;
         self.inspection = None;
+        self.profiles = ProfileViews::default();
         if let Some(client) = self.client.take() {
             let (model, shutdown) = client.disconnect();
             self.disconnected = Some(model);
@@ -663,6 +927,7 @@ impl GuiController {
                 self.capabilities = None;
                 self.discovery = None;
                 self.inspection = None;
+                self.profiles = ProfileViews::default();
                 if self
                     .pending
                     .as_ref()
@@ -673,10 +938,9 @@ impl GuiController {
                         Some("Discovery owner changed; its sent receipt remains in history".into());
                 }
                 if self.waiting_edit.is_some()
-                    || self
-                        .pending
-                        .as_ref()
-                        .is_some_and(|(_, t)| matches!(t, Task::Preflight { .. }))
+                    || self.pending.as_ref().is_some_and(|(_, t)| {
+                        matches!(t, Task::Preflight { .. } | Task::ProfileBefore { .. })
+                    })
                 {
                     self.cancel_unsent();
                     self.error = Some(
@@ -722,7 +986,7 @@ impl GuiController {
         }
         // Muted transport may stay Accepted after readiness. Release the send workflow,
         // while the same bounded model record retains the exact operation identity.
-        if let Some((id, Task::Mutation)) = self.pending.as_ref()
+        if let Some((id, Task::Mutation { .. })) = self.pending.as_ref()
             && self
                 .outcome(id)
                 .is_some_and(|(p, _)| p == Presentation::Accepted)
@@ -744,17 +1008,39 @@ impl GuiController {
             && !matches!(presentation, Presentation::Accepted | Presentation::Queued)
         {
             let (id, task) = self.pending.take().unwrap();
+            let command = self
+                .model()
+                .record(&id)
+                .unwrap()
+                .request
+                .envelope()
+                .payload
+                .clone();
+            let background_observation = matches!(
+                task,
+                Task::Before | Task::Capabilities | Task::Page(_) | Task::After
+            );
+            let holds_read = matches!(task, Task::ProfileResult(_));
+            if let Some(Ok(Reply::Receipt(receipt))) = &reply
+                && let Some(ResultView::GraphDiagnostic(diagnostic)) = &receipt.result
+            {
+                self.profiles.diagnostic = Some((id.clone(), diagnostic.clone()));
+            }
             if presentation == Presentation::Applied {
                 if let Some(Ok(Reply::Receipt(receipt))) = reply {
-                    match self.complete(task, receipt, now) {
+                    match self.complete(task, receipt, now, &id, &command) {
                         Ok(()) => {
-                            if let Some(client) = self.client.as_mut() {
+                            if !holds_read && let Some(client) = self.client.as_mut() {
                                 client.retire_observation(&id);
                             }
                         }
                         Err(e) => {
                             self.waiting_edit = None;
-                            self.error = Some(e);
+                            if background_observation {
+                                self.observation_error = Some(e);
+                            } else {
+                                self.error = Some(e);
+                            }
                             self.queue_stale = true;
                             self.next_poll = now + Duration::from_millis(500);
                         }
@@ -934,6 +1220,8 @@ impl GuiController {
         task: Task,
         receipt: crate::ReceiptView,
         now: Instant,
+        request_id: &RequestId,
+        command: &Command,
     ) -> Result<(), String> {
         match task {
             Task::Before => {
@@ -1030,6 +1318,7 @@ impl GuiController {
                 self.queue_basis = Some(state);
                 self.basis = None;
                 self.queue_stale = false;
+                self.observation_error = None;
                 self.connected = true;
                 self.next_poll = now + Duration::from_millis(500);
                 Ok(())
@@ -1038,6 +1327,7 @@ impl GuiController {
                 basis,
                 command,
                 session,
+                draft_epoch,
             } => {
                 let Some(ResultView::State(state)) = receipt.result else {
                     return Err("Edit preflight State unavailable".into());
@@ -1056,21 +1346,152 @@ impl GuiController {
                 }) {
                     return Err("A sent action became uncertain; reconcile its exact request before another edit".into());
                 }
+                if is_profile_mutation(&command) {
+                    self.validate_prepared_action(&state, &command)?;
+                }
                 let request = match session {
-                    Some(session) => Request::start(request_id()?, &state, session, command),
-                    None => Request::mutation(request_id()?, &state, command),
+                    Some(session) => Request::start(super::request_id()?, &state, session, command),
+                    None => Request::mutation(super::request_id()?, &state, command),
                 }
                 .map_err(|e| format!("{e:?}"))?;
                 let id = self.submit(request)?;
-                self.pending = Some((id, Task::Mutation));
+                self.pending = Some((id, Task::Mutation { draft_epoch }));
                 Ok(())
             }
-            Task::Mutation => {
+            Task::Mutation { draft_epoch } => {
+                if is_profile_mutation(command) {
+                    self.adopt_profile_mutation(request_id, command, &receipt, draft_epoch)?;
+                    self.refresh = true;
+                    self.queue_stale = true;
+                    let observe = if matches!(
+                        command,
+                        Command::ProfilesCreate { .. } | Command::ProfilesUpdate { .. }
+                    ) {
+                        Command::ProfilesList {
+                            offset: 0,
+                            limit: 16,
+                        }
+                    } else {
+                        Command::GraphInspect {}
+                    };
+                    return self.start_query(
+                        Command::State,
+                        Task::ProfileBefore {
+                            basis: None,
+                            command: observe,
+                            foreground: false,
+                        },
+                    );
+                }
                 self.refresh = true;
                 self.queue_stale = true;
                 Ok(())
             }
             Task::Discovery { .. } => Ok(()),
+            Task::ProfileBefore {
+                basis,
+                command,
+                foreground,
+            } => {
+                let Some(ResultView::State(state)) = receipt.result else {
+                    return Err("Profile preflight State unavailable".into());
+                };
+                if basis.as_ref().is_some_and(|basis| {
+                    basis.owner_id != state.owner_id || basis.zone_id != state.zone_id
+                }) {
+                    return Err("Profile owner or zone changed; review and submit again".into());
+                }
+                let read = ProfileRead {
+                    basis: state,
+                    command: command.clone(),
+                    foreground,
+                    pages: None,
+                    ids: Vec::new(),
+                };
+                self.start_query(command, Task::ProfileResult(read))
+            }
+            Task::ProfileResult(mut read) => {
+                if receipt.revision != read.basis.revision {
+                    return Err(
+                        "Profile query revision differs from its captured observation".into(),
+                    );
+                }
+                let result = receipt.result.ok_or("Profile query result unavailable")?;
+                validate_profile_result(&read.command, &result)?;
+                read.ids.push(request_id.clone());
+                let result =
+                    if let (Command::ProfilesList { offset, limit }, ResultView::Profiles(page)) =
+                        (&read.command, &result)
+                    {
+                        if page.total
+                            > self
+                                .capabilities
+                                .as_ref()
+                                .map_or(32, |c| c.profiles.max_profiles)
+                            || page.entries.len() > *limit
+                            || offset + page.entries.len() > page.total
+                            || (page.entries.is_empty() && *offset < page.total)
+                            || page.next_offset.is_some_and(|next| {
+                                next != offset + page.entries.len() || next >= page.total
+                            })
+                            || (page.next_offset.is_none()
+                                && offset + page.entries.len() != page.total)
+                        {
+                            return Err("Profile catalog returned an invalid page".into());
+                        }
+                        if let Some(all) = read.pages.as_mut() {
+                            if all.total != page.total
+                                || all.operation != page.operation
+                                || all.entries.len() != *offset
+                            {
+                                return Err("Profile catalog changed between pages".into());
+                            }
+                            for entry in &page.entries {
+                                if all.entries.iter().any(|old| old.id == entry.id) {
+                                    return Err("Profile catalog repeated an ID".into());
+                                }
+                                all.entries.push(entry.clone());
+                            }
+                            all.next_offset = page.next_offset;
+                        } else {
+                            read.pages = Some((**page).clone());
+                        }
+                        if let Some(offset) = page.next_offset {
+                            let command = Command::ProfilesList {
+                                offset,
+                                limit: *limit,
+                            };
+                            read.command = command.clone();
+                            return self.start_query(command, Task::ProfileResult(read));
+                        }
+                        read.command = Command::ProfilesList {
+                            offset: 0,
+                            limit: *limit,
+                        };
+                        ResultView::Profiles(Arc::new(read.pages.take().unwrap()))
+                    } else {
+                        result
+                    };
+                self.start_query(Command::State, Task::ProfileAfter { read, result })
+            }
+            Task::ProfileAfter { read, result } => {
+                let Some(ResultView::State(state)) = receipt.result else {
+                    return Err("Profile result fence State unavailable".into());
+                };
+                if !same_context(&read.basis, &state) {
+                    return Err("Profile query owner or revision changed before adoption".into());
+                }
+                if read.ids.is_empty() {
+                    return Err("Profile query identity unavailable".into());
+                }
+                self.adopt_profile_result(read.basis, read.ids.clone(), read.command, result)?;
+                if let Some(client) = self.client.as_mut() {
+                    for id in read.ids {
+                        client.retire_observation(&id);
+                    }
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -1111,6 +1532,150 @@ fn is_transport_operation(command: &Command) -> bool {
         command,
         Command::Start { .. } | Command::Resume | Command::Pause | Command::Seek { .. }
     )
+}
+fn is_profile_mutation(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::ProfilesCreate { .. }
+            | Command::ProfilesUpdate { .. }
+            | Command::ProfilesPrepare { .. }
+            | Command::ProfilesApply { .. }
+            | Command::GraphValidate { .. }
+            | Command::GraphPrepare { .. }
+            | Command::GraphCommit { .. }
+    )
+}
+fn validate_profile_command(command: &Command) -> Result<(), String> {
+    if matches!(command, Command::ProfilesList { offset, .. } if *offset != 0) {
+        return Err("Refresh the profile catalog from its first page".into());
+    }
+    if matches!(
+        command,
+        Command::ProfilesList { .. }
+            | Command::ProfilesGet { .. }
+            | Command::ProfilesResolve { .. }
+            | Command::GraphInspect { .. }
+    ) || is_profile_mutation(command)
+    {
+        Ok(())
+    } else {
+        Err("Only released profile and DSP commands belong to this workflow".into())
+    }
+}
+fn validate_profile_result(command: &Command, result: &ResultView) -> Result<(), String> {
+    let valid = match (command, result) {
+        (Command::ProfilesList { .. }, ResultView::Profiles(_)) => true,
+        (Command::ProfilesGet { id }, ResultView::Profile(record)) => &record.profile.id == id,
+        (Command::ProfilesCreate { id, draft, graph }, ResultView::ProfileSaved(record)) => {
+            &record.profile.id == id
+                && record.profile.revision == 1
+                && saved_matches_draft(record, draft, graph)
+        }
+        (
+            Command::ProfilesUpdate {
+                id,
+                expected_profile_revision,
+                draft,
+                graph,
+            },
+            ResultView::ProfileSaved(record),
+        ) => {
+            &record.profile.id == id
+                && expected_profile_revision.checked_add(1) == Some(record.profile.revision)
+                && saved_matches_draft(record, draft, graph)
+        }
+        (
+            Command::ProfilesResolve {
+                manual_profile_id, ..
+            },
+            ResultView::ProfileResolution(resolution),
+        ) => match resolution {
+            ProfileResolutionView::Selected { profile, reason } => match manual_profile_id {
+                Some(id) => {
+                    id == &profile.id && *reason == crate::ProfileSelectionReasonView::Manual
+                }
+                None => *reason == crate::ProfileSelectionReasonView::ExactDevice,
+            },
+            ProfileResolutionView::SelectionRequired { .. } => true,
+        },
+        (Command::GraphInspect { .. }, ResultView::GraphInspection(_)) => true,
+        (Command::GraphValidate { .. }, ResultView::GraphPreview(preview)) => {
+            preview.profile_application.is_none()
+        }
+        (Command::GraphPrepare { .. }, ResultView::GraphPrepared(prepared)) => {
+            prepared.preview.profile_application.is_none()
+        }
+        (
+            Command::ProfilesPrepare {
+                id,
+                expected_profile_revision,
+                profile_sha256,
+            },
+            ResultView::GraphPrepared(prepared),
+        ) => prepared
+            .preview
+            .profile_application
+            .as_ref()
+            .is_some_and(|binding| {
+                &binding.profile.id == id
+                    && binding.profile.revision == *expected_profile_revision
+                    && binding.profile.profile_sha256 == *profile_sha256
+            }),
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err("Profile/DSP result kind or target does not match the captured command".into())
+    }
+}
+fn prepared_matches_state(prepared: &GraphPreparedView, state: &StateView) -> bool {
+    preview_matches_state(&prepared.preview, state)
+        && state.monotonic_ns < prepared.expires_monotonic_ns
+}
+fn saved_matches_draft(
+    record: &ProfileRecordView,
+    draft: &earph_core::profile_control::ProfileDraft,
+    graph: &earph_core::graph_control::GraphIntent,
+) -> bool {
+    let profile = &record.profile;
+    record.graph.as_ref() == graph
+        && profile.name == draft.name
+        && profile.source_policy == draft.source_policy
+        && profile.fidelity == draft.fidelity
+        && profile.output.backend == draft.output.backend
+        && profile.output.route == draft.output.route
+        && profile.output.device_id == draft.output.device_id
+        && profile.output.manual_setup == draft.output.manual_setup
+        && profile.volume.mode == draft.volume.mode
+        && profile.volume.software_cap_db
+            == f64::from(draft.volume.software_cap_millidecibels) / 1000.0
+        && profile.volume.hardware_cap_db
+            == draft
+                .volume
+                .hardware_cap_millidecibels
+                .map(|v| f64::from(v) / 1000.0)
+        && profile.latency.mode == draft.latency.mode
+        && profile.latency.max_resident_bytes == draft.latency.max_resident_bytes
+        && profile.latency.max_preparation_bytes == draft.latency.max_preparation_bytes
+        && profile.latency.max_latency_frames == draft.latency.max_latency_frames
+        && profile.corrections == draft.corrections
+}
+fn preview_matches_state(preview: &GraphPreviewView, state: &StateView) -> bool {
+    let binding = &preview.binding;
+    state.owner_id.as_ref() == Some(&binding.owner_id)
+        && state.session_id.as_ref() == Some(&binding.session_id)
+        && state.revision == binding.expected_revision
+        && state.device_epoch == binding.device_epoch
+        && state.epochs == binding.epochs
+        && state
+            .playback
+            .as_ref()
+            .is_some_and(|p| p.format == preview.source_format)
+        && state
+            .output
+            .as_ref()
+            .is_some_and(|o| o.period_frames as usize == preview.quantum_frames)
 }
 
 #[cfg(test)]

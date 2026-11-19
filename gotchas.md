@@ -55,3 +55,8 @@
   Local ID salts do not stabilize every descendant when earlier controls disappear.
   Keep reconciliation disabled during delivery; removing it can prevent complete accessibility reads.
   See [receipt rendering](crates/earph-desktop/src/gui/receipts.rs).
+
+- Fence a read refresh against its fresh Before state, rather than an earlier captured control revision.
+  Exact reconciliation can advance that revision before an explicit refresh starts.
+  Keep the initial owner and zone checks, full Before/After fence, and complete mutation preflight.
+  See [the real-owner regression](crates/earph-desktop/tests/gui_profiles.rs).

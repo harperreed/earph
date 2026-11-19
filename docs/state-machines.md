@@ -231,6 +231,10 @@ Local drafts grant no output authority.
 | Observation | Adopt a complete fenced snapshot before retiring its successful internal receipt. | Retain latest observation and provenance; keep failures and uncertainty visible. |
 | Discovery | Bind each native query to its observed owner. | Invalidate inventory and block old-owner reconciliation after replacement. |
 | Receipt disclosure | Request identity owns persistent headers and exact-body scopes. | Disable reconciliation during delivery instead of removing the control. |
+| Profile draft | Catalog selection, immutable saved facts, and the loaded local draft remain separate. | Get preserves edits; explicit Load replaces the draft. |
+| Graph draft | One canonical intent owns structured edits and accepted raw text. | Pending or invalid raw edits block saving and activation. |
+| Prepared graph | Controller binds token kind, hash, owner, source, expiry, and draft generation. | Reconciled preparation remains historical; expiry or explicit Mute precedes another Prepare. |
+| Profile refresh | Capture the owner and zone, then fence the actual read with fresh Before and After observations. | Accept newer revisions from that owner; reject owner replacement or changes during the read. |
 
 Fixed arming has no State readback.
 Discovery properties do not prove an opened output or physical presentation.

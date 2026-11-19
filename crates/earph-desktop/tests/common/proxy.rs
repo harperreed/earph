@@ -39,10 +39,27 @@ impl Proxy {
     pub fn drop_first_discovery(owner: PathBuf) -> Self {
         Self::start(owner, Some("devices.list"), false)
     }
+    pub fn drop_first_profile_save(owner: PathBuf) -> Self {
+        Self::start(owner, Some("profiles.create"), false)
+    }
+    pub fn drop_first_graph_prepare(owner: PathBuf) -> Self {
+        Self::start(owner, Some("graph.prepare"), false)
+    }
     pub fn hold_first_capabilities(owner: PathBuf) -> Self {
         Self::start(owner, None, true)
     }
+    pub fn hold_first_queue_reply(owner: PathBuf) -> Self {
+        Self::configured(owner, None, false, true)
+    }
     fn start(owner: PathBuf, drop_method: Option<&'static str>, hold_capabilities: bool) -> Self {
+        Self::configured(owner, drop_method, hold_capabilities, false)
+    }
+    fn configured(
+        owner: PathBuf,
+        drop_method: Option<&'static str>,
+        hold_capabilities: bool,
+        hold_queue_reply: bool,
+    ) -> Self {
         let runtime = PathBuf::from("/tmp").join(unique());
         fs::create_dir(&runtime).unwrap();
         fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
@@ -74,6 +91,7 @@ impl Proxy {
         let join = thread::spawn(move || {
             let first_append = Arc::new(AtomicBool::new(drop_method.is_some()));
             let first_capabilities = Arc::new(AtomicBool::new(hold_capabilities));
+            let first_queue_reply = Arc::new(AtomicBool::new(hold_queue_reply));
             let mut handlers = Vec::new();
             while !stopping.load(Ordering::Acquire) {
                 match listener.accept() {
@@ -84,6 +102,7 @@ impl Proxy {
                         let entered = entered_tx.clone();
                         let first_append = first_append.clone();
                         let first_capabilities = first_capabilities.clone();
+                        let first_queue_reply = first_queue_reply.clone();
                         let retained = retained.clone();
                         handlers.push(thread::spawn(move || {
                             stream
@@ -117,6 +136,18 @@ impl Proxy {
                             let reply = earph_engine::request(&owner, &bytes).unwrap();
                             fs::write(retained.join(format!("reply-{index}.json")), &reply)
                                 .unwrap();
+                            if method == "queue.get"
+                                && first_queue_reply.swap(false, Ordering::AcqRel)
+                            {
+                                entered.send(()).unwrap();
+                                let (lock, changed) = &*waiting;
+                                let guard = lock.lock().unwrap();
+                                let _ = changed
+                                    .wait_timeout_while(guard, Duration::from_secs(2), |released| {
+                                        !*released
+                                    })
+                                    .unwrap();
+                            }
                             if Some(method) == drop_method
                                 && first_append.swap(false, Ordering::AcqRel)
                             {
