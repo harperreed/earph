@@ -3,7 +3,7 @@
 use crate::{ProjectionError, Reply, ReplyStatus, ResultView, StateView, decode_reply};
 use earph_core::{
     control::{Command, CommandEnvelope},
-    ids::{RequestId, ZoneId},
+    ids::{RequestId, SessionId, ZoneId},
 };
 use earph_ffi::{ClientError, LocalClient};
 use std::sync::Arc;
@@ -18,6 +18,7 @@ pub enum Lane {
 pub enum RequestError {
     NotQuery,
     NotMutation,
+    NotStart,
     MissingOwner,
     FrameLimit,
     Encoding,
@@ -52,13 +53,34 @@ impl Request {
         if payload.is_query() {
             return Err(RequestError::NotMutation);
         }
+        Self::targeted(id, state, state.session_id.clone(), payload)
+    }
+    /// Captures current owner fences with the caller's new session ID.
+    /// Reconciliation retains this exact envelope without changing the observed State.
+    pub fn start(
+        id: RequestId,
+        state: &StateView,
+        session_id: SessionId,
+        payload: Command,
+    ) -> Result<Self, RequestError> {
+        if !matches!(payload, Command::Start { .. }) {
+            return Err(RequestError::NotStart);
+        }
+        Self::targeted(id, state, Some(session_id), payload)
+    }
+    fn targeted(
+        id: RequestId,
+        state: &StateView,
+        session_id: Option<SessionId>,
+        payload: Command,
+    ) -> Result<Self, RequestError> {
         let owner = state.owner_id.clone().ok_or(RequestError::MissingOwner)?;
         Self::encode(CommandEnvelope {
             schema_version: 1,
             request_id: id,
             zone_id: state.zone_id.clone(),
             owner_id: Some(owner),
-            session_id: state.session_id.clone(),
+            session_id,
             expected_revision: Some(state.revision),
             payload,
         })

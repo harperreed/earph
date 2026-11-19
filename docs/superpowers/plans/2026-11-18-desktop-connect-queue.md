@@ -258,3 +258,13 @@ Independent producer and client reviews report no material findings.
 See `docs/evidence/desktop/output-activity-client-linux-20261119.json` for exact source and evidence bindings.
 Root adds only that evidence document and this checkpoint after the checks.
 Mac compilation, measured native activity, Swift, and fresh native windows remain separate gates.
+
+## Explicit Start request checkpoint
+
+The client now captures a caller-chosen Session ID through `Request::start` without altering observed State.
+It preserves the existing mutation builder, owner fences, lane, and immutable reconciliation bytes.
+Real owner tests reject stale context and use the constructor for muted file/null preparation.
+Prepared muted Start stays Accepted. The matching Stop cancels that pending request, as the reducer requires.
+The final canonical passes 907 tests, with zero failures and five ignored. The desktop package passes 72 tests.
+Strict Clippy and Root's bounded review pass. No GUI transport button or output authority changes here.
+The separate Mac/Swift qualification remains pinned to the earlier immutable `79810bc` source.

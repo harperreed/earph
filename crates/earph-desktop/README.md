@@ -215,3 +215,7 @@ Use the package check for a narrower run with separate retained logs.
 Playback views preserve exact output-activity counters, their scope, and confirmed-close samples.
 Unsupported activity stays explicit null. These SDK diagnostics do not prove OS calls, callbacks, or audible delivery.
 See `../../docs/local-playback.md` for the owner-defined measurement boundary.
+
+Use `Request::start` with one caller-chosen Session ID to capture a Start envelope from idle State.
+A muted Start can remain Accepted after output preparation. Read fresh State for readiness instead of claiming Applied.
+Keep the same request bytes for reconciliation. A matching Stop can cancel that pending Start.

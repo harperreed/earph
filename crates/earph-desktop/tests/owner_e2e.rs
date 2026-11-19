@@ -415,8 +415,8 @@ fn standalone_owner_packages_roundtrip_through_the_actual_desktop_consumer() {
 #[cfg(target_os = "linux")]
 fn muted_real_profile_preparation_and_application_preserve_actual_backend_observations() {
     use earph_core::{
-        control::{CommandEnvelope, OutputBackend, OutputConfiguration, OutputRoute, SourceKind},
-        ids::{SessionId, ZoneId},
+        control::{OutputBackend, OutputConfiguration, OutputRoute, SourceKind},
+        ids::SessionId,
         safety::{FidelityPolicy, VolumeMode},
     };
     let artifacts = PathBuf::from("/tmp").join(unique());
@@ -478,29 +478,25 @@ fn muted_real_profile_preparation_and_application_preserve_actual_backend_observ
         earph_desktop::ReplyStatus::Applied
     );
     let before = refresh(&mut client);
-    // Setup uses the public Core envelope because the current mutation builder cannot mint Start's Session ID.
-    let start = CommandEnvelope {
-        schema_version: 1,
-        request_id: RequestId::new(unique()).unwrap(),
-        zone_id: ZoneId::new("main").unwrap(),
-        owner_id: before.owner_id.clone(),
-        session_id: Some(SessionId::new(unique()).unwrap()),
-        expected_revision: Some(before.revision),
-        payload: Command::Start {
+    let session = SessionId::new(unique()).unwrap();
+    let start = Request::start(
+        RequestId::new(unique()).unwrap(),
+        &before,
+        session.clone(),
+        Command::Start {
             source: SourceKind::LocalFile,
             device_id: output.device_id.clone(),
             takeover: false,
             seekable: true,
         },
-    };
-    let reply = earph_desktop::decode_reply(
-        earph_engine::request(&owner.runtime, &serde_json::to_vec(&start).unwrap()).unwrap(),
     )
     .unwrap();
-    let Reply::Receipt(reply) = reply else {
-        panic!("actual Start receipt");
-    };
-    assert_eq!(reply.status, earph_desktop::ReplyStatus::Accepted);
+    assert!(before.session_id.is_none());
+    let exact = start.bytes().to_vec();
+    let id = settle(&mut client, start);
+    let record = client.model().record(&id).unwrap();
+    assert_eq!(record.presentation, Presentation::Accepted);
+    assert_eq!(record.request.bytes(), exact);
     let deadline = Instant::now() + Duration::from_secs(8);
     let opened = loop {
         let state = refresh(&mut client);
@@ -514,7 +510,20 @@ fn muted_real_profile_preparation_and_application_preserve_actual_backend_observ
         );
         thread::sleep(Duration::from_millis(2));
     };
+    assert_eq!(opened.session_id.as_ref(), Some(&session));
     assert!(opened.muted);
+    client.reconcile(&id).unwrap();
+    while client.model().record(&id).unwrap().in_flight {
+        client.poll();
+        assert!(
+            Instant::now() < deadline,
+            "muted Start replay did not return"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+    let record = client.model().record(&id).unwrap();
+    assert_eq!(record.presentation, Presentation::Accepted);
+    assert_eq!(record.request.bytes(), exact);
     let backend = opened.playback.as_ref().unwrap().backend.as_ref().unwrap();
     assert_eq!(backend.backend, OutputBackend::Alsa);
     assert!(backend.device_identity_sha256.is_none());
@@ -577,6 +586,21 @@ fn muted_real_profile_preparation_and_application_preserve_actual_backend_observ
         ),
         Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::NotFound),
     }
+    let stopped = mutation(&mut client, Command::Stop);
+    assert_eq!(stopped.status, earph_desktop::ReplyStatus::Applied);
+    client.reconcile(&id).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while client.model().record(&id).unwrap().in_flight {
+        client.poll();
+        assert!(
+            Instant::now() < deadline,
+            "stopped Start replay did not return"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+    let record = client.model().record(&id).unwrap();
+    assert_eq!(record.presentation, Presentation::Cancelled);
+    assert_eq!(record.request.bytes(), exact);
     let (_, shutdown) = client.disconnect();
     shutdown.join().unwrap();
     owner.stop().unwrap();

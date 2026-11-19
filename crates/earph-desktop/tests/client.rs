@@ -49,6 +49,82 @@ fn request_builders_capture_targets_and_replay_the_identical_owner_envelope() {
 }
 
 #[test]
+fn start_requests_capture_a_new_session_without_repairing_stale_context() {
+    use earph_core::{
+        control::SourceKind,
+        ids::{DeviceId, SessionId},
+    };
+    use earph_desktop::RequestError;
+    let owner = Owner::start();
+    let client = owner.client();
+    let state = owner.state();
+    assert!(state.session_id.is_none());
+    let session = SessionId::new(unique()).unwrap();
+    let start = Request::start(
+        RequestId::new(unique()).unwrap(),
+        &state,
+        session.clone(),
+        Command::Start {
+            source: SourceKind::LocalFile,
+            device_id: DeviceId::new("owned-output").unwrap(),
+            takeover: false,
+            seekable: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(start.envelope().session_id.as_ref(), Some(&session));
+    assert_eq!(start.envelope().owner_id, state.owner_id);
+    assert_eq!(start.envelope().zone_id, state.zone_id);
+    assert_eq!(start.envelope().expected_revision, Some(state.revision));
+    assert_eq!(start.lane(), Lane::Ordinary);
+    assert!(state.session_id.is_none());
+    let exact = start.bytes().to_vec();
+    let append = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &state,
+        Command::QueueAppend {
+            path: "owned-not-opened.wav".into(),
+        },
+    )
+    .unwrap();
+    client.request(&append).unwrap();
+    let Reply::Receipt(refused) = client.request(&start).unwrap() else {
+        panic!("actual stale Start receipt");
+    };
+    assert_eq!(refused.status, ReplyStatus::Rejected);
+    assert_eq!(refused.error.unwrap().code, ErrorCode::StaleRevision);
+    assert_eq!(start.bytes(), exact);
+    assert!(owner.state().session_id.is_none());
+    assert_eq!(
+        Request::start(
+            RequestId::new(unique()).unwrap(),
+            &state,
+            session.clone(),
+            Command::Stop
+        )
+        .unwrap_err(),
+        RequestError::NotStart
+    );
+    let mut no_owner = state;
+    no_owner.owner_id = None;
+    assert_eq!(
+        Request::start(
+            RequestId::new(unique()).unwrap(),
+            &no_owner,
+            session,
+            Command::Start {
+                source: SourceKind::LocalFile,
+                device_id: DeviceId::new("owned-output").unwrap(),
+                takeover: false,
+                seekable: true
+            }
+        )
+        .unwrap_err(),
+        RequestError::MissingOwner
+    );
+}
+
+#[test]
 fn only_shared_safety_commands_use_the_independent_lane() {
     let owner = Owner::start();
     let state = owner.state();

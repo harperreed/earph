@@ -35,6 +35,7 @@ impl Presentation {
 pub struct RequestRecord {
     pub request: Request,
     pub presentation: Presentation,
+    /// Tracks the current send; an Accepted operation can remain pending afterward.
     pub in_flight: bool,
     pub owner_changed: bool,
     pub outcome: Option<Result<Reply, DeliveryFailure>>,
