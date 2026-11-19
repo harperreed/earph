@@ -123,6 +123,19 @@ Only evidence, this checkpoint, and one JNA gotcha change after frozen v2 qualif
 Root authorizes a local commit with hooks enabled, without push or merge.
 Root owns integration and the remaining T13 work.
 
+## Current Swift profile replay checkpoint
+
+The actual macOS Swift gate passes against immutable `79810bc` with the existing dev profile.
+Forty-eight command frames match 29 CLI observations and nine exact terminal replays.
+Five profile operations first return Accepted; all 20 foreign consumers and the owner exit normally.
+Seven product hashes remain unchanged before execution, afterward, and during collection.
+Four local guard scenarios produce 80 replies across two distinct error codes.
+Root independently verifies every retained archive payload, both generated package objects, and the exact foreign replies.
+The first failed compiler-selection attempt remains preserved.
+Only Clippy's child PATH changes; global settings, compiler flags, and owner policy remain unchanged.
+See `docs/evidence/ffi/macos-swift-profiles-20261119.json` for source and product bindings.
+Native output stays unopened; this does not qualify native profiles, later commits, Mac windows, or successful foreign import.
+
 ## Local integration checkpoint
 
 Doctor Biz authorized the reviewed FFI merge and a local checkpoint commit with hooks enabled.
