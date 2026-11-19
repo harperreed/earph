@@ -19,6 +19,7 @@ fn actual_compiler_facts_validate_as_streaming_core_timing_and_share_progress_st
     let bounds = plan.output_peak_bounds().to_vec();
     let source = PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
     let preview = GraphPreview {
+        diagnostic_nodes: None,
         profile_application: None,
         backend: None,
         graph_hash: plan.content_hash().into(),
@@ -865,4 +866,32 @@ fn rate_compiler_rejects_parallel_converters_cycles_and_implicit_channel_changes
     .unwrap();
     assert_eq!(error.code, earph_core::ErrorCode::FormatUnsupported);
     assert_eq!(error.node.unwrap().as_str(), "down");
+}
+
+#[test]
+fn compiler_origin_diagnostic_stages_keep_rate_domains_without_scalar_latency() {
+    let plan = compile_stream(
+        &serial(),
+        &context(48000, 48000),
+        &[],
+        StreamBudget::default(),
+    )
+    .unwrap();
+    let stages = plan.diagnostic_stages();
+    let value = serde_json::to_value(&stages).unwrap();
+    assert_eq!(value.as_array().unwrap().len(), plan.stages().len());
+    let src: Vec<_> = value
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|stage| stage["kind"] == "src")
+        .collect();
+    assert_eq!(src.len(), 2);
+    assert_eq!(src[0]["input_format"]["sample_rate_hz"], 48000);
+    assert_eq!(src[0]["output_format"]["sample_rate_hz"], 44100);
+    assert!(src[0]["latency_frames"].is_null());
+    assert!(src[0]["tail_frames"].is_null());
+    assert_eq!(src[1]["input_format"]["sample_rate_hz"], 44100);
+    assert_eq!(src[1]["output_format"]["sample_rate_hz"], 48000);
+    assert!(!value.to_string().contains("original_nodes"));
 }

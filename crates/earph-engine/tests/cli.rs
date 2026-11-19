@@ -274,3 +274,42 @@ fn cli_stages_and_clears_unadmitted_metadata_without_persisting_private_input() 
         json!({"generation":0,"staged":null})
     );
 }
+
+#[test]
+fn cli_diagnostic_reads_use_actual_owner_and_preserve_unavailable_metrics() {
+    let runtime = runtime();
+    let mut host = start(&runtime);
+    let before = state(&runtime, "diagnostic-before");
+    for (method, kind) in [
+        ("signal_path.get", "signal_path"),
+        ("metrics.get", "metrics"),
+    ] {
+        let command = envelope(method, Value::Null, 0, json!({"method":method}));
+        let output = call(&runtime, &command);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value["receipt"]["result"]["kind"], kind);
+        let body = serde_json::to_vec(&value["receipt"]["result"]["value"]).unwrap();
+        if kind == "signal_path" {
+            let read = earph_core::diagnostics::SignalPathRead::decode(&body).unwrap();
+            assert!(read.report.resolved.is_none() && read.report.observed.is_none());
+        } else {
+            let read = earph_core::diagnostics::MetricsRead::decode(&body).unwrap();
+            assert!(read.report.underruns.value.is_none());
+        }
+        assert_eq!(call(&runtime, &command).stdout, output.stdout);
+    }
+    assert_eq!(state(&runtime, "diagnostic-after"), before);
+    let stop = envelope(
+        "diagnostic-shutdown",
+        before["owner_id"].clone(),
+        before["revision"].as_u64().unwrap(),
+        json!({"method":"owner.shutdown"}),
+    );
+    assert!(call(&runtime, &stop).status.success());
+    assert!(host.0.wait().unwrap().success());
+}

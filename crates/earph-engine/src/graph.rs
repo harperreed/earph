@@ -88,6 +88,7 @@ struct Payload {
     mode: Mode,
 }
 struct CompiledPreview {
+    diagnostic_nodes: Option<Arc<[earph_core::diagnostics::DiagnosticNode]>>,
     kernel_hash: String,
     implementation_version: String,
     timing: earph_core::graph_control::GraphTiming,
@@ -878,6 +879,7 @@ fn prepare(
             .ok_or(RESOURCE)?;
         let mut preview = prepared_preview(
             CompiledPreview {
+                diagnostic_nodes: None,
                 kernel_hash: plan.content_hash().into(),
                 implementation_version: plan.implementation_version().into(),
                 timing: earph_core::graph_control::GraphTiming::Streaming {
@@ -1014,6 +1016,7 @@ fn prepare(
     }
     let preview = prepared_preview(
         CompiledPreview {
+            diagnostic_nodes: Some(plan.diagnostic_nodes().into()),
             kernel_hash: plan.content_hash().into(),
             implementation_version: plan.implementation_version().into(),
             timing: earph_core::graph_control::GraphTiming::SameRate {
@@ -1155,6 +1158,7 @@ fn prepared_preview(
         });
     }
     let preview = Arc::new(GraphPreview {
+        diagnostic_nodes: compiled.diagnostic_nodes,
         profile_application: request.profile_application.clone(),
         backend: playback.backend.clone(),
         graph_hash: activation_hash(

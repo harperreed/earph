@@ -34,6 +34,16 @@ pub struct CompiledStreamPlan {
     output_bounds: Vec<f64>,
 }
 impl CompiledStreamPlan {
+    /// Shares the diagnostic projection of the actual rate-domain stage metadata.
+    pub fn diagnostic_stages(&self) -> Vec<earph_core::diagnostics::DiagnosticStage> {
+        self.stages
+            .iter()
+            .enumerate()
+            .map(|(index, stage)| {
+                earph_core::diagnostics::DiagnosticStage::from_compiled(index, stage)
+            })
+            .collect()
+    }
     pub fn content_hash(&self) -> &str {
         &self.hash
     }

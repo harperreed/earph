@@ -729,3 +729,38 @@ fn muted_real_profile_preparation_and_application_preserve_actual_backend_observ
         owner.artifacts.display()
     );
 }
+
+#[test]
+fn standalone_owner_diagnostic_reads_remain_muted_and_reconcile_exact_bytes() {
+    let mut owner = ProcessOwner::start();
+    let client = OwnerClient::attach(owner.runtime.to_str().unwrap().to_owned()).unwrap();
+    let observe = || {
+        let Reply::Receipt(receipt) = client.request(&query(Command::State)).unwrap() else {
+            panic!("state")
+        };
+        receipt.state().unwrap().clone()
+    };
+    let before = observe();
+    for payload in [Command::SignalPathGet {}, Command::MetricsGet {}] {
+        let request = query(payload);
+        let first = client
+            .request(&request)
+            .expect("actual diagnostic owner read");
+        let replay = client.request(&request).unwrap();
+        assert_eq!(first.bytes(), replay.bytes());
+        let Reply::Receipt(receipt) = first else {
+            panic!("diagnostic receipt")
+        };
+        assert!(receipt.result.is_some());
+        assert_eq!(receipt.revision, before.revision);
+    }
+    let after = observe();
+    assert_eq!(after, before);
+    assert!(
+        after.muted
+            && !after.output_consented
+            && after.output.is_none()
+            && after.playback.is_none()
+    );
+    owner.stop().unwrap();
+}

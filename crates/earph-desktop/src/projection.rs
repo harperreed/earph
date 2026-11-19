@@ -141,6 +141,7 @@ pub struct ProfileCapabilitiesView {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapabilitiesView {
+    pub diagnostics: Arc<earph_core::diagnostics::DiagnosticCapabilities>,
     pub schema_version: u32,
     pub sources: Vec<SourceKind>,
     pub physical_output: bool,
@@ -168,6 +169,8 @@ pub struct QueueView {
     deny_unknown_fields
 )]
 pub enum ResultView {
+    SignalPath(Arc<earph_core::diagnostics::SignalPathRead>),
+    Metrics(Arc<earph_core::diagnostics::MetricsRead>),
     Sources(Arc<earph_core::source::SourceStagingSnapshot>),
     State(Arc<StateView>),
     Capabilities(CapabilitiesView),
@@ -265,8 +268,13 @@ pub fn decode_reply(bytes: Vec<u8>) -> Result<Reply, ProjectionError> {
             if let Some(result) = &receipt.result {
                 let valid = match result {
                     ResultView::Sources(_) => receipt.status == ReplyStatus::Applied,
+                    ResultView::SignalPath(value) => diagnostic_matches(value, &receipt),
+                    ResultView::Metrics(value) => diagnostic_matches(value, &receipt),
                     ResultView::Capabilities(value) => {
-                        value.schema_version == 1 && value.profiles.package.schema_version == 1
+                        value.schema_version == 1
+                            && value.profiles.package.schema_version == 1
+                            && value.diagnostics.as_ref()
+                                == &earph_core::diagnostics::DiagnosticCapabilities::default()
                     }
                     ResultView::State(value) => {
                         receipt.status == ReplyStatus::Applied
@@ -296,4 +304,15 @@ pub fn decode_reply(bytes: Vec<u8>) -> Result<Reply, ProjectionError> {
             "reply must contain exactly one receipt or owner error",
         )),
     }
+}
+
+fn diagnostic_matches<T: earph_core::diagnostics::DiagnosticReport>(
+    value: &earph_core::diagnostics::DiagnosticRead<T>,
+    receipt: &ReceiptView,
+) -> bool {
+    receipt.status == ReplyStatus::Applied
+        && value.validate().is_ok()
+        && value.binding.zone_id == receipt.zone_id
+        && value.binding.revision == receipt.revision
+        && value.binding.epochs == receipt.epochs
 }

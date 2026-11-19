@@ -23,6 +23,8 @@ mod associations;
 #[path = "session_devices.rs"]
 mod devices;
 use devices::DeviceControl;
+#[path = "session_diagnostics.rs"]
+mod diagnostics;
 #[path = "session_sources.rs"]
 mod sources;
 
@@ -571,10 +573,14 @@ impl Session {
                         Some(QueryResult::Sources(self.sources.snapshot()))
                     }
                     Command::State => Some(QueryResult::State(Box::new(self.snapshot()))),
+                    Command::SignalPathGet {} | Command::MetricsGet {} => {
+                        self.diagnostic_query(&c.payload).ok().flatten()
+                    }
                     Command::QueueGet { offset, limit } => {
                         self.queue.page(offset, limit).ok().map(QueryResult::Queue)
                     }
                     Command::Capabilities => Some(QueryResult::Capabilities(Capabilities {
+                        diagnostics: crate::diagnostics::DiagnosticCapabilities::default(),
                         devices: Arc::new(self.device_capabilities()),
                         schema_version: 1,
                         sources: if self.local_playback_enabled {
@@ -831,6 +837,14 @@ impl Session {
         if command.zone_id != self.state.zone_id {
             return Err(STALE);
         }
+        if matches!(
+            command.payload,
+            Command::SignalPathGet {} | Command::MetricsGet {}
+        ) && command.owner_id.is_some()
+            && command.owner_id != self.state.owner_id
+        {
+            return Err(STALE);
+        }
         if !command.payload.is_query()
             && self.state.owner_id.is_some()
             && command.owner_id != self.state.owner_id
@@ -854,6 +868,8 @@ impl Session {
             Command::Start { .. }
                 | Command::Mute { .. }
                 | Command::State
+                | Command::SignalPathGet {}
+                | Command::MetricsGet {}
                 | Command::Capabilities
                 | Command::DevicesList { .. }
                 | Command::DevicesInspect { .. }
@@ -881,6 +897,7 @@ impl Session {
             return Err(STALE);
         }
         if command.payload.is_query() {
+            self.diagnostic_query(&command.payload)?;
             if matches!(
                 command.payload,
                 Command::DevicesList { .. } | Command::DevicesInspect { .. }

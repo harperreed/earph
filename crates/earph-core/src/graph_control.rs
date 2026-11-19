@@ -314,6 +314,9 @@ fn src_facts_valid(parameters: &SrcParameters, input: PcmFormat, output: PcmForm
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GraphPreview {
+    /// Compiler-origin facts stay outside the established graph-inspection wire body.
+    #[serde(skip)]
+    pub diagnostic_nodes: Option<Arc<[crate::diagnostics::DiagnosticNode]>>,
     pub profile_application: Option<Arc<crate::profile_control::ProfileApplicationBinding>>,
     pub backend: Option<BackendObservation>,
     pub graph_hash: String,
@@ -335,6 +338,20 @@ pub struct GraphPreview {
     pub required_headroom_db: f64,
     pub transition: GraphTransition,
 }
+
+/// Matches boundary rates and layouts while permitting explicit sample representation conversions.
+pub(crate) fn graph_boundary_formats_match(
+    source: PcmFormat,
+    processing_input: PcmFormat,
+    processing_output: PcmFormat,
+    native_output: PcmFormat,
+) -> bool {
+    source.sample_rate_hz() == processing_input.sample_rate_hz()
+        && source.channels() == processing_input.channels()
+        && processing_output.sample_rate_hz() == native_output.sample_rate_hz()
+        && processing_output.channels() == native_output.channels()
+}
+
 impl GraphPreview {
     /// Bounds profile receipt retention, including spare capacity in trusted compiler results.
     pub fn retained_capacity_bytes(&self) -> Result<usize, EngineError> {
@@ -343,6 +360,11 @@ impl GraphPreview {
             "graph preview retention exceeds admission",
         );
         let mut bytes = size_of::<Self>();
+        if let Some(nodes) = &self.diagnostic_nodes {
+            bytes = bytes
+                .checked_add(nodes.len() * size_of::<crate::diagnostics::DiagnosticNode>())
+                .ok_or(budget)?;
+        }
         let add = |bytes: &mut usize, count: usize| -> Result<(), EngineError> {
             *bytes = bytes
                 .checked_add(count)
@@ -444,6 +466,17 @@ impl GraphPreview {
         Ok(bytes)
     }
     pub fn validate(&self) -> Result<(), EngineError> {
+        if let Some(nodes) = &self.diagnostic_nodes {
+            if nodes.is_empty() || nodes.len() > MAX_GRAPH_NODES {
+                return Err(EngineError::new(
+                    ErrorCode::GraphInvalid,
+                    "invalid compiled node facts",
+                ));
+            }
+            for (index, node) in nodes.iter().enumerate() {
+                node.validate(index)?;
+            }
+        }
         if let Some(application) = &self.profile_application {
             application.validate()?;
             self.retained_capacity_bytes()?;
@@ -452,11 +485,12 @@ impl GraphPreview {
             || !valid_graph_hash(&self.kernel_hash)
             || !(1..=8192).contains(&self.quantum_frames)
             || self.channel_peak_bounds.len() != self.native_output_format.channels().count()
-            || self.processing_input_format.sample_rate_hz() != self.source_format.sample_rate_hz()
-            || self.processing_input_format.channels() != self.source_format.channels()
-            || self.processing_output_format.sample_rate_hz()
-                != self.native_output_format.sample_rate_hz()
-            || self.processing_output_format.channels() != self.native_output_format.channels()
+            || !graph_boundary_formats_match(
+                self.source_format,
+                self.processing_input_format,
+                self.processing_output_format,
+                self.native_output_format,
+            )
             || !self.timing.valid(
                 self.processing_input_format,
                 self.processing_output_format,

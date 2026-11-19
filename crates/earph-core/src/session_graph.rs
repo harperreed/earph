@@ -1027,6 +1027,7 @@ mod tests {
         let float =
             PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Float64).unwrap();
         Arc::new(GraphPreview {
+            diagnostic_nodes: None,
             profile_application: job.profile_application,
             backend: s.state.playback.as_ref().and_then(|p| p.backend.clone()),
             graph_hash: "a".repeat(64),

@@ -1697,3 +1697,115 @@ fn retained_id_spare_capacity_is_charged_using_actual_backing_storage() {
     );
     retired(&service);
 }
+
+#[test]
+fn diagnostic_builder_retains_actual_compiler_nodes_without_changing_graph_wire_body() {
+    let state = snapshot();
+    let job = request(&state, serde_json::json!({"kind":"gain","gain_linear":0.5}));
+    let mut service = GraphService::spawn(None).unwrap();
+    service.submit(job, state, active_source()).unwrap();
+    let success = completion(&mut service).result.unwrap();
+    let nodes = serde_json::to_value(&success.preview.diagnostic_nodes).unwrap();
+    assert_eq!(nodes.as_array().map(Vec::len), Some(3));
+    assert_eq!(nodes[1]["kind"], "gain");
+    assert_eq!(nodes[1]["gain_linear"], 0.5);
+    assert_eq!(nodes[1]["path_latency_frames"], 0);
+    assert_eq!(nodes[1]["format"]["sample_rate_hz"], 48000);
+    assert!(nodes[1]["implementation_version"].is_null());
+    assert!(!nodes.to_string().contains("effect"));
+    assert!(
+        serde_json::to_value(&success.preview)
+            .unwrap()
+            .get("diagnostic_nodes")
+            .is_none()
+    );
+    drop(success);
+    retired(&service);
+}
+
+#[path = "../../earph-core/tests/support/diagnostic_session.rs"]
+mod diagnostic_session;
+
+fn compiled_diagnostic_receipt(
+    endpoint: &str,
+    identity: char,
+) -> (
+    Arc<earph_core::graph_control::GraphPreview>,
+    earph_core::control::Receipt,
+) {
+    let mut session = diagnostic_session::preparing(
+        endpoint,
+        Some(identity.to_string().repeat(64).try_into().unwrap()),
+    );
+    let job = session.graph_job().unwrap();
+    let mut service = GraphService::spawn(None).unwrap();
+    service
+        .submit(job, session.snapshot(), active_source())
+        .unwrap();
+    let success = completion(&mut service).result.unwrap();
+    let preview = success.preview.clone();
+    let receipt = diagnostic_session::activate(&mut session, preview.clone());
+    assert!(session.snapshot().muted);
+    drop(success);
+    retired(&service);
+    (preview, receipt)
+}
+
+#[test]
+fn diagnostic_review_shareable_report_is_independent_of_private_route_fingerprints() {
+    use serde_json::Value;
+    let (first_preview, first) = compiled_diagnostic_receipt("/private/route-a", 'a');
+    let (endpoint_preview, endpoint) = compiled_diagnostic_receipt("/private/route-b", 'a');
+    let (identity_preview, identity) = compiled_diagnostic_receipt("/private/route-a", 'b');
+    assert_ne!(first_preview.graph_hash, endpoint_preview.graph_hash);
+    assert_ne!(first_preview.graph_hash, identity_preview.graph_hash);
+    let report = |receipt| -> Value {
+        serde_json::to_value(receipt).unwrap()["result"]["value"]["report"].clone()
+    };
+    let first = report(first);
+    assert_eq!(first, report(endpoint));
+    assert_eq!(first, report(identity));
+}
+
+#[test]
+fn diagnostic_review_core_decoder_preserves_actual_compiler_outer_format_contracts() {
+    use earph_core::diagnostics::SignalPathRead;
+    use serde_json::{Value, json};
+    let (preview, receipt) = compiled_diagnostic_receipt("/private/format-route", 'a');
+    let original = serde_json::to_value(receipt).unwrap()["result"]["value"].clone();
+    SignalPathRead::decode(&serde_json::to_vec(&original).unwrap()).unwrap();
+    for (field, parameter, replacement) in [
+        ("source_format", "sample_rate_hz", json!(96000)),
+        ("source_format", "channels", json!("mono")),
+        ("native_output_format", "sample_rate_hz", json!(96000)),
+        ("native_output_format", "channels", json!("mono")),
+    ] {
+        let mut invalid_preview = (*preview).clone();
+        let rate = if parameter == "sample_rate_hz" {
+            96000
+        } else {
+            48000
+        };
+        let channels = if parameter == "channels" {
+            ChannelLayout::Mono
+        } else {
+            ChannelLayout::Stereo
+        };
+        let invalid = PcmFormat::new(rate, channels, PcmRepresentation::Signed16).unwrap();
+        if field == "source_format" {
+            invalid_preview.source_format = invalid;
+        } else {
+            invalid_preview.native_output_format = invalid;
+        }
+        assert!(
+            invalid_preview.validate().is_err(),
+            "producer accepted {field}.{parameter}"
+        );
+        let mut altered: Value = original.clone();
+        altered["report"]["resolved"][field][parameter] = replacement;
+        assert!(
+            SignalPathRead::decode(&serde_json::to_vec(&altered).unwrap()).is_err(),
+            "decoder accepted {field}.{parameter}"
+        );
+    }
+}

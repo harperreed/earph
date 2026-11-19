@@ -73,6 +73,7 @@ fn backend(identity: bool) -> BackendObservation {
 fn preview() -> Arc<GraphPreview> {
     let format = PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
     Arc::new(GraphPreview {
+        diagnostic_nodes: None,
         profile_application: Some(Arc::new(ProfileApplicationBinding {
             profile: profile().reference(),
             device_identity_sha256: Some(hash('c')),

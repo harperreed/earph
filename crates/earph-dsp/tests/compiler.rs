@@ -554,3 +554,31 @@ fn serialized_graph_rejects_oversized_intent_before_compilation() {
     });
     assert!(serde_json::from_slice::<GraphDocument>(&serde_json::to_vec(&graph).unwrap()).is_err());
 }
+
+#[test]
+fn compiler_origin_diagnostic_nodes_keep_aliases_gain_and_path_latency() {
+    let mut graph = chain(NodeKind::Gain {
+        gain_linear: scalar(0.5),
+    });
+    graph.nodes[0].id = id("/private/source-token");
+    graph.edges[0].from = graph.nodes[0].id.clone();
+    let plan = compile(&graph, &context()).unwrap();
+    let facts = plan.diagnostic_nodes();
+    let value = serde_json::to_value(&facts).unwrap();
+    assert_eq!(value.as_array().unwrap().len(), 3);
+    assert_eq!(value[0]["alias"], 1);
+    assert_eq!(value[1]["kind"], "gain");
+    assert_eq!(value[1]["gain_linear"], 0.5);
+    assert_eq!(value[1]["path_latency_frames"], 0);
+    assert_eq!(value[1]["format"]["sample_rate_hz"], 48000);
+    assert!(value[1]["implementation_version"].is_null());
+    assert_eq!(
+        value[1]["implementation_unavailable_reason"],
+        "not_observed"
+    );
+    assert!(!value.to_string().contains("private"));
+    let delayed = compile(&chain(NodeKind::Delay { delay_frames: 17 }), &context()).unwrap();
+    let delayed = serde_json::to_value(delayed.diagnostic_nodes()).unwrap();
+    assert_eq!(delayed[1]["path_latency_frames"], 17);
+    assert_eq!(delayed[2]["path_latency_frames"], 17);
+}

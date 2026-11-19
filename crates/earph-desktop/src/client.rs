@@ -20,6 +20,7 @@ pub enum Lane {
 pub enum RequestError {
     NotQuery,
     NotDeviceQuery,
+    NotDiagnosticQuery,
     NotMutation,
     NotStart,
     MissingOwner,
@@ -51,6 +52,18 @@ impl Request {
             Command::DevicesList { .. } | Command::DevicesInspect { .. }
         ) {
             return Err(RequestError::NotDeviceQuery);
+        }
+        let owner = state.owner_id.clone().ok_or(RequestError::MissingOwner)?;
+        Self::query_envelope(id, state.zone_id.clone(), Some(owner), payload)
+    }
+    /// Binds a diagnostic observation to the currently observed owner without changing state.
+    pub fn diagnostic_query(
+        id: RequestId,
+        state: &StateView,
+        payload: Command,
+    ) -> Result<Self, RequestError> {
+        if !matches!(payload, Command::SignalPathGet {} | Command::MetricsGet {}) {
+            return Err(RequestError::NotDiagnosticQuery);
         }
         let owner = state.owner_id.clone().ok_or(RequestError::MissingOwner)?;
         Self::query_envelope(id, state.zone_id.clone(), Some(owner), payload)
@@ -154,6 +167,8 @@ impl Request {
                 | Command::ProfilesGet { .. }
                 | Command::ProfilesResolve { .. }
                 | Command::GraphInspect { .. }
+                | Command::SignalPathGet {}
+                | Command::MetricsGet {}
         )
     }
 }
@@ -191,6 +206,17 @@ impl OwnerClient {
                 && receipt.zone_id == envelope.zone_id
                 && receipt.session_id == envelope.session_id;
             let result_matches = match (&envelope.payload, &receipt.result) {
+                (Command::SignalPathGet {}, Some(ResultView::SignalPath(value))) => {
+                    receipt.status == ReplyStatus::Applied
+                        && diagnostic_target_matches(&value.binding, envelope)
+                }
+                (Command::MetricsGet {}, Some(ResultView::Metrics(value))) => {
+                    receipt.status == ReplyStatus::Applied
+                        && diagnostic_target_matches(&value.binding, envelope)
+                }
+                (Command::SignalPathGet {} | Command::MetricsGet {}, _) => {
+                    receipt.status != ReplyStatus::Applied && receipt.result.is_none()
+                }
                 (
                     Command::SourcesGet {} | Command::SourceStageUri { .. },
                     Some(ResultView::Sources(value)),
@@ -267,4 +293,18 @@ impl OwnerClient {
         }
         Ok(reply)
     }
+}
+
+fn diagnostic_target_matches(
+    binding: &earph_core::diagnostics::DiagnosticBinding,
+    envelope: &CommandEnvelope,
+) -> bool {
+    envelope
+        .owner_id
+        .as_ref()
+        .is_none_or(|owner| binding.owner_id.as_ref() == Some(owner))
+        && envelope
+            .session_id
+            .as_ref()
+            .is_none_or(|session| binding.session_id.as_ref() == Some(session))
 }

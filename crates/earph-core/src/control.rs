@@ -109,6 +109,10 @@ pub enum Command {
     Capabilities,
     #[serde(rename = "state.get")]
     State,
+    #[serde(rename = "signal_path.get")]
+    SignalPathGet {},
+    #[serde(rename = "metrics.get")]
+    MetricsGet {},
     #[serde(rename = "devices.list")]
     DevicesList { backend: OutputBackend },
     #[serde(rename = "devices.inspect")]
@@ -318,6 +322,8 @@ impl Command {
                 | Self::DevicesList { .. }
                 | Self::DevicesInspect { .. }
                 | Self::State
+                | Self::SignalPathGet {}
+                | Self::MetricsGet {}
                 | Self::QueueGet { .. }
                 | Self::SourcesGet { .. }
                 | Self::GraphInspect { .. }
@@ -497,7 +503,10 @@ impl CommandEnvelope {
     pub(crate) fn validate_retained_storage(&self) -> Result<(), EngineError> {
         if matches!(
             self.payload,
-            Command::SourceStageUri { .. } | Command::SourcesGet {}
+            Command::SourceStageUri { .. }
+                | Command::SourcesGet {}
+                | Command::SignalPathGet {}
+                | Command::MetricsGet {}
         ) && [
             self.request_id.capacity_bytes(),
             self.zone_id.capacity_bytes(),
@@ -511,7 +520,7 @@ impl CommandEnvelope {
         {
             return Err(EngineError::new(
                 ErrorCode::ResourceBudgetExceeded,
-                "source request identity exceeds storage limit",
+                "request identity exceeds storage limit",
             ));
         }
         if self.payload.is_profile() {
@@ -612,6 +621,8 @@ pub enum ReceiptStatus {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum QueryResult {
+    SignalPath(Arc<crate::diagnostics::SignalPathRead>),
+    Metrics(Arc<crate::diagnostics::MetricsRead>),
     Sources(crate::source::SourceStagingSnapshot),
     Devices(Arc<crate::devices::DeviceQueryResult>),
     State(Box<crate::session::SessionSnapshot>),
@@ -632,6 +643,7 @@ pub enum QueryResult {
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Capabilities {
+    pub diagnostics: crate::diagnostics::DiagnosticCapabilities,
     pub devices: Arc<crate::devices::DeviceCapabilities>,
     pub schema_version: u32,
     pub sources: Vec<SourceKind>,

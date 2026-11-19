@@ -465,3 +465,31 @@ fn ffi_staging_replays_exact_redacted_receipts_without_starting_playback() {
     assert_eq!(owner.state(), expected);
     owner.stop();
 }
+
+#[test]
+fn ffi_diagnostic_reads_share_actual_owner_producer_and_strict_decoder() {
+    let mut owner = Owner::start();
+    let client = owner.client();
+    let initial = owner.state();
+    for method in ["signal_path.get", "metrics.get"] {
+        let command = envelope(&format!("ffi-{method}"), None, json!({"method":method}));
+        let bytes = client.request(command.clone()).unwrap();
+        assert_eq!(client.request(command).unwrap(), bytes);
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["receipt"]["status"], "applied");
+        let body = serde_json::to_vec(&value["receipt"]["result"]["value"]).unwrap();
+        if method == "signal_path.get" {
+            let read = earph_core::diagnostics::SignalPathRead::decode(&body).unwrap();
+            assert_eq!(
+                serde_json::to_value(&read.binding.owner_id).unwrap(),
+                initial["owner_id"]
+            );
+            assert!(read.report.observed.is_none());
+        } else {
+            let read = earph_core::diagnostics::MetricsRead::decode(&body).unwrap();
+            assert!(read.report.cpu_load.value.is_none());
+        }
+    }
+    assert_eq!(owner.state(), initial);
+    owner.stop();
+}

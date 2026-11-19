@@ -987,3 +987,47 @@ fn source_staging_client_rejects_a_clear_result_from_generation_zero() {
     };
     assert_eq!(&*error.bytes, raw);
 }
+
+#[test]
+fn diagnostic_client_matches_actual_owner_binding_and_replays_original_reads() {
+    use earph_core::ids::OwnerId;
+    use earph_desktop::{DeliveryFailure, RequestError};
+    use serde_json::{Value, json};
+    let mut owner = Owner::start();
+    let state = owner.state();
+    assert!(matches!(
+        Request::diagnostic_query(RequestId::new(unique()).unwrap(), &state, Command::State),
+        Err(RequestError::NotDiagnosticQuery)
+    ));
+    for payload in [Command::SignalPathGet {}, Command::MetricsGet {}] {
+        let request =
+            Request::diagnostic_query(RequestId::new(unique()).unwrap(), &state, payload).unwrap();
+        assert_eq!(request.lane(), Lane::Ordinary);
+        let actual = owner.client().request(&request).unwrap();
+        let mut wrong: Value = serde_json::from_slice(actual.bytes()).unwrap();
+        wrong["receipt"]["result"]["value"]["binding"]["owner_id"] = json!("replacement-owner");
+        assert!(matches!(
+            request_with_reply(&request, serde_json::to_vec(&wrong).unwrap()),
+            Err(DeliveryFailure::Protocol(_))
+        ));
+        assert_eq!(
+            owner.client().request(&request).unwrap().bytes(),
+            actual.bytes()
+        );
+        let mut stale = state.clone();
+        stale.owner_id = Some(OwnerId::new("previous-owner").unwrap());
+        let rejected = Request::diagnostic_query(
+            RequestId::new(unique()).unwrap(),
+            &stale,
+            request.envelope().payload.clone(),
+        )
+        .unwrap();
+        let Reply::Receipt(receipt) = owner.client().request(&rejected).unwrap() else {
+            panic!("rejected receipt")
+        };
+        assert_eq!(receipt.status, ReplyStatus::Rejected);
+        assert_eq!(receipt.error.unwrap().code, ErrorCode::StaleSession);
+    }
+    assert_eq!(owner.state(), state);
+    owner.stop();
+}
