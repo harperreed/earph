@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "scope": "Core renderer ownership and real Engine cancellation on Linux",
+  "source": {
+    "base_commit": "07614e590a8c78c311ed0f784125a7f25a01e3d2",
+    "qualified_source_archive_sha256": "d03fff9007400e9accb6ab0642b10dd2372569604dfc95d1e5e19340c1658e80",
+    "host_sha256": "654a81bb86dfd61eabd70d10d999a7b80d938e17752c5adbfd21dc75e8e6cf2a",
+    "worker_test_sha256": "04235e3cf7e757702b39917753b1ef16fa86b308d1652883b7878dad0e7b724f",
+    "source_unchanged_during_canonical": true,
+    "note": "Later documentation changes do not change the qualified runtime source."
+  },
+  "worker_proof": {
+    "queued_cases": 7,
+    "started_http_cases": 7,
+    "safety_paths": ["remote_stop", "renderer_revoke", "local_stop", "shutdown", "origin_revoke", "origin_replace", "origin_expiry"],
+    "actual_a_and_b_retirement_events_required": true,
+    "a_ack_cannot_settle_b_receipt": true,
+    "stale_and_duplicate_acknowledgements_rejected": true,
+    "queued_b_http_requests": 0,
+    "started_b_http_requests_per_case": 1,
+    "started_b_connection_closed_before_applied": true,
+    "native_pcm_bytes_per_case": 5376,
+    "native_pcm_matches_a_prefix": true,
+    "child_stderr_bytes": 0,
+    "owned_workers_and_fixture_threads_joined": true,
+    "strict_clippy_exit": 0,
+    "format_check_exit": 0,
+    "independent_review": "no material findings",
+    "independent_review_sha256": "cf2d53240d9b8984ccc1141859cccd78523fd37b55a009021a166fb2ef455bd0"
+  },
+  "combined_canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "reported_passed": 1369,
+    "reported_failed": 0,
+    "reported_ignored": 5,
+    "reported_groups": 154,
+    "count_note": "Reported result blocks include child-process results; counts are not additive unique coverage.",
+    "log_sha256": "3372e583e587c94564d038b1dbd5f63f42e8a652d8bd494fe8f70ae03738d52a",
+    "catalog_check": "passed",
+    "dependency_check": "passed",
+    "product_build_exit": 0,
+    "engine_sha256": "c995992d3458226e6192c2813f25821d2ab8a9e77e2c634b5e179a818a58e505",
+    "desktop_sha256": "0e219259835dd33816b59e72d146c561a80b14ffd2203e33588d75de51e412a8"
+  },
+  "limits": [
+    "Production renderer ingress remains disabled.",
+    "The queued case uses actual native backpressure; internal deferred_start branch coverage remains unproven.",
+    "Started B withholds its response body, so this proves cancellation before readiness, rather than already-unmuted B playback.",
+    "No LAN advertisements, GENA callbacks, Music Assistant or independent-controller interoperability are qualified.",
+    "No physical output, macOS runtime or release qualification is established."
+  ]
+}

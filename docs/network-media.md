@@ -189,6 +189,9 @@ Run `cargo test --locked -p earph-engine --lib network_decode` for deterministic
 
 ## Owner playback
 
+Core also defines [renderer control ownership](renderer-control.md).
+Its trusted ingress remains disabled in the production owner.
+
 The owner supports qualified 16/24-bit mono/stereo HTTP-FLAC through explicit local commands.
 See [the owner control guide](owner-http-playback.md) for literal command payloads and receipt rules.
 Staging and granting perform no fetch.

@@ -3993,6 +3993,24 @@
       "license_files": [
         {
           "name": "LICENSE-APACHE",
+          "sha256": "4d10fe5f3aa176b05b229a248866bad70b834c173f1252a814ff4748d8a13837"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "sha256": "934887691e05d69d7c86ad3f2c360980fa30c15b035e351f3c9865e99da4debc"
+        }
+      ],
+      "manifest_sha256": "d1adbc974f706b302bc844ce7b6d6323d30a1689b9e3bf53ab78ba0bb09a9ed9",
+      "name": "httpdate",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.3"
+    },
+    {
+      "features": [],
+      "license_expression": "MIT OR Apache-2.0",
+      "license_files": [
+        {
+          "name": "LICENSE-APACHE",
           "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
         },
         {
@@ -4009,7 +4027,8 @@
       "features": [
         "client",
         "default",
-        "http1"
+        "http1",
+        "server"
       ],
       "license_expression": "MIT",
       "license_files": [

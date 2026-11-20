@@ -1,0 +1,8 @@
+# ABOUTME: Defines the bounded Sendspin protocol components without an output owner.
+# ABOUTME: Starts with authenticated-message framing and adds no transport dependencies.
+[package]
+name = "earph-sendspin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true

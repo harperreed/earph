@@ -934,6 +934,10 @@ impl Drop for GraphJobs {
     }
 }
 
+#[cfg(all(test, target_os = "linux"))]
+#[path = "host_renderer_tests.rs"]
+mod renderer_ownership;
+
 #[cfg(test)]
 mod tests {
     use super::*;

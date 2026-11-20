@@ -18,6 +18,7 @@ impl Session {
         let revision = increment(self.state.revision)?;
         let event_sequence = self.next_session_event_sequence(false)?;
         self.sources.stage(uri, metadata)?;
+        self.renderer.staged = None;
         self.state.revision = revision;
         self.state.event_sequence = event_sequence;
         self.log(Some(command.request_id.clone()));

@@ -179,6 +179,7 @@ pub enum ResultView {
     DiagnosticCancel(Arc<earph_core::diagnostics::DiagnosticCancelReceipt>),
     Sources(Arc<earph_core::source::SourceStagingSnapshot>),
     Network(Arc<earph_core::network_source::NetworkSnapshot>),
+    Renderer(Arc<earph_core::renderer::RendererSnapshot>),
     State(Arc<StateView>),
     Capabilities(CapabilitiesView),
     Queue(QueueView),
@@ -274,7 +275,7 @@ pub fn decode_reply(bytes: Vec<u8>) -> Result<Reply, ProjectionError> {
         (Some(mut receipt), None) => {
             if let Some(result) = &receipt.result {
                 let valid = match result {
-                    ResultView::Sources(_) | ResultView::Network(_) => {
+                    ResultView::Sources(_) | ResultView::Network(_) | ResultView::Renderer(_) => {
                         receipt.status == ReplyStatus::Applied
                     }
                     ResultView::SignalPath(value) => diagnostic_matches(value, &receipt),

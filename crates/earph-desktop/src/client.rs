@@ -164,6 +164,11 @@ impl Request {
                 | Command::VolumeCaps { .. }
                 | Command::OwnerShutdown
                 | Command::NetworkGrantsRevoke { .. }
+                | Command::RendererGrantsRevoke { .. }
+                | Command::RendererRequest {
+                    action: earph_core::renderer::RendererAction::Stop { .. },
+                    ..
+                }
         ) {
             Lane::Safety
         } else {
@@ -191,6 +196,7 @@ impl Request {
                 | Command::Capabilities
                 | Command::QueueGet { .. }
                 | Command::NetworkGet {}
+                | Command::RendererGet {}
                 | Command::ProfilesList { .. }
                 | Command::ProfilesGet { .. }
                 | Command::ProfilesResolve { .. }
@@ -248,6 +254,13 @@ fn receipt_matches(request: &Request, receipt: &crate::ReceiptView) -> bool {
         && receipt.zone_id == envelope.zone_id
         && receipt.session_id == envelope.session_id;
     let result_matches = match (&envelope.payload, &receipt.result) {
+        (payload, Some(ResultView::Renderer(_))) if payload.is_renderer() => {
+            receipt.status == ReplyStatus::Applied
+        }
+        (payload, _) if payload.is_renderer() => {
+            receipt.status != ReplyStatus::Applied && receipt.result.is_none()
+        }
+        (_, Some(ResultView::Renderer(_))) => false,
         (
             Command::DiagnosticsExport {
                 directory,

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "producer": "aiosendspin.models.player.pack_player_audio_header",
+  "additional_producer": "pack_player_audio_frame + stamp_send_ahead",
+  "version": "10.2.1",
+  "commit": "692831b07bc453a38d5a39a16ee566141547bfa1",
+  "source_url": "https://github.com/Sendspin/aiosendspin/blob/692831b07bc453a38d5a39a16ee566141547bfa1/aiosendspin/models/player.py",
+  "producer_source_sha256": "9724496d32575b3e1967ddda2a922ba445281c8910cb7104fe8746822330cfce",
+  "python": "3.12.11",
+  "fixture_bytes": 15,
+  "fixture_sha256": "57e191298bd0987e7c882bb46e7fdbef060d3fbd910937861f4f51eabec59a7d",
+  "timestamp_us": -7,
+  "send_ahead_us": 16909060,
+  "payload_hex": "55aa",
+  "network_or_audio_activity": false
+}

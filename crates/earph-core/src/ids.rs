@@ -36,10 +36,17 @@ identity!(
     RequestId,
     OwnerId,
     QueueEntryId,
-    StagedMediaId
+    StagedMediaId,
+    RendererControllerId
 );
 
 impl StagedMediaId {
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
+
+impl RendererControllerId {
     pub(crate) fn capacity_bytes(&self) -> usize {
         self.0.capacity()
     }

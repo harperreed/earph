@@ -27,6 +27,8 @@ use devices::DeviceControl;
 mod diagnostics;
 #[path = "session_network.rs"]
 mod network;
+#[path = "session_renderer.rs"]
+mod renderer;
 #[path = "session_sources.rs"]
 mod sources;
 
@@ -379,6 +381,7 @@ pub struct Session {
     devices: DeviceControl,
     sources: crate::source::SourceStaging,
     network: crate::network_source::NetworkSources,
+    renderer: crate::renderer::RendererControl,
     diagnostics: diagnostics::DiagnosticState,
 }
 impl Session {
@@ -431,6 +434,7 @@ impl Session {
             devices: DeviceControl::default(),
             sources: crate::source::SourceStaging::default(),
             network: crate::network_source::NetworkSources::default(),
+            renderer: crate::renderer::RendererControl::default(),
             diagnostics: diagnostics::DiagnosticState::default(),
         }
     }
@@ -617,6 +621,12 @@ impl Session {
                 self.diagnostic_artifact_reply(&c.request_id)
             } else if status == ReceiptStatus::Applied {
                 match c.payload {
+                    Command::RendererGet {}
+                    | Command::RendererGrantsReplace { .. }
+                    | Command::RendererGrantsRevoke { .. }
+                    | Command::RendererRequest { .. } => {
+                        Some(QueryResult::Renderer(self.renderer_snapshot()))
+                    }
                     Command::NetworkGet {}
                     | Command::NetworkGrantsReplace { .. }
                     | Command::NetworkGrantsRevoke { .. } => {
@@ -766,6 +776,9 @@ impl Session {
             {
                 receipt.result = Some(QueryResult::Network(self.network_snapshot()));
             }
+            if status == ReceiptStatus::Applied && updated.0.payload.is_renderer() {
+                receipt.result = Some(QueryResult::Renderer(self.renderer_snapshot()));
+            }
             let updated = Arc::new(updated);
             if let Some(slot) = self
                 .receipts
@@ -821,7 +834,22 @@ impl Session {
         validate_network: impl FnOnce(&Session, &CommandEnvelope) -> Result<(), EngineError>,
         commit: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Receipt {
+        self.submit_with_ingress(command, now_ns, None, expand, validate_network, commit)
+    }
+
+    fn submit_with_ingress(
+        &mut self,
+        command: CommandEnvelope,
+        now_ns: u64,
+        observed_peer: Option<std::net::IpAddr>,
+        expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
+        validate_network: impl FnOnce(&Session, &CommandEnvelope) -> Result<(), EngineError>,
+        commit: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Receipt {
         if let Err(error) = self.expire_network_authority(now_ns) {
+            return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+        }
+        if let Err(error) = self.validate_renderer_ingress(&command, observed_peer, now_ns) {
             return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
         }
         self.expire_graph_work(now_ns);
@@ -875,9 +903,23 @@ impl Session {
                 if let Err(error) = self.validate_network_retention(&staged, &command) {
                     return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
                 }
-                if command.payload.is_network()
+                let renderer_play = matches!(
+                    &command.payload,
+                    Command::RendererRequest {
+                        action: crate::renderer::RendererAction::Play { .. },
+                        ..
+                    }
+                ) && self.network.active.as_ref().map(|s| &s.binding)
+                    != staged.network.active.as_ref().map(|s| &s.binding);
+                let effect_command = if renderer_play {
+                    self.renderer_network_start(&command)
+                } else {
+                    None
+                };
+                if (command.payload.is_network() || renderer_play)
                     && !command.payload.is_query()
-                    && let Err(error) = validate_network(&staged, &command)
+                    && let Err(error) =
+                        validate_network(&staged, effect_command.as_ref().unwrap_or(&command))
                 {
                     let rejected = self.receipt(&command, ReceiptStatus::Rejected, Some(error));
                     return self.retain_network_rejection(command, rejected);
@@ -1016,7 +1058,10 @@ impl Session {
         if (matches!(command.payload, Command::SourceStageUri { .. })
             || matches!(
                 command.payload,
-                Command::NetworkGrantsReplace { .. } | Command::NetworkGrantsRevoke { .. }
+                Command::NetworkGrantsReplace { .. }
+                    | Command::NetworkGrantsRevoke { .. }
+                    | Command::RendererGrantsReplace { .. }
+                    | Command::RendererGrantsRevoke { .. }
             ))
             && command.session_id.is_some()
             && command.session_id != self.state.session_id
@@ -1044,6 +1089,10 @@ impl Session {
                 | Command::DevicesInspect { .. }
                 | Command::QueueGet { .. }
                 | Command::SourcesGet { .. }
+                | Command::RendererGet {}
+                | Command::RendererGrantsReplace { .. }
+                | Command::RendererGrantsRevoke { .. }
+                | Command::RendererRequest { .. }
                 | Command::SourceStageUri { .. }
                 | Command::GraphInspect { .. }
                 | Command::QueueAppend { .. }
@@ -1102,6 +1151,9 @@ impl Session {
         if let Command::SourceStageUri { uri, metadata } = &command.payload {
             return self.stage_uri(command, uri, metadata);
         }
+        if command.payload.is_renderer() {
+            return self.apply_renderer_command(command, now_ns);
+        }
         if command.payload.is_network() {
             return self.apply_network_command(command, now_ns);
         }
@@ -1120,6 +1172,17 @@ impl Session {
             self.validate_network_control(&command.payload, now_ns)?;
         }
         self.validate_graph_control(&command.payload)?;
+        if matches!(command.payload, Command::Stop | Command::OwnerShutdown)
+            && self.network.closing.is_some()
+            && self.renderer.active.as_ref().is_some_and(|owner| {
+                self.network
+                    .active
+                    .as_ref()
+                    .is_some_and(|source| source.binding == owner.binding)
+            })
+        {
+            return self.apply_renderer_local_safety(command);
+        }
         if matches!(command.payload, Command::ProfilesApply { .. })
             && (command.session_id.is_none() || command.session_id != self.state.session_id)
         {
@@ -1531,6 +1594,24 @@ impl Session {
             next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
         if clear_active {
             self.local_boundary = None;
+        }
+        if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
+            if let Some(owner) = self.renderer.active.as_mut().filter(|o| {
+                self.network
+                    .active
+                    .as_ref()
+                    .is_some_and(|s| s.binding == o.binding)
+            }) {
+                Arc::make_mut(owner).retirement_request = Some(command.request_id.clone());
+            } else if self.network.active.is_none()
+                && let Some(owner) = self
+                    .renderer
+                    .closing
+                    .as_mut()
+                    .filter(|o| Some(&o.binding.session_id) == self.state.session_id.as_ref())
+            {
+                Arc::make_mut(owner).retirement_request = Some(command.request_id.clone());
+            }
         }
         if self.network.active.is_some()
             && matches!(

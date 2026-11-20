@@ -91,7 +91,10 @@ impl NetworkGrantDocument {
 
 impl crate::control::CommandEnvelope {
     pub(crate) fn network_capacity_bytes(&self) -> Result<usize, EngineError> {
-        if !self.payload.is_network() && !matches!(self.payload, Command::SourceStageUri { .. }) {
+        if !self.payload.is_network()
+            && !self.payload.is_renderer()
+            && !matches!(self.payload, Command::SourceStageUri { .. })
+        {
             return Ok(0);
         }
         let ids = [
@@ -113,6 +116,11 @@ impl crate::control::CommandEnvelope {
             + ids[1]
             + ids[3]
             + 6 * 128;
+        if self.payload.is_renderer() {
+            bytes += crate::renderer::MAX_RENDERER_CONTROLLERS
+                * (size_of::<crate::renderer::RendererControllerSummary>() + 128)
+                + 4 * 128;
+        }
         match &self.payload {
             Command::SourceStageUri { uri, metadata } => {
                 crate::source::validate_storage(uri, metadata)?;
@@ -120,6 +128,25 @@ impl crate::control::CommandEnvelope {
             }
             Command::NetworkGrantsReplace { grants, .. } => {
                 bytes += grants.retained_bytes()?;
+            }
+            Command::RendererGrantsReplace { grants, .. } => {
+                bytes += grants.retained_bytes()?;
+            }
+            Command::RendererGrantsRevoke { controller_id, .. } => {
+                if controller_id.capacity_bytes() > 128 {
+                    return Err(BUDGET);
+                }
+                bytes += controller_id.capacity_bytes();
+            }
+            Command::RendererRequest {
+                controller_id,
+                action,
+                ..
+            } => {
+                if controller_id.capacity_bytes() > 128 {
+                    return Err(BUDGET);
+                }
+                bytes += controller_id.capacity_bytes() + action.retained_bytes()?;
             }
             Command::NetworkStartHttpFlac {
                 media_id,

@@ -92,6 +92,50 @@ fn code(error: ClientError) -> String {
 }
 
 #[test]
+fn ffi_renderer_query_and_disabled_authority_preserve_the_actual_owner_state() {
+    let mut owner = Owner::start();
+    let client = owner.client();
+    let initial = owner.state();
+    let query = envelope("ffi-renderer", None, json!({"method":"renderer.get"}));
+    let actual = client.request(query.clone()).unwrap();
+    assert_eq!(client.request(query).unwrap(), actual);
+    let value: Value = serde_json::from_slice(&actual).unwrap();
+    assert_eq!(value["receipt"]["result"]["kind"], "renderer");
+    let renderer: earph_core::renderer::RendererSnapshot =
+        serde_json::from_value(value["receipt"]["result"]["value"].clone()).unwrap();
+    assert!(!renderer.enabled);
+    assert!(renderer.controllers.is_empty());
+    let denied = roundtrip(
+        &owner,
+        &client,
+        envelope(
+            "ffi-renderer-grant",
+            Some(&initial),
+            json!({
+                "method":"renderer.grants.replace","expected_generation":0,"lifetime_ms":100,
+                "grants":{"controllers":[{"id":"controller-a","peers":["192.168.1.2"],"rights":["stage"]}]}
+            }),
+        ),
+    );
+    assert_eq!(denied["receipt"]["error"]["code"], "CAPABILITY_UNSUPPORTED");
+    let untrusted = roundtrip(
+        &owner,
+        &client,
+        envelope(
+            "ffi-renderer-ingress",
+            Some(&initial),
+            json!({
+                "method":"renderer.request","controller_id":"controller-a","grant_generation":1,
+                "action":{"operation":"stop","binding":null}
+            }),
+        ),
+    );
+    assert_eq!(untrusted["receipt"]["error"]["code"], "AUTH_DENIED");
+    assert_eq!(owner.state(), initial);
+    owner.stop();
+}
+
+#[test]
 fn real_owner_commands_keep_exact_receipts_dedupe_and_stale_rejections() {
     let owner = Owner::start();
     let client = owner.client();

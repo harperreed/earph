@@ -84,3 +84,10 @@
   Treat that file as discovery identity, rather than serving readiness.
   Wait for the owner startup announcement, then require a State reply with its owner identity.
   Reuse the bounded [FFI startup reader](scripts/ffi-owner-readiness.mjs) and the desktop launch handshake.
+
+- Serialize full suites and native owner qualification on a shared build host.
+  Two overlapping suites exceeded existing owner-startup and streaming deadlines; unchanged isolated scenarios then passed.
+  An unchanged full UPnP check also passed alone.
+  Preserve failures and diagnose timing before changing application behavior or deadlines.
+  These observations support load sensitivity; they do not establish a root cause.
+  See the [Linux wire receipt](docs/evidence/network/upnp-wire-linux-20261120.json).

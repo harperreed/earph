@@ -20,7 +20,14 @@ impl Session {
         Ok(descriptor)
     }
     pub fn network_source(&self) -> Option<Arc<NetworkSourceContext>> {
-        self.network.active.clone()
+        self.network
+            .active
+            .as_ref()
+            .filter(|s| {
+                !self.renderer_owns_active_source(&s.binding)
+                    || self.network_authority_valid(&s.binding, self.network.admission_ns)
+            })
+            .cloned()
     }
     pub fn network_grants(&self) -> Option<(u64, u64, Arc<NetworkGrantDocument>)> {
         self.network
@@ -43,7 +50,12 @@ impl Session {
                 .map_or(0, |g| g.1.origins.len()),
             source_generation: self.network.source_generation,
             retained_bytes: self.network_retained_bytes().unwrap_or(usize::MAX) as u64,
-            lifecycle: if self.network.active.is_some() {
+            lifecycle: if self.network.active.as_ref().is_some_and(|s| {
+                self.renderer_owns_active_source(&s.binding)
+                    && !self.network_authority_valid(&s.binding, self.network.admission_ns)
+            }) {
+                Some(NetworkLifecycle::Retiring)
+            } else if self.network.active.is_some() {
                 Some(match self.state.transport {
                     _ if self.state.network_playback.is_none() => NetworkLifecycle::Preparing,
                     TransportState::Preparing => NetworkLifecycle::Preparing,
@@ -74,6 +86,7 @@ impl Session {
     pub fn network_authority_valid(&self, binding: &NetworkSourceBinding, now_ns: u64) -> bool {
         self.network.active.as_ref().is_some_and(|s| {
             &s.binding == binding
+                && self.renderer_source_executable(binding, now_ns.max(self.network.admission_ns))
                 && self.state.owner_id.as_ref() == Some(&s.binding.owner_id)
                 && self.state.session_id.as_ref() == Some(&binding.session_id)
                 && self.state.source == Some(SourceKind::HttpFlac)
@@ -153,6 +166,14 @@ impl Session {
             device_epoch: self.state.device_epoch,
             reason,
         });
+        if self.renderer.active.as_ref().is_some_and(|o| {
+            self.network
+                .closing
+                .as_ref()
+                .is_some_and(|c| o.binding == c.context.binding)
+        }) {
+            self.renderer.closing = self.renderer.active.take();
+        }
         if let Some(p) = &mut self.state.network_playback {
             p.lifecycle = if reason.is_some() {
                 NetworkLifecycle::Failed
@@ -167,21 +188,46 @@ impl Session {
             return Err(crate::network_source::INVALID);
         }
         self.network.admission_ns = now_ns;
+        self.expire_renderer_authority(now_ns)?;
         if self.network.grants.as_ref().is_none_or(|g| now_ns < g.0) {
             return Ok(());
         }
         // Removing authority is unconditional, including at counter exhaustion.
         self.network.grants = None;
+        self.fail_network_authority(now_ns)
+    }
+
+    pub(super) fn fail_network_authority(&mut self, now_ns: u64) -> Result<(), EngineError> {
+        let renderer_deferred = self.network.closing.is_some()
+            && self
+                .network
+                .active
+                .as_ref()
+                .is_some_and(|source| self.renderer_owns_active_source(&source.binding));
+        if renderer_deferred
+            && (self
+                .renderer
+                .active
+                .as_ref()
+                .is_some_and(|owner| owner.retirement_request.is_some())
+                || self.state.transport == TransportState::Failed
+                    && self.state.error.is_some()
+                    && self.state.operation.is_none())
+        {
+            return Ok(());
+        }
         if self.network.active.is_some() {
             self.state.muted = true;
             self.state.transport = TransportState::Failed;
             self.state.error.get_or_insert(ErrorCode::AuthDenied);
             let epochs = self.state.epochs.next_stream().unwrap_or(self.state.epochs);
-            self.close_network_at(self.state.epochs, self.state.error)?;
+            if !renderer_deferred {
+                self.close_network_at(self.state.epochs, self.state.error)?;
+            }
             self.state.epochs = epochs;
             self.invalidate_graph_work(EngineError::new(
                 ErrorCode::AuthDenied,
-                "network grants expired",
+                "network authority expired",
             ));
             self.graph.active = None;
             self.state.revision = self.state.revision.saturating_add(1);
@@ -191,7 +237,7 @@ impl Session {
                 ReceiptStatus::Failed,
                 Some(EngineError::new(
                     ErrorCode::AuthDenied,
-                    "network grants expired",
+                    "network authority expired",
                 )),
                 None,
             );
@@ -367,21 +413,38 @@ impl Session {
         self.log(Some(c.request_id.clone()));
         Ok(status)
     }
-    fn retire_network_command(
+    pub(super) fn retire_network_command(
         &mut self,
         c: &CommandEnvelope,
         reason: Option<ErrorCode>,
     ) -> Result<(), EngineError> {
+        if self
+            .network
+            .active
+            .as_ref()
+            .is_some_and(|source| self.renderer_owns_active_source(&source.binding))
+        {
+            if self.network.closing.is_some() {
+                if !self.retire_renderer_source(c, None)? {
+                    return Err(STALE);
+                }
+                return Ok(());
+            }
+            Arc::make_mut(self.renderer.active.as_mut().ok_or(STALE)?).retirement_request =
+                Some(c.request_id.clone());
+        }
         let epochs = self.state.epochs.next_stream()?;
         self.close_network_at(self.state.epochs, reason)?;
-        self.finish_pending(
-            ReceiptStatus::Cancelled,
-            Some(EngineError::new(
-                ErrorCode::OperationCancelled,
-                "network authority revoked",
-            )),
-            None,
-        );
+        if self.state.operation.as_ref() != Some(&c.request_id) {
+            self.finish_pending(
+                ReceiptStatus::Cancelled,
+                Some(EngineError::new(
+                    ErrorCode::OperationCancelled,
+                    "network authority revoked",
+                )),
+                None,
+            );
+        }
         self.invalidate_graph_work(EngineError::new(
             ErrorCode::OperationCancelled,
             "network authority revoked",
@@ -427,6 +490,11 @@ impl Session {
             || matches!(
                 command.payload,
                 Command::NetworkGrantsRevoke { .. }
+                    | Command::RendererGrantsRevoke { .. }
+                    | Command::RendererRequest {
+                        action: crate::renderer::RendererAction::Stop { .. },
+                        ..
+                    }
                     | Command::Stop
                     | Command::OwnerShutdown
                     | Command::Mute { muted: true }
@@ -437,7 +505,12 @@ impl Session {
                 .limits
                 .receipts
                 .checked_mul(
-                    size_of::<(CommandEnvelope, Receipt)>() + 2 * size_of::<usize>() + 13 * 128,
+                    size_of::<(CommandEnvelope, Receipt)>()
+                        + 2 * size_of::<usize>()
+                        + 13 * 128
+                        + crate::renderer::MAX_RENDERER_CONTROLLERS
+                            * (size_of::<crate::renderer::RendererControllerSummary>() + 128)
+                        + 4 * 128,
                 )
                 .ok_or(crate::network_source::BUDGET)?;
             MAX_NETWORK_AUTHORITY_BYTES.saturating_sub(receipt_reserve)
@@ -464,8 +537,20 @@ struct AuthorityBytes {
     documents: BTreeSet<usize>,
     descriptors: BTreeSet<usize>,
     contexts: BTreeSet<usize>,
+    renderer_authorities: BTreeSet<usize>,
+    renderer_records: BTreeSet<usize>,
+    renderer_vectors: BTreeSet<usize>,
 }
 impl AuthorityBytes {
+    fn renderer_document(
+        &mut self,
+        document: &Arc<crate::renderer::RendererGrantDocument>,
+    ) -> Result<(), EngineError> {
+        if self.documents.insert(Arc::as_ptr(document) as usize) {
+            self.add(document.retained_bytes()?)?;
+        }
+        Ok(())
+    }
     fn add(&mut self, bytes: usize) -> Result<(), EngineError> {
         self.bytes = self
             .bytes
@@ -501,9 +586,65 @@ impl AuthorityBytes {
             bytes -= grants.retained_bytes()?;
             self.document(grants)?;
         }
+        if let Command::RendererGrantsReplace { grants, .. } = &command.payload {
+            bytes -= grants.retained_bytes()?;
+            self.renderer_document(grants)?;
+        }
         self.add(bytes)
     }
     fn session(&mut self, session: &Session) -> Result<(), EngineError> {
+        if session.renderer.grants.capacity() != 0
+            && self
+                .renderer_vectors
+                .insert(session.renderer.grants.as_ptr() as usize)
+        {
+            self.add(
+                session.renderer.grants.capacity()
+                    * size_of::<Arc<crate::renderer::RendererAuthority>>(),
+            )?;
+        }
+        if let Some(association) = &session.renderer.staged
+            && self
+                .renderer_records
+                .insert(Arc::as_ptr(association) as usize)
+        {
+            self.add(
+                size_of::<crate::renderer::RendererStagedAssociation>()
+                    + 16
+                    + association.controller_id.capacity_bytes()
+                    + association.media_id.capacity_bytes(),
+            )?;
+        }
+        for owner in session
+            .renderer
+            .active
+            .iter()
+            .chain(session.renderer.closing.iter())
+        {
+            if self.renderer_records.insert(Arc::as_ptr(owner) as usize) {
+                self.add(
+                    size_of::<crate::renderer::RendererSourceOwnership>()
+                        + 16
+                        + owner.controller_id.capacity_bytes()
+                        + owner.binding.owner_id.capacity_bytes()
+                        + owner.binding.session_id.capacity_bytes()
+                        + owner.binding.media_id.capacity_bytes()
+                        + owner
+                            .retirement_request
+                            .as_ref()
+                            .map_or(0, RequestId::capacity_bytes),
+                )?;
+            }
+        }
+        for authority in &session.renderer.grants {
+            if self
+                .renderer_authorities
+                .insert(Arc::as_ptr(authority) as usize)
+            {
+                self.add(size_of::<crate::renderer::RendererAuthority>() + 16)?;
+            }
+            self.renderer_document(&authority.document)?;
+        }
         if let Some(d) = session.sources.descriptor() {
             self.descriptor(&d)?;
         }
@@ -801,6 +942,14 @@ impl Session {
             )?;
         }
         self.network.closing.take().ok_or(STALE)?;
+        if self
+            .renderer
+            .closing
+            .as_ref()
+            .is_some_and(|o| o.binding == ack.binding)
+        {
+            self.renderer.closing = None;
+        }
         self.network.closing_failure_observed = false;
         self.network.closing_activation = None;
         self.network.closing_frontier = None;
@@ -838,6 +987,7 @@ impl Session {
             );
         }
         self.state.monotonic_ns = now_ns;
+        self.expire_renderer_authority(now_ns)?;
         self.state.revision = self.state.revision.saturating_add(1);
         self.state.event_sequence = self.state.event_sequence.saturating_add(1);
         self.log(None);

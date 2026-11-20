@@ -63,6 +63,78 @@ fn state(runtime: &Path, id: &str) -> Value {
 }
 
 #[test]
+fn cli_renderer_query_replays_exactly_while_host_authority_remains_disabled() {
+    let runtime = runtime();
+    let mut host = start(&runtime);
+    let initial = state(&runtime, "renderer-initial");
+    let query = envelope(
+        "cli-renderer",
+        initial["owner_id"].clone(),
+        0,
+        json!({"method":"renderer.get"}),
+    );
+    let first = call(&runtime, &query);
+    assert!(first.status.success());
+    assert_eq!(call(&runtime, &query).stdout, first.stdout);
+    let value: Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(value["receipt"]["result"]["kind"], "renderer");
+    let renderer: earph_core::renderer::RendererSnapshot =
+        serde_json::from_value(value["receipt"]["result"]["value"].clone()).unwrap();
+    assert!(!renderer.enabled);
+    assert_eq!(renderer.controller_count, 0);
+    let grant = call(
+        &runtime,
+        &envelope(
+            "cli-disabled-renderer",
+            initial["owner_id"].clone(),
+            0,
+            json!({
+                "method":"renderer.grants.replace","expected_generation":0,"lifetime_ms":100,
+                "grants":{"controllers":[{"id":"controller-a","peers":["192.168.1.2"],"rights":["stage","transport"]}]}
+            }),
+        ),
+    );
+    assert_eq!(grant.status.code(), Some(1));
+    let rejected: Value = serde_json::from_slice(&grant.stdout).unwrap();
+    assert_eq!(
+        rejected["receipt"]["error"]["code"],
+        "CAPABILITY_UNSUPPORTED"
+    );
+    let untrusted = call(
+        &runtime,
+        &envelope(
+            "cli-untrusted-renderer",
+            initial["owner_id"].clone(),
+            0,
+            json!({
+                "method":"renderer.request","controller_id":"controller-a","grant_generation":1,
+                "action":{"operation":"stage_uri","expected_staging_generation":0,"uri":"untrusted:metadata","metadata":"private"}
+            }),
+        ),
+    );
+    assert_eq!(untrusted.status.code(), Some(1));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&untrusted.stdout).unwrap()["receipt"]["error"]["code"],
+        "AUTH_DENIED"
+    );
+    assert_eq!(state(&runtime, "renderer-after"), initial);
+    assert!(
+        call(
+            &runtime,
+            &envelope(
+                "renderer-shutdown",
+                initial["owner_id"].clone(),
+                0,
+                json!({"method":"owner.shutdown"})
+            )
+        )
+        .status
+        .success()
+    );
+    assert!(host.0.wait().unwrap().success());
+}
+
+#[test]
 fn executable_attaches_and_recovers_after_owner_process_crash() {
     let runtime = runtime();
     let mut host = start(&runtime);

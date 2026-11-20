@@ -144,6 +144,25 @@ pub enum Command {
     QueueGet { offset: usize, limit: usize },
     #[serde(rename = "sources.get")]
     SourcesGet {},
+    #[serde(rename = "renderer.get")]
+    RendererGet {},
+    #[serde(rename = "renderer.grants.replace")]
+    RendererGrantsReplace {
+        expected_generation: u64,
+        grants: Arc<crate::renderer::RendererGrantDocument>,
+        lifetime_ms: u64,
+    },
+    #[serde(rename = "renderer.grants.revoke")]
+    RendererGrantsRevoke {
+        expected_generation: u64,
+        controller_id: RendererControllerId,
+    },
+    #[serde(rename = "renderer.request")]
+    RendererRequest {
+        controller_id: RendererControllerId,
+        grant_generation: u64,
+        action: crate::renderer::RendererAction,
+    },
     #[serde(rename = "sources.stage_uri")]
     SourceStageUri { uri: String, metadata: String },
     #[serde(rename = "sources.network.get")]
@@ -318,6 +337,16 @@ impl std::fmt::Debug for Command {
 }
 
 impl Command {
+    pub fn is_renderer(&self) -> bool {
+        matches!(
+            self,
+            Self::RendererGet {}
+                | Self::RendererGrantsReplace { .. }
+                | Self::RendererGrantsRevoke { .. }
+                | Self::RendererRequest { .. }
+        )
+    }
+
     pub fn is_network(&self) -> bool {
         matches!(
             self,
@@ -385,6 +414,7 @@ impl Command {
                 | Self::DiagnosticsInspect { .. }
                 | Self::QueueGet { .. }
                 | Self::SourcesGet { .. }
+                | Self::RendererGet {}
                 | Self::NetworkGet {}
                 | Self::GraphInspect { .. }
                 | Self::ProfilesList { .. }
@@ -584,7 +614,7 @@ impl CommandEnvelope {
         self.validate_retained_storage()
     }
     pub(crate) fn validate_retained_storage(&self) -> Result<(), EngineError> {
-        if self.payload.is_network() {
+        if self.payload.is_network() || self.payload.is_renderer() {
             self.network_capacity_bytes()?;
         }
 
@@ -741,6 +771,7 @@ pub enum QueryResult {
     DiagnosticCancel(Arc<crate::diagnostics::DiagnosticCancelReceipt>),
     Sources(crate::source::SourceStagingSnapshot),
     Network(crate::network_source::NetworkSnapshot),
+    Renderer(crate::renderer::RendererSnapshot),
     Devices(Arc<crate::devices::DeviceQueryResult>),
     State(Box<crate::session::SessionSnapshot>),
     Capabilities(Capabilities),

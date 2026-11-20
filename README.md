@@ -11,6 +11,8 @@ The full product contract lives in [the specification](docs/SPEC.md).
 Follow [the local playback plan](docs/superpowers/plans/2026-11-17-local-playback.md) for current progress.
 See [local decoding](docs/local-playback.md) for supported files and offline commands.
 See [the state-machine map](docs/state-machines.md) for state owners, transitions, and recovery actions.
+See [renderer ownership](docs/renderer-control.md) and [UPnP wire handling](docs/upnp-protocol-surface.md) for the disabled protocol foundation.
+See [Sendspin framing](crates/earph-sendspin/README.md) for its pinned message format and implementation limits.
 See [the ALSA spike](docs/alsa-spike.md) for Linux output commands, evidence, and qualification limits.
 See [the Core Audio spike](docs/coreaudio-spike.md) for macOS inspection, precision assessment, and silent registration checks.
 

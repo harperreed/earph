@@ -5,6 +5,56 @@ use common::*;
 use earph_core::{ErrorCode, control::Command, ids::RequestId};
 use earph_desktop::{Lane, Reply, ReplyStatus, Request};
 
+#[test]
+fn actual_owner_renderer_query_and_disabled_grant_use_the_shared_request_path() {
+    let mut owner = Owner::start();
+    let client = owner.client();
+    let initial = owner.state();
+    let Reply::Receipt(receipt) = client
+        .request(&query(Command::RendererGet {}))
+        .expect("real renderer query must cross OwnerClient")
+    else {
+        panic!("receipt");
+    };
+    assert_eq!(receipt.status, ReplyStatus::Applied);
+    let request = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &initial,
+        Command::RendererGrantsReplace {
+            expected_generation: 0,
+            lifetime_ms: 100,
+            grants: std::sync::Arc::new(earph_core::renderer::RendererGrantDocument {
+                controllers: vec![earph_core::renderer::RendererControllerGrant {
+                    id: earph_core::ids::RendererControllerId::new("controller-a").unwrap(),
+                    peers: vec!["192.168.1.2".parse().unwrap()],
+                    rights: vec![earph_core::renderer::RendererRight::Stage],
+                }],
+            }),
+        },
+    )
+    .unwrap();
+    let Reply::Receipt(receipt) = client.request(&request).unwrap() else {
+        panic!("receipt");
+    };
+    assert_eq!(receipt.status, ReplyStatus::Rejected);
+    assert_eq!(
+        receipt.error.unwrap().code,
+        ErrorCode::CapabilityUnsupported
+    );
+    let revoke = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &initial,
+        Command::RendererGrantsRevoke {
+            expected_generation: 0,
+            controller_id: earph_core::ids::RendererControllerId::new("controller-a").unwrap(),
+        },
+    )
+    .unwrap();
+    assert_eq!(revoke.lane(), Lane::Safety);
+    assert_eq!(owner.state(), initial);
+    owner.stop();
+}
+
 fn discovery_receipts(
     request: &Request,
     observation: earph_core::devices::DeviceObservation,
