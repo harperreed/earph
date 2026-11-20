@@ -609,12 +609,11 @@ fn prepare(
         )
         .into());
     }
-    let playback = snapshot.playback.as_ref().ok_or(STALE)?;
-    let source = playback.format;
+    let (source, playback_backend) = playback_facts(snapshot)?;
     // Both native adapters consume this integer PcmBlock format. SDK client
     // formats can differ, and remain explicit evidence in the semantic hash.
     let native = source;
-    if let Some(backend) = &playback.backend
+    if let Some(backend) = &playback_backend
         && (backend.backend != output.backend
             || std::iter::once(&backend.client_format)
                 .chain(backend.device_format.iter())
@@ -673,12 +672,13 @@ fn prepare(
         request.intent.processing,
         GraphProcessingRequest::Float64 { .. }
     );
-    let streaming = request
-        .intent
-        .graph
-        .nodes
-        .iter()
-        .any(|n| matches!(n.kind, NodeKind::Src { .. }));
+    let streaming = snapshot.source == Some(earph_core::control::SourceKind::HttpFlac)
+        || request
+            .intent
+            .graph
+            .nodes
+            .iter()
+            .any(|n| matches!(n.kind, NodeKind::Src { .. }));
     if !float
         && request.intent.graph.nodes.iter().any(|n| {
             matches!(
@@ -779,8 +779,7 @@ fn prepare(
         None
     };
     let existing = retirement.accounting.resident.load(Ordering::Acquire);
-    let backend_audio_bytes = playback
-        .backend
+    let backend_audio_bytes = playback_backend
         .as_ref()
         .map_or(0, |b| b.audio_storage_bytes);
     // Core Audio constructs its replacement while the closed output still owns its ring.
@@ -1126,6 +1125,17 @@ fn retained_pipeline(
         }),
     }
 }
+fn playback_facts(
+    snapshot: &SessionSnapshot,
+) -> Result<(PcmFormat, Option<earph_core::session::BackendObservation>), GraphDiagnostic> {
+    if snapshot.source == Some(earph_core::control::SourceKind::HttpFlac) {
+        let playback = snapshot.network_playback.as_ref().ok_or(STALE)?;
+        Ok((playback.format, playback.backend.clone()))
+    } else {
+        let playback = snapshot.playback.as_ref().ok_or(STALE)?;
+        Ok((playback.format, playback.backend.clone()))
+    }
+}
 fn prepared_preview(
     compiled: CompiledPreview,
     request: &GraphJobRequest,
@@ -1134,7 +1144,7 @@ fn prepared_preview(
     source: PcmFormat,
     native: PcmFormat,
 ) -> Result<Arc<GraphPreview>, GraphDiagnostic> {
-    let playback = snapshot.playback.as_ref().ok_or(STALE)?;
+    let (_, playback_backend) = playback_facts(snapshot)?;
     let maximum = compiled.bounds.iter().copied().fold(1.0_f64, f64::max);
     let mut transformations: Vec<_> = compiled
         .transformations
@@ -1150,7 +1160,7 @@ fn prepared_preview(
     } else if snapshot.software_gain_db != 0.0 || snapshot.gain_ramp_frames != 0 {
         transformations.push(SignalTransformation::SoftwareVolume);
     }
-    if let Some(backend) = &playback.backend
+    if let Some(backend) = &playback_backend
         && backend.client_format.representation != ObservedStreamFormat::from(native).representation
     {
         transformations.push(SignalTransformation::BackendAdapterConversion {
@@ -1160,7 +1170,7 @@ fn prepared_preview(
     let preview = Arc::new(GraphPreview {
         diagnostic_nodes: compiled.diagnostic_nodes,
         profile_application: request.profile_application.clone(),
-        backend: playback.backend.clone(),
+        backend: playback_backend.clone(),
         graph_hash: activation_hash(
             &compiled.kernel_hash,
             context.quantum_frames,

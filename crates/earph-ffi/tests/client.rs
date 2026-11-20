@@ -514,3 +514,114 @@ fn ffi_diagnostic_reads_share_actual_owner_producer_and_strict_decoder() {
     assert_eq!(owner.state(), initial);
     owner.stop();
 }
+
+#[test]
+fn foreign_network_control_keeps_lease_replay_private_and_performs_no_fetch() {
+    use std::{
+        fs,
+        io::ErrorKind,
+        net::{IpAddr, TcpListener, UdpSocket},
+        os::unix::fs::DirBuilderExt,
+    };
+
+    let parent = PathBuf::from(std::env::var_os("HOME").unwrap()).join(".cache/efnet");
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&parent)
+        .unwrap();
+    let runtime = parent.join(unique());
+    assert!(runtime.as_os_str().len() <= 60);
+    let owner = Owner::at(runtime);
+    let client = owner.client();
+    let network = || {
+        let reply = roundtrip(
+            &owner,
+            &client,
+            envelope(&unique(), None, json!({"method":"sources.network.get"})),
+        );
+        assert_eq!(reply["receipt"]["status"], "applied");
+        assert_eq!(reply["receipt"]["result"]["kind"], "network");
+        reply["receipt"]["result"]["value"].clone()
+    };
+    let initial = network();
+    assert_eq!(initial["enabled"], true);
+    assert_eq!(initial["grant_generation"], 0);
+    assert_eq!(initial["origin_count"], 0);
+    assert!(initial["active"].is_null());
+    assert!(initial["lifecycle"].is_null());
+
+    let route = UdpSocket::bind("0.0.0.0:0").unwrap();
+    // UDP connect selects an owned interface without sending a datagram.
+    route.connect("192.0.2.1:9").unwrap();
+    let address = route.local_addr().unwrap().ip();
+    assert!(matches!(address, IpAddr::V4(ip) if ip.is_private()));
+    let listener = TcpListener::bind((address, 0)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let origin = format!("http://{}/", listener.local_addr().unwrap());
+    let grant = envelope(
+        "ffi-network-grant",
+        Some(&owner.state()),
+        json!({"method":"sources.grants.replace","expected_generation":0,
+            "grants":{"origins":[{"origin":origin,"pins":[address],"roots_der":[]}]},
+            "lifetime_ms":60000}),
+    );
+    let granted = client.request(grant.clone()).unwrap();
+    assert_eq!(granted, request(&owner.runtime, &grant).unwrap());
+    let granted_reply: Value = serde_json::from_slice(&granted).unwrap();
+    assert_eq!(granted_reply["receipt"]["status"], "applied");
+    assert_eq!(network()["grant_generation"], 1);
+    assert_eq!(network()["origin_count"], 1);
+    assert_eq!(listener.accept().unwrap_err().kind(), ErrorKind::WouldBlock);
+
+    let uri = format!("{origin}owned.flac?proof=opaque-ffi-source");
+    let stage = roundtrip(
+        &owner,
+        &client,
+        envelope(
+            "ffi-network-stage",
+            Some(&owner.state()),
+            json!({"method":"sources.stage_uri","uri":uri,"metadata":"opaque controller metadata"}),
+        ),
+    );
+    assert_eq!(stage["receipt"]["status"], "applied");
+    let staged = roundtrip(
+        &owner,
+        &client,
+        envelope(&unique(), None, json!({"method":"sources.get"})),
+    );
+    assert_eq!(
+        staged["receipt"]["result"]["value"]["staged"]["admission"],
+        "unadmitted"
+    );
+    assert!(
+        !serde_json::to_string(&staged)
+            .unwrap()
+            .contains("opaque-ffi-source")
+    );
+    assert_eq!(listener.accept().unwrap_err().kind(), ErrorKind::WouldBlock);
+    let state = owner.state();
+    assert!(state["source"].is_null());
+    assert!(state["output"].is_null());
+    assert_eq!(state["muted"], true);
+
+    let revoked = roundtrip(
+        &owner,
+        &client,
+        envelope(
+            "ffi-network-revoke",
+            Some(&state),
+            json!({"method":"sources.grants.revoke","expected_generation":1}),
+        ),
+    );
+    assert_eq!(revoked["receipt"]["status"], "applied");
+    assert_eq!(network()["grant_generation"], 2);
+    assert_eq!(network()["origin_count"], 0);
+    assert!(network()["expires_monotonic_ns"].is_null());
+    assert_eq!(client.request(grant).unwrap(), granted);
+    assert_eq!(network()["grant_generation"], 2);
+    assert_eq!(network()["origin_count"], 0);
+    assert_eq!(listener.accept().unwrap_err().kind(), ErrorKind::WouldBlock);
+    drop(client);
+    assert_eq!(owner.state()["transport"], "idle");
+}

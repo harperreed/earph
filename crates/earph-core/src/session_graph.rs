@@ -44,6 +44,28 @@ pub(super) struct GraphControl {
     pub(super) recovery_required: bool,
     service: GraphServiceObservation,
 }
+enum InstalledSourceObservation {
+    Local {
+        observation: PlaybackObservation,
+        total_frames: u64,
+    },
+    Network(crate::network_source::NetworkPlaybackObservation),
+}
+impl InstalledSourceObservation {
+    fn format(&self) -> PcmFormat {
+        match self {
+            Self::Local { observation, .. } => observation.format,
+            Self::Network(p) => p.format,
+        }
+    }
+    fn backend(&self) -> Option<&BackendObservation> {
+        match self {
+            Self::Local { observation, .. } => observation.backend.as_ref(),
+            Self::Network(p) => p.backend.as_ref(),
+        }
+    }
+}
+
 impl Session {
     pub(super) fn defer_graph_readiness(
         &mut self,
@@ -167,6 +189,13 @@ impl Session {
     }
     pub fn submit_graph(&mut self, command: CommandEnvelope, now_ns: u64) -> Receipt {
         self.submit_with_graph_effects(command, now_ns, |_| Err(STATE), |_| Ok(()))
+    }
+    fn current_source_format(&self) -> Option<PcmFormat> {
+        match self.state.source {
+            Some(SourceKind::LocalFile) => self.state.playback.as_ref().map(|p| p.format),
+            Some(SourceKind::HttpFlac) => self.state.network_playback.as_ref().map(|p| p.format),
+            _ => None,
+        }
     }
     fn graph_binding(&self) -> Result<GraphBinding, EngineError> {
         Ok(GraphBinding {
@@ -425,8 +454,10 @@ impl Session {
                 {
                     return Err(BUSY);
                 }
-                if self.state.source != Some(SourceKind::LocalFile)
-                    || self.state.playback.is_none()
+                if !matches!(
+                    self.state.source,
+                    Some(SourceKind::LocalFile | SourceKind::HttpFlac)
+                ) || self.current_source_format().is_none()
                     || self.local_boundary.is_some()
                     || !matches!(
                         self.state.transport,
@@ -439,6 +470,11 @@ impl Session {
                     return Err(STATE);
                 }
                 let output = self.state.output.as_ref().ok_or(STATE)?;
+                if self.state.source == Some(SourceKind::HttpFlac)
+                    && !matches!(processing, GraphProcessingRequest::Float64 { .. })
+                {
+                    return Err(STATE);
+                }
                 if matches!(processing, GraphProcessingRequest::Float64 { .. })
                     && output.fidelity == FidelityPolicy::StrictPreservation
                 {
@@ -629,7 +665,7 @@ impl Session {
                     .map_err(GraphDiagnostic::from)?;
             }
             if &preview.binding != binding
-                || self.state.playback.as_ref().map(|p| p.format) != Some(preview.source_format)
+                || self.current_source_format() != Some(preview.source_format)
                 || self.state.output.as_ref().map(|o| o.period_frames as usize)
                     != Some(preview.quantum_frames)
             {
@@ -727,14 +763,91 @@ impl Session {
         now_ns: u64,
         persist: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Result<(), EngineError> {
-        let GraphActivationAck {
-            request_id,
-            epochs,
-            graph_hash,
-            activation_frame,
-            observation,
-            source_total_frames,
-        } = ack;
+        if self.state.source != Some(SourceKind::LocalFile) {
+            return Err(STALE);
+        }
+        self.complete_source_graph_activation(
+            ack.request_id,
+            ack.epochs,
+            ack.graph_hash,
+            ack.activation_frame,
+            InstalledSourceObservation::Local {
+                observation: ack.observation,
+                total_frames: ack.source_total_frames,
+            },
+            now_ns,
+            persist,
+        )
+    }
+    pub fn complete_network_graph_activation(
+        &mut self,
+        ack: crate::network_source::NetworkGraphActivationAck,
+        now_ns: u64,
+        persist: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Result<(), EngineError> {
+        self.expire_network_authority(now_ns)?;
+        let active = self.network.active.as_ref().ok_or(STALE)?;
+        if !self.network_authority_valid(&ack.observation.binding, now_ns)
+            || self.network.closing.is_some()
+            || ack.observation.source_epochs != active.source_epochs
+            || ack.observation.output_epochs != self.state.epochs
+            || ack.observation.graph_epoch != increment(self.state.graph_epoch)?
+            || ack.observation.device_epoch != self.state.device_epoch
+        {
+            return Err(STALE);
+        }
+        ack.observation.validate()?;
+        let previous = self.state.network_playback.as_ref();
+        let retained = previous.and_then(|p| p.replacement_boundary.as_ref());
+        match (ack.observation.replacement_boundary.as_ref(), retained) {
+            (None, Some(_)) => return Err(crate::network_source::INVALID),
+            (Some(boundary), old_boundary) if Some(boundary) != old_boundary => {
+                let activation = self.graph.activation.as_ref().ok_or(STALE)?;
+                let old = activation.request.previous_binding.epochs;
+                if self.graph.active.is_none()
+                    || boundary.output_epochs != ack.epochs
+                    || boundary.previous_output_epochs.session != old.session
+                    || boundary.previous_output_epochs.stream > old.stream
+                    || previous.map(|p| p.output_format) != Some(boundary.previous_output_format)
+                {
+                    return Err(crate::network_source::INVALID);
+                }
+            }
+            _ => {}
+        }
+        self.complete_source_graph_activation(
+            ack.request_id,
+            ack.epochs,
+            ack.graph_hash,
+            ack.activation_frame,
+            InstalledSourceObservation::Network(ack.observation),
+            now_ns,
+            persist,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn complete_source_graph_activation(
+        &mut self,
+        request_id: RequestId,
+        epochs: Epochs,
+        graph_hash: String,
+        activation_frame: u64,
+        installed: InstalledSourceObservation,
+        now_ns: u64,
+        persist: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Result<(), EngineError> {
+        let failure_fence = match &installed {
+            InstalledSourceObservation::Network(p) => {
+                Some(crate::network_source::NetworkExecutionFence {
+                    binding: p.binding.clone(),
+                    source_epochs: p.source_epochs,
+                    output_epochs: p.output_epochs,
+                    graph_epoch: p.graph_epoch,
+                    device_epoch: p.device_epoch,
+                })
+            }
+            InstalledSourceObservation::Local { .. } => None,
+        };
         let id = &request_id;
         let hash = graph_hash.as_str();
         let activation = self.graph.activation.as_ref().ok_or(STALE)?;
@@ -752,18 +865,18 @@ impl Session {
                 "non-monotonic graph activation",
             ));
         }
-        if observation.source_position_frames > source_total_frames
-            || observation.format != activation.request.prepared.preview.source_format
+        if matches!(&installed, InstalledSourceObservation::Local { observation, total_frames } if observation.source_position_frames > *total_frames)
+            || installed.format() != activation.request.prepared.preview.source_format
         {
             let error = EngineError::new(
                 ErrorCode::AssetInvalid,
                 "invalid activated source readiness",
             );
-            self.fail_graph_activation(id, error);
+            self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
             return Err(error);
         }
         if let Some(application) = &activation.request.prepared.preview.profile_application {
-            let observed_identity = observation.backend.as_ref().and_then(|backend| {
+            let observed_identity = installed.backend().and_then(|backend| {
                 (backend.backend == OutputBackend::CoreAudio)
                     .then_some(backend.device_identity_sha256)
                     .flatten()
@@ -777,7 +890,7 @@ impl Session {
                     ErrorCode::StaleRevision,
                     "profile activation policy or saved revision changed",
                 );
-                self.fail_graph_activation(id, error);
+                self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
                 return Err(error);
             }
         }
@@ -791,28 +904,34 @@ impl Session {
         let (graph_epoch, revision, event_sequence) = match counters {
             Ok(values) => values,
             Err(error) => {
-                self.fail_graph_activation(id, error);
+                self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
                 return Err(error);
             }
         };
         let mut staged = self.clone();
-        for (entry, status) in &*activation.readiness {
-            if staged.queue.entries().iter().any(|item| &item.id == entry)
-                && let Err(error) = staged.queue.update_status(entry, *status)
-            {
-                self.fail_graph_activation(id, error);
+        if let InstalledSourceObservation::Local {
+            observation,
+            total_frames,
+        } = &installed
+        {
+            for (entry, status) in &*activation.readiness {
+                if staged.queue.entries().iter().any(|item| &item.id == entry)
+                    && let Err(error) = staged.queue.update_status(entry, *status)
+                {
+                    self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
+                    return Err(error);
+                }
+            }
+            if let Err(error) = staged.queue.update_status(
+                &observation.source_entry_id,
+                crate::queue::PreparationStatus::Ready {
+                    format: observation.format,
+                    total_frames: *total_frames,
+                },
+            ) {
+                self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
                 return Err(error);
             }
-        }
-        if let Err(error) = staged.queue.update_status(
-            &observation.source_entry_id,
-            crate::queue::PreparationStatus::Ready {
-                format: observation.format,
-                total_frames: source_total_frames,
-            },
-        ) {
-            self.fail_graph_activation(id, error);
-            return Err(error);
         }
         let mut activated = staged.graph.activation.take().ok_or(STALE)?;
         staged.graph.active = Some(activated.request.prepared.preview.clone());
@@ -839,25 +958,36 @@ impl Session {
             TransportState::Paused
         };
         staged.state.muted = true;
-        staged.state.active_entry_id = Some(observation.source_entry_id.clone());
-        staged.state.reserved_next_entry_id = staged
-            .queue
-            .entries()
-            .iter()
-            .position(|entry| entry.id == observation.source_entry_id)
-            .and_then(|index| staged.queue.entries().get(index + 1))
-            .map(|entry| entry.id.clone());
-        staged.state.decoded_position_frames = observation.source_position_frames;
-        staged.state.audible_position_frames = observation.audible_source_position_frames;
-        staged.state.playback = Some(observation);
+        match installed {
+            InstalledSourceObservation::Local { observation, .. } => {
+                staged.state.active_entry_id = Some(observation.source_entry_id.clone());
+                staged.state.reserved_next_entry_id = staged
+                    .queue
+                    .entries()
+                    .iter()
+                    .position(|entry| entry.id == observation.source_entry_id)
+                    .and_then(|index| staged.queue.entries().get(index + 1))
+                    .map(|entry| entry.id.clone());
+                staged.state.decoded_position_frames = observation.source_position_frames;
+                staged.state.audible_position_frames = observation.audible_source_position_frames;
+                staged.state.playback = Some(observation);
+            }
+            InstalledSourceObservation::Network(observation) => {
+                staged.state.active_entry_id = None;
+                staged.state.reserved_next_entry_id = None;
+                staged.state.decoded_position_frames = observation.source_position_frames;
+                staged.state.audible_position_frames = observation.audible_source_position_frames;
+                staged.state.network_playback = Some(observation);
+            }
+        }
         if staged.state.configured_profile.is_some()
             && let Err(error) = staged.validate_profile_storage(None)
         {
-            self.fail_graph_activation(id, error);
+            self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
             return Err(error);
         }
         if let Err(error) = persist(&staged) {
-            self.fail_graph_activation(id, error);
+            self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
             return Err(error);
         }
         staged.settle_graph_record(&mut activated.record, ReceiptStatus::Applied, None, None);
@@ -876,7 +1006,30 @@ impl Session {
         *self = staged;
         Ok(())
     }
+    fn fail_source_graph_activation(
+        &mut self,
+        id: &RequestId,
+        error: EngineError,
+        fence: Option<&crate::network_source::NetworkExecutionFence>,
+    ) -> Result<(), EngineError> {
+        if let Some(fence) = fence {
+            self.fail_network_graph_activation(id, error, fence.clone())
+        } else {
+            self.fail_graph_activation(id, error);
+            Ok(())
+        }
+    }
     pub fn fail_graph_activation(&mut self, id: &RequestId, error: EngineError) {
+        if self
+            .graph
+            .activation
+            .as_ref()
+            .is_some_and(|a| &a.request.request_id == id)
+            && self.network.active.is_some()
+        {
+            let _ = self.close_network_at(self.state.epochs, Some(error.code));
+            self.network.closing_failure_observed = error.code != ErrorCode::OperationCancelled;
+        }
         if self
             .graph
             .activation

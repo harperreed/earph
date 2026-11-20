@@ -1,6 +1,7 @@
 // ABOUTME: Displays actual owner safety and transport state with explicit freshness.
 // ABOUTME: Keeps Mute and Stop independent of ordinary view work without adding policy.
 use super::{GuiController, UiIntent};
+use earph_core::control::Command;
 use eframe::egui;
 
 pub(super) fn show(ui: &mut egui::Ui, controller: &mut GuiController) {
@@ -27,6 +28,25 @@ pub(super) fn show(ui: &mut egui::Ui, controller: &mut GuiController) {
             "Transport: {:?} · Source: {:?} · Muted: {} · Software gain: {:.3} dB",
             state.transport, state.source, state.muted, state.software_gain_db
         ));
+        if let Some(network) = state.network_observation() {
+            ui.label(format!(
+                "{} HTTP FLAC media: {}; lifecycle: {:?}; total source frames: {}",
+                if state.source.is_some() {
+                    "Current"
+                } else {
+                    "Retained"
+                },
+                network.binding.media_id.as_str(),
+                network.lifecycle,
+                network
+                    .total_frames
+                    .map_or_else(|| "unknown".into(), |n| n.to_string())
+            ));
+        } else if state.source == Some(earph_core::control::SourceKind::HttpFlac) {
+            ui.label(
+                "HTTP FLAC is preparing; received format and total source frames are unknown.",
+            );
+        }
         ui.label(format!(
             "Caps: software {:.3} dB · hardware {} · consent: {}",
             state.volume_policy.software_cap_db,
@@ -52,8 +72,17 @@ pub(super) fn show(ui: &mut egui::Ui, controller: &mut GuiController) {
         ui.label("No owner snapshot has been observed.");
     }
     if let Some(command) = controller.waiting_queue_edit() {
+        // Command Debug redacts authority; this local preview shows only queue and output intent.
+        let intent = match command {
+            Command::QueueAppend { path } => format!("QueueAppend {{ path: {path:?} }}"),
+            Command::QueueAppendDirectory { path } => {
+                format!("QueueAppendDirectory {{ path: {path:?} }}")
+            }
+            Command::OutputSelect { output } => format!("OutputSelect {{ output: {output:?} }}"),
+            _ => format!("{command:?}"),
+        };
         ui.label(format!(
-            "Foreground action waiting for background observation (not sent): {command:?}"
+            "Foreground action waiting for background observation (not sent): {intent}"
         ));
     } else if controller.queue_edit_pending() {
         ui.label("Foreground action preflight, mutation, or discovery pending. Inspect its receipts below.");

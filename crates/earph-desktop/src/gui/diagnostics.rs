@@ -458,6 +458,9 @@ fn signal_path(ui: &mut egui::Ui, report: &SignalPathReport) {
             "Observed playback format: {:?}; modified {}",
             observed.playback_format, observed.modified
         ));
+        if let Some(boundary) = &observed.network_replacement_boundary {
+            super::signal_path::replacement_boundary(ui, boundary);
+        }
         ui.label("Playback sample origin and time: unavailable; this cut does not establish a fresh hardware sample.");
         if let Some(backend) = &observed.backend {
             ui.label(format!(
@@ -625,6 +628,41 @@ mod tests {
     use super::*;
     use crate::{Reply, Request, ResultView, StateView};
     use earph_core::{control::*, ids::*, session::Session};
+
+    #[test]
+    fn network_replacement_diagnostic_widgets_show_only_allowlisted_frontier_and_discard() {
+        let mut session = crate::network_fixture::replacement();
+        let request = crate::network_fixture::command(
+            &session,
+            "replacement-render",
+            serde_json::json!({"method":"signal_path.get"}),
+        );
+        let Some(QueryResult::SignalPath(value)) = session.submit_graph(request, 70).result else {
+            panic!("Core diagnostic report")
+        };
+        value.validate().unwrap();
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let mut output = context.run_ui(egui::RawInput::default(), |ui| {
+            signal_path(ui, &value.report)
+        });
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.unwrap();
+        let labels: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter_map(|(_, n)| n.label().or_else(|| n.value()))
+            .collect();
+        assert!(labels.contains(&"Network graph replacement: accepted source frontier 23 frames; discarded output 19 frames"));
+        assert!(
+            labels
+                .iter()
+                .any(|label| label.starts_with("Discarded output format:")
+                    && label.contains("48000")
+                    && label.contains("Signed16"))
+        );
+        assert!(!labels.iter().any(|label| label.contains("http-session")));
+    }
 
     fn owner() -> Session {
         Session::new_owner(

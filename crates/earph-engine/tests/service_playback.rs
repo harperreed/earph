@@ -14,6 +14,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "support/network_playback.rs"]
+mod network_playback;
+
 struct Controller {
     runtime: PathBuf,
     next: Cell<u64>,
@@ -105,6 +108,7 @@ impl Controller {
 struct Host {
     child: Child,
     controller: Controller,
+    stderr_log: Option<std::thread::JoinHandle<()>>,
 }
 impl Host {
     fn start(config: &Path) -> Self {
@@ -130,6 +134,7 @@ impl Host {
         );
         Self {
             child,
+            stderr_log: None,
             controller: Controller {
                 runtime,
                 next: Cell::new(0),
@@ -141,6 +146,9 @@ impl Drop for Host {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if let Some(log) = self.stderr_log.take() {
+            log.join().unwrap();
+        }
     }
 }
 

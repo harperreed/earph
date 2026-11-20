@@ -10,6 +10,8 @@ pub use devices::{DeviceDiscoveryHelper, run_helper as run_device_query_helper};
 mod graph;
 mod host;
 mod ipc;
+pub mod network_decode;
+mod network_source;
 pub mod offline_render;
 mod output;
 mod output_replay;
@@ -117,6 +119,8 @@ impl EngineOwner {
         };
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         session.enable_local_playback();
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        session.enable_network_playback();
         let records = profiles::restore(&runtime, session.profile_references())?;
         session.restore_profile_records(records)?;
         session = session.with_diagnostic_build(build_provenance())?;

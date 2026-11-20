@@ -372,7 +372,18 @@ fn directory_capacity_and_scan_limits_reject_without_partial_append() {
     for (name, count) in [("wav", 257), ("txt", 4097)] {
         let runtime = runtime();
         let owner = EngineOwner::bind(&runtime).unwrap();
-        let music = runtime.join("music");
+        // Keep large retained entry sets outside shared temporary storage.
+        let fixtures =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/owner-directory-limits");
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&fixtures)
+            .unwrap();
+        let music = fixtures
+            .canonicalize()
+            .unwrap()
+            .join(runtime.file_name().unwrap());
         fs::DirBuilder::new().mode(0o700).create(&music).unwrap();
         for index in 0..count {
             fs::write(music.join(format!("{index}.{name}")), []).unwrap();

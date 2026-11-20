@@ -125,7 +125,10 @@ impl Request {
         session_id: SessionId,
         payload: Command,
     ) -> Result<Self, RequestError> {
-        if !matches!(payload, Command::Start { .. }) {
+        if !matches!(
+            payload,
+            Command::Start { .. } | Command::NetworkStartHttpFlac { .. }
+        ) {
             return Err(RequestError::NotStart);
         }
         Self::targeted(id, state, Some(session_id), payload)
@@ -160,6 +163,7 @@ impl Request {
                 | Command::Mute { muted: true }
                 | Command::VolumeCaps { .. }
                 | Command::OwnerShutdown
+                | Command::NetworkGrantsRevoke { .. }
         ) {
             Lane::Safety
         } else {
@@ -186,6 +190,7 @@ impl Request {
             Command::State
                 | Command::Capabilities
                 | Command::QueueGet { .. }
+                | Command::NetworkGet {}
                 | Command::ProfilesList { .. }
                 | Command::ProfilesGet { .. }
                 | Command::ProfilesResolve { .. }
@@ -225,146 +230,156 @@ impl OwnerClient {
     pub fn request(&self, request: &Request) -> Result<Reply, DeliveryFailure> {
         let reply = decode_reply(self.client.request(request.bytes().to_vec())?)
             .map_err(DeliveryFailure::Protocol)?;
-        if let Reply::Receipt(receipt) = &reply {
-            let envelope = request.envelope();
-            let identity_matches = receipt.request_id == envelope.request_id
-                && receipt.zone_id == envelope.zone_id
-                && receipt.session_id == envelope.session_id;
-            let result_matches = match (&envelope.payload, &receipt.result) {
-                (
-                    Command::DiagnosticsExport {
-                        directory,
-                        expected_sha256,
-                    }
-                    | Command::DiagnosticsInspect {
-                        directory,
-                        expected_sha256,
-                    },
-                    Some(ResultView::DiagnosticArtifact(value)),
-                ) => {
-                    use earph_core::diagnostics::DiagnosticArtifactOperation;
-                    envelope.owner_id.is_some()
-                        && matches!(
-                            (&envelope.payload, value.operation),
-                            (
-                                Command::DiagnosticsExport { .. },
-                                DiagnosticArtifactOperation::Export
-                            ) | (
-                                Command::DiagnosticsInspect { .. },
-                                DiagnosticArtifactOperation::Inspect
-                            )
-                        )
-                        && value.directory == *directory
-                        && value.expected_sha256 == *expected_sha256
-                        && diagnostic_target_matches(&value.binding, envelope)
-                }
-                (
-                    Command::DiagnosticsCancel { request_id },
-                    Some(ResultView::DiagnosticCancel(value)),
-                ) => {
-                    envelope.owner_id.is_some()
-                        && value.request_id == *request_id
-                        && diagnostic_target_matches(&value.binding, envelope)
-                }
-                (payload, _) if payload.is_diagnostic_artifact() => {
-                    receipt.status == ReplyStatus::Rejected && receipt.result.is_none()
-                }
-                (Command::SignalPathGet {}, Some(ResultView::SignalPath(value))) => {
-                    receipt.status == ReplyStatus::Applied
-                        && diagnostic_target_matches(&value.binding, envelope)
-                }
-                (Command::MetricsGet {}, Some(ResultView::Metrics(value))) => {
-                    receipt.status == ReplyStatus::Applied
-                        && diagnostic_target_matches(&value.binding, envelope)
-                }
-                (Command::EventsGet { cursor }, Some(ResultView::Events(value))) => {
-                    receipt.status == ReplyStatus::Applied
-                        && value.validate_cursor(cursor.as_ref()).is_ok()
-                        && diagnostic_target_matches(&value.binding, envelope)
-                }
-                (Command::DiagnosticsPreview {}, Some(ResultView::DiagnosticPreview(value))) => {
-                    receipt.status == ReplyStatus::Applied
-                        && diagnostic_target_matches(&value.binding, envelope)
-                }
-                (payload, _) if payload.is_diagnostic() => {
-                    receipt.status != ReplyStatus::Applied && receipt.result.is_none()
-                }
-                (
-                    Command::SourcesGet {} | Command::SourceStageUri { .. },
-                    Some(ResultView::Sources(value)),
-                ) => {
-                    receipt.status == ReplyStatus::Applied
-                        && match &envelope.payload {
-                            Command::SourceStageUri { uri, metadata } => {
-                                if uri.is_empty() {
-                                    value.generation > 0 && value.staged.is_none()
-                                } else {
-                                    value.staged.as_ref().is_some_and(|staged| {
-                                        staged.uri_bytes == uri.len()
-                                            && staged.metadata_bytes == metadata.len()
-                                    })
-                                }
-                            }
-                            _ => true,
-                        }
-                }
-                (Command::SourcesGet {} | Command::SourceStageUri { .. }, _) => {
-                    receipt.status != ReplyStatus::Applied && receipt.result.is_none()
-                }
-                (
-                    Command::DevicesList { backend } | Command::DevicesInspect { backend, .. },
-                    Some(ResultView::Devices(value)),
-                ) => {
-                    value.backend == *backend
-                        && match (&envelope.payload, &value.observation) {
-                            (Command::DevicesList { .. }, DeviceObservationView::List { .. }) => {
-                                receipt.status == ReplyStatus::Applied
-                            }
-                            (
-                                Command::DevicesInspect { endpoint, .. },
-                                DeviceObservationView::Inspection {
-                                    endpoint: observed, ..
-                                },
-                            ) => receipt.status == ReplyStatus::Applied && endpoint == observed,
-                            (_, DeviceObservationView::Failed { .. }) => matches!(
-                                receipt.status,
-                                ReplyStatus::Failed | ReplyStatus::Cancelled
-                            ),
-                            _ => false,
-                        }
-                }
-                (Command::DevicesList { .. } | Command::DevicesInspect { .. }, _) => {
-                    receipt.status != ReplyStatus::Applied && receipt.result.is_none()
-                }
-                _ => {
-                    receipt.status != ReplyStatus::Applied
-                        || match (&envelope.payload, &receipt.result) {
-                            (Command::State, Some(ResultView::State(_)))
-                            | (Command::Capabilities, Some(ResultView::Capabilities(_)))
-                            | (Command::QueueGet { .. }, Some(ResultView::Queue(_)))
-                            | (
-                                Command::GraphInspect { .. },
-                                Some(ResultView::GraphInspection(_)),
-                            )
-                            | (Command::ProfilesList { .. }, Some(ResultView::Profiles(_)))
-                            | (Command::ProfilesGet { .. }, Some(ResultView::Profile(_)))
-                            | (
-                                Command::ProfilesResolve { .. },
-                                Some(ResultView::ProfileResolution(_)),
-                            ) => true,
-                            (command, _) => !command.is_query(),
-                        }
-                }
-            };
-            if !identity_matches || !result_matches {
-                return Err(DeliveryFailure::Protocol(ProjectionError {
-                    detail: "receipt identity or query result does not match the request",
-                    bytes: reply.bytes().into(),
-                }));
-            }
+        if let Reply::Receipt(receipt) = &reply
+            && !receipt_matches(request, receipt)
+        {
+            return Err(DeliveryFailure::Protocol(ProjectionError {
+                detail: "receipt identity or query result does not match the request",
+                bytes: reply.bytes().into(),
+            }));
         }
         Ok(reply)
     }
+}
+
+fn receipt_matches(request: &Request, receipt: &crate::ReceiptView) -> bool {
+    let envelope = request.envelope();
+    let identity_matches = receipt.request_id == envelope.request_id
+        && receipt.zone_id == envelope.zone_id
+        && receipt.session_id == envelope.session_id;
+    let result_matches = match (&envelope.payload, &receipt.result) {
+        (
+            Command::DiagnosticsExport {
+                directory,
+                expected_sha256,
+            }
+            | Command::DiagnosticsInspect {
+                directory,
+                expected_sha256,
+            },
+            Some(ResultView::DiagnosticArtifact(value)),
+        ) => {
+            use earph_core::diagnostics::DiagnosticArtifactOperation;
+            envelope.owner_id.is_some()
+                && matches!(
+                    (&envelope.payload, value.operation),
+                    (
+                        Command::DiagnosticsExport { .. },
+                        DiagnosticArtifactOperation::Export
+                    ) | (
+                        Command::DiagnosticsInspect { .. },
+                        DiagnosticArtifactOperation::Inspect
+                    )
+                )
+                && value.directory == *directory
+                && value.expected_sha256 == *expected_sha256
+                && diagnostic_target_matches(&value.binding, envelope)
+        }
+        (Command::DiagnosticsCancel { request_id }, Some(ResultView::DiagnosticCancel(value))) => {
+            envelope.owner_id.is_some()
+                && value.request_id == *request_id
+                && diagnostic_target_matches(&value.binding, envelope)
+        }
+        (payload, _) if payload.is_diagnostic_artifact() => {
+            receipt.status == ReplyStatus::Rejected && receipt.result.is_none()
+        }
+        (Command::SignalPathGet {}, Some(ResultView::SignalPath(value))) => {
+            receipt.status == ReplyStatus::Applied
+                && diagnostic_target_matches(&value.binding, envelope)
+        }
+        (Command::MetricsGet {}, Some(ResultView::Metrics(value))) => {
+            receipt.status == ReplyStatus::Applied
+                && diagnostic_target_matches(&value.binding, envelope)
+        }
+        (Command::EventsGet { cursor }, Some(ResultView::Events(value))) => {
+            receipt.status == ReplyStatus::Applied
+                && value.validate_cursor(cursor.as_ref()).is_ok()
+                && diagnostic_target_matches(&value.binding, envelope)
+        }
+        (Command::DiagnosticsPreview {}, Some(ResultView::DiagnosticPreview(value))) => {
+            receipt.status == ReplyStatus::Applied
+                && diagnostic_target_matches(&value.binding, envelope)
+        }
+        (payload, _) if payload.is_diagnostic() => {
+            receipt.status != ReplyStatus::Applied && receipt.result.is_none()
+        }
+        (
+            Command::SourcesGet {} | Command::SourceStageUri { .. },
+            Some(ResultView::Sources(value)),
+        ) => {
+            receipt.status == ReplyStatus::Applied
+                && match &envelope.payload {
+                    Command::SourceStageUri { uri, metadata } => {
+                        if uri.is_empty() {
+                            value.generation > 0 && value.staged.is_none()
+                        } else {
+                            value.staged.as_ref().is_some_and(|staged| {
+                                staged.uri_bytes == uri.len()
+                                    && staged.metadata_bytes == metadata.len()
+                            })
+                        }
+                    }
+                    _ => true,
+                }
+        }
+        (
+            Command::NetworkGet {}
+            | Command::NetworkGrantsReplace { .. }
+            | Command::NetworkGrantsRevoke { .. },
+            Some(ResultView::Network(_)),
+        ) => receipt.status == ReplyStatus::Applied,
+        (
+            Command::NetworkGet {}
+            | Command::NetworkGrantsReplace { .. }
+            | Command::NetworkGrantsRevoke { .. },
+            _,
+        ) => receipt.status != ReplyStatus::Applied && receipt.result.is_none(),
+        (Command::NetworkStartHttpFlac { .. }, _) => receipt.result.is_none(),
+        (_, Some(ResultView::Network(_))) => false,
+        (Command::SourcesGet {} | Command::SourceStageUri { .. }, _) => {
+            receipt.status != ReplyStatus::Applied && receipt.result.is_none()
+        }
+        (
+            Command::DevicesList { backend } | Command::DevicesInspect { backend, .. },
+            Some(ResultView::Devices(value)),
+        ) => {
+            value.backend == *backend
+                && match (&envelope.payload, &value.observation) {
+                    (Command::DevicesList { .. }, DeviceObservationView::List { .. }) => {
+                        receipt.status == ReplyStatus::Applied
+                    }
+                    (
+                        Command::DevicesInspect { endpoint, .. },
+                        DeviceObservationView::Inspection {
+                            endpoint: observed, ..
+                        },
+                    ) => receipt.status == ReplyStatus::Applied && endpoint == observed,
+                    (_, DeviceObservationView::Failed { .. }) => {
+                        matches!(receipt.status, ReplyStatus::Failed | ReplyStatus::Cancelled)
+                    }
+                    _ => false,
+                }
+        }
+        (Command::DevicesList { .. } | Command::DevicesInspect { .. }, _) => {
+            receipt.status != ReplyStatus::Applied && receipt.result.is_none()
+        }
+        _ => {
+            receipt.status != ReplyStatus::Applied
+                || match (&envelope.payload, &receipt.result) {
+                    (Command::State, Some(ResultView::State(_)))
+                    | (Command::Capabilities, Some(ResultView::Capabilities(_)))
+                    | (Command::QueueGet { .. }, Some(ResultView::Queue(_)))
+                    | (Command::GraphInspect { .. }, Some(ResultView::GraphInspection(_)))
+                    | (Command::ProfilesList { .. }, Some(ResultView::Profiles(_)))
+                    | (Command::ProfilesGet { .. }, Some(ResultView::Profile(_)))
+                    | (Command::ProfilesResolve { .. }, Some(ResultView::ProfileResolution(_))) => {
+                        true
+                    }
+                    (command, _) => !command.is_query(),
+                }
+        }
+    };
+    identity_matches && result_matches
 }
 
 fn diagnostic_target_matches(
@@ -379,4 +394,103 @@ fn diagnostic_target_matches(
             .session_id
             .as_ref()
             .is_none_or(|session| binding.session_id.as_ref() == Some(session))
+}
+
+#[cfg(test)]
+mod network_tests {
+    use super::*;
+    use crate::network_fixture;
+    use earph_core::{control::ControlLimits, session::Session};
+    fn receipt(owner: &mut Session, request: &Request) -> crate::ReceiptView {
+        let receipt = owner.submit(request.envelope().clone());
+        let Reply::Receipt(receipt) =
+            decode_reply(serde_json::to_vec(&serde_json::json!({"receipt":receipt})).unwrap())
+                .unwrap()
+        else {
+            panic!("receipt")
+        };
+        receipt
+    }
+    #[test]
+    fn network_revoke_keeps_typed_result_after_exact_retirement_and_replay() {
+        let mut owner = network_fixture::ready(None);
+        let state: StateView =
+            serde_json::from_value(serde_json::to_value(owner.snapshot()).unwrap()).unwrap();
+        let request = Request::mutation(
+            RequestId::new("retire-exact").unwrap(),
+            &state,
+            Command::NetworkGrantsRevoke {
+                expected_generation: 1,
+            },
+        )
+        .unwrap();
+        let accepted = owner.submit_with_network_effects(
+            request.envelope().clone(),
+            40,
+            |_| unreachable!(),
+            |_, _| Ok(()),
+            |_| Ok(()),
+        );
+        assert_eq!(
+            accepted.status,
+            earph_core::control::ReceiptStatus::Accepted
+        );
+        assert!(receipt_matches(&request, &receipt(&mut owner, &request)));
+        let closing = owner.closing_network_source().unwrap();
+        owner
+            .complete_network_retirement(
+                earph_core::network_source::NetworkRetirementAck {
+                    binding: closing.context.binding.clone(),
+                    source_epochs: closing.context.source_epochs,
+                    output_epochs: closing.output_epochs,
+                    graph_epoch: closing.graph_epoch,
+                    device_epoch: closing.device_epoch,
+                    observation: None,
+                },
+                50,
+            )
+            .unwrap();
+        let settled = receipt(&mut owner, &request);
+        assert_eq!(settled.status, ReplyStatus::Applied);
+        assert!(matches!(settled.result, Some(ResultView::Network(_))));
+        assert!(receipt_matches(&request, &settled));
+    }
+    #[test]
+    fn network_query_result_must_match_the_exact_typed_request() {
+        let mut owner = Session::new_owner(
+            ZoneId::new("main").unwrap(),
+            OwnerId::new("network-consumer").unwrap(),
+            ControlLimits::default(),
+        );
+        let query = Request::query(
+            RequestId::new("query").unwrap(),
+            ZoneId::new("main").unwrap(),
+            Command::NetworkGet {},
+        )
+        .unwrap();
+        let observed = receipt(&mut owner, &query);
+        assert!(receipt_matches(&query, &observed));
+        let wrong = Request::query(
+            RequestId::new("query").unwrap(),
+            ZoneId::new("main").unwrap(),
+            Command::SourcesGet {},
+        )
+        .unwrap();
+        assert!(!receipt_matches(&wrong, &observed));
+        let wrong = Request::query(
+            RequestId::new("query").unwrap(),
+            ZoneId::new("main").unwrap(),
+            Command::State,
+        )
+        .unwrap();
+        assert!(!receipt_matches(&wrong, &observed));
+        let state: StateView =
+            serde_json::from_value(serde_json::to_value(owner.snapshot()).unwrap()).unwrap();
+        let wrong =
+            Request::mutation(RequestId::new("query").unwrap(), &state, Command::Stop).unwrap();
+        assert!(!receipt_matches(&wrong, &observed));
+        let mut missing = observed;
+        missing.result = None;
+        assert!(!receipt_matches(&query, &missing));
+    }
 }

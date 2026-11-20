@@ -118,6 +118,8 @@ pub struct StateView {
     pub reserved_next_entry_id: Option<QueueEntryId>,
     #[serde(deserialize_with = "nullable")]
     pub playback: Option<PlaybackObservationView>,
+    #[serde(default, deserialize_with = "present")]
+    pub network_playback: Option<NetworkPlaybackObservationView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -176,6 +178,7 @@ pub enum ResultView {
     DiagnosticArtifact(Arc<earph_core::diagnostics::DiagnosticArtifactReceipt>),
     DiagnosticCancel(Arc<earph_core::diagnostics::DiagnosticCancelReceipt>),
     Sources(Arc<earph_core::source::SourceStagingSnapshot>),
+    Network(Arc<earph_core::network_source::NetworkSnapshot>),
     State(Arc<StateView>),
     Capabilities(CapabilitiesView),
     Queue(QueueView),
@@ -271,7 +274,9 @@ pub fn decode_reply(bytes: Vec<u8>) -> Result<Reply, ProjectionError> {
         (Some(mut receipt), None) => {
             if let Some(result) = &receipt.result {
                 let valid = match result {
-                    ResultView::Sources(_) => receipt.status == ReplyStatus::Applied,
+                    ResultView::Sources(_) | ResultView::Network(_) => {
+                        receipt.status == ReplyStatus::Applied
+                    }
                     ResultView::SignalPath(value) => diagnostic_matches(value, &receipt),
                     ResultView::Metrics(value) => diagnostic_matches(value, &receipt),
                     ResultView::Events(value) => diagnostic_matches(value, &receipt),
@@ -297,6 +302,7 @@ pub fn decode_reply(bytes: Vec<u8>) -> Result<Reply, ProjectionError> {
                             && value.zone_id == receipt.zone_id
                             && value.revision == receipt.revision
                             && value.epochs == receipt.epochs
+                            && value.network_playback.as_ref().is_none_or(|p| p.valid())
                     }
                     ResultView::ProfileSaved(value) | ResultView::Profile(value) => {
                         value.profile.schema_version == 1 && value.graph.graph.schema_version == 1

@@ -1,4 +1,4 @@
-// ABOUTME: Submits explicit local-queue transport actions against observed owner context.
+// ABOUTME: Submits current-source transport actions against observed owner context.
 // ABOUTME: Uses source-frame seek bounds and never joins playback with consent or Unmute.
 use super::{
     GuiApp, UiIntent,
@@ -16,14 +16,14 @@ pub(super) struct Draft {
     error: Option<String>,
 }
 pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
-    ui.heading("Local transport");
+    ui.heading("Transport");
     ui.checkbox(
         &mut app.transport.takeover,
         "Allow takeover of the retained session",
     );
     let selected = app.controller.queue().and_then(|q| q.selected.clone());
     ui.label(format!(
-        "Selected local entry: {}",
+        "Retained local queue selection: {}",
         selected.as_ref().map_or("none", |id| id.as_str())
     ));
     let state = app.controller.state().cloned();
@@ -110,9 +110,15 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
                 .audible_position_frames
                 .map_or_else(|| "unknown".into(), |n| format!("{n} frames"))
         ));
-        if let Some(playback) = &state.playback {
+        if let Some(playback) = state.playback_facts() {
             ui.label(format!("Source position: {} frames; submitted output: {} frames; consumed output: {}; audible source position: {}", playback.source_position_frames, playback.submitted_frames, playback.consumed_frames.map_or_else(|| "unknown".into(), |n| format!("{n} frames")), playback.audible_source_position_frames.map_or_else(|| "unknown".into(), |n| format!("{n} frames"))));
         }
+    }
+    if state
+        .as_ref()
+        .is_some_and(|s| s.source == Some(earph_core::control::SourceKind::HttpFlac))
+    {
+        ui.label("The local queue remains local intent. HTTP FLAC does not support seek, next, previous, profiles, or strict preservation.");
     }
     ui.label("Accepted playback may remain pending while muted. Backend readiness does not mean Applied or audible playback.");
     if let Some(command) = command {

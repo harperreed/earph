@@ -12,3 +12,7 @@ pub use dispatcher::*;
 mod model;
 pub use model::*;
 pub mod gui;
+
+#[cfg(test)]
+#[path = "../tests/network_fixture/mod.rs"]
+mod network_fixture;

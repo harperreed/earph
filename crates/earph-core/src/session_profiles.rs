@@ -953,14 +953,9 @@ impl Session {
     /// Known graph, adapter audio, and source-period storage; excludes opaque native and decoder allocations.
     pub fn profile_environment_bytes(&self) -> Result<u64, EngineError> {
         let mut bytes = self.graph_inspection().service.resident_bytes;
-        if let Some(playback) = &self.state.playback {
+        if let Some(playback) = self.measured_playback_facts() {
             bytes = bytes
-                .checked_add(
-                    playback
-                        .backend
-                        .as_ref()
-                        .map_or(0, |b| b.audio_storage_bytes),
-                )
+                .checked_add(playback.backend.map_or(0, |b| b.audio_storage_bytes))
                 .ok_or(BUDGET)?;
             if let Some(output) = &self.state.output {
                 bytes = bytes
@@ -968,6 +963,9 @@ impl Session {
                     .ok_or(BUDGET)?;
             }
         }
+        bytes = bytes
+            .checked_add(self.network_retained_bytes()? as u64)
+            .ok_or(BUDGET)?;
         Ok(bytes)
     }
     fn profile_storage_capacity(&self) -> Result<usize, EngineError> {

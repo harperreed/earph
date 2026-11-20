@@ -229,7 +229,6 @@ fn streaming_facts_valid(
         return false;
     }
     let mut nodes = BTreeSet::new();
-    let mut has_src = false;
     for (index, stage) in stages.iter().enumerate() {
         if stage.original_nodes.is_empty()
             || stage.original_nodes.len() > MAX_GRAPH_NODES
@@ -275,7 +274,6 @@ fn streaming_facts_valid(
                 maximum_adapter_finish_output_frames,
                 ..
             } => {
-                has_src = true;
                 if !src_facts_valid(parameters, stage.input_format, stage.output_format)
                     || parameters.resources.preparation_peak_bytes > aggregate_peak_bytes
                     || *guard_time_denominator != parameters.input_rate
@@ -286,7 +284,7 @@ fn streaming_facts_valid(
             }
         }
     }
-    has_src
+    true
 }
 fn src_facts_valid(parameters: &SrcParameters, input: PcmFormat, output: PcmFormat) -> bool {
     parameters.input_rate == input.sample_rate_hz()

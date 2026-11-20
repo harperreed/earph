@@ -72,3 +72,10 @@
   Preview commands change candidate authority; replay after receipt eviction can capture again.
   Observer tools must never replay previews.
   See the [diagnostic workflow](docs/diagnostics.md).
+
+- On `ENOSPC`, check `df -i /tmp` alongside free byte space.
+  tmpfs charges hard links against its inode limit, so they do not reduce reported inode use.
+  Keep large scan fixtures in ignored task storage, outside shared temporary storage.
+  Exhausted temporary inodes can break owner, decoder, and foreign-client checks together.
+  Preserve evidence and get deletion approval before reclaiming finished fixtures.
+  See [tmpfs link accounting](https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/2b66f2cc753243a6adb3e9a5c038b0fc59ba7ec9/mm/shmem.c).

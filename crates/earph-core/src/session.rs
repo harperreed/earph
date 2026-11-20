@@ -25,6 +25,8 @@ mod devices;
 use devices::DeviceControl;
 #[path = "session_diagnostics.rs"]
 mod diagnostics;
+#[path = "session_network.rs"]
+mod network;
 #[path = "session_sources.rs"]
 mod sources;
 
@@ -122,6 +124,8 @@ pub struct SessionSnapshot {
     pub active_entry_id: Option<QueueEntryId>,
     pub reserved_next_entry_id: Option<QueueEntryId>,
     pub playback: Option<PlaybackObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_playback: Option<crate::network_source::NetworkPlaybackObservation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -141,6 +145,16 @@ pub struct PlaybackObservation {
     pub modified: bool,
     pub backend: Option<BackendObservation>,
     pub output_activity: Option<OutputActivity>,
+}
+
+pub(super) struct MeasuredPlaybackFacts<'a> {
+    format: PcmFormat,
+    modified: bool,
+    input_peak: Option<f64>,
+    output_peak: Option<f64>,
+    backend_delay_frames: Option<u64>,
+    backend: Option<&'a BackendObservation>,
+    processing: Option<&'a PlaybackProcessingObservation>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -364,6 +378,7 @@ pub struct Session {
     profiles: ProfileControl,
     devices: DeviceControl,
     sources: crate::source::SourceStaging,
+    network: crate::network_source::NetworkSources,
     diagnostics: diagnostics::DiagnosticState,
 }
 impl Session {
@@ -401,6 +416,7 @@ impl Session {
                 active_entry_id: None,
                 reserved_next_entry_id: None,
                 playback: None,
+                network_playback: None,
             },
             receipts: VecDeque::with_capacity(limits.receipts),
             transport_record: None,
@@ -414,6 +430,7 @@ impl Session {
             profiles: ProfileControl::default(),
             devices: DeviceControl::default(),
             sources: crate::source::SourceStaging::default(),
+            network: crate::network_source::NetworkSources::default(),
             diagnostics: diagnostics::DiagnosticState::default(),
         }
     }
@@ -431,7 +448,8 @@ impl Session {
     }
     pub fn pending_local_stop_request(&self) -> Option<&RequestId> {
         let record = self.transport_record.as_ref()?;
-        (self.local_boundary == Some(LocalBoundary::Stop)
+        (self.state.source == Some(SourceKind::LocalFile)
+            && self.local_boundary == Some(LocalBoundary::Stop)
             && self.state.operation.as_ref() == Some(&record.0.request_id)
             && record.1.status == ReceiptStatus::Accepted
             && matches!(record.0.payload, Command::Stop))
@@ -532,6 +550,29 @@ impl Session {
     pub fn shutdown_requested(&self) -> bool {
         self.state.shutdown_requested
     }
+    fn measured_playback_facts(&self) -> Option<MeasuredPlaybackFacts<'_>> {
+        if let Some(p) = &self.state.network_playback {
+            Some(MeasuredPlaybackFacts {
+                format: p.format,
+                modified: p.modified,
+                input_peak: p.input_peak,
+                output_peak: p.output_peak,
+                backend_delay_frames: p.backend_delay_frames,
+                backend: p.backend.as_ref(),
+                processing: p.processing.as_ref(),
+            })
+        } else {
+            self.state.playback.as_ref().map(|p| MeasuredPlaybackFacts {
+                format: p.format,
+                modified: p.modified,
+                input_peak: p.input_peak,
+                output_peak: p.output_peak,
+                backend_delay_frames: p.backend_delay_frames,
+                backend: p.backend.as_ref(),
+                processing: p.processing.as_ref(),
+            })
+        }
+    }
     pub fn snapshot(&self) -> SessionSnapshot {
         let mut state = self.state.clone();
         state.profile_storage_bytes = self.profile_storage_bytes();
@@ -576,6 +617,11 @@ impl Session {
                 self.diagnostic_artifact_reply(&c.request_id)
             } else if status == ReceiptStatus::Applied {
                 match c.payload {
+                    Command::NetworkGet {}
+                    | Command::NetworkGrantsReplace { .. }
+                    | Command::NetworkGrantsRevoke { .. } => {
+                        Some(QueryResult::Network(self.network_snapshot()))
+                    }
                     Command::SourcesGet {} | Command::SourceStageUri { .. } => {
                         Some(QueryResult::Sources(self.sources.snapshot()))
                     }
@@ -599,7 +645,11 @@ impl Session {
                         devices: Arc::new(self.device_capabilities()),
                         schema_version: 1,
                         sources: if self.local_playback_enabled {
-                            vec![SourceKind::LocalFile]
+                            if self.network.enabled {
+                                vec![SourceKind::LocalFile, SourceKind::HttpFlac]
+                            } else {
+                                vec![SourceKind::LocalFile]
+                            }
                         } else if self.state.owner_id.is_some() {
                             vec![]
                         } else {
@@ -708,6 +758,14 @@ impl Session {
             receipt.activation_frame = activation_frame;
             receipt.revision = self.state.revision;
             receipt.epochs = self.state.epochs;
+            if status == ReceiptStatus::Applied
+                && matches!(
+                    updated.0.payload,
+                    Command::NetworkGrantsReplace { .. } | Command::NetworkGrantsRevoke { .. }
+                )
+            {
+                receipt.result = Some(QueryResult::Network(self.network_snapshot()));
+            }
             let updated = Arc::new(updated);
             if let Some(slot) = self
                 .receipts
@@ -737,7 +795,12 @@ impl Session {
         expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
         commit: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Receipt {
-        self.submit_with_graph_effects(command, self.state.monotonic_ns, expand, commit)
+        self.submit_with_graph_effects(
+            command,
+            self.network.admission_ns.max(self.state.monotonic_ns),
+            expand,
+            commit,
+        )
     }
     /// Admits graph jobs through the same staged session and durable mutation hook.
     pub fn submit_with_graph_effects(
@@ -747,6 +810,20 @@ impl Session {
         expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
         commit: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Receipt {
+        self.submit_with_network_effects(command, now_ns, expand, |_, _| Err(STATE), commit)
+    }
+    /// Validates staged network policy before committing any new authority.
+    pub fn submit_with_network_effects(
+        &mut self,
+        command: CommandEnvelope,
+        now_ns: u64,
+        expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
+        validate_network: impl FnOnce(&Session, &CommandEnvelope) -> Result<(), EngineError>,
+        commit: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Receipt {
+        if let Err(error) = self.expire_network_authority(now_ns) {
+            return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+        }
         self.expire_graph_work(now_ns);
         self.expire_profile_work(now_ns);
         self.expire_diagnostic_work(now_ns);
@@ -795,6 +872,16 @@ impl Session {
         let receipt = match result {
             Ok(status) => {
                 let proposed = staged.receipt(&command, status, None);
+                if let Err(error) = self.validate_network_retention(&staged, &command) {
+                    return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+                }
+                if command.payload.is_network()
+                    && !command.payload.is_query()
+                    && let Err(error) = validate_network(&staged, &command)
+                {
+                    let rejected = self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+                    return self.retain_network_rejection(command, rejected);
+                }
                 if let Err(error) = self.validate_diagnostic_admission(&staged, &command, &proposed)
                 {
                     return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
@@ -831,6 +918,13 @@ impl Session {
             }
             Err(error) => self.receipt(&command, ReceiptStatus::Rejected, Some(error)),
         };
+        if self.validate_network_retention(self, &command).is_err() {
+            return self.receipt(
+                &command,
+                ReceiptStatus::Rejected,
+                Some(crate::network_source::BUDGET),
+            );
+        }
         if self
             .validate_diagnostic_admission(self, &command, &receipt)
             .is_err()
@@ -919,7 +1013,11 @@ impl Session {
         {
             return Err(STALE);
         }
-        if matches!(command.payload, Command::SourceStageUri { .. })
+        if (matches!(command.payload, Command::SourceStageUri { .. })
+            || matches!(
+                command.payload,
+                Command::NetworkGrantsReplace { .. } | Command::NetworkGrantsRevoke { .. }
+            ))
             && command.session_id.is_some()
             && command.session_id != self.state.session_id
         {
@@ -928,6 +1026,10 @@ impl Session {
         if !matches!(
             command.payload,
             Command::Start { .. }
+                | Command::NetworkStartHttpFlac { .. }
+                | Command::NetworkGet {}
+                | Command::NetworkGrantsReplace { .. }
+                | Command::NetworkGrantsRevoke { .. }
                 | Command::Mute { .. }
                 | Command::State
                 | Command::SignalPathGet {}
@@ -999,6 +1101,23 @@ impl Session {
         }
         if let Command::SourceStageUri { uri, metadata } = &command.payload {
             return self.stage_uri(command, uri, metadata);
+        }
+        if command.payload.is_network() {
+            return self.apply_network_command(command, now_ns);
+        }
+        if self.network.closing.is_some()
+            && matches!(
+                command.payload,
+                Command::Start { .. } | Command::Resume | Command::OutputSelect { .. }
+            )
+        {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "network retirement awaits worker acknowledgement",
+            ));
+        }
+        if self.state.source == Some(SourceKind::HttpFlac) {
+            self.validate_network_control(&command.payload, now_ns)?;
         }
         self.validate_graph_control(&command.payload)?;
         if matches!(command.payload, Command::ProfilesApply { .. })
@@ -1187,7 +1306,11 @@ impl Session {
                 next.transport = TransportState::Paused;
                 next.epochs = next.epochs.next_stream()?;
                 cancel_previous = true;
-                ReceiptStatus::Applied
+                if next.source == Some(SourceKind::HttpFlac) {
+                    ReceiptStatus::Accepted
+                } else {
+                    ReceiptStatus::Applied
+                }
             }
             Command::Start {
                 source,
@@ -1195,6 +1318,9 @@ impl Session {
                 takeover,
                 seekable,
             } => {
+                if *source == SourceKind::HttpFlac {
+                    return Err(STATE);
+                }
                 if *source == SourceKind::LocalFile {
                     if !self.local_playback_enabled {
                         return Err(STATE);
@@ -1262,7 +1388,10 @@ impl Session {
                 next.epochs = next.epochs.next_stream()?;
                 next.muted = true;
                 cancel_previous = true;
-                if next.source == Some(SourceKind::LocalFile) {
+                if matches!(
+                    next.source,
+                    Some(SourceKind::LocalFile | SourceKind::HttpFlac)
+                ) {
                     intent = PlaybackIntent::Paused;
                     next.transport = TransportState::Paused;
                     ReceiptStatus::Accepted
@@ -1277,18 +1406,20 @@ impl Session {
                 }
             }
             Command::Pause
-                if next.source == Some(SourceKind::LocalFile)
-                    && matches!(
-                        next.transport,
-                        TransportState::Preparing
-                            | TransportState::Buffering
-                            | TransportState::Playing
-                            | TransportState::Paused
-                    ) =>
+                if matches!(
+                    next.source,
+                    Some(SourceKind::LocalFile | SourceKind::HttpFlac)
+                ) && matches!(
+                    next.transport,
+                    TransportState::Preparing
+                        | TransportState::Buffering
+                        | TransportState::Playing
+                        | TransportState::Paused
+                ) =>
             {
                 next.transport = TransportState::Paused;
                 intent = PlaybackIntent::Paused;
-                if next.playback.is_some() {
+                if next.playback.is_some() || next.network_playback.is_some() {
                     next.epochs = next.epochs.next_stream()?;
                     cancel_previous = true;
                     ReceiptStatus::Accepted
@@ -1352,6 +1483,12 @@ impl Session {
             }
             Command::Mute { muted } => {
                 if !muted && self.local_playback_enabled {
+                    if next.source == Some(SourceKind::HttpFlac) && self.graph.active.is_none() {
+                        return Err(EngineError::new(
+                            ErrorCode::SafetyPolicyBlocked,
+                            "activate an explicit network graph before unmuting",
+                        ));
+                    }
                     self.validate_graph_unmute(&next)?;
                     Self::validate_local_unmute(&next)?;
                 }
@@ -1394,6 +1531,27 @@ impl Session {
             next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
         if clear_active {
             self.local_boundary = None;
+        }
+        if self.network.active.is_some()
+            && matches!(
+                command.payload,
+                Command::Start { .. } | Command::Stop | Command::OwnerShutdown
+            )
+        {
+            self.close_network_at(self.state.epochs, None)?;
+            if let Some(p) = &mut next.network_playback {
+                p.lifecycle = if next.error.is_some() {
+                    crate::network_source::NetworkLifecycle::Failed
+                } else {
+                    crate::network_source::NetworkLifecycle::Retiring
+                };
+            }
+        }
+        if matches!(
+            command.payload,
+            Command::Start { .. } | Command::OutputSelect { .. }
+        ) {
+            next.network_playback = None;
         }
         self.state = next;
         self.cancel_profile_work();
@@ -1531,6 +1689,9 @@ impl Session {
         Ok(())
     }
     pub fn advance(&mut self, event: EngineEvent) -> Result<(), EngineError> {
+        if self.state.source == Some(SourceKind::HttpFlac) {
+            return Err(STALE);
+        }
         if event.epochs != self.state.epochs {
             return Err(STALE);
         }

@@ -75,11 +75,38 @@ pub(super) fn submit(app: &mut GuiApp, command: Command) {
         });
     }
 }
+fn fidelity_policy(ui: &mut egui::Ui, draft: &mut Draft, network: bool) {
+    ui.label("Requested fidelity policy");
+    ui.horizontal_wrapped(|ui| {
+        ui.add_enabled_ui(!network, |ui| {
+            ui.selectable_value(
+                &mut draft.fidelity,
+                FidelityPolicy::StrictPreservation,
+                "StrictPreservation",
+            );
+        });
+        ui.selectable_value(
+            &mut draft.fidelity,
+            FidelityPolicy::CompatibleConversion,
+            "CompatibleConversion",
+        );
+        ui.selectable_value(
+            &mut draft.fidelity,
+            FidelityPolicy::ExpertOverride,
+            "ExpertOverride",
+        );
+    });
+}
+
 pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
     ui.heading("Output / Safety");
     ui.label("Local draft: editing fields changes no owner state.");
     discovery(ui, app);
     ui.separator();
+    let network = app
+        .controller
+        .state()
+        .is_some_and(|s| s.source == Some(earph_core::control::SourceKind::HttpFlac));
     let draft = &mut app.output;
     ui.label("Requested backend");
     ui.horizontal_wrapped(|ui| {
@@ -122,28 +149,17 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
         ui.selectable_value(&mut draft.mode, VolumeMode::Software, "Software");
         ui.selectable_value(&mut draft.mode, VolumeMode::Fixed, "Fixed");
     });
-    ui.label("Requested fidelity policy");
-    ui.horizontal_wrapped(|ui| {
-        ui.selectable_value(
-            &mut draft.fidelity,
-            FidelityPolicy::StrictPreservation,
-            "StrictPreservation",
-        );
-        ui.selectable_value(
-            &mut draft.fidelity,
-            FidelityPolicy::CompatibleConversion,
-            "CompatibleConversion",
-        );
-        ui.selectable_value(
-            &mut draft.fidelity,
-            FidelityPolicy::ExpertOverride,
-            "ExpertOverride",
-        );
-    });
+    fidelity_policy(ui, draft, network);
+    if network {
+        ui.label("HTTP FLAC requires flexible PCM fidelity; StrictPreservation is unavailable.");
+    }
     let enabled = app.controller.control_edit_available();
     let mut command = None;
     if ui
-        .add_enabled(enabled, egui::Button::new("Select output"))
+        .add_enabled(
+            enabled && !(network && draft.fidelity == FidelityPolicy::StrictPreservation),
+            egui::Button::new("Select output"),
+        )
         .clicked()
     {
         match draft.configuration() {
@@ -181,7 +197,7 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
             "Actual software gain: {:.3} dB; ramp {} frames",
             state.software_gain_db, state.gain_ramp_frames
         ));
-        if let Some(backend) = state.playback.as_ref().and_then(|p| p.backend.as_ref()) {
+        if let Some(backend) = state.playback_facts().and_then(|p| p.backend) {
             ui.label(format!(
                 "Opened backend: {:?}; native identity {}",
                 backend.backend,
@@ -420,4 +436,45 @@ fn observation_header(ui: &mut egui::Ui, result: &DeviceQueryResultView) {
         result.read_boundary,
         result.completed_monotonic_ns
     ));
+}
+
+#[cfg(test)]
+mod network_tests {
+    use super::*;
+    use crate::network_fixture;
+    #[test]
+    fn network_fidelity_widgets_disable_strict_preservation_and_keep_flexible_choices() {
+        let session = network_fixture::ready(None);
+        let state = session.snapshot();
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let mut draft = Draft::default();
+        let mut output = context.run_ui(egui::RawInput::default(), |ui| {
+            fidelity_policy(
+                ui,
+                &mut draft,
+                state.source == Some(earph_core::control::SourceKind::HttpFlac),
+            )
+        });
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.unwrap();
+        let strict = tree
+            .nodes
+            .iter()
+            .find(|(_, n)| {
+                n.label() == Some("StrictPreservation")
+                    && n.role() != egui::accesskit::Role::TextRun
+            })
+            .unwrap();
+        assert!(strict.1.is_disabled());
+        let flexible = tree
+            .nodes
+            .iter()
+            .find(|(_, n)| {
+                n.label() == Some("CompatibleConversion")
+                    && n.role() != egui::accesskit::Role::TextRun
+            })
+            .unwrap();
+        assert!(!flexible.1.is_disabled());
+    }
 }

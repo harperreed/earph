@@ -66,7 +66,8 @@ impl TryFrom<StagingDocument> for SourceStagingSnapshot {
 }
 
 #[derive(Clone)]
-struct StagedUri {
+pub struct StagedUriDescriptor {
+    generation: u64,
     media_id: StagedMediaId,
     uri: Box<str>,
     metadata: Box<str>,
@@ -75,7 +76,7 @@ struct StagedUri {
 #[derive(Clone, Default)]
 pub(crate) struct SourceStaging {
     generation: u64,
-    staged: Option<Arc<StagedUri>>,
+    staged: Option<Arc<StagedUriDescriptor>>,
 }
 
 pub(crate) fn validate_storage(uri: &String, metadata: &String) -> Result<(), EngineError> {
@@ -85,7 +86,33 @@ pub(crate) fn validate_storage(uri: &String, metadata: &String) -> Result<(), En
     Ok(())
 }
 
+impl std::fmt::Debug for StagedUriDescriptor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StagedUriDescriptor([redacted])")
+    }
+}
+impl StagedUriDescriptor {
+    pub fn media_id(&self) -> &StagedMediaId {
+        &self.media_id
+    }
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+    pub fn uri(&self) -> &str {
+        &self.uri
+    }
+    pub fn metadata(&self) -> &str {
+        &self.metadata
+    }
+    pub(crate) fn retained_bytes(&self) -> usize {
+        size_of::<Self>() + 16 + 128 + self.uri.len() + self.metadata.len()
+    }
+}
 impl SourceStaging {
+    pub(crate) fn descriptor(&self) -> Option<Arc<StagedUriDescriptor>> {
+        self.staged.clone()
+    }
+
     pub(crate) fn snapshot(&self) -> SourceStagingSnapshot {
         SourceStagingSnapshot {
             generation: self.generation,
@@ -109,7 +136,8 @@ impl SourceStaging {
         let staged = if uri.is_empty() {
             None
         } else {
-            Some(Arc::new(StagedUri {
+            Some(Arc::new(StagedUriDescriptor {
+                generation,
                 media_id: StagedMediaId::new(format!("staged-{generation}"))?,
                 uri: uri.into(),
                 metadata: metadata.into(),

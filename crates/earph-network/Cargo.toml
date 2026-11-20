@@ -1,0 +1,16 @@
+# ABOUTME: Defines the admitted network media source adapter.
+# ABOUTME: Keeps transport ownership outside the core and media decoders.
+[package]
+name = "earph-network"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+earph-core = { path = "../earph-core" }
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "time", "sync"] }
+
+[dev-dependencies]
+rustls = { version = "=0.23.46", default-features = false, features = ["std", "aws_lc_rs"] }

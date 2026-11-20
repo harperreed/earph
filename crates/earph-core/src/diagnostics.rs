@@ -479,6 +479,46 @@ impl DiagnosticFormat {
                 .is_some_and(|bytes| self.bytes_per_frame >= bytes)
     }
 }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticNetworkReplacementBoundary {
+    pub source_epochs: Epochs,
+    pub source_position_frames: u64,
+    pub previous_output_epochs: Epochs,
+    pub output_epochs: Epochs,
+    pub previous_output_format: PcmFormat,
+    pub discarded_output_frames: u64,
+}
+impl DiagnosticNetworkReplacementBoundary {
+    pub fn validate(&self) -> Result<(), EngineError> {
+        crate::network_source::validate_replacement_facts(
+            self.source_epochs,
+            self.previous_output_epochs,
+            self.output_epochs,
+            self.previous_output_format,
+            self.discarded_output_frames,
+        )
+    }
+}
+impl From<&crate::network_source::NetworkReplacementBoundary>
+    for DiagnosticNetworkReplacementBoundary
+{
+    fn from(value: &crate::network_source::NetworkReplacementBoundary) -> Self {
+        Self {
+            source_epochs: value.source_epochs,
+            source_position_frames: value.source_position_frames,
+            previous_output_epochs: value.previous_output_epochs,
+            output_epochs: value.output_epochs,
+            previous_output_format: value.previous_output_format,
+            discarded_output_frames: value.discarded_output_frames,
+        }
+    }
+}
+fn deserialize_network_replacement_boundary<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<DiagnosticNetworkReplacementBoundary>, D::Error> {
+    DiagnosticNetworkReplacementBoundary::deserialize(deserializer).map(Some)
+}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObservedPath {
@@ -490,6 +530,12 @@ pub struct ObservedPath {
     pub modified: bool,
     #[serde(deserialize_with = "nullable")]
     pub backend: Option<ObservedBackend>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_network_replacement_boundary"
+    )]
+    pub network_replacement_boundary: Option<DiagnosticNetworkReplacementBoundary>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -594,6 +640,23 @@ impl DiagnosticReport for SignalPathReport {
             }
         }
         if let Some(observed) = &self.observed {
+            if let Some(boundary) = &observed.network_replacement_boundary {
+                boundary.validate()?;
+                if (
+                    boundary.output_epochs.session,
+                    boundary.output_epochs.stream,
+                ) > (self.cut.epochs.session, self.cut.epochs.stream)
+                {
+                    return Err(INVALID);
+                }
+                if self
+                    .requested
+                    .source
+                    .is_some_and(|s| s != crate::control::SourceKind::HttpFlac)
+                {
+                    return Err(INVALID);
+                }
+            }
             // No current producer retains an observation's original epoch/time envelope.
             if observed.sample_epochs.is_some() || observed.sample_monotonic_ns.is_some() {
                 return Err(INVALID);

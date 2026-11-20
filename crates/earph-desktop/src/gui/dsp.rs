@@ -8,10 +8,10 @@ use eframe::egui;
 pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
     ui.heading("DSP graph");
     if let Some(state) = app.controller.state()
-        && let Some(playback) = &state.playback
+        && let Some(playback) = state.playback_facts()
     {
         ui.label(format!(
-            "Observed local source format: {:?}; requested native period: {:?} frames",
+            "Observed source format: {:?}; requested native period: {:?} frames",
             playback.format,
             state.output.as_ref().map(|o| o.period_frames)
         ));
@@ -31,7 +31,10 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
     let source = enabled
         && canonical
         && correction_reviewed
-        && app.controller.state().is_some_and(|s| s.playback.is_some());
+        && app
+            .controller
+            .state()
+            .is_some_and(|s| s.graph_source_available());
     let mut command = None;
     ui.horizontal_wrapped(|ui| {
         if ui
@@ -76,6 +79,10 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
     if ui
         .add_enabled(
             source
+                && app
+                    .controller
+                    .state()
+                    .is_some_and(|s| s.source == Some(earph_core::control::SourceKind::LocalFile))
                 && selected.is_some()
                 && reviewed
                 && app
@@ -135,6 +142,9 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
         if ui
             .add_enabled(
                 applicable
+                    && app.controller.state().is_some_and(|s| {
+                        s.source == Some(earph_core::control::SourceKind::LocalFile)
+                    })
                     && candidate
                         .as_ref()
                         .is_some_and(|p| p.preview.profile_application.is_some()),

@@ -11,6 +11,7 @@ license.workspace = true
 earph-core = { path = "../earph-core" }
 earph-dsp = { path = "../earph-dsp" }
 earph-media = { path = "../earph-media" }
+earph-network = { path = "../earph-network" }
 earph-coreaudio = { path = "../earph-coreaudio" }
 serde.workspace = true
 serde_json.workspace = true

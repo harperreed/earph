@@ -251,6 +251,18 @@ impl PreparedStreamRender {
     pub fn control_epochs(&self) -> Epochs {
         self.control_epochs
     }
+    pub(crate) fn bind_source_epochs(&mut self, epochs: Epochs) -> Result<(), EngineError> {
+        if epochs.session != self.control_epochs.session
+            || epochs.stream > self.control_epochs.stream
+        {
+            return Err(EngineError::new(
+                ErrorCode::StaleSession,
+                "source epoch does not belong to stream control",
+            ));
+        }
+        self.source_epochs = epochs;
+        Ok(())
+    }
     #[cfg(test)]
     pub(crate) fn cancel_after_next_pump(&mut self) {
         self.cancel_after_pump = true;

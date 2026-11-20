@@ -73,13 +73,19 @@ impl Session {
                     hardware_cap_db: self.state.volume_policy.hardware_cap_db(),
                 },
                 resolved,
-                observed: self.state.playback.as_ref().map(|playback| ObservedPath {
+                observed: self.measured_playback_facts().map(|playback| ObservedPath {
                     // Session retains the last observation without its own epoch/time envelope.
                     sample_epochs: None,
                     sample_monotonic_ns: None,
                     playback_format: playback.format,
                     modified: playback.modified,
-                    backend: playback.backend.as_ref().map(|backend| ObservedBackend {
+                    network_replacement_boundary: self
+                        .state
+                        .network_playback
+                        .as_ref()
+                        .and_then(|p| p.replacement_boundary.as_deref())
+                        .map(DiagnosticNetworkReplacementBoundary::from),
+                    backend: playback.backend.map(|backend| ObservedBackend {
                         backend: backend.backend,
                         measurement_boundary: match backend.measurement_boundary {
                             "alsa_client_negotiation" => MeasurementBoundary::AlsaClientNegotiation,
@@ -106,8 +112,8 @@ impl Session {
             read.validate()?;
             Ok(Some(QueryResult::SignalPath(Arc::new(read))))
         } else {
-            let playback = self.state.playback.as_ref();
-            let processing = playback.and_then(|p| p.processing.as_ref());
+            let playback = self.measured_playback_facts();
+            let processing = playback.as_ref().and_then(|p| p.processing);
             let report = MetricsReport {
                 schema_version: 1,
                 cut: binding.cut(),
@@ -116,11 +122,11 @@ impl Session {
                 cpu_load: Metric::unavailable(UnavailableReason::Unsupported),
                 queue_depth_frames: Metric::unavailable(UnavailableReason::Unsupported),
                 input_peak: Metric::observed(
-                    playback.and_then(|p| p.input_peak),
+                    playback.as_ref().and_then(|p| p.input_peak),
                     MetricScope::LastPlaybackObservation,
                 ),
                 output_peak: Metric::observed(
-                    playback.and_then(|p| p.output_peak),
+                    playback.as_ref().and_then(|p| p.output_peak),
                     MetricScope::LastPlaybackObservation,
                 ),
                 saturation_count: Metric::observed(
@@ -128,7 +134,7 @@ impl Session {
                     MetricScope::GraphProcessingSinceReset,
                 ),
                 backend_delay_frames: Metric::observed(
-                    playback.and_then(|p| p.backend_delay_frames),
+                    playback.as_ref().and_then(|p| p.backend_delay_frames),
                     MetricScope::LastPlaybackObservation,
                 ),
             };

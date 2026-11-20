@@ -43,9 +43,55 @@ pub(crate) fn serve(
     let mut worker = Worker::spawn();
     let mut terminal_acknowledgement = None;
     let clock = Instant::now();
+    let live_binding = Arc::new(std::sync::Mutex::new(None));
+    let mut network_retirement = None;
     loop {
+        session.expire_network_authority(monotonic(&clock))?;
+        synchronize_network(
+            &session,
+            &mut worker,
+            &live_binding,
+            &mut network_retirement,
+        )?;
         loop {
             match worker.events.try_recv() {
+                Ok(Event::NetworkGraphFailed {
+                    request_id,
+                    error,
+                    actual,
+                }) => {
+                    let _ = session.fail_network_graph_activation(&request_id, error, actual);
+                }
+                Ok(Event::Network(mut event)) => {
+                    event.monotonic_ns = monotonic(&clock);
+                    let _ = session.advance_network(event);
+                }
+                Ok(Event::NetworkRetired(ack)) => {
+                    if session
+                        .complete_network_retirement(ack, monotonic(&clock))
+                        .is_ok()
+                    {
+                        network_retirement = None;
+                    }
+                }
+                Ok(Event::NetworkGraphActivated(ack)) => {
+                    if let Err(error) = reconcile_network_graph_activation(
+                        &mut session,
+                        ack,
+                        monotonic(&clock),
+                        |staged| {
+                            let bytes = serde_json::to_vec(&staged.checkpoint()).map_err(|_| IO)?;
+                            runtime::write_checkpoint(
+                                &directory,
+                                &format!("{token}-graph-{}", staged.snapshot().revision),
+                                &bytes,
+                            )
+                        },
+                    ) {
+                        worker.cancel_active();
+                        return Err(error);
+                    }
+                }
                 Ok(Event::GraphActivated(acknowledgement)) => {
                     if let Err(error) = reconcile_graph_activation(
                         &mut session,
@@ -106,11 +152,17 @@ pub(crate) fn serve(
             terminal_acknowledgement = None;
         }
         devices.poll(&mut session, monotonic(&clock));
-        if session.shutdown_requested() {
+        if session.shutdown_requested() && session.closing_network_source().is_none() {
             devices.cancel();
             artifacts.cancel(&mut session);
             artifacts.poll(&mut session, monotonic(&clock), &directory, &token)?;
-            if devices.is_idle() && artifacts.is_idle() {
+            let resources = graphs.service.resources();
+            if devices.is_idle()
+                && artifacts.is_idle()
+                && resources.resident_bytes == 0
+                && resources.pending_retirements == 0
+                && !resources.preparing_or_candidate
+            {
                 return Ok(());
             }
         }
@@ -140,16 +192,30 @@ pub(crate) fn serve(
                     .validate_edit(&command.payload);
                 let needs_worker = action_required(&command.payload, before.source);
                 let safety = safety_control(&command.payload);
-                let capacity = !needs_worker || worker.has_capacity(safety);
+                // This actor is the sole command producer. Replacement queues retirement before start.
+                let replacing_network = before.source == Some(SourceKind::HttpFlac)
+                    && matches!(
+                        command.payload,
+                        Command::NetworkStartHttpFlac { .. }
+                            | Command::Start {
+                                source: SourceKind::LocalFile,
+                                ..
+                            }
+                    );
+                let capacity = !needs_worker
+                    || worker.has_capacity_for(safety, 1 + usize::from(replacing_network));
                 let view = worker.view.clone();
                 let mut persistence_error = None;
                 let mut dispatched_early = false;
                 let mut admission_failure = None;
                 let submitted_ns = monotonic(&clock);
-                let mut receipt = session.submit_with_graph_effects(
+                let mut receipt = session.submit_with_network_effects(
                     command.clone(),
                     submitted_ns,
                     directory::paths,
+                    |candidate, command| {
+                        crate::network_source::validate(candidate, command, &clock)
+                    },
                     |staged| {
                         actual_check?;
                         if matches!(
@@ -166,7 +232,10 @@ pub(crate) fn serve(
                         if command.payload.prepares_graph() {
                             return graphs.submit(staged, &worker);
                         }
-                        if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
+                        if matches!(command.payload, Command::Stop | Command::OwnerShutdown)
+                            || before.source == Some(SourceKind::HttpFlac)
+                                && matches!(command.payload, Command::NetworkGrantsRevoke { .. })
+                        {
                             worker.cancel_active();
                         }
                         if !capacity {
@@ -182,7 +251,10 @@ pub(crate) fn serve(
                         if command.payload.activates_graph() {
                             graphs.validate_activation(staged)?;
                         }
-                        if before.source == Some(SourceKind::LocalFile) {
+                        if matches!(
+                            before.source,
+                            Some(SourceKind::LocalFile | SourceKind::HttpFlac)
+                        ) {
                             let settings = Settings {
                                 snapshot: staged.snapshot(),
                                 playing: staged.wants_playback(),
@@ -253,6 +325,12 @@ pub(crate) fn serve(
                     );
                 }
                 let after = session.snapshot();
+                synchronize_network(
+                    &session,
+                    &mut worker,
+                    &live_binding,
+                    &mut network_retirement,
+                )?;
                 if matches!(
                     receipt.status,
                     ReceiptStatus::Applied | ReceiptStatus::Accepted
@@ -261,7 +339,13 @@ pub(crate) fn serve(
                     && let Err(error) = if command.payload.activates_graph() {
                         graphs.activate(&mut worker, &session)
                     } else {
-                        dispatch(&command, &mut worker, &session)
+                        dispatch_with_network(
+                            &command,
+                            &mut worker,
+                            &session,
+                            &live_binding,
+                            &clock,
+                        )
                     }
                 {
                     if command.payload.activates_graph() {
@@ -281,10 +365,16 @@ pub(crate) fn serve(
                 if let Some(error) = persistence_error {
                     return Err(error);
                 }
-                if session.shutdown_requested() {
+                if session.shutdown_requested() && session.closing_network_source().is_none() {
                     devices.cancel();
                     artifacts.cancel(&mut session);
-                    if devices.is_idle() && artifacts.is_idle() {
+                    let resources = graphs.service.resources();
+                    if devices.is_idle()
+                        && artifacts.is_idle()
+                        && resources.resident_bytes == 0
+                        && resources.pending_retirements == 0
+                        && !resources.preparing_or_candidate
+                    {
                         return Ok(());
                     }
                 }
@@ -302,6 +392,7 @@ fn safety_control(command: &Command) -> bool {
             | Command::Pause
             | Command::Mute { muted: true }
             | Command::VolumeCaps { .. }
+            | Command::NetworkGrantsRevoke { .. }
     )
 }
 fn reconcile_graph_activation(
@@ -324,12 +415,37 @@ fn reconcile_graph_activation(
     }
     Ok(())
 }
+fn reconcile_network_graph_activation(
+    session: &mut Session,
+    ack: earph_core::network_source::NetworkGraphActivationAck,
+    now_ns: u64,
+    persist: impl FnOnce(&Session) -> Result<(), EngineError>,
+) -> Result<(), EngineError> {
+    let current = session.graph_activation().is_some_and(|activation| {
+        activation.request_id == ack.request_id && activation.epochs == ack.epochs
+    }) && session
+        .network_source()
+        .is_some_and(|source| source.binding == ack.observation.binding);
+    let result = session.complete_network_graph_activation(ack, now_ns, persist);
+    if current
+        && session.graph_activation().is_none()
+        && session.graph_inspection().recovery_required
+    {
+        return result;
+    }
+    Ok(())
+}
 fn cancel_rejected_safety(
     session: &mut Session,
     worker: &Worker,
     command: &CommandEnvelope,
     receipt: &earph_core::control::Receipt,
 ) {
+    if matches!(command.payload, Command::NetworkGrantsRevoke { .. })
+        && session.snapshot().source != Some(SourceKind::HttpFlac)
+    {
+        return;
+    }
     if receipt.status != ReceiptStatus::Rejected || !safety_control(&command.payload) {
         return;
     }
@@ -348,6 +464,26 @@ fn cancel_rejected_safety(
     session.fail_graph_activation(&activation.request_id, error);
 }
 fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
+    if matches!(command, Command::NetworkStartHttpFlac { .. }) {
+        return true;
+    }
+    if source == Some(SourceKind::HttpFlac)
+        && matches!(
+            command,
+            Command::NetworkGrantsReplace { .. }
+                | Command::NetworkGrantsRevoke { .. }
+                | Command::Pause
+                | Command::GraphCommit { .. }
+                | Command::Resume
+                | Command::Stop
+                | Command::Mute { .. }
+                | Command::VolumeSet { .. }
+                | Command::VolumeCaps { .. }
+                | Command::OwnerShutdown
+        )
+    {
+        return true;
+    }
     matches!(
         command,
         Command::Start {
@@ -417,7 +553,91 @@ fn dispatch(
     }
     Ok(())
 }
+fn synchronize_network(
+    session: &Session,
+    worker: &mut Worker,
+    live: &crate::network_source::LiveBinding,
+    retirement: &mut Option<earph_core::network_source::NetworkSourceBinding>,
+) -> Result<(), EngineError> {
+    let binding = session
+        .network_source()
+        .map(|source| source.binding.clone());
+    {
+        let mut current = live.lock().map_err(|_| IO)?;
+        if *current != binding {
+            worker.cancel_active();
+            *current = binding;
+        }
+    }
+    if let Some(closing) = session.closing_network_source()
+        && retirement.as_ref() != Some(&closing.context.binding)
+    {
+        worker.cancel_active();
+        if worker.send(Action::RetireNetwork(closing.clone())).is_ok() {
+            *retirement = Some(closing.context.binding.clone());
+        }
+    }
+    Ok(())
+}
+fn dispatch_with_network(
+    command: &CommandEnvelope,
+    worker: &mut Worker,
+    session: &Session,
+    live: &crate::network_source::LiveBinding,
+    clock: &Instant,
+) -> Result<(), EngineError> {
+    let settings = Settings {
+        snapshot: session.snapshot(),
+        playing: session.wants_playback(),
+    };
+    if matches!(command.payload, Command::NetworkStartHttpFlac { .. }) {
+        // Revocation precedes fallible permit construction after a successful commit.
+        worker.cancel_active();
+        let context = session.network_source().ok_or(IO)?;
+        let permit = crate::network_source::permit(session, &context, clock)?;
+        return worker.send(Action::StartNetwork {
+            settings,
+            context,
+            permit,
+            live: live.clone(),
+            clock: *clock,
+            cancel: Arc::new(AtomicBool::new(false)),
+        });
+    }
+    if settings.snapshot.source == Some(SourceKind::HttpFlac)
+        || session.closing_network_source().is_some()
+    {
+        return match command.payload {
+            Command::Pause => worker.send(Action::Pause(settings)),
+            Command::Resume
+            | Command::Mute { .. }
+            | Command::VolumeSet { .. }
+            | Command::VolumeCaps { .. } => worker.send(Action::Settings(settings)),
+            Command::Start {
+                source: SourceKind::LocalFile,
+                ..
+            } => dispatch(command, worker, session),
+            _ => Ok(()),
+        };
+    }
+    dispatch(command, worker, session)
+}
 fn advance(session: &mut Session, kind: EngineEventKind, epochs: Option<Epochs>, clock: &Instant) {
+    if let EngineEventKind::LocalFailed { code } = &kind
+        && let Some(context) = session.network_source()
+    {
+        let snapshot = session.snapshot();
+        let _ = session.advance_network(earph_core::network_source::NetworkEvent {
+            binding: context.binding.clone(),
+            source_epochs: context.source_epochs,
+            output_epochs: snapshot.epochs,
+            graph_epoch: snapshot.graph_epoch,
+            device_epoch: snapshot.device_epoch,
+            monotonic_ns: monotonic(clock),
+            kind: earph_core::network_source::NetworkEventKind::Failed { code: *code },
+        });
+        return;
+    }
     let epochs = epochs.unwrap_or_else(|| session.snapshot().epochs);
     let _ = session.advance(EngineEvent {
         epochs,
@@ -431,7 +651,12 @@ fn observation(
     clock: &Instant,
 ) -> Result<Option<SourceTerminalToken>, EngineError> {
     match event {
-        Event::GraphActivated(_) | Event::GraphFailed { .. } => {
+        Event::GraphActivated(_)
+        | Event::GraphFailed { .. }
+        | Event::Network(_)
+        | Event::NetworkRetired(_)
+        | Event::NetworkGraphActivated(_)
+        | Event::NetworkGraphFailed { .. } => {
             unreachable!("graph events reconcile with persistence in the owner loop")
         }
         Event::Item { epochs, id, status } => {
@@ -712,6 +937,58 @@ impl Drop for GraphJobs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn stale_network_graph_ack_does_not_stop_or_relabel_a_local_activation() {
+        use earph_core::network_source::{
+            NetworkGraphActivationAck, NetworkLifecycle, NetworkPlaybackObservation,
+            NetworkSourceBinding,
+        };
+        let (mut session, local) = activation();
+        let before = session.snapshot();
+        let observation = local.observation;
+        let ack = NetworkGraphActivationAck {
+            request_id: local.request_id,
+            epochs: local.epochs,
+            graph_hash: local.graph_hash,
+            activation_frame: local.activation_frame,
+            observation: NetworkPlaybackObservation {
+                binding: NetworkSourceBinding {
+                    owner_id: before.owner_id.clone().unwrap(),
+                    session_id: before.session_id.clone().unwrap(),
+                    media_id: earph_core::ids::StagedMediaId::new("stale-network-media").unwrap(),
+                    source_generation: 1,
+                    grant_generation: 1,
+                },
+                source_epochs: local.epochs,
+                output_epochs: local.epochs,
+                graph_epoch: before.graph_epoch + 1,
+                device_epoch: before.device_epoch,
+                lifecycle: NetworkLifecycle::Ready,
+                format: observation.format,
+                output_format: observation.format,
+                total_frames: Some(local.source_total_frames),
+                source_position_frames: 0,
+                audible_source_position_frames: None,
+                submitted_frames: 0,
+                consumed_frames: None,
+                backend_delay_frames: None,
+                consumption_basis: "alsa_client_estimate",
+                input_peak: None,
+                output_peak: None,
+                modified: true,
+                backend: observation.backend,
+                output_activity: observation.output_activity,
+                processing: None,
+                replacement_boundary: None,
+            },
+        };
+        reconcile_network_graph_activation(&mut session, ack, 7, |_| {
+            panic!("stale network graph cannot persist")
+        })
+        .unwrap();
+        assert_eq!(session.snapshot(), before);
+        assert!(session.graph_activation().is_some());
+    }
     use earph_core::{
         audio::{ChannelLayout, PcmFormat, PcmRepresentation},
         control::{ControlLimits, OutputBackend, OutputConfiguration, OutputRoute, ReceiptStatus},

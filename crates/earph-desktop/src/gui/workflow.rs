@@ -869,6 +869,14 @@ impl GuiController {
                 })
     }
     fn validate_prepared_action(&self, state: &StateView, command: &Command) -> Result<(), String> {
+        if state.source == Some(earph_core::control::SourceKind::HttpFlac)
+            && matches!(
+                command,
+                Command::ProfilesPrepare { .. } | Command::ProfilesApply { .. }
+            )
+        {
+            return Err("HTTP FLAC profile application is unavailable".into());
+        }
         if let Command::GraphPrepare { graph, .. } = command
             && let Some(record) = self.profile_record().filter(|record| {
                 !record.corrections.is_empty() && record.graph.graph.as_ref() == graph.as_ref()
@@ -1597,6 +1605,11 @@ impl GuiController {
                         "Only output and transport commands belong to a control edit".into(),
                     );
                 }
+                if basis.source == Some(earph_core::control::SourceKind::HttpFlac)
+                    && matches!(&command, Command::OutputSelect { output } if output.fidelity == earph_core::safety::FidelityPolicy::StrictPreservation)
+                {
+                    return Err("HTTP FLAC requires flexible PCM fidelity".into());
+                }
                 if !self.control_edit_available() {
                     return Err("A foreground edit is waiting, pending, or uncertain; observe and reconcile first".into());
                 }
@@ -1704,7 +1717,10 @@ impl GuiController {
         }
     }
     fn capture(&mut self, basis: Arc<StateView>, command: Command) -> Result<(), String> {
-        let session = if matches!(command, Command::Start { .. }) {
+        let session = if matches!(
+            command,
+            Command::Start { .. } | Command::NetworkStartHttpFlac { .. }
+        ) {
             Some(SessionId::new(request_id()?.as_str()).map_err(|e| e.to_string())?)
         } else {
             None
@@ -1772,7 +1788,10 @@ impl GuiController {
     }
     pub fn seek_bounds(&self) -> Option<(&earph_core::ids::QueueEntryId, u64)> {
         let state = self.state()?;
-        if !state.seekable || self.queue_stale {
+        if state.source == Some(earph_core::control::SourceKind::HttpFlac)
+            || !state.seekable
+            || self.queue_stale
+        {
             return None;
         }
         let active = state.active_entry_id.as_ref()?;
@@ -2681,7 +2700,11 @@ fn validate_queue(command: &Command) -> Result<(), String> {
 fn is_transport_operation(command: &Command) -> bool {
     matches!(
         command,
-        Command::Start { .. } | Command::Resume | Command::Pause | Command::Seek { .. }
+        Command::Start { .. }
+            | Command::NetworkStartHttpFlac { .. }
+            | Command::Resume
+            | Command::Pause
+            | Command::Seek { .. }
     )
 }
 fn operation_replayable(
@@ -3034,8 +3057,7 @@ fn preview_matches_state(preview: &GraphPreviewView, state: &StateView) -> bool 
         && state.device_epoch == binding.device_epoch
         && state.epochs == binding.epochs
         && state
-            .playback
-            .as_ref()
+            .playback_facts()
             .is_some_and(|p| p.format == preview.source_format)
         && state
             .output
@@ -3051,6 +3073,78 @@ mod diagnostic_admission_tests;
 mod tests {
     use super::*;
     use crate::OwnerClient;
+    use crate::network_fixture;
+
+    #[test]
+    fn network_graph_validation_matches_received_facts_without_a_local_observation() {
+        let session = network_fixture::ready(None);
+        let state: StateView =
+            serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap();
+        let preview: GraphPreviewView = serde_json::from_value(
+            serde_json::to_value(network_fixture::preview(&session)).unwrap(),
+        )
+        .unwrap();
+        assert!(state.playback.is_none());
+        assert!(preview_matches_state(&preview, &state));
+        let mut stale = preview;
+        stale.binding.epochs.stream += 1;
+        assert!(!preview_matches_state(&stale, &state));
+    }
+    #[test]
+    fn network_graph_controls_close_when_the_actual_source_retires() {
+        let mut session = network_fixture::ready(None);
+        let state: StateView =
+            serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap();
+        assert!(state.graph_source_available());
+        let command = network_fixture::command(
+            &session,
+            "closing",
+            serde_json::json!({"method":"sources.grants.revoke","expected_generation":1}),
+        );
+        session.submit_with_network_effects(
+            command,
+            40,
+            |_| unreachable!(),
+            |_, _| Ok(()),
+            |_| Ok(()),
+        );
+        let closing: StateView =
+            serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap();
+        assert!(closing.network_playback.is_some());
+        assert!(!closing.graph_source_available());
+    }
+    #[test]
+    fn network_control_factory_rejects_strict_output_before_sending() {
+        let session = network_fixture::ready(None);
+        let state: StateView =
+            serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap();
+        let mut output = state.output.clone().unwrap();
+        output.fidelity = earph_core::safety::FidelityPolicy::StrictPreservation;
+        let error = GuiController::new()
+            .intent(UiIntent::ControlEdit {
+                basis: Arc::new(state),
+                command: Command::OutputSelect { output },
+            })
+            .unwrap_err();
+        assert_eq!(error, "HTTP FLAC requires flexible PCM fidelity");
+    }
+    #[test]
+    fn network_profile_preparation_reports_unsupported_before_local_review_requirements() {
+        let session = network_fixture::ready(None);
+        let state: StateView =
+            serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap();
+        let error = GuiController::new()
+            .validate_prepared_action(
+                &state,
+                &Command::ProfilesPrepare {
+                    id: earph_core::ids::ProfileId::new("local-only").unwrap(),
+                    expected_profile_revision: 1,
+                    profile_sha256: "a".repeat(64).try_into().unwrap(),
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error, "HTTP FLAC profile application is unavailable");
+    }
 
     fn correction_state() -> Arc<StateView> {
         let session = earph_core::session::Session::new_owner(

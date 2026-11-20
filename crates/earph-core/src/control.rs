@@ -35,6 +35,7 @@ impl Default for ControlLimits {
 pub enum SourceKind {
     Virtual,
     LocalFile,
+    HttpFlac,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,7 +103,7 @@ impl OutputConfiguration {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", deny_unknown_fields)]
 pub enum Command {
     #[serde(rename = "capabilities.get")]
@@ -145,6 +146,24 @@ pub enum Command {
     SourcesGet {},
     #[serde(rename = "sources.stage_uri")]
     SourceStageUri { uri: String, metadata: String },
+    #[serde(rename = "sources.network.get")]
+    NetworkGet {},
+    #[serde(rename = "sources.grants.replace")]
+    NetworkGrantsReplace {
+        expected_generation: u64,
+        grants: Arc<crate::network_source::NetworkGrantDocument>,
+        lifetime_ms: u64,
+    },
+    #[serde(rename = "sources.grants.revoke")]
+    NetworkGrantsRevoke { expected_generation: u64 },
+    #[serde(rename = "sources.start_http_flac")]
+    NetworkStartHttpFlac {
+        media_id: StagedMediaId,
+        staging_generation: u64,
+        grant_generation: u64,
+        device_id: DeviceId,
+        takeover: bool,
+    },
     #[serde(rename = "graph.inspect")]
     GraphInspect {},
     #[serde(rename = "profiles.list")]
@@ -290,7 +309,25 @@ pub enum Command {
     #[serde(other)]
     Unsupported,
 }
+impl std::fmt::Debug for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Command")
+            .field("kind", &std::mem::discriminant(self))
+            .finish_non_exhaustive()
+    }
+}
+
 impl Command {
+    pub fn is_network(&self) -> bool {
+        matches!(
+            self,
+            Self::NetworkGet {}
+                | Self::NetworkGrantsReplace { .. }
+                | Self::NetworkGrantsRevoke { .. }
+                | Self::NetworkStartHttpFlac { .. }
+        )
+    }
+
     pub fn is_package(&self) -> bool {
         matches!(
             self,
@@ -348,6 +385,7 @@ impl Command {
                 | Self::DiagnosticsInspect { .. }
                 | Self::QueueGet { .. }
                 | Self::SourcesGet { .. }
+                | Self::NetworkGet {}
                 | Self::GraphInspect { .. }
                 | Self::ProfilesList { .. }
                 | Self::ProfilesGet { .. }
@@ -546,6 +584,10 @@ impl CommandEnvelope {
         self.validate_retained_storage()
     }
     pub(crate) fn validate_retained_storage(&self) -> Result<(), EngineError> {
+        if self.payload.is_network() {
+            self.network_capacity_bytes()?;
+        }
+
         if matches!(
             self.payload,
             Command::SourceStageUri { .. }
@@ -698,6 +740,7 @@ pub enum QueryResult {
     DiagnosticArtifact(Arc<crate::diagnostics::DiagnosticArtifactReceipt>),
     DiagnosticCancel(Arc<crate::diagnostics::DiagnosticCancelReceipt>),
     Sources(crate::source::SourceStagingSnapshot),
+    Network(crate::network_source::NetworkSnapshot),
     Devices(Arc<crate::devices::DeviceQueryResult>),
     State(Box<crate::session::SessionSnapshot>),
     Capabilities(Capabilities),

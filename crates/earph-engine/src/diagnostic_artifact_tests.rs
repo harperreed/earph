@@ -2,7 +2,10 @@
 // ABOUTME: Checks exact readback, typed effects and hostile filesystem inventory without an owner process.
 use super::*;
 use earph_core::{control::*, diagnostics::*, ids::*};
-use std::time::{Duration, Instant};
+use std::{
+    os::unix::fs::FileTypeExt,
+    time::{Duration, Instant},
+};
 fn root() -> PathBuf {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -469,12 +472,19 @@ fn diagnostic_inspection_rejects_corrupt_extra_and_linked_objects_without_repair
                 let object = destination.join("diagnostics.json");
                 fs::rename(&object, root.join("retained-original-diagnostics.json")).unwrap();
                 match fault {
-                    "fifo" => rustix::fs::mkfifoat(
-                        rustix::fs::CWD,
-                        &object,
-                        rustix::fs::Mode::from_raw_mode(0o600),
-                    )
-                    .unwrap(),
+                    "fifo" => {
+                        let created = std::process::Command::new("mkfifo")
+                            .args(["-m", "600"])
+                            .arg(&object)
+                            .output()
+                            .unwrap();
+                        assert!(
+                            created.status.success(),
+                            "{}",
+                            String::from_utf8_lossy(&created.stderr)
+                        );
+                        assert!(fs::symlink_metadata(&object).unwrap().file_type().is_fifo());
+                    }
                     "socket" => {
                         let _listener = std::os::unix::net::UnixListener::bind(&object).unwrap();
                     }

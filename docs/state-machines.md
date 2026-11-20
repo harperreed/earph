@@ -255,3 +255,92 @@ Local drafts grant no output authority.
 Fixed arming has no State readback.
 Discovery properties do not prove an opened output or physical presentation.
 See the [desktop checkpoint](superpowers/plans/2026-11-18-desktop-connect-queue.md) for exact evidence and remaining limits.
+
+## Admitted network reader
+
+The local owner supplies one immutable source binding and exact origin grants.
+Permit construction compares that binding with current owner state.
+This reader does not mint authority or update the owner's grant registry.
+
+`Idle → Startup → Headers → Body` starts one owned transport task.
+A redirect returns to `Headers` only after fresh origin and expiry admission.
+`Body → Backpressure → Body` waits for consumer capacity without a server-stall deadline.
+`Body → Complete` requires verified HTTP body completion.
+Any active phase can finish as `Cancelled` or `Failed`.
+Terminal state is recorded before the reader wakes.
+Failure and cancellation discard queued body data.
+Only `Complete` drains queued data and returns EOF.
+Every observation retains the immutable owner, session, media, and generation binding.
+
+Cancellation wakes the reader and runtime supervisor.
+The supervisor aborts and awaits its retained task.
+Retirement then joins the owned OS thread.
+A one-second cleanup timeout retains thread ownership and blocks replacement.
+Successful retirement returns the worker to `Idle`.
+Worker drop cancels and joins as a final ownership safeguard.
+The caller must use explicit retirement when it needs a bounded cleanup result.
+
+See [network media](network-media.md) for transport budgets, tests, and qualification limits.
+
+## Admitted FLAC worker
+
+`NetworkFlacWorker` accepts an existing permit and an independently captured current source binding.
+The caller serializes readiness, frame, and completion adoption with live owner authority.
+An old snapshot or a binding reconstructed from the permit does not satisfy that precondition.
+
+`Idle → Active` starts one owned transport thread and one decoder thread.
+Every readiness, frame, and completion adoption compares the immutable binding with current authority.
+One pending PCM frame blocks further packet decoding until the caller consumes it.
+Inspection still observes live transport failure while that slot stays full.
+Failure discards the frame and wakes the decoder.
+
+Frame acceptance takes decode state before the transport publication lock.
+The bounded move under both locks defines acceptance.
+Readiness and success use the same terminal fence.
+A failure that acquires the transport lock first prevents later acceptance.
+A later failure cannot retract a frame already accepted.
+Any later native output stage requires its own authority fence.
+
+Media EOF, matching HTTP completion, and an empty frame slot establish `Complete`.
+Unknown duration stays unknown.
+Decode failure and transport failure remain distinct and survive later cancellation.
+Owner cancellation revokes handoff even after HTTP completion.
+Dropping a rejected media reader does not establish owner cancellation.
+
+`Active → Retiring` revokes handoff before waking decoder waits and cancelling transport.
+A changed current binding also enters `Retiring` and rejects the old result.
+Decoder retirement permits one second; subsequent transport retirement permits another second.
+Either timeout retains the job and its unjoined handles.
+Replacement stays blocked until both threads retire.
+Successful retirement returns to `Idle`.
+A failed decoder thread start retains the started transport in `Retiring`.
+Final destruction joins unfinished work and may block.
+
+This worker supplies no owner grant registry, network session reservation, queue entry, or native output path.
+
+## Owner HTTP-FLAC playback
+
+`sources.grants.replace` installs one volatile, generation-fenced grant document after real host-policy validation.
+`sources.stage_uri` retains an unadmitted descriptor without transport.
+`sources.start_http_flac` binds the exact descriptor, source generation, grant generation, owner, and session.
+The host reserves playback capacity and commits before dispatching transport.
+Outgoing native/source ownership retires before replacement I/O begins.
+
+`Preparing → Ready` adopts received format and optional duration while remaining muted.
+An explicitly prepared and committed floating graph installs the shared streaming renderer.
+Unmute then permits native submission and settles the pending start after an actual Started event.
+`Playing → Paused → Playing` uses bounded streaming hold and replay without seeking or reopening HTTP.
+Source epochs remain immutable across output and graph transitions.
+Graph replacement reports nonzero held-output discard through a source-bound `replacement_boundary`.
+The accepted source frontier and discarded previous-client output frames retain their separate domains.
+The record retains previous/current transition epochs and can survive later same-source output transitions.
+Temporary missing input leaves the source active; verified media EOF begins graph-tail and native drain.
+Successful completion preserves the optional duration and exact measured counters.
+
+Revoke, grant replacement, expiry, Stop, failure, and shutdown remove execution authority first.
+One closing context retains the old binding and exact cleanup fences after live authority advances.
+The playback worker stops native submission and retires the decoder and transport.
+A cleanup timeout retains ownership and keeps ordinary replacement admission busy.
+Only the matching retirement acknowledgement releases that closing context.
+This acknowledgement cannot restore source authority or publish PCM.
+The local queue never receives fabricated entries or network readiness.

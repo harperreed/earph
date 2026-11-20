@@ -1,0 +1,95 @@
+# ABOUTME: Runs Linux canonical checks and hardware-independent Mac software checks.
+# ABOUTME: Records hosted environments without granting signal or release authority.
+name: Software checks (Mac native gate remains separate)
+on:
+  push:
+    branches: [main, feat/desktop-gui]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    name: ${{ matrix.gate }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: x86_64
+            gate: Linux canonical
+          - runner: macos-26
+            architecture: arm64
+            gate: Mac software only
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      CARGO_CACHE_AUTO_CLEAN_FREQUENCY: never
+      RUSTUP_TOOLCHAIN: 1.98.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          clean: false
+      - name: Record and check the host
+        env:
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+          RUNNER_OS_KIND: ${{ runner.os }}
+          RUNNER_ARCH_KIND: ${{ runner.arch }}
+        run: |
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          printf 'runner_os=%s\nrunner_arch=%s\n' "$RUNNER_OS_KIND" "$RUNNER_ARCH_KIND"
+          uname -srm
+          git rev-parse HEAD
+          git hash-object Cargo.lock
+          df -h . "$RUNNER_TEMP"
+          if [[ "$RUNNER_OS_KIND" == macOS ]]; then
+            sw_vers
+            xcodebuild -version
+            xcrun --sdk macosx --show-sdk-version
+            xcrun --sdk macosx --show-sdk-path
+            xcrun --sdk macosx clang --version
+          else
+            cat /etc/os-release
+            cc --version
+          fi
+      - name: Install Linux check prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y pkg-config libasound2-dev libxkbcommon-dev ffmpeg
+          pkg-config --modversion alsa xkbcommon
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+        with:
+          version: 2026.11.10
+          install_args: rust@1.98.1
+          cache: false
+      - name: Record the selected check tools
+        run: |
+          rustup component add rustfmt clippy --toolchain 1.98.1
+          rustup show active-toolchain
+          rustc -vV
+          cargo -vV
+          cargo clippy --version
+          cargo fmt --version
+      - name: Run the Linux canonical check
+        if: runner.os == 'Linux'
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          ffmpeg -version
+          scripts/check
+      - name: Check Mac builds and hardware-independent components
+        if: runner.os == 'macOS'
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo build --workspace --all-targets --locked
+          cargo test -p earph-core -p earph-dsp --locked --no-fail-fast

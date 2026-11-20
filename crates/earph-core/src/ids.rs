@@ -39,6 +39,12 @@ identity!(
     StagedMediaId
 );
 
+impl StagedMediaId {
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
+
 impl NodeId {
     /// Reports retained UTF-8 storage capacity for graph memory admission.
     pub fn capacity_bytes(&self) -> usize {
