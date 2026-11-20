@@ -20,9 +20,11 @@ jobs:
           - runner: ubuntu-24.04
             architecture: x86_64
             gate: Linux canonical
+            tools: rust@1.98.1
           - runner: macos-26
             architecture: arm64
             gate: Mac software only
+            tools: rust@1.98.1 node@26.13.1
     defaults:
       run:
         shell: bash
@@ -67,7 +69,7 @@ jobs:
       - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         with:
           version: 2026.11.10
-          install_args: rust@1.98.1
+          install_args: ${{ matrix.tools }}
           cache: false
       - name: Record the selected check tools
         run: |
@@ -93,3 +95,23 @@ jobs:
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo build --workspace --all-targets --locked
           cargo test -p earph-core -p earph-dsp --locked --no-fail-fast
+      - name: Check generated Swift against the actual owner and CLI
+        if: runner.os == 'macOS'
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          node --version
+          earph_swiftc=$(xcrun --find swiftc)
+          earph_sdkroot=$(xcrun --sdk macosx --show-sdk-path)
+          test -d "$earph_sdkroot"
+          earph_swift_output="$RUNNER_TEMP/earph-swift"
+          if ! SDKROOT="$earph_sdkroot" scripts/check-ffi \
+            --language swift --output "$earph_swift_output" --swiftc "$earph_swiftc"; then
+            for earph_log in readiness-tests bindgen-build bindgen-clippy library-build engine-build generate compiler-version compile scenario; do
+              if [[ -f "$earph_swift_output/$earph_log.log" ]]; then
+                printf '\n%s\n' "$earph_log"
+                tail -c 32768 "$earph_swift_output/$earph_log.log"
+              fi
+            done
+            exit 1
+          fi

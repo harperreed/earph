@@ -102,6 +102,20 @@ The ordinary library still uses UniFFI without default or CLI features.
 Reviewed source licenses retain exact published VCS identities and content hashes.
 The generated notices remain the Cargo dependency license authority.
 
+## Hosted Swift software check
+
+The Mac software workflow runs this same generated Swift gate on its arm64 runner.
+It pins Node 26.13.1 and Rust 1.98.1, then resolves Swift and the SDK through Xcode.
+The actual foreign client compares replies with the real owner and request CLI.
+Its generated profile, network, renderer-refusal, and volume cases retain their existing scope.
+The fixture output stays unopened and unconsented, with no source start or audio submission.
+Failure output includes bounded build and scenario logs, without publishing private JSON transcripts.
+
+This workflow requires no SSH identity or desktop permission grant.
+An earlier Mac software pass does not establish that this new gate passed.
+Read the workflow result for the exact changed commit before claiming current Swift compatibility.
+Native playback, GUI access, SDK distribution, and release qualification remain separate.
+
 ## Qualification limits
 
 The first unit covers control bytes, immutable replies, object disposal, bounds, and local IPC failures.
