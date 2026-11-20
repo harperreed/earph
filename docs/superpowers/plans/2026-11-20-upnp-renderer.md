@@ -93,3 +93,14 @@ Run actual Music Assistant and a second controller without patching either contr
 Check advertised volume normalization against their real runtime behavior.
 Keep native Mac discovery, Swift, physical output, and release qualification explicit and separate.
 Run the canonical check and one independent review before enabling the renderer.
+
+## U4a Core contract
+
+The [Core execution and event contract](../../upnp-core-contract.md) defines U4a types and consumer boundaries.
+It pins authored graph intent, owns separate callback grants, and retains response-gated initial/latest deliveries.
+The shared writer enforces the encoded event cap before renderer staging commits.
+U4a is integrated, independently reviewed, and qualified by the [Linux receipt](../../evidence/network/upnp-core-linux-20261120.json).
+The review fixed exact accepted graph replay after preparation state changes, while preserving live authority checks.
+U4b must implement the actual adapter ledger, response-FIN completion, bounded sender, and callback permit.
+U4c must implement fresh measured graph preparation through the existing owner loop and common output worker.
+Production startup remains disabled through those units and joint U5 qualification.

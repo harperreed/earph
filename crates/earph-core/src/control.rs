@@ -157,6 +157,27 @@ pub enum Command {
         expected_generation: u64,
         controller_id: RendererControllerId,
     },
+    #[serde(rename = "renderer.callbacks.replace")]
+    RendererCallbackGrantsReplace {
+        controller_id: RendererControllerId,
+        expected_controller_generation: u64,
+        expected_generation: u64,
+        lifetime_ms: u64,
+        grants: Arc<crate::renderer_events::RendererCallbackGrantDocument>,
+    },
+    #[serde(rename = "renderer.callbacks.revoke")]
+    RendererCallbackGrantsRevoke {
+        controller_id: RendererControllerId,
+        expected_controller_generation: u64,
+        expected_generation: u64,
+    },
+    #[serde(rename = "renderer.subscription")]
+    RendererSubscription {
+        controller_id: RendererControllerId,
+        grant_generation: u64,
+        callback_generation: u64,
+        action: crate::renderer_events::RendererSubscriptionAction,
+    },
     #[serde(rename = "renderer.request")]
     RendererRequest {
         controller_id: RendererControllerId,
@@ -348,6 +369,9 @@ impl Command {
                 | Self::RendererGrantsReplace { .. }
                 | Self::RendererGrantsRevoke { .. }
                 | Self::RendererRequest { .. }
+                | Self::RendererCallbackGrantsReplace { .. }
+                | Self::RendererCallbackGrantsRevoke { .. }
+                | Self::RendererSubscription { .. }
         )
     }
 

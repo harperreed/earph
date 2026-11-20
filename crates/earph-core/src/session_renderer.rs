@@ -16,7 +16,7 @@ impl Session {
         self.submit_with_ingress(
             command,
             now_ns,
-            Some(observed_peer),
+            RendererIngress::Peer(observed_peer),
             |_| Err(STATE),
             validate_network,
             commit,
@@ -29,20 +29,27 @@ impl Session {
         observed_peer: Option<std::net::IpAddr>,
         now_ns: u64,
     ) -> Result<(), EngineError> {
-        let Command::RendererRequest {
-            controller_id,
-            grant_generation,
-            action,
-        } = &command.payload
-        else {
-            return if observed_peer.is_none() {
-                Ok(())
-            } else {
-                Err(EngineError::new(
-                    ErrorCode::AuthDenied,
-                    "renderer ingress only accepts scoped requests",
-                ))
-            };
+        let (controller_id, grant_generation, right) = match &command.payload {
+            Command::RendererRequest {
+                controller_id,
+                grant_generation,
+                action,
+            } => (controller_id, grant_generation, action.required_right()),
+            Command::RendererSubscription {
+                controller_id,
+                grant_generation,
+                ..
+            } => (controller_id, grant_generation, RendererRight::Events),
+            _ => {
+                return if observed_peer.is_none() {
+                    Ok(())
+                } else {
+                    Err(EngineError::new(
+                        ErrorCode::AuthDenied,
+                        "renderer ingress only accepts scoped requests",
+                    ))
+                };
+            }
         };
         let denied = EngineError::new(
             ErrorCode::AuthDenied,
@@ -61,15 +68,28 @@ impl Session {
         if authority.generation != *grant_generation
             || now_ns >= authority.expires_monotonic_ns
             || !authority.grant().peers.contains(&peer)
-            || !authority.grant().rights.contains(&action.required_right())
+            || !authority.grant().rights.contains(&right)
         {
             return Err(denied);
+        }
+        if let Command::RendererSubscription {
+            callback_generation,
+            ..
+        } = &command.payload
+        {
+            self.renderer_subscription_ingress(
+                controller_id,
+                *grant_generation,
+                *callback_generation,
+                now_ns,
+            )?;
         }
         Ok(())
     }
     /// Enables Core admission only; hosts must supply qualified trusted ingress separately.
     pub fn enable_renderer_control(&mut self) {
         self.renderer.enabled = true;
+        self.renderer.epoch = self.renderer.epoch.max(1);
     }
 
     pub fn renderer_snapshot(&self) -> RendererSnapshot {
@@ -107,7 +127,20 @@ impl Session {
         }) {
             self.renderer.staged = None;
         }
+        self.expire_renderer_subscriptions(now_ns);
         self.continue_renderer_retirement()?;
+        if self
+            .renderer
+            .continuation
+            .as_ref()
+            .is_some_and(|b| !self.renderer_graph_binding_valid(b, now_ns))
+        {
+            self.renderer.continuation = None;
+            self.invalidate_graph_work(EngineError::new(
+                ErrorCode::OperationCancelled,
+                "renderer graph authority expired",
+            ));
+        }
         if self.renderer.active.as_ref().is_some_and(|a| {
             a.retirement_request.is_none()
                 && self
@@ -147,6 +180,16 @@ impl Session {
                 now_ns,
             );
         }
+        if matches!(
+            c.payload,
+            Command::RendererCallbackGrantsReplace { .. }
+                | Command::RendererCallbackGrantsRevoke { .. }
+        ) {
+            return self.apply_renderer_callback_command(c, now_ns);
+        }
+        if matches!(c.payload, Command::RendererSubscription { .. }) {
+            return self.apply_renderer_subscription(c, now_ns);
+        }
         let revoking = matches!(c.payload, Command::RendererGrantsRevoke { .. });
         let revision = if revoking {
             self.state.revision.saturating_add(1)
@@ -174,6 +217,11 @@ impl Session {
                     return Err(STALE);
                 }
                 grants.validate()?;
+                for controller in &grants.controllers {
+                    if let Some(playback) = &controller.playback {
+                        self.validate_renderer_playback(playback)?;
+                    }
+                }
                 if !(1..=crate::network_source::MAX_NETWORK_LIFETIME_MS).contains(lifetime_ms) {
                     return Err(EngineError::new(
                         ErrorCode::AssetInvalid,
@@ -260,7 +308,10 @@ impl Session {
         match action {
             RendererAction::SetVolume { binding, .. }
             | RendererAction::SetVolumeDb { binding, .. }
-            | RendererAction::FactoryDefaults { binding } => {
+            | RendererAction::FactoryDefaults { binding }
+            | RendererAction::SetMute { binding, .. }
+            | RendererAction::Pause { binding }
+            | RendererAction::Resume { binding } => {
                 let owner = self.renderer.active.as_ref().ok_or(STALE)?;
                 if &owner.controller_id != controller_id
                     || owner.grant_generation != grant_generation
@@ -275,6 +326,9 @@ impl Session {
                 let mut lowered = c.clone();
                 lowered.payload = match action {
                     RendererAction::FactoryDefaults { .. } => Command::VolumeFactoryDefaults,
+                    RendererAction::SetMute { muted, .. } => Command::Mute { muted: *muted },
+                    RendererAction::Pause { .. } => Command::Pause,
+                    RendererAction::Resume { .. } => Command::Resume,
                     _ => {
                         use crate::remote_volume::RemoteVolume;
                         let setting = match action {
@@ -330,6 +384,7 @@ impl Session {
                 {
                     return Ok(ReceiptStatus::Applied);
                 }
+                crate::renderer_events::validate_staged_event(uri, metadata)?;
                 let status = self.stage_uri(c, uri, metadata)?;
                 self.renderer.staged = self.sources.descriptor().map(|descriptor| {
                     Arc::new(RendererStagedAssociation {
@@ -379,6 +434,7 @@ impl Session {
                     self.log(Some(c.request_id.clone()));
                     return Ok(ReceiptStatus::Accepted);
                 }
+                self.renderer.continuation = None;
                 Arc::make_mut(self.renderer.active.as_mut().ok_or(STALE)?).retirement_request =
                     Some(c.request_id.clone());
                 let mut stop = c.clone();
@@ -399,6 +455,20 @@ impl Session {
                 {
                     return Err(STALE);
                 }
+                let authorization = self
+                    .renderer
+                    .grants
+                    .iter()
+                    .find(|g| &g.grant().id == controller_id)
+                    .and_then(|g| g.grant().playback.clone())
+                    .ok_or(EngineError::new(
+                        ErrorCode::AuthDenied,
+                        "renderer playback requires local graph authorization",
+                    ))?;
+                self.validate_renderer_playback(&authorization)?;
+                if &authorization.output.device_id != device_id {
+                    return Err(STALE);
+                }
                 if self.renderer.active.as_ref().is_some_and(|owner| {
                     &owner.controller_id == controller_id
                         && owner.grant_generation == grant_generation
@@ -415,6 +485,19 @@ impl Session {
                     self.state.transport,
                     TransportState::Preparing | TransportState::Buffering | TransportState::Playing
                 ) {
+                    if self.renderer.continuation.is_none() {
+                        if !self.state.muted {
+                            return Err(EngineError::new(
+                                ErrorCode::SafetyPolicyBlocked,
+                                "renderer graph retry requires muted output",
+                            ));
+                        }
+                        self.capture_renderer_graph_pin(
+                            controller_id,
+                            grant_generation,
+                            authorization,
+                        )?;
+                    }
                     return Ok(ReceiptStatus::Applied);
                 }
                 let start = self.renderer_network_start(c).ok_or(STATE)?;
@@ -428,6 +511,7 @@ impl Session {
                     .expires_monotonic_ns;
                 let context = Arc::make_mut(self.network.active.as_mut().ok_or(STALE)?);
                 context.expires_monotonic_ns = context.expires_monotonic_ns.min(expiry);
+                self.capture_renderer_graph_pin(controller_id, grant_generation, authorization)?;
                 self.renderer.active = Some(Arc::new(RendererSourceOwnership {
                     controller_id: controller_id.clone(),
                     grant_generation,
@@ -509,6 +593,7 @@ impl Session {
                 "renderer retirement already has an owner",
             ));
         }
+        self.renderer.continuation = None;
         Arc::make_mut(self.renderer.active.as_mut().ok_or(STALE)?).retirement_request =
             Some(command.request_id.clone());
         if self.network.closing.is_some() {
@@ -548,7 +633,8 @@ impl Session {
             .as_ref()
             .filter(|o| &o.binding == binding)
         {
-            return owner.retirement_request.is_none()
+            return self.renderer.enabled
+                && owner.retirement_request.is_none()
                 && self.renderer.grants.iter().any(|g| {
                     g.grant().id == owner.controller_id
                         && g.generation == owner.grant_generation
@@ -600,6 +686,155 @@ impl Session {
     }
 }
 
+impl Session {
+    pub(super) fn validate_renderer_playback(
+        &self,
+        authorization: &RendererPlaybackAuthorization,
+    ) -> Result<(), EngineError> {
+        authorization.shallow_bytes()?;
+        authorization.output.validate()?;
+        if self.state.output.as_ref() != Some(&authorization.output)
+            || self.state.device_epoch != authorization.expected_device_epoch
+            || !self.state.output_consented
+        {
+            return Err(EngineError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "renderer playback output requires current local consent",
+            ));
+        }
+        if !matches!(
+            authorization.intent.processing,
+            crate::graph::GraphProcessingRequest::Float64 { .. }
+        ) || authorization.output.fidelity == FidelityPolicy::StrictPreservation
+        {
+            return Err(EngineError::new(
+                ErrorCode::FidelityPolicyConflict,
+                "renderer HTTP playback requires authorized floating processing",
+            ));
+        }
+        authorization.authored_sha256()?;
+        Ok(())
+    }
+    pub fn renderer_graph_continuation(&self) -> Option<Arc<RendererGraphBinding>> {
+        self.renderer.continuation.clone()
+    }
+    pub fn renderer_graph_binding_valid(
+        &self,
+        binding: &RendererGraphBinding,
+        now_ns: u64,
+    ) -> bool {
+        self.renderer.enabled
+            && !self.state.shutdown_requested
+            && self.state.owner_id.as_ref() == Some(&binding.owner_id)
+            && self.renderer.epoch == binding.renderer_epoch
+            && self.renderer.continuation.as_deref() == Some(binding)
+            && self
+                .validate_renderer_playback(&binding.authorization)
+                .is_ok()
+            && binding.authorization.authored_sha256().ok() == Some(binding.authored_sha256)
+            && self.renderer.grants.iter().any(|g| {
+                g.grant().id == binding.controller_id
+                    && g.generation == binding.controller_generation
+                    && now_ns < g.expires_monotonic_ns
+                    && g.grant().playback.as_ref() == Some(&binding.authorization)
+            })
+            && self
+                .renderer
+                .active
+                .as_ref()
+                .is_some_and(|o| o.binding == binding.source && o.retirement_request.is_none())
+            && self.network.active.as_ref().is_some_and(|source| {
+                source.binding == binding.source && source.source_epochs == binding.source_epochs
+            })
+            && self.network.closing.is_none()
+            && self.network_authority_valid(&binding.source, now_ns)
+    }
+    pub fn submit_renderer_graph_with_effects(
+        &mut self,
+        command: CommandEnvelope,
+        binding: Arc<RendererGraphBinding>,
+        now_ns: u64,
+        commit: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Receipt {
+        self.submit_with_ingress(
+            command,
+            now_ns,
+            RendererIngress::Graph(binding),
+            |_| Err(STATE),
+            |_, _| Ok(()),
+            commit,
+        )
+    }
+    pub(super) fn validate_renderer_graph_submission(
+        &self,
+        command: &CommandEnvelope,
+        binding: &RendererGraphBinding,
+        now_ns: u64,
+    ) -> Result<(), EngineError> {
+        if !self.renderer_graph_binding_valid(binding, now_ns) {
+            return Err(STALE);
+        }
+        match &command.payload {
+            Command::GraphPrepare { graph, processing }
+                if graph == &binding.authorization.intent.graph
+                    && processing == &binding.authorization.intent.processing =>
+            {
+                Ok(())
+            }
+            Command::GraphCommit { .. } => Ok(()),
+            _ => Err(STALE),
+        }
+    }
+    pub(super) fn validate_renderer_graph_phase(
+        &self,
+        command: &CommandEnvelope,
+        binding: &RendererGraphBinding,
+    ) -> Result<(), EngineError> {
+        match &command.payload {
+            Command::GraphPrepare { .. } => {
+                if self.state.network_playback.as_ref().is_none_or(|p| {
+                    p.binding != binding.source
+                        || p.lifecycle != crate::network_source::NetworkLifecycle::Ready
+                }) {
+                    return Err(STATE);
+                }
+                Ok(())
+            }
+            Command::GraphCommit { .. }
+                if self.renderer_ready_graph_binding().as_deref() == Some(binding) =>
+            {
+                Ok(())
+            }
+            _ => Err(STALE),
+        }
+    }
+}
+
+impl Session {
+    fn capture_renderer_graph_pin(
+        &mut self,
+        controller: &RendererControllerId,
+        generation: u64,
+        authorization: Arc<RendererPlaybackAuthorization>,
+    ) -> Result<(), EngineError> {
+        let source = self.network.active.as_ref().ok_or(STALE)?;
+        let serial = increment(self.renderer.graph_serial)?;
+        self.renderer.continuation = Some(Arc::new(RendererGraphBinding {
+            owner_id: source.binding.owner_id.clone(),
+            renderer_epoch: self.renderer.epoch,
+            attempt_generation: serial,
+            controller_id: controller.clone(),
+            controller_generation: generation,
+            source: source.binding.clone(),
+            source_epochs: source.source_epochs,
+            authored_sha256: authorization.authored_sha256()?,
+            authorization,
+        }));
+        self.renderer.graph_serial = serial;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -624,6 +859,7 @@ mod tests {
         s.enable_renderer_control();
         let document = Arc::new(RendererGrantDocument {
             controllers: vec![RendererControllerGrant {
+                playback: None,
                 id: RendererControllerId::new("controller-a").unwrap(),
                 peers: vec!["192.168.1.2".parse().unwrap()],
                 rights: vec![RendererRight::Stage],

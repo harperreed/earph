@@ -13,8 +13,10 @@ Follow [the local playback plan](docs/superpowers/plans/2026-11-17-local-playbac
 See [local decoding](docs/local-playback.md) for supported files and offline commands.
 See [the state-machine map](docs/state-machines.md) for state owners, transitions, and recovery actions.
 See [renderer ownership](docs/renderer-control.md) and [UPnP wire handling](docs/upnp-protocol-surface.md) for the disabled protocol foundation.
+See [renderer execution](docs/upnp-core-contract.md) for graph authorization, callbacks, subscriptions, and their remaining adapter gates.
 See [Sendspin sessions](docs/sendspin-session.md) for bounded pairing, encrypted messages and key rotation.
 See [DSD software transport](docs/dsd-software.md) for the typed DSF/DFF reader and DoP codec.
+See [native package candidates](docs/native-packaging.md) for unsigned construction, verification, and scoped Linux GUI evidence.
 See [the ALSA spike](docs/alsa-spike.md) for Linux output commands, evidence, and qualification limits.
 See [the Core Audio spike](docs/coreaudio-spike.md) for macOS inspection, precision assessment, and silent registration checks.
 

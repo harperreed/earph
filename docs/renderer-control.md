@@ -13,8 +13,8 @@ The `retained_bytes` field reports the shared network ledger, rather than a sepa
 
 Use `renderer.grants.replace` to replace the controller registry atomically.
 Supply `expected_generation`, `lifetime_ms`, and a `grants.controllers` document.
-Each controller has an `id`, explicit peer IP addresses, and `rights`.
-Supported rights are `stage`, `transport`, `rendering_control`, and `takeover`.
+Each controller has an `id`, explicit peer IP addresses, `rights`, and a required nullable `playback` authorization.
+Supported rights are `stage`, `transport`, `rendering_control`, `events`, and `takeover`.
 Takeover requires transport authority.
 Existing transport grants do not authorize gain or preset changes.
 Limits are eight controllers, eight peers per controller, and a lifetime from one millisecond through one hour.
@@ -87,6 +87,12 @@ The production bridge, callback ownership, and controller interoperability remai
 
 See [HTTP owner playback](owner-http-playback.md) for the underlying source and output contract.
 See the [Sendspin crate](../crates/earph-sendspin/README.md) for its separate protocol boundary.
+
+## Core execution and event ownership
+
+The [Core execution contract](upnp-core-contract.md) defines immutable playback pins and callback ownership.
+It also defines response-gated subscriptions, exact delivery acknowledgement, and shared event encoding.
+These Core contracts require qualified Network and Engine consumers before production startup can enable renderer ingress.
 
 The [shared gain receipt](evidence/network/software-zero-linux-20261120.json) binds the integrated Linux source and PCM proofs.
 

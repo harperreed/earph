@@ -496,6 +496,7 @@ impl Session {
                 command.payload,
                 Command::NetworkGrantsRevoke { .. }
                     | Command::RendererGrantsRevoke { .. }
+                    | Command::RendererCallbackGrantsRevoke { .. }
                     | Command::Stop
                     | Command::OwnerShutdown
                     | Command::Mute { muted: true }
@@ -545,6 +546,12 @@ struct AuthorityBytes {
     renderer_authorities: BTreeSet<usize>,
     renderer_records: BTreeSet<usize>,
     renderer_vectors: BTreeSet<usize>,
+    renderer_playback: BTreeSet<usize>,
+    renderer_intents: BTreeSet<usize>,
+    renderer_graphs: BTreeSet<usize>,
+    renderer_bindings: BTreeSet<usize>,
+    renderer_snapshots: BTreeSet<usize>,
+    renderer_event_slots: std::collections::BTreeMap<usize, usize>,
 }
 impl AuthorityBytes {
     fn renderer_document(
@@ -552,7 +559,14 @@ impl AuthorityBytes {
         document: &Arc<crate::renderer::RendererGrantDocument>,
     ) -> Result<(), EngineError> {
         if self.documents.insert(Arc::as_ptr(document) as usize) {
-            self.add(document.retained_bytes()?)?;
+            self.add(document.shallow_bytes()?)?;
+        }
+        for playback in document
+            .controllers
+            .iter()
+            .filter_map(|c| c.playback.as_ref())
+        {
+            self.renderer_playback(playback)?;
         }
         Ok(())
     }
@@ -595,9 +609,69 @@ impl AuthorityBytes {
             bytes -= grants.retained_bytes()?;
             self.renderer_document(grants)?;
         }
+        if let Command::RendererCallbackGrantsReplace { grants, .. } = &command.payload {
+            bytes -= grants.retained_bytes()?;
+            self.callback_document(grants)?;
+        }
         self.add(bytes)
     }
+    fn renderer_intent(
+        &mut self,
+        intent: &Arc<crate::graph_control::GraphIntent>,
+    ) -> Result<(), EngineError> {
+        if self.renderer_intents.insert(Arc::as_ptr(intent) as usize) {
+            self.add(size_of::<crate::graph_control::GraphIntent>() + 16)?;
+        }
+        if self
+            .renderer_graphs
+            .insert(Arc::as_ptr(&intent.graph) as usize)
+        {
+            self.add(intent.graph.retained_capacity_bytes()? + 16)?;
+        }
+        Ok(())
+    }
+    fn renderer_playback(
+        &mut self,
+        playback: &Arc<crate::renderer::RendererPlaybackAuthorization>,
+    ) -> Result<(), EngineError> {
+        if self
+            .renderer_playback
+            .insert(Arc::as_ptr(playback) as usize)
+        {
+            self.add(playback.shallow_bytes()?)?;
+        }
+        self.renderer_intent(&playback.intent)
+    }
+    fn renderer_binding(
+        &mut self,
+        binding: &Arc<crate::renderer::RendererGraphBinding>,
+    ) -> Result<(), EngineError> {
+        if self.renderer_bindings.insert(Arc::as_ptr(binding) as usize) {
+            self.add(
+                size_of::<crate::renderer::RendererGraphBinding>()
+                    + 16
+                    + binding.owner_id.capacity_bytes()
+                    + binding.controller_id.capacity_bytes()
+                    + binding.source.owner_id.capacity_bytes()
+                    + binding.source.session_id.capacity_bytes()
+                    + binding.source.media_id.capacity_bytes(),
+            )?;
+        }
+        self.renderer_playback(&binding.authorization)
+    }
     fn session(&mut self, session: &Session) -> Result<(), EngineError> {
+        self.renderer_events(session)?;
+        if let Some(binding) = &session.renderer.continuation {
+            self.renderer_binding(binding)?;
+        }
+        for (binding, intent) in session
+            .retained_renderer_graph_operations()
+            .into_iter()
+            .flatten()
+        {
+            self.renderer_binding(binding)?;
+            self.renderer_intent(intent)?;
+        }
         if session.renderer.grants.capacity() != 0
             && self
                 .renderer_vectors
@@ -1063,6 +1137,157 @@ impl Session {
     }
 }
 
+impl AuthorityBytes {
+    fn callback_document(
+        &mut self,
+        document: &Arc<crate::renderer_events::RendererCallbackGrantDocument>,
+    ) -> Result<(), EngineError> {
+        if self.documents.insert(Arc::as_ptr(document) as usize) {
+            self.add(document.retained_bytes()?)?;
+        }
+        Ok(())
+    }
+    fn callback_authority(
+        &mut self,
+        authority: &Arc<crate::renderer_events::CallbackAuthority>,
+    ) -> Result<(), EngineError> {
+        if self
+            .renderer_authorities
+            .insert(Arc::as_ptr(authority) as usize)
+        {
+            self.add(
+                size_of::<crate::renderer_events::CallbackAuthority>()
+                    + 16
+                    + authority.controller_id.capacity_bytes(),
+            )?;
+        }
+        self.callback_document(&authority.document)
+    }
+    fn subscription_binding_bytes(
+        binding: &crate::renderer_events::RendererSubscriptionBinding,
+    ) -> usize {
+        binding.owner_id.capacity_bytes()
+            + binding.controller_id.capacity_bytes()
+            + binding.sid.capacity()
+    }
+    fn event_snapshot(
+        &mut self,
+        snapshot: &Arc<crate::renderer_events::RendererEventSnapshot>,
+        slot_owner: usize,
+    ) -> Result<(), EngineError> {
+        if self
+            .renderer_snapshots
+            .insert(Arc::as_ptr(snapshot) as usize)
+        {
+            let count = self.renderer_event_slots.entry(slot_owner).or_default();
+            *count += 1;
+            if *count > 2 {
+                self.add(
+                    size_of::<crate::renderer_events::RendererEventSnapshot>()
+                        + 16
+                        + snapshot.controller_id.capacity_bytes(),
+                )?;
+            }
+        }
+        if let Some(descriptor) = &snapshot.projection.descriptor {
+            self.descriptor(descriptor)?;
+        }
+        Ok(())
+    }
+    fn renderer_events(&mut self, session: &Session) -> Result<(), EngineError> {
+        use crate::renderer_events::*;
+        let events = &session.renderer.events;
+        for (pointer, capacity, size) in [
+            (
+                events.callbacks.as_ptr() as usize,
+                events.callbacks.capacity(),
+                size_of::<Arc<CallbackAuthority>>(),
+            ),
+            (
+                events.subscriptions.as_ptr() as usize,
+                events.subscriptions.capacity(),
+                size_of::<Arc<Subscription>>(),
+            ),
+        ] {
+            if capacity != 0 && self.renderer_vectors.insert(pointer) {
+                self.add(capacity * size)?;
+            }
+        }
+        // VecDeque can wrap; its cloned backing allocations remain separate transaction ownership.
+        if events.results.capacity() != 0 {
+            let (first, second) = events.results.as_slices();
+            let pointer = if first.is_empty() {
+                second.as_ptr()
+            } else {
+                first.as_ptr()
+            } as usize;
+            if self.renderer_vectors.insert(pointer) {
+                self.add(events.results.capacity() * size_of::<Arc<SubscriptionResultRecord>>())?;
+            }
+        }
+        for authority in &events.callbacks {
+            self.callback_authority(authority)?;
+        }
+        for record in &events.subscriptions {
+            if self.renderer_records.insert(Arc::as_ptr(record) as usize) {
+                self.add(
+                    size_of::<Subscription>()
+                        + 16
+                        + Self::subscription_binding_bytes(&record.info.binding),
+                )?;
+            }
+            self.callback_authority(&record.authority)?;
+            let urls = Arc::as_ptr(&record.callbacks) as *const () as usize;
+            if self.renderer_records.insert(urls) {
+                self.add(
+                    16 + size_of_val(record.callbacks.as_ref())
+                        + record.callbacks.iter().map(String::capacity).sum::<usize>(),
+                )?;
+            }
+            let owner = Arc::as_ptr(&record.lease) as *const () as usize;
+            // Reserve two complete Core snapshot records on admission, before either slot changes.
+            // Arc aliases share this reservation. A third snapshot during candidate adoption is extra.
+            if let std::collections::btree_map::Entry::Vacant(entry) =
+                self.renderer_event_slots.entry(owner)
+            {
+                entry.insert(0);
+                self.add(
+                    2 * (size_of::<RendererEventSnapshot>() + 16 + 128)
+                        + size_of::<RendererDelivery>()
+                        + 16
+                        + 3 * 128,
+                )?;
+            }
+            for snapshot in record
+                .initial
+                .iter()
+                .chain(record.latest.iter())
+                .chain(std::iter::once(&record.observed))
+            {
+                self.event_snapshot(snapshot, owner)?;
+            }
+            if let Some(delivery) = &record.in_flight {
+                // The delivery record transfers its admission reservation when dispatch begins.
+                self.event_snapshot(&delivery.snapshot, owner)?;
+            }
+        }
+        for result in &events.results {
+            if self.renderer_records.insert(Arc::as_ptr(result) as usize) {
+                self.add(
+                    size_of::<SubscriptionResultRecord>()
+                        + 16
+                        + result.request_id.capacity_bytes()
+                        + result
+                            .info
+                            .as_ref()
+                            .map_or(0, |i| Self::subscription_binding_bytes(&i.binding)),
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1117,8 +1342,7 @@ mod tests {
             RendererAction, RendererControllerGrant, RendererGrantDocument, RendererRight,
         };
         let mut s = fixture();
-        // Public selection and restore reject Hardware. Exercise the network reducer's mode boundary directly.
-        s.state.output.as_mut().unwrap().volume_mode = VolumeMode::Hardware;
+        // Admit the source under a valid pin before exercising the unsupported observed mode.
         s.state.software_gain_db = 0.0;
         s.enable_renderer_control();
         let controller = RendererControllerId::new("hardware-controller").unwrap();
@@ -1130,6 +1354,14 @@ mod tests {
                 lifetime_ms: 1000,
                 grants: Arc::new(RendererGrantDocument {
                     controllers: vec![RendererControllerGrant {
+                playback: Some(Arc::new(serde_json::from_value(serde_json::json!({
+                    "intent":{"graph":{"schema_version":1,"nodes":[
+                        {"id":"in","kind":{"kind":"input"},"format":{"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":64}},
+                        {"id":"out","kind":{"kind":"output"},"format":{"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":64}}],
+                        "edges":[{"from":"in","to":"out","from_port":0,"to_port":0}],"output":"out"},
+                        "processing":{"kind":"float64","quantization":"round_ties_away_saturate_no_dither"}},
+                    "output":s.state.output,"expected_device_epoch":s.state.device_epoch
+                })).unwrap())),
                         id: controller.clone(),
                         peers: vec![peer],
                         rights: vec![
@@ -1194,6 +1426,7 @@ mod tests {
                 .status,
             ReceiptStatus::Accepted
         );
+        s.state.output.as_mut().unwrap().volume_mode = VolumeMode::Hardware;
         let binding = s.network_source().unwrap().binding.clone();
         let mut outcomes = Vec::new();
         for (id, action) in [

@@ -132,7 +132,28 @@ impl crate::control::CommandEnvelope {
             Command::RendererGrantsReplace { grants, .. } => {
                 bytes += grants.retained_bytes()?;
             }
-            Command::RendererGrantsRevoke { controller_id, .. } => {
+            Command::RendererCallbackGrantsReplace {
+                controller_id,
+                grants,
+                ..
+            } => {
+                if controller_id.capacity_bytes() > 128 {
+                    return Err(BUDGET);
+                }
+                bytes += controller_id.capacity_bytes() + grants.retained_bytes()?;
+            }
+            Command::RendererSubscription {
+                controller_id,
+                action,
+                ..
+            } => {
+                if controller_id.capacity_bytes() > 128 {
+                    return Err(BUDGET);
+                }
+                bytes += controller_id.capacity_bytes() + action.retained_bytes()?;
+            }
+            Command::RendererGrantsRevoke { controller_id, .. }
+            | Command::RendererCallbackGrantsRevoke { controller_id, .. } => {
                 if controller_id.capacity_bytes() > 128 {
                     return Err(BUDGET);
                 }

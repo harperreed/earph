@@ -596,13 +596,21 @@ fn run_case(mode: &str, case: &str, directory: &Path) {
         ),
         (
             "controllers",
-            json!({"method":"renderer.grants.replace","expected_generation":0,"lifetime_ms":60000,"grants":{"controllers":[{"id":"a","peers":[f.media.peer],"rights":["stage","transport"]},{"id":"b","peers":[f.media.peer],"rights":["stage","transport","takeover"]}]}}),
+            json!({"method":"renderer.grants.replace","expected_generation":0,"lifetime_ms":60000,"grants":{"controllers":[{"id":"a","peers":[f.media.peer],"playback":null,"rights":["stage","transport"]},{"id":"b","peers":[f.media.peer],"playback":null,"rights":["stage","transport","takeover"]}]}}),
         ),
         (
             "origins",
             json!({"method":"sources.grants.replace","expected_generation":0,"lifetime_ms":if case == "origin-expire" { 3000 } else { 30000 },"grants":{"origins":[{"origin":f.media.origin,"pins":[f.media.peer],"roots_der":[]}]}}),
         ),
     ] {
+        let mut payload = payload;
+        if id == "controllers" {
+            let port = json!({"domain":"pcm","sample_rate_hz":48000,"channels":"stereo","precision":"float64","max_quantum_frames":64});
+            let playback = json!({"intent":{"graph":{"schema_version":1,"nodes":[{"id":"input","kind":{"kind":"input"},"format":port},{"id":"output","kind":{"kind":"output"},"format":port}],"edges":[{"from":"input","to":"output","from_port":0,"to_port":0}],"output":"output"},"processing":{"kind":"float64","quantization":"round_ties_away_saturate_no_dither"}},"output":f.session.snapshot().output,"expected_device_epoch":f.session.snapshot().device_epoch});
+            for controller in payload["grants"]["controllers"].as_array_mut().unwrap() {
+                controller["playback"] = playback.clone();
+            }
+        }
         let command = f.command(id, payload);
         f.local(command);
     }

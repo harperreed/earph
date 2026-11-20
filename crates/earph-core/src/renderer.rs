@@ -18,6 +18,7 @@ pub enum RendererRight {
     Transport,
     RenderingControl,
     Takeover,
+    Events,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +50,16 @@ pub enum RendererAction {
     FactoryDefaults {
         binding: NetworkSourceBinding,
     },
+    SetMute {
+        binding: NetworkSourceBinding,
+        muted: bool,
+    },
+    Pause {
+        binding: NetworkSourceBinding,
+    },
+    Resume {
+        binding: NetworkSourceBinding,
+    },
 }
 
 impl std::fmt::Debug for RendererAction {
@@ -63,22 +74,31 @@ impl RendererAction {
     /// Reserves safety delivery for exact zero and presets which always mute.
     pub fn is_safety(&self) -> bool {
         match self {
-            Self::Stop { .. } | Self::FactoryDefaults { .. } => true,
+            Self::Stop { .. }
+            | Self::FactoryDefaults { .. }
+            | Self::SetMute { muted: true, .. } => true,
             Self::SetVolume { volume, .. } => *volume == 0,
             Self::SetVolumeDb { volume_db, .. } => {
                 crate::remote_volume::RemoteVolume::from_volume_db(*volume_db)
                     .is_ok_and(|volume| volume.volume() == 0)
             }
-            Self::StageUri { .. } | Self::Play { .. } => false,
+            Self::StageUri { .. }
+            | Self::Play { .. }
+            | Self::SetMute { muted: false, .. }
+            | Self::Pause { .. }
+            | Self::Resume { .. } => false,
         }
     }
     pub(crate) fn required_right(&self) -> RendererRight {
         match self {
             Self::StageUri { .. } => RendererRight::Stage,
-            Self::Play { .. } | Self::Stop { .. } => RendererRight::Transport,
-            Self::SetVolume { .. } | Self::SetVolumeDb { .. } | Self::FactoryDefaults { .. } => {
-                RendererRight::RenderingControl
+            Self::Play { .. } | Self::Stop { .. } | Self::Pause { .. } | Self::Resume { .. } => {
+                RendererRight::Transport
             }
+            Self::SetVolume { .. }
+            | Self::SetVolumeDb { .. }
+            | Self::FactoryDefaults { .. }
+            | Self::SetMute { .. } => RendererRight::RenderingControl,
         }
     }
 
@@ -110,7 +130,10 @@ impl RendererAction {
             }
             Self::SetVolume { binding, .. }
             | Self::SetVolumeDb { binding, .. }
-            | Self::FactoryDefaults { binding } => {
+            | Self::FactoryDefaults { binding }
+            | Self::SetMute { binding, .. }
+            | Self::Pause { binding }
+            | Self::Resume { binding } => {
                 binding.validate()?;
                 Ok(binding.owner_id.capacity_bytes()
                     + binding.session_id.capacity_bytes()
@@ -126,6 +149,8 @@ pub struct RendererControllerGrant {
     pub id: RendererControllerId,
     pub peers: Vec<IpAddr>,
     pub rights: Vec<RendererRight>,
+    #[serde(deserialize_with = "crate::serde_helpers::nullable")]
+    pub playback: Option<Arc<RendererPlaybackAuthorization>>,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,7 +170,7 @@ impl std::fmt::Debug for RendererGrantDocument {
 }
 
 impl RendererGrantDocument {
-    pub fn retained_bytes(&self) -> Result<usize, EngineError> {
+    pub(crate) fn shallow_bytes(&self) -> Result<usize, EngineError> {
         if self.controllers.capacity() > MAX_RENDERER_CONTROLLERS {
             return Err(BUDGET);
         }
@@ -167,9 +192,37 @@ impl RendererGrantDocument {
                 )
                 .ok_or(BUDGET)?;
         }
+        // Admission counts shared playback allocations separately through AuthorityBytes.
+        for controller in &self.controllers {
+            if let Some(playback) = &controller.playback {
+                playback.shallow_bytes()?;
+            }
+        }
         Ok(bytes)
     }
 
+    pub fn retained_bytes(&self) -> Result<usize, EngineError> {
+        let mut bytes = self.shallow_bytes()?;
+        let mut authorizations = std::collections::BTreeSet::new();
+        let mut intents = std::collections::BTreeSet::new();
+        let mut graphs = std::collections::BTreeSet::new();
+        for playback in self.controllers.iter().filter_map(|c| c.playback.as_ref()) {
+            if authorizations.insert(Arc::as_ptr(playback) as usize) {
+                bytes = bytes.checked_add(playback.shallow_bytes()?).ok_or(BUDGET)?;
+            }
+            if intents.insert(Arc::as_ptr(&playback.intent) as usize) {
+                bytes = bytes
+                    .checked_add(size_of::<crate::graph_control::GraphIntent>() + 16)
+                    .ok_or(BUDGET)?;
+            }
+            if graphs.insert(Arc::as_ptr(&playback.intent.graph) as usize) {
+                bytes = bytes
+                    .checked_add(playback.intent.graph.retained_capacity_bytes()? + 16)
+                    .ok_or(BUDGET)?;
+            }
+        }
+        Ok(bytes)
+    }
     pub(crate) fn validate(&self) -> Result<(), EngineError> {
         self.retained_bytes()?;
         if self.controllers.is_empty() {
@@ -306,9 +359,78 @@ impl TryFrom<RendererSnapshotDocument> for RendererSnapshot {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RendererPlaybackAuthorization {
+    pub intent: Arc<crate::graph_control::GraphIntent>,
+    pub output: crate::control::OutputConfiguration,
+    pub expected_device_epoch: u64,
+}
+impl std::fmt::Debug for RendererPlaybackAuthorization {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RendererPlaybackAuthorization([redacted])")
+    }
+}
+impl RendererPlaybackAuthorization {
+    pub fn authored_sha256(&self) -> Result<[u8; 32], EngineError> {
+        use sha2::{Digest, Sha256};
+        self.intent.graph.validate_structure()?;
+        let mut digest = Sha256::new();
+        digest.update(b"earph.renderer.authored-intent.v1\0");
+        // Stream serialized intent into the digest, without another retained graph allocation.
+        struct HashWriter<'a>(&'a mut Sha256);
+        impl std::io::Write for HashWriter<'_> {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.update(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        serde_json::to_writer(HashWriter(&mut digest), &self.intent).map_err(|_| INVALID)?;
+        Ok(digest.finalize().into())
+    }
+    pub(crate) fn shallow_bytes(&self) -> Result<usize, EngineError> {
+        if self.output.endpoint.capacity() > 256
+            || self.output.device_id.capacity_bytes() > 128
+            || self.output.profile_id.capacity_bytes() > 128
+        {
+            return Err(BUDGET);
+        }
+        self.intent.graph.validate_storage()?;
+        Ok(size_of::<Self>()
+            + 16
+            + self.output.endpoint.capacity()
+            + self.output.device_id.capacity_bytes()
+            + self.output.profile_id.capacity_bytes())
+    }
+}
+#[derive(Clone, PartialEq, Eq)]
+pub struct RendererGraphBinding {
+    pub owner_id: OwnerId,
+    pub renderer_epoch: u64,
+    pub attempt_generation: u64,
+    pub controller_id: RendererControllerId,
+    pub controller_generation: u64,
+    pub source: NetworkSourceBinding,
+    pub source_epochs: crate::ids::Epochs,
+    pub authored_sha256: [u8; 32],
+    pub authorization: Arc<RendererPlaybackAuthorization>,
+}
+impl std::fmt::Debug for RendererGraphBinding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RendererGraphBinding([redacted])")
+    }
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct RendererControl {
     pub enabled: bool,
+    pub epoch: u64,
+    pub graph_serial: u64,
+    pub events: crate::renderer_events::RendererEventControl,
+    pub continuation: Option<Arc<RendererGraphBinding>>,
     pub generation: u64,
     pub grants: Vec<Arc<RendererAuthority>>,
     pub staged: Option<Arc<RendererStagedAssociation>>,

@@ -21,6 +21,7 @@ struct Job {
 }
 #[derive(Clone)]
 struct Ready {
+    renderer_application: Option<Arc<crate::renderer::RendererGraphBinding>>,
     prepared: GraphPrepared,
     intent: Arc<GraphIntent>,
     record: Option<Record>,
@@ -492,6 +493,7 @@ impl Session {
                 self.graph.job = Some(Job {
                     request: GraphJobRequest {
                         profile_application: None,
+                        renderer_application: None,
                         request_id: command.request_id.clone(),
                         binding: self.graph_binding()?,
                         intent: Arc::new(GraphIntent {
@@ -569,6 +571,7 @@ impl Session {
                 let ready = self.graph.ready.take().ok_or(STALE)?;
                 self.graph.activation = Some(Activation {
                     request: GraphActivationRequest {
+                        renderer_application: ready.renderer_application,
                         request_id: command.request_id.clone(),
                         previous_binding: binding,
                         epochs,
@@ -630,6 +633,12 @@ impl Session {
                 .into());
             }
             if &current != binding {
+                return Err(STALE.into());
+            }
+            if let Some(renderer) = &job.request.renderer_application
+                && (job.request.profile_application.is_some()
+                    || !self.renderer_graph_binding_valid(renderer, now_ns))
+            {
                 return Err(STALE.into());
             }
             let preview = result?;
@@ -705,6 +714,7 @@ impl Session {
                     Some(QueryResult::GraphPrepared(prepared.clone())),
                 );
                 staged.graph.ready = Some(Ready {
+                    renderer_application: job.request.renderer_application.clone(),
                     prepared: prepared.clone(),
                     intent: job.request.intent.clone(),
                     record,
@@ -730,6 +740,7 @@ impl Session {
                         Some(QueryResult::GraphPrepared(prepared.clone())),
                     );
                     self.graph.ready = Some(Ready {
+                        renderer_application: job.request.renderer_application.clone(),
                         prepared,
                         intent: job.request.intent,
                         record: job.record,
@@ -796,6 +807,15 @@ impl Session {
             || ack.observation.output_epochs != self.state.epochs
             || ack.observation.graph_epoch != increment(self.state.graph_epoch)?
             || ack.observation.device_epoch != self.state.device_epoch
+        {
+            return Err(STALE);
+        }
+        if let Some(binding) = self
+            .graph
+            .activation
+            .as_ref()
+            .and_then(|a| a.request.renderer_application.as_ref())
+            && !self.renderer_graph_binding_valid(binding, now_ns)
         {
             return Err(STALE);
         }
@@ -1062,6 +1082,73 @@ impl Session {
                 self.log(Some(id.clone()));
             }
         }
+    }
+}
+
+impl Session {
+    pub(super) fn renderer_ready_graph_binding(
+        &self,
+    ) -> Option<Arc<crate::renderer::RendererGraphBinding>> {
+        self.graph
+            .ready
+            .as_ref()
+            .and_then(|r| r.renderer_application.clone())
+    }
+    pub(super) fn bind_renderer_graph_operation(
+        &mut self,
+        binding: Arc<crate::renderer::RendererGraphBinding>,
+        command: &Command,
+    ) -> Result<(), EngineError> {
+        match command {
+            Command::GraphPrepare { .. } => {
+                let job = self.graph.job.as_mut().ok_or(STALE)?;
+                if job.request.profile_application.is_some() {
+                    return Err(STALE);
+                }
+                job.request.renderer_application = Some(binding);
+            }
+            Command::GraphCommit { .. } => {
+                if self
+                    .graph
+                    .activation
+                    .as_ref()
+                    .and_then(|a| a.request.renderer_application.as_ref())
+                    != Some(&binding)
+                {
+                    return Err(STALE);
+                }
+            }
+            _ => return Err(STALE),
+        }
+        Ok(())
+    }
+}
+
+impl Session {
+    pub(super) fn retained_renderer_graph_operations(
+        &self,
+    ) -> [Option<(
+        &Arc<crate::renderer::RendererGraphBinding>,
+        &Arc<GraphIntent>,
+    )>; 3] {
+        [
+            self.graph.job.as_ref().and_then(|j| {
+                j.request
+                    .renderer_application
+                    .as_ref()
+                    .map(|b| (b, &j.request.intent))
+            }),
+            self.graph
+                .ready
+                .as_ref()
+                .and_then(|r| r.renderer_application.as_ref().map(|b| (b, &r.intent))),
+            self.graph.activation.as_ref().and_then(|a| {
+                a.request
+                    .renderer_application
+                    .as_ref()
+                    .map(|b| (b, &a.intent))
+            }),
+        ]
     }
 }
 

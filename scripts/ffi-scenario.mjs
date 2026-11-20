@@ -294,7 +294,7 @@ try {
     assert.equal(renderer.enabled, false); assert.equal(renderer.grant_generation, 0); assert.equal(renderer.controller_count, 0);
     const unsupported = { status: 'rejected', code: 'CAPABILITY_UNSUPPORTED' };
     const deniedGrant = rendererCall('grant', { method: 'renderer.grants.replace', expected_generation: 0, lifetime_ms: 60000,
-      grants: { controllers: [{ id: 'foreign-controller', peers: [networkAddress], rights: ['stage'] }] } }, rendererState, unsupported);
+      grants: { controllers: [{ id: 'foreign-controller', peers: [networkAddress], playback: null, rights: ['stage'] }] } }, rendererState, unsupported);
     rendererCall('revoke', { method: 'renderer.grants.revoke', expected_generation: 0,
       controller_id: 'foreign-controller' }, queryState('renderer-revoke-state'), unsupported);
     rendererCall('untrusted', { method: 'renderer.request', controller_id: 'foreign-controller', grant_generation: 1,

@@ -597,6 +597,7 @@ impl GraphDiagnostic {
 
 #[derive(Debug, Clone)]
 pub struct GraphJobRequest {
+    pub renderer_application: Option<Arc<crate::renderer::RendererGraphBinding>>,
     pub profile_application: Option<Arc<crate::profile_control::ProfileApplicationBinding>>,
     pub request_id: RequestId,
     pub binding: GraphBinding,
@@ -607,6 +608,7 @@ pub struct GraphJobRequest {
 
 #[derive(Debug, Clone)]
 pub struct GraphActivationRequest {
+    pub renderer_application: Option<Arc<crate::renderer::RendererGraphBinding>>,
     pub request_id: RequestId,
     pub previous_binding: GraphBinding,
     pub epochs: Epochs,

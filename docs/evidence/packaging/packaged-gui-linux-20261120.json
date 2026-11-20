@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "scope": "Linux private X11 native GUI; generated local FLAC; ALSA file-to-null software PCM boundary only",
+  "source": {
+    "baseline_commit": "d2fa9f76544ed253e8ee0c067fa62914cf4c1bc3",
+    "source_dirty": true,
+    "qualified_archive_sha256": "ba0bd7a3c8cdc9366fa2becfbc78115ec9672aa6affd35c7d1fe935be1fe21e8",
+    "qualified_source_files": 1955
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "2a016870f3457c9ad933b3c7a701facbd3896cb427b09b3ccb61173e65207773"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "22a4975a4a7fa8372570f8a8d536bd5af6623e860b85a84af0a2664b6fd2c299"
+    }
+  ],
+  "package_tool": {
+    "sha256": "542b53da37b22a24747cf5e5ff20c021200707646b035e28f0eec21ebb46c408",
+    "build_provenance": {
+      "commit": "d2fa9f76544ed253e8ee0c067fa62914cf4c1bc3",
+      "dependency_lock_sha256": "3f9225b14df8589a64af14020698ad6ac1ce3dc4062f89e0b9cb786314b48801",
+      "profile": "debug",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "schema_version": 1,
+      "source_dirty": true,
+      "source_inputs_sha256": "55484ee72797a5f48867c45086f2a50a3928f9a815fe832793cb678b6eddfcae",
+      "target": "x86_64-unknown-linux-gnu"
+    },
+    "provenance_note": "The packaging tool and packaged products have separate source identities."
+  },
+  "operator_sha256": "092f35c079b592ffdca68fdddf9b2862202ba88fd55225b937732f5aa4da8b4f",
+  "status": "passed",
+  "package_verification_exit": 0,
+  "package_files_unchanged": 28,
+  "package_inventory_entries_unchanged": 33,
+  "input_bindings_unchanged": true,
+  "owned_process_identities_absent": 12,
+  "observations": {
+    "native_interactions": 24,
+    "engine_requests": 52,
+    "initial_pre_readiness_failures": 1,
+    "successful_engine_requests": 51,
+    "scenario_dbus_calls": 108,
+    "dbus_count_note": "Excludes property setup and cleanup discovery.",
+    "exact_preview_export_bytes": 97375,
+    "diagnostic_payload_sha256": "68ccf3cd6b84be88955875eed762557ed9c4461132ba13ad7d34e5933bd78791",
+    "software_pcm_bytes": 83968,
+    "software_pcm_all_zero": true,
+    "software_pcm_sha256": "1a7493dd5e92b5159da5e3fd64a9074573f3b89095aed09d86016cfad3056233",
+    "graph_activation": true,
+    "finite_exit": true,
+    "command_based_factory_defaults": true,
+    "gui_exit": 0,
+    "owner_exit": 0,
+    "capture_reader_exit": 0,
+    "egl_warnings": 6,
+    "access_controls_changed": false,
+    "physical_output_actions": 0
+  },
+  "limits": [
+    "This exact older session/DSD product pair does not qualify later renderer Core products.",
+    "Attached owner; Linux private X11 and ALSA file/null client PCM only.",
+    "Unsigned and unreleased; package provenance remains declared-unverified.",
+    "No hardware, acoustic, ramp-shape, macOS, Wayland, HTTP, installation, signing or release qualification."
+  ]
+}

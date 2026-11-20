@@ -323,9 +323,11 @@
         "PLAY-05",
         "CTL-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/network/upnp-core-linux-20261120.json"
+      ]
     },
     {
       "id": "SRC-02",
@@ -1337,9 +1339,11 @@
         "CTL-04",
         "CTL-05"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/packaging/software-linux-20261120.json"
+      ]
     },
     {
       "id": "REL-04",
@@ -2284,8 +2288,11 @@
         "artifact-hashes.json",
         "migration-results.json"
       ],
-      "status": "not_run",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "evidence/packaging/software-linux-20261120.json",
+        "evidence/packaging/packaged-gui-linux-20261120.json"
+      ],
       "requirement_ids": [
         "REL-03",
         "REL-04",

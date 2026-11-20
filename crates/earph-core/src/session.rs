@@ -29,8 +29,16 @@ mod diagnostics;
 mod network;
 #[path = "session_renderer.rs"]
 mod renderer;
+#[path = "session_renderer_events.rs"]
+mod renderer_events;
 #[path = "session_sources.rs"]
 mod sources;
+
+enum RendererIngress {
+    Local,
+    Peer(std::net::IpAddr),
+    Graph(Arc<crate::renderer::RendererGraphBinding>),
+}
 
 // A fresh owner needs room for consent, preparation, activation, and transport acknowledgements.
 const RESTART_REVISION_HEADROOM: u64 = 64;
@@ -626,6 +634,9 @@ impl Session {
                     Command::RendererGet {}
                     | Command::RendererGrantsReplace { .. }
                     | Command::RendererGrantsRevoke { .. }
+                    | Command::RendererCallbackGrantsReplace { .. }
+                    | Command::RendererCallbackGrantsRevoke { .. }
+                    | Command::RendererSubscription { .. }
                     | Command::RendererRequest { .. } => {
                         Some(QueryResult::Renderer(self.renderer_snapshot()))
                     }
@@ -738,6 +749,7 @@ impl Session {
         }
     }
     fn log(&mut self, request_id: Option<RequestId>) {
+        self.capture_renderer_events();
         if self.events.len() == self.limits.events {
             self.events.pop_front();
         }
@@ -836,23 +848,47 @@ impl Session {
         validate_network: impl FnOnce(&Session, &CommandEnvelope) -> Result<(), EngineError>,
         commit: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Receipt {
-        self.submit_with_ingress(command, now_ns, None, expand, validate_network, commit)
+        self.submit_with_ingress(
+            command,
+            now_ns,
+            RendererIngress::Local,
+            expand,
+            validate_network,
+            commit,
+        )
     }
 
     fn submit_with_ingress(
         &mut self,
         command: CommandEnvelope,
         now_ns: u64,
-        observed_peer: Option<std::net::IpAddr>,
+        ingress: RendererIngress,
         expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
         validate_network: impl FnOnce(&Session, &CommandEnvelope) -> Result<(), EngineError>,
         commit: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Receipt {
+        let observed_peer = match &ingress {
+            RendererIngress::Peer(peer) => Some(*peer),
+            _ => None,
+        };
+        let renderer_application = match ingress {
+            RendererIngress::Graph(binding) => Some(binding),
+            _ => None,
+        };
         if let Err(error) = self.expire_network_authority(now_ns) {
             return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
         }
         if let Err(error) = self.validate_renderer_ingress(&command, observed_peer, now_ns) {
             return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+        }
+        if let Some(binding) = &renderer_application {
+            if let Err(error) = self.validate_renderer_graph_submission(&command, binding, now_ns) {
+                return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+            }
+        } else if matches!(command.payload, Command::GraphCommit { .. })
+            && self.renderer_ready_graph_binding().is_some()
+        {
+            return self.receipt(&command, ReceiptStatus::Rejected, Some(STALE));
         }
         self.expire_graph_work(now_ns);
         self.expire_profile_work(now_ns);
@@ -893,14 +929,44 @@ impl Session {
                 )
             };
         }
+        if let Some(binding) = &renderer_application {
+            // An accepted commit consumes Ready; exact retries use the retained receipt above.
+            if let Err(error) = self.validate_renderer_graph_phase(&command, binding) {
+                return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+            }
+        }
         // Do not retain structurally oversized intent, including rejected commands.
         if let Err(error) = command.validate_retained_storage() {
             return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
         }
         let mut staged = self.clone();
-        let result = staged.apply_command(&command, now_ns, expand);
+        if renderer_application.is_none()
+            && matches!(
+                command.payload,
+                Command::GraphPrepare { .. }
+                    | Command::GraphValidate { .. }
+                    | Command::ProfilesPrepare { .. }
+            )
+            && staged.renderer.continuation.is_some()
+        {
+            staged.renderer.continuation = None;
+            staged.invalidate_graph_work(EngineError::new(
+                ErrorCode::OperationCancelled,
+                "local graph operation replaced renderer continuation",
+            ));
+        }
+        let result = staged
+            .apply_command(&command, now_ns, expand)
+            .and_then(|status| {
+                if let Some(binding) = renderer_application {
+                    staged.bind_renderer_graph_operation(binding, &command.payload)?;
+                }
+                Ok(status)
+            });
         let receipt = match result {
             Ok(status) => {
+                staged.expire_renderer_subscriptions(now_ns);
+                staged.capture_renderer_events();
                 let proposed = staged.receipt(&command, status, None);
                 if let Err(error) = self.validate_network_retention(&staged, &command) {
                     return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
@@ -1066,6 +1132,9 @@ impl Session {
                     | Command::NetworkGrantsRevoke { .. }
                     | Command::RendererGrantsReplace { .. }
                     | Command::RendererGrantsRevoke { .. }
+                    | Command::RendererCallbackGrantsReplace { .. }
+                    | Command::RendererCallbackGrantsRevoke { .. }
+                    | Command::RendererSubscription { .. }
             ))
             && command.session_id.is_some()
             && command.session_id != self.state.session_id
@@ -1096,6 +1165,9 @@ impl Session {
                 | Command::RendererGet {}
                 | Command::RendererGrantsReplace { .. }
                 | Command::RendererGrantsRevoke { .. }
+                | Command::RendererCallbackGrantsReplace { .. }
+                | Command::RendererCallbackGrantsRevoke { .. }
+                | Command::RendererSubscription { .. }
                 | Command::RendererRequest { .. }
                 | Command::SourceStageUri { .. }
                 | Command::GraphInspect { .. }

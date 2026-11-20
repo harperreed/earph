@@ -2865,6 +2865,7 @@ pub(crate) mod tests {
         service
             .submit(
                 GraphJobRequest {
+                    renderer_application: None,
                     profile_application: None,
                     request_id: request_id.clone(),
                     binding: binding.clone(),
@@ -2890,6 +2891,7 @@ pub(crate) mod tests {
             std::thread::yield_now();
         };
         let activation = GraphActivationRequest {
+            renderer_application: None,
             request_id,
             epochs: binding.epochs.next_stream().unwrap(),
             previous_binding: binding,

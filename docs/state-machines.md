@@ -344,3 +344,66 @@ A cleanup timeout retains ownership and keeps ordinary replacement admission bus
 Only the matching retirement acknowledgement releases that closing context.
 This acknowledgement cannot restore source authority or publish PCM.
 The local queue never receives fabricated entries or network readiness.
+
+## Renderer execution and events
+
+`Session` owns controller grants, callback grants, graph continuations, subscriptions, and delivery identity.
+The [renderer contract](upnp-core-contract.md) defines the adapter and Engine boundaries.
+Accepted Play captures authored graph intent, output selection, device epoch, source binding, and controller generation.
+Measured readiness permits fresh preparation, followed by its exact commit token and worker acknowledgement.
+Each adoption rechecks live authority.
+Exact accepted replay returns the retained receipt without repeating effects.
+Stop, revocation, expiry, or replacement invalidates the continuation before cleanup.
+
+Subscription admission reserves the initial snapshot, delivery identity, and adapter lease before publishing a SID.
+Successful response write completion and TCP shutdown permit the initial event.
+Later changes replace one latest snapshot while preserving initial and in-flight ownership.
+Each SID permits one in-flight event; Core permits four globally.
+Unsubscribe can retain one initial attempt under independent live callback authority.
+Revocation removes authority before transport cancellation.
+A failed join retains closing ownership and its reservation until exact completion.
+
+SOAP getters and event encoding share one projection.
+The writer checks both XML layers before staging commits.
+The [Core receipt](evidence/network/upnp-core-linux-20261120.json) covers these software contracts.
+The concrete sender, adapter budget, Engine bridge, and joint controller tests remain separate gates.
+Production renderer startup remains disabled.
+
+## Sendspin session and pairing writes
+
+[`ClientSession`](../crates/earph-sendspin/src/session.rs) owns handshake phases, encrypted messages, admission, and key rotation.
+It keeps `Quiet` distinct from active delivery and waits for exact write completion before advancing keys.
+The pairing reducer owns authorization, candidate records, durable commit acknowledgement, and recovery after uncertain writes.
+An obsolete, unstarted write loses authorization before transport begins.
+An earlier completed write retains its acknowledgement across rotation.
+The session's first-send clock remains with that reducer.
+
+Bounded queues and generation checks reject stale work without duplicating the reducer's state in adapters.
+Cancellation stops new work; acknowledged durable writes still require their actual completion.
+See [Sendspin sessions](sendspin-session.md) for the verified library contract and its recovery limits.
+Production credentials, WebSocket integration, player roles, clocks, and playback remain unfinished.
+Protocol admission grants no source or output authority.
+
+## Typed DSD software transport
+
+[`DsdFile`](../crates/earph-media/src/dsd.rs) owns the file, one-bit sample position, sequence, and epochs.
+A failed read, failed seek, or cancellation retires its reader.
+Successful aligned seeking resets the sequence and adopts the supplied epochs without manufacturing PCM.
+The caller supplies the new stream boundary and creates its codec.
+[`DopPacker`](../crates/earph-core/src/dop.rs) owns marker phase, pending source bytes, sequence, and terminal state.
+Fragments preserve marker alternation; an incomplete final frame fails instead of adding filler.
+Failure or cancellation ends the packer.
+`DopUnpacker` retains a terminal failure latch after invalid stream data.
+Create a new stream codec after a seek or failed stream.
+The [DSD software contract](dsd-software.md) keeps these typed blocks outside PCM DSP and native output.
+Engine integration and physical DSD qualification remain unfinished.
+
+## Native package candidates
+
+The [package builder](../crates/earph-harness/src/package.rs) owns a newly created output directory and its partial files.
+It validates explicit products and canonical metadata before publishing the final inventory.
+Failure retains partial output and reports its path.
+Use another new directory for a later attempt; inspect retained files before requesting cleanup.
+The verifier checks the complete tree without repairing it or launching products.
+Package consistency, declared provenance, exact product qualification, and authenticated release remain separate facts.
+See [native packaging](native-packaging.md) for limits and the exact packaged Linux GUI receipt.

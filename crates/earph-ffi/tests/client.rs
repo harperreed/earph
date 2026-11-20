@@ -113,7 +113,7 @@ fn ffi_renderer_query_and_disabled_authority_preserve_the_actual_owner_state() {
             Some(&initial),
             json!({
                 "method":"renderer.grants.replace","expected_generation":0,"lifetime_ms":100,
-                "grants":{"controllers":[{"id":"controller-a","peers":["192.168.1.2"],"rights":["stage"]}]}
+                "grants":{"controllers":[{"id":"controller-a","peers":["192.168.1.2"],"playback":null,"rights":["stage"]}]}
             }),
         ),
     );

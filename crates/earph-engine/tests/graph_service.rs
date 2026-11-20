@@ -295,6 +295,7 @@ fn request(state: &SessionSnapshot, effect: serde_json::Value) -> GraphJobReques
         "edges":[{"from":"in","to":"effect","from_port":0,"to_port":0},{"from":"effect","to":"out","from_port":0,"to_port":0}],"output":"out"
     })).unwrap();
     GraphJobRequest {
+        renderer_application: None,
         profile_application: None,
         request_id: RequestId::new("job").unwrap(),
         binding: GraphBinding {

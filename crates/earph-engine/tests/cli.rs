@@ -90,7 +90,7 @@ fn cli_renderer_query_replays_exactly_while_host_authority_remains_disabled() {
             0,
             json!({
                 "method":"renderer.grants.replace","expected_generation":0,"lifetime_ms":100,
-                "grants":{"controllers":[{"id":"controller-a","peers":["192.168.1.2"],"rights":["stage","transport"]}]}
+                "grants":{"controllers":[{"id":"controller-a","peers":["192.168.1.2"],"playback":null,"rights":["stage","transport"]}]}
             }),
         ),
     );

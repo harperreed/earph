@@ -25,6 +25,7 @@ fn actual_owner_renderer_query_and_disabled_grant_use_the_shared_request_path() 
             lifetime_ms: 100,
             grants: std::sync::Arc::new(earph_core::renderer::RendererGrantDocument {
                 controllers: vec![earph_core::renderer::RendererControllerGrant {
+                    playback: None,
                     id: earph_core::ids::RendererControllerId::new("controller-a").unwrap(),
                     peers: vec!["192.168.1.2".parse().unwrap()],
                     rights: vec![earph_core::renderer::RendererRight::Stage],
