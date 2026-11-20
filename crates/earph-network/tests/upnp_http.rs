@@ -73,6 +73,34 @@ fn pending(server: &HttpSurface) -> earph_network::upnp::PendingAction {
 }
 
 #[test]
+fn rendering_control_volume_grid_crosses_the_actual_listener() {
+    let server = server();
+    let namespace = "urn:schemas-upnp-org:service:RenderingControl:1";
+    for (value, accepted) in [(30700, true), (30701, false)] {
+        let body = format!(
+            r#"<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:SetVolume xmlns:u="{namespace}"><InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>{value}</DesiredVolume></u:SetVolume></s:Body></s:Envelope>"#
+        );
+        let bytes = format!(
+            "POST /upnp/rcs/control HTTP/1.1\r\nHost: fixture\r\nContent-Type: text/xml; charset=\"utf-8\"\r\nSOAPACTION: \"{namespace}#SetVolume\"\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        let mut stream = connect(&server);
+        stream.write_all(bytes.as_bytes()).unwrap();
+        if accepted {
+            let action = pending(&server);
+            assert_eq!(action.request().argument("DesiredVolume"), Some("30700"));
+            // This fixture proves wire admission, without manufacturing owner success.
+            assert!(action.respond(Err(UpnpFault::ActionFailed)));
+            assert!(read(stream).contains("<errorCode>501</errorCode>"));
+        } else {
+            assert!(read(stream).contains("<errorCode>402</errorCode>"));
+            assert!(server.try_recv().is_none());
+        }
+    }
+    shutdown(server);
+}
+
+#[test]
 fn fragmented_description_and_soap_cross_real_sockets_without_owner_success() {
     let server = server();
     let mut stream = connect(&server);

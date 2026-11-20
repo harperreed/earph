@@ -14,6 +14,43 @@ fn context(device: &str, profile: &str) -> OutputContext {
 }
 
 #[test]
+fn exact_zero_cannot_authorize_dsd_fixed_hardware_or_strict_attenuation() {
+    let policy = VolumePolicy::default();
+    for mode in [
+        VolumeMode::Software,
+        VolumeMode::Hardware,
+        VolumeMode::Fixed,
+    ] {
+        for domain in [SampleDomain::Pcm, SampleDomain::Dsd] {
+            for fidelity in [
+                FidelityPolicy::StrictPreservation,
+                FidelityPolicy::CompatibleConversion,
+                FidelityPolicy::ExpertOverride,
+            ] {
+                assert_eq!(
+                    policy
+                        .validate_software_zero(mode, domain, fidelity)
+                        .is_ok(),
+                    mode == VolumeMode::Software
+                        && domain == SampleDomain::Pcm
+                        && fidelity != FidelityPolicy::StrictPreservation
+                );
+            }
+        }
+    }
+    policy
+        .validate_unmute(
+            &context("dac", "profile"),
+            VolumeMode::Software,
+            SampleDomain::Pcm,
+            FidelityPolicy::StrictPreservation,
+            0.0,
+            None,
+        )
+        .unwrap();
+}
+
+#[test]
 fn prospective_fixed_policy_never_acquires_current_or_target_arming() {
     let selected = context("dac", "current");
     let target = context("dac", "target");

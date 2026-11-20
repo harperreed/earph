@@ -16,6 +16,7 @@ const INVALID: EngineError = EngineError::new(ErrorCode::AssetInvalid, "invalid 
 pub enum RendererRight {
     Stage,
     Transport,
+    RenderingControl,
     Takeover,
 }
 
@@ -37,6 +38,17 @@ pub enum RendererAction {
         #[serde(deserialize_with = "crate::serde_helpers::nullable")]
         binding: Option<NetworkSourceBinding>,
     },
+    SetVolume {
+        binding: NetworkSourceBinding,
+        volume: u16,
+    },
+    SetVolumeDb {
+        binding: NetworkSourceBinding,
+        volume_db: i16,
+    },
+    FactoryDefaults {
+        binding: NetworkSourceBinding,
+    },
 }
 
 impl std::fmt::Debug for RendererAction {
@@ -48,10 +60,25 @@ impl std::fmt::Debug for RendererAction {
 }
 
 impl RendererAction {
+    /// Reserves safety delivery for exact zero and presets which always mute.
+    pub fn is_safety(&self) -> bool {
+        match self {
+            Self::Stop { .. } | Self::FactoryDefaults { .. } => true,
+            Self::SetVolume { volume, .. } => *volume == 0,
+            Self::SetVolumeDb { volume_db, .. } => {
+                crate::remote_volume::RemoteVolume::from_volume_db(*volume_db)
+                    .is_ok_and(|volume| volume.volume() == 0)
+            }
+            Self::StageUri { .. } | Self::Play { .. } => false,
+        }
+    }
     pub(crate) fn required_right(&self) -> RendererRight {
         match self {
             Self::StageUri { .. } => RendererRight::Stage,
             Self::Play { .. } | Self::Stop { .. } => RendererRight::Transport,
+            Self::SetVolume { .. } | Self::SetVolumeDb { .. } | Self::FactoryDefaults { .. } => {
+                RendererRight::RenderingControl
+            }
         }
     }
 
@@ -80,6 +107,14 @@ impl RendererAction {
                         + b.session_id.capacity_bytes()
                         + b.media_id.capacity_bytes()
                 }))
+            }
+            Self::SetVolume { binding, .. }
+            | Self::SetVolumeDb { binding, .. }
+            | Self::FactoryDefaults { binding } => {
+                binding.validate()?;
+                Ok(binding.owner_id.capacity_bytes()
+                    + binding.session_id.capacity_bytes()
+                    + binding.media_id.capacity_bytes())
             }
         }
     }

@@ -89,6 +89,7 @@ pub struct StateView {
     pub transport: TransportView,
     pub muted: bool,
     pub software_gain_db: f64,
+    pub software_gain_zero: bool,
     pub epochs: Epochs,
     pub revision: u64,
     pub graph_epoch: u64,

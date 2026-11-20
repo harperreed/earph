@@ -1,6 +1,7 @@
 // ABOUTME: Encodes exact service outputs and static UPnP faults without private error text.
 // ABOUTME: Validates wire scalar types without performing any owner action or volume conversion.
 use super::{Service, SoapError, SoapRequest, contract};
+use earph_core::remote_volume::{MAX_REMOTE_VOLUME, MIN_REMOTE_VOLUME_DB};
 use std::fmt::Write;
 
 pub const MAX_RESPONSE_BYTES: usize = 524288;
@@ -60,10 +61,10 @@ fn scalar(variable: &str, value: &str) -> bool {
     match contract::variable_type(variable) {
         "ui4" => value.parse::<u32>().is_ok(),
         "i4" => value.parse::<i32>().is_ok(),
-        "ui2" => value.parse::<u16>().is_ok_and(|v| v <= 100),
+        "ui2" => value.parse::<u16>().is_ok_and(|v| v <= MAX_REMOTE_VOLUME),
         "i2" => value
             .parse::<i16>()
-            .is_ok_and(|v| (-32767..=0).contains(&v)),
+            .is_ok_and(|v| (MIN_REMOTE_VOLUME_DB..=0).contains(&v)),
         "boolean" => matches!(value, "0" | "1" | "true" | "false" | "yes" | "no"),
         _ => true,
     }

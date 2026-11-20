@@ -261,9 +261,10 @@ pub(crate) fn serve(
                             };
                             let safety_action = match command.payload {
                                 Command::Pause => Some(Action::Pause(settings)),
-                                Command::Mute { muted: true } | Command::VolumeCaps { .. } => {
-                                    Some(Action::Settings(settings))
-                                }
+                                Command::Mute { muted: true }
+                                | Command::VolumeSilence
+                                | Command::VolumeFactoryDefaults
+                                | Command::VolumeCaps { .. } => Some(Action::Settings(settings)),
                                 _ => None,
                             };
                             if let Some(action) = safety_action {
@@ -391,6 +392,8 @@ fn safety_control(command: &Command) -> bool {
             | Command::OwnerShutdown
             | Command::Pause
             | Command::Mute { muted: true }
+            | Command::VolumeSilence
+            | Command::VolumeFactoryDefaults
             | Command::VolumeCaps { .. }
             | Command::NetworkGrantsRevoke { .. }
     )
@@ -478,6 +481,8 @@ fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
                 | Command::Stop
                 | Command::Mute { .. }
                 | Command::VolumeSet { .. }
+                | Command::VolumeSilence
+                | Command::VolumeFactoryDefaults
                 | Command::VolumeCaps { .. }
                 | Command::OwnerShutdown
         )
@@ -501,6 +506,8 @@ fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
                 | Command::Seek { .. }
                 | Command::Mute { .. }
                 | Command::VolumeSet { .. }
+                | Command::VolumeSilence
+                | Command::VolumeFactoryDefaults
                 | Command::VolumeCaps { .. }
                 | Command::OwnerShutdown
         )
@@ -541,6 +548,8 @@ fn dispatch(
         Command::Resume
         | Command::Mute { .. }
         | Command::VolumeSet { .. }
+        | Command::VolumeSilence
+        | Command::VolumeFactoryDefaults
         | Command::VolumeCaps { .. }
             if settings.snapshot.source == Some(SourceKind::LocalFile) =>
         {
@@ -612,6 +621,8 @@ fn dispatch_with_network(
             Command::Resume
             | Command::Mute { .. }
             | Command::VolumeSet { .. }
+            | Command::VolumeSilence
+            | Command::VolumeFactoryDefaults
             | Command::VolumeCaps { .. } => worker.send(Action::Settings(settings)),
             Command::Start {
                 source: SourceKind::LocalFile,
@@ -1279,6 +1290,8 @@ mod tests {
         use std::sync::atomic::Ordering;
         for payload in [
             Command::Mute { muted: true },
+            Command::VolumeSilence,
+            Command::VolumeFactoryDefaults,
             Command::VolumeCaps {
                 software_millidecibels: -48000,
                 hardware_millidecibels: None,

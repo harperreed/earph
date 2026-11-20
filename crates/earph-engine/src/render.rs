@@ -80,7 +80,8 @@ pub struct PreparedRender {
     input_format: PcmFormat,
     input: Vec<f64>,
     output: Vec<f64>,
-    period: PcmBlock,
+    // The serial worker may silence its unaccepted suffix without regenerating graph output.
+    pub(crate) period: PcmBlock,
     gain: GainRamp,
     resources: RenderResources,
     sequence: u64,

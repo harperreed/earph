@@ -190,6 +190,7 @@
   "session_id": "network-acceptance-2048415-15",
   "shutdown_requested": false,
   "software_gain_db": -48.0,
+  "software_gain_zero": false,
   "source": "http_flac",
   "transport": "paused",
   "volume_policy": {

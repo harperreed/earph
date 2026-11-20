@@ -63,6 +63,24 @@ impl Default for VolumePolicy {
 }
 
 impl VolumePolicy {
+    /// Validate exact zero without changing finite-only gain admission.
+    pub fn validate_software_zero(
+        &self,
+        mode: VolumeMode,
+        domain: SampleDomain,
+        fidelity: FidelityPolicy,
+    ) -> Result<(), EngineError> {
+        if mode != VolumeMode::Software
+            || domain != SampleDomain::Pcm
+            || fidelity == FidelityPolicy::StrictPreservation
+        {
+            return Err(EngineError::new(
+                ErrorCode::FidelityPolicyConflict,
+                "exact zero requires compatible software PCM attenuation",
+            ));
+        }
+        Ok(())
+    }
     pub fn new(software_cap_db: f64, hardware_cap_db: Option<f64>) -> Result<Self, EngineError> {
         if !software_cap_db.is_finite()
             || !(-120.0..=0.0).contains(&software_cap_db)

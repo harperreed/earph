@@ -21,7 +21,8 @@ The signal path distinguishes requested configuration, resolved active compilati
 A configured graph restored from disk is requested intent.
 It does not establish an active compiled graph or any playback observation.
 Resolved transformations describe the active preview's preparation facts.
-Current software gain, gain ramp, mute, and caps remain separate requested values.
+Current finite software gain, exact zero, gain ramp, mute, and caps remain separate requested values.
+The exact-zero bit selects effective software silence while retaining the finite setting.
 Preservation and unknown downstream processing remain independent facts.
 
 Same-rate nodes come from the actual compiler schedule.

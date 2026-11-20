@@ -194,8 +194,14 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
             state.volume_policy.software_cap_db, state.volume_policy.hardware_cap_db
         ));
         ui.label(format!(
-            "Actual software gain: {:.3} dB; ramp {} frames",
-            state.software_gain_db, state.gain_ramp_frames
+            "Effective software gain: {}; finite setting {:.3} dB; ramp {} frames",
+            if state.software_gain_zero {
+                "exact zero"
+            } else {
+                "finite"
+            },
+            state.software_gain_db,
+            state.gain_ramp_frames
         ));
         if let Some(backend) = state.playback_facts().and_then(|p| p.backend) {
             ui.label(format!(

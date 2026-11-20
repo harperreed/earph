@@ -110,7 +110,8 @@ pub struct PreparedStreamRender {
     // Holds keep decoder packets valid. Only a true seek or replacement changes this epoch.
     source_epochs: Epochs,
     control_epochs: Epochs,
-    period: PcmBlock,
+    // The serial worker may silence its unaccepted suffix without changing replay ownership.
+    pub(crate) period: PcmBlock,
     prepared_period: PcmBlock,
     gain: GainRamp,
     staged_frames: usize,

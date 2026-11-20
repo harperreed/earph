@@ -602,6 +602,12 @@ fn prepare(
         .map_err(GraphDiagnostic::from)?;
     let output = snapshot.output.as_ref().ok_or(STALE)?;
     output.validate().map_err(GraphDiagnostic::from)?;
+    if snapshot.software_gain_zero {
+        snapshot
+            .volume_policy
+            .validate_software_zero(output.volume_mode, SampleDomain::Pcm, output.fidelity)
+            .map_err(GraphDiagnostic::from)?;
+    }
     if output.fidelity == FidelityPolicy::StrictPreservation && snapshot.gain_ramp_frames != 0 {
         return Err(EngineError::new(
             ErrorCode::FidelityPolicyConflict,
@@ -1157,7 +1163,10 @@ fn prepared_preview(
         transformations.push(SignalTransformation::Quantization {
             policy: quantization,
         });
-    } else if snapshot.software_gain_db != 0.0 || snapshot.gain_ramp_frames != 0 {
+    } else if snapshot.software_gain_zero
+        || snapshot.software_gain_db != 0.0
+        || snapshot.gain_ramp_frames != 0
+    {
         transformations.push(SignalTransformation::SoftwareVolume);
     }
     if let Some(backend) = &playback_backend
@@ -1307,6 +1316,7 @@ fn activation_hash(
             request.intent.processing,
             &snapshot.volume_policy,
             snapshot.software_gain_db,
+            snapshot.software_gain_zero,
             snapshot.gain_ramp_frames,
             snapshot.output_consented,
             true,

@@ -37,6 +37,7 @@ pub struct DiagnosticSnapshot {
     pub transport: TransportState,
     pub muted: bool,
     pub software_gain_db: f64,
+    pub software_gain_zero: bool,
     #[serde(deserialize_with = "nullable")]
     pub error: Option<ErrorCode>,
 }

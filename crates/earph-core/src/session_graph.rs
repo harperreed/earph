@@ -403,6 +403,8 @@ impl Session {
                 Command::Mute { muted: true }
                     | Command::Stop
                     | Command::OwnerShutdown
+                    | Command::VolumeSilence
+                    | Command::VolumeFactoryDefaults
                     | Command::VolumeCaps { .. }
             )
         {
@@ -415,6 +417,7 @@ impl Session {
         Ok(())
     }
     pub(super) fn validate_graph_unmute(&self, state: &SessionSnapshot) -> Result<(), EngineError> {
+        Self::validate_software_zero(state)?;
         if self.graph.recovery_required
             || self.graph.activation.is_some()
             || self.graph.configured.is_some() && self.graph.active.is_none()
@@ -2531,6 +2534,81 @@ mod tests {
         let mut malformed = attenuated;
         malformed.channel_peak_bounds[0] = f64::NAN;
         assert!(malformed.validate_headroom(-40.0, 0.0).is_err());
+    }
+    #[test]
+    fn zero_does_not_bypass_finite_exit_or_factory_preset_headroom() {
+        let mut s = fixture();
+        let level = command(
+            &s,
+            "headroom-level",
+            Command::VolumeSet {
+                millidecibels: -60000,
+                ramp_frames: 0,
+            },
+        );
+        assert_eq!(s.submit_graph(level, 1).status, ReceiptStatus::Applied);
+        let prepared = ready(&mut s, "headroom-prepare", 1000.0);
+        let activation = commit(&s, "headroom-activate", &prepared);
+        s.submit_graph(activation.clone(), 21);
+        s.complete_graph_activation(
+            GraphActivationAck {
+                source_total_frames: 48000,
+                request_id: activation.request_id,
+                epochs: s.state.epochs,
+                graph_hash: prepared.preview.graph_hash.clone(),
+                activation_frame: 0,
+                observation: s.state.playback.as_ref().unwrap().clone(),
+            },
+            22,
+            |_| Ok(()),
+        )
+        .unwrap();
+        let zero = command(&s, "headroom-zero", Command::VolumeSilence);
+        assert_eq!(s.submit_graph(zero, 23).status, ReceiptStatus::Applied);
+        let before = s.snapshot();
+        assert!(before.software_gain_zero);
+        assert!(s.renderer_presets().is_empty());
+        for (id, payload) in [
+            (
+                "finite-too-loud",
+                Command::VolumeSet {
+                    millidecibels: -59000,
+                    ramp_frames: 0,
+                },
+            ),
+            ("preset-too-loud", Command::VolumeFactoryDefaults),
+        ] {
+            let c = command(&s, id, payload);
+            assert_eq!(
+                s.submit_graph(c, 24).error.unwrap().code,
+                ErrorCode::SafetyPolicyBlocked
+            );
+            assert_eq!(s.snapshot(), before);
+        }
+    }
+    #[test]
+    fn factory_defaults_cannot_raise_gain_before_a_graph_activation_ack() {
+        let mut s = fixture();
+        let level = command(
+            &s,
+            "pending-level",
+            Command::VolumeSet {
+                millidecibels: -60000,
+                ramp_frames: 0,
+            },
+        );
+        assert_eq!(s.submit_graph(level, 1).status, ReceiptStatus::Applied);
+        let prepared = ready(&mut s, "pending-prepare", 1000.0);
+        let activation = commit(&s, "pending-activate", &prepared);
+        assert_eq!(
+            s.submit_graph(activation, 21).status,
+            ReceiptStatus::Accepted
+        );
+        let before = s.snapshot();
+        let preset = command(&s, "pending-preset", Command::VolumeFactoryDefaults);
+        assert_eq!(s.submit_graph(preset, 22).status, ReceiptStatus::Rejected);
+        assert_eq!(s.snapshot(), before);
+        assert!(s.renderer_presets().is_empty());
     }
     #[test]
     fn active_graph_mute_rewinds_only_at_a_new_stream_epoch() {

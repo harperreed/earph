@@ -55,6 +55,52 @@ fn actual_owner_renderer_query_and_disabled_grant_use_the_shared_request_path() 
     owner.stop();
 }
 
+#[test]
+fn exact_zero_projects_through_the_real_desktop_owner_and_diagnostic_consumers() {
+    let mut owner = Owner::start();
+    let client = owner.client();
+    let output = serde_json::from_value(serde_json::json!({"method":"output.select","output":{
+        "backend":if cfg!(target_os="macos") {"core_audio"} else {"alsa"},
+        "route":"system","endpoint":"unopened-u2-fixture","device_id":"dac","profile_id":"profile",
+        "period_frames":64,"buffer_frames":256,"volume_mode":"software","fidelity":"compatible_conversion"
+    }})).unwrap();
+    for payload in [output, Command::VolumeSilence] {
+        let request =
+            Request::mutation(RequestId::new(unique()).unwrap(), &owner.state(), payload).unwrap();
+        let Reply::Receipt(receipt) = client.request(&request).unwrap() else {
+            panic!("receipt")
+        };
+        assert_eq!(receipt.status, ReplyStatus::Applied);
+    }
+    assert!(owner.state().software_gain_zero);
+    assert_eq!(owner.state().software_gain_db, -40.0);
+    assert!(owner.state().muted);
+    let Reply::Receipt(receipt) = client.request(&query(Command::SignalPathGet {})).unwrap() else {
+        panic!("receipt")
+    };
+    let Some(earph_desktop::ResultView::SignalPath(path)) = receipt.result else {
+        panic!("signal path")
+    };
+    assert!(path.report.requested.software_gain_zero);
+    assert_eq!(path.report.requested.software_gain_db, -40.0);
+    let request = Request::mutation(
+        RequestId::new(unique()).unwrap(),
+        &owner.state(),
+        Command::VolumeSet {
+            millidecibels: -40000,
+            ramp_frames: 0,
+        },
+    )
+    .unwrap();
+    let Reply::Receipt(receipt) = client.request(&request).unwrap() else {
+        panic!("receipt")
+    };
+    assert_eq!(receipt.status, ReplyStatus::Applied);
+    assert!(!owner.state().software_gain_zero);
+    assert!(owner.state().muted);
+    owner.stop();
+}
+
 fn discovery_receipts(
     request: &Request,
     observation: earph_core::devices::DeviceObservation,
@@ -727,6 +773,8 @@ fn only_shared_safety_commands_use_the_independent_lane() {
     for (payload, expected) in [
         (Command::Stop, Lane::Safety),
         (Command::Mute { muted: true }, Lane::Safety),
+        (Command::VolumeSilence, Lane::Safety),
+        (Command::VolumeFactoryDefaults, Lane::Safety),
         (Command::Mute { muted: false }, Lane::Ordinary),
         (
             Command::VolumeSet {

@@ -14,8 +14,9 @@ The `retained_bytes` field reports the shared network ledger, rather than a sepa
 Use `renderer.grants.replace` to replace the controller registry atomically.
 Supply `expected_generation`, `lifetime_ms`, and a `grants.controllers` document.
 Each controller has an `id`, explicit peer IP addresses, and `rights`.
-Supported rights are `stage`, `transport`, and `takeover`.
+Supported rights are `stage`, `transport`, `rendering_control`, and `takeover`.
 Takeover requires transport authority.
+Existing transport grants do not authorize gain or preset changes.
 Limits are eight controllers, eight peers per controller, and a lifetime from one millisecond through one hour.
 Use `renderer.grants.revoke` with the current registry generation and the exact controller ID.
 
@@ -37,6 +38,30 @@ Play requires separate media grants and the current descriptor and controller fe
 It lowers to the existing HTTP-FLAC start transaction.
 Repeated Play for the same current source neither refetches nor renews its leases.
 Play never unmutes output.
+
+## Gain and presets
+
+Renderer gain and preset requests require the exact current active source binding and rendering-control authority.
+Staging alone cannot authorize changes to unrelated playback.
+Remote gain uses the same Core setting, caps, and headroom checks as local control.
+Volume spans 0..30700; VolumeDB spans -32767..0 in 1/256 dB units.
+Volume zero and minimum VolumeDB select exact software zero.
+Finite readbacks derive from the shared Core grid, with quieter ties.
+Wire quantization never rewrites an arbitrary local finite setting.
+Descriptions, SOAP admission, responses, and the later event bridge use these same limits.
+
+Local `volume.silence` selects zero without changing mute or the retained finite dB value.
+The required `software_gain_zero` snapshot field distinguishes this setting from finite attenuation.
+An explicit `volume.set` clears zero without unmuting.
+Zero silences only the unaccepted suffix of a cached native period.
+Accepted samples and reported progress remain unchanged.
+Finite exit finishes any cached zero suffix before applying its requested ramp to newly generated frames.
+
+`volume.factory_defaults` mutes and clears zero as one mutation.
+Software mode selects the quieter of -40 dB and the current cap, subject to graph headroom.
+Fixed mode preserves unity and disarms output.
+Unsupported modes reject the complete preset.
+These controls do not enable production renderer ingress.
 
 ## Retirement
 
@@ -62,3 +87,5 @@ The production bridge, callback ownership, and controller interoperability remai
 
 See [HTTP owner playback](owner-http-playback.md) for the underlying source and output contract.
 See the [Sendspin crate](../crates/earph-sendspin/README.md) for its separate protocol boundary.
+
+The [shared gain receipt](evidence/network/software-zero-linux-20261120.json) binds the integrated Linux source and PCM proofs.

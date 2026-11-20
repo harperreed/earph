@@ -46,6 +46,7 @@ impl Session {
         &self,
         reference: &ProfileCatalogReference,
     ) -> Result<Arc<ProfileApplicationBinding>, EngineError> {
+        Self::validate_software_zero(&self.state)?;
         let record = self.profile_record(reference)?;
         let profile = &record.profile;
         let output = self.state.output.as_ref().ok_or(EngineError::new(
@@ -71,7 +72,9 @@ impl Session {
             ));
         }
         if profile.volume.mode == VolumeMode::Fixed
-            && (self.state.software_gain_db != 0.0 || self.state.gain_ramp_frames != 0)
+            && (self.state.software_gain_zero
+                || self.state.software_gain_db != 0.0
+                || self.state.gain_ramp_frames != 0)
         {
             return Err(EngineError::new(
                 ErrorCode::SafetyPolicyBlocked,

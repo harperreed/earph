@@ -118,7 +118,7 @@ impl Action {
         matches!(
             self,
             Self::Pause(_) | Self::Stop(_) | Self::Shutdown | Self::RetireNetwork(_)
-        ) || matches!(self, Self::Settings(settings) if settings.snapshot.muted)
+        ) || matches!(self, Self::Settings(settings) if settings.snapshot.muted || settings.snapshot.software_gain_zero)
     }
 }
 pub(crate) enum Event {
@@ -821,24 +821,42 @@ impl Playback {
         }
     }
     fn set_gain(&mut self) -> Result<(), EngineError> {
-        let gain = if self.settings.snapshot.muted {
+        let zero = self.settings.snapshot.software_gain_zero;
+        let gain = if self.settings.snapshot.muted || zero {
             None
         } else {
             Some(self.settings.snapshot.software_gain_db)
         };
-        let ramp = self.settings.snapshot.gain_ramp_frames;
+        let ramp = if zero {
+            0
+        } else {
+            self.settings.snapshot.gain_ramp_frames
+        };
         self.gain.set_target(gain, ramp)?;
         if let Some(stream) = self.pipeline.as_mut().and_then(|p| p.stream_render_mut()) {
-            return stream.set_gain_target(gain, ramp);
+            stream.set_gain_target(gain, ramp)?;
+        } else if let Some(render) = self.pipeline.as_mut().and_then(|p| p.render_mut()) {
+            render.set_gain_target(gain, ramp).map_err(render_error)?;
         }
-        {
-            self.pipeline
-                .as_mut()
-                .and_then(|p| p.render_mut())
-                .map_or(Ok(()), |r| {
-                    r.set_gain_target(gain, ramp).map_err(render_error)
-                })
+        if gain.is_none() && ramp == 0 {
+            self.silence_pending_period()?;
         }
+        Ok(())
+    }
+    fn silence_pending_period(&mut self) -> Result<(), EngineError> {
+        if !self.pending {
+            return Ok(());
+        }
+        if let Some(pipeline) = &mut self.pipeline {
+            if let Some(stream) = pipeline.stream_render_mut() {
+                let offset = stream.period_offset();
+                return silence_period_suffix(&mut stream.period, offset);
+            }
+            if let Some(render) = pipeline.render_mut() {
+                return silence_period_suffix(&mut render.period, self.period_offset);
+            }
+        }
+        silence_period_suffix(&mut self.period, self.period_offset)
     }
     fn prefetch(&mut self, events: &SyncSender<Event>) -> Result<(), EngineError> {
         if self.is_network() {
@@ -2406,6 +2424,17 @@ fn clear_reservation(view: &Mutex<PlanView>, epochs: Epochs) {
         view.reserved = None;
     }
 }
+fn silence_period_suffix(period: &mut PcmBlock, offset: usize) -> Result<(), EngineError> {
+    let frames = period.header().frame_count as usize;
+    if offset > frames {
+        return Err(FAILED);
+    }
+    let channels = period.header().format.channels().count();
+    for sample in offset * channels..frames * channels {
+        period.set_integer_sample(sample, 0)?;
+    }
+    Ok(())
+}
 fn render_error(error: crate::render::RenderError) -> EngineError {
     EngineError::new(error.code, error.message)
 }
@@ -3380,6 +3409,376 @@ pub(crate) mod tests {
             playback.output.progress().unwrap().submitted,
             playback.stream_position
         );
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn zero_target_preserves_an_actual_accepted_prefix_and_silences_the_cached_suffix() {
+        let (mut playback, events, receiver, _) = staged_streaming_playback();
+        let (before, prefix) = (0..256)
+            .find_map(|_| {
+                let period = playback.native_period();
+                let frames = period.header().frame_count as usize;
+                let first = (0..frames).find(|frame| period.integer_sample(frame * 2) != Some(0));
+                let last = (0..frames).rfind(|frame| period.integer_sample(frame * 2) != Some(0));
+                if let (Some(first), Some(last)) = (first, last)
+                    && first < last
+                    && playback.pending
+                {
+                    return Some((period.clone(), first + 1));
+                }
+                playback.step(&events).unwrap();
+                let render = playback
+                    .pipeline
+                    .as_mut()
+                    .unwrap()
+                    .stream_render_mut()
+                    .unwrap();
+                render.pump(None).unwrap();
+                playback.stage_stream().unwrap();
+                None
+            })
+            .expect("real SRC never produced a nonzero splittable cached period");
+        let frames = before.header().frame_count as usize;
+        let accepted = playback.output.write(&before, 0, prefix).unwrap().unwrap();
+        assert!(accepted > 0 && accepted < frames);
+        assert!((0..accepted * 2).any(|i| before.integer_sample(i) != Some(0)));
+        assert!((accepted * 2..frames * 2).any(|i| before.integer_sample(i) != Some(0)));
+        playback
+            .pipeline
+            .as_mut()
+            .unwrap()
+            .stream_render_mut()
+            .unwrap()
+            .accepted(accepted)
+            .unwrap();
+        playback.stream_position += accepted as u64;
+        let source = playback.source_position;
+        let peak = playback.output_peak;
+        assert!(peak.unwrap() > 0.0);
+        let positions = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .output_positions();
+        receiver.try_iter().for_each(drop);
+        let mut zero = playback.settings.clone();
+        zero.snapshot.software_gain_zero = true;
+        zero.snapshot.gain_ramp_frames = 17;
+        playback.apply_settings(zero, &events).unwrap();
+        assert_eq!(playback.output_peak, peak);
+        assert_eq!(playback.native_period().header(), before.header());
+        for i in 0..frames * 2 {
+            assert_eq!(
+                playback.native_period().integer_sample(i),
+                if i < accepted * 2 {
+                    before.integer_sample(i)
+                } else {
+                    Some(0)
+                },
+                "sample {i}"
+            );
+        }
+        assert_eq!(playback.source_position, source);
+        assert_eq!(
+            playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .output_positions(),
+            positions
+        );
+        assert!(playback.pending);
+        assert!(
+            receiver
+                .try_iter()
+                .all(|e| !matches!(e, Event::Paused { .. } | Event::Started { .. }))
+        );
+        playback.step(&events).unwrap();
+        assert_eq!(playback.source_position, source);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn zero_settings_from_an_old_output_epoch_keep_the_current_period_and_source() {
+        let (mut playback, events, _receiver, _) = staged_streaming_playback();
+        let before = playback.settings.snapshot.clone();
+        let period = playback.native_period().clone();
+        let source = playback.source_position;
+        let mut stale = playback.settings.clone();
+        stale.snapshot.software_gain_zero = true;
+        stale.snapshot.epochs.stream -= 1;
+        playback.apply_settings(stale, &events).unwrap();
+        assert_eq!(playback.settings.snapshot, before);
+        assert_eq!(playback.native_period(), &period);
+        assert_eq!(playback.source_position, source);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn zero_during_pending_graph_ack_keeps_the_matching_output_epoch_setting() {
+        let (mut playback, events, _receiver) = prepared_nonzero_source();
+        let observed = playback.observe().unwrap();
+        let (settings, activation, pipeline) = prepare_activation(&playback.settings, &observed);
+        playback
+            .activate_graph(settings, activation, pipeline, &events)
+            .unwrap();
+        assert_eq!(playback.settings.snapshot.graph_epoch, 0);
+        assert_eq!(playback.installed_graph_epoch, 1);
+        let epochs = playback.epochs();
+        let mut zero = playback.settings.clone();
+        zero.snapshot.software_gain_zero = true;
+        playback.apply_settings(zero, &events).unwrap();
+        assert!(playback.settings.snapshot.software_gain_zero);
+        assert_eq!(playback.epochs(), epochs);
+        let mut acknowledged = playback.settings.clone();
+        acknowledged.snapshot.graph_epoch = 1;
+        playback.apply_settings(acknowledged, &events).unwrap();
+        assert!(playback.settings.snapshot.software_gain_zero);
+        assert_eq!(playback.installed_graph_epoch, 1);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn zero_preserves_paused_replay_then_finishes_the_original_stream_tail() {
+        let (mut playback, events, receiver) = resumed_tail_playback();
+        let source = playback.source_position;
+        let source_epochs = playback.source_epochs;
+        let mut paused = playback.settings.clone();
+        paused.snapshot.epochs = paused.snapshot.epochs.next_stream().unwrap();
+        paused.snapshot.muted = true;
+        paused.playing = false;
+        playback.reposition(paused, None, &events, true).unwrap();
+        let before = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .output_positions();
+        let stats = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .stream()
+            .stats();
+        let epochs = playback.epochs();
+        receiver.try_iter().for_each(drop);
+        let mut zero = playback.settings.clone();
+        zero.snapshot.software_gain_zero = true;
+        playback.apply_settings(zero, &events).unwrap();
+        playback.step(&events).unwrap();
+        assert_eq!(
+            playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .output_positions(),
+            before
+        );
+        assert_eq!(
+            playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .stream()
+                .stats(),
+            stats
+        );
+        assert_eq!(playback.epochs(), epochs);
+        assert_eq!(playback.source_position, source);
+        assert!(!playback.settings.playing);
+        assert!(receiver.try_iter().next().is_none());
+        let mut resume = playback.settings.clone();
+        resume.snapshot.muted = false;
+        resume.playing = true;
+        playback.apply_settings(resume, &events).unwrap();
+        let mut observed_period = false;
+        for _ in 0..512 {
+            let submitted = playback.stream_position;
+            let done = playback.step(&events).unwrap();
+            let period = playback.native_period();
+            if playback.stream_position > submitted {
+                observed_period = true;
+                assert!(
+                    (0..period.header().frame_count as usize * 2)
+                        .all(|i| period.integer_sample(i) == Some(0))
+                );
+            }
+            if done {
+                break;
+            }
+        }
+        assert!(observed_period);
+        assert_eq!(playback.phase, RenderPhase::Finished);
+        assert_eq!(playback.source_epochs, source_epochs);
+        assert_eq!(playback.source_position, source);
+        assert!(playback.settings.snapshot.software_gain_zero);
+        assert!(!playback.settings.snapshot.muted);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn zero_queued_during_preparation_is_the_first_submitted_gain() {
+        let (playback, _, _) = prepared_nonzero_frames(257);
+        let settings = playback.settings.clone();
+        let entries = playback.view.lock().unwrap().entries.clone();
+        drop(playback);
+        let mut worker = Worker::spawn();
+        worker.view.lock().unwrap().entries = entries.clone();
+        let (gate, reached, release) = preparation_gate();
+        worker.send(Action::PausePreparation(gate)).unwrap();
+        worker
+            .send(Action::Start {
+                settings: settings.clone(),
+                entries,
+                cancel: Arc::new(AtomicBool::new(false)),
+            })
+            .unwrap();
+        reached.recv_timeout(Duration::from_secs(5)).unwrap();
+        let mut zero = settings.clone();
+        zero.snapshot.software_gain_zero = true;
+        zero.snapshot.muted = false;
+        zero.snapshot.gain_ramp_frames = 37;
+        worker.send(Action::Settings(zero)).unwrap();
+        drop(release);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match worker
+                .events
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .unwrap()
+            {
+                Event::Drained {
+                    epochs,
+                    observation,
+                    ..
+                } => {
+                    assert_eq!(epochs, settings.snapshot.epochs);
+                    assert_eq!(observation.submitted_frames, 257);
+                    assert_eq!(observation.source_position_frames, 257);
+                    assert!(observation.input_peak.unwrap() > 0.0);
+                    assert_eq!(observation.output_peak, Some(0.0));
+                    assert!(observation.modified);
+                    break;
+                }
+                Event::Failed { error, .. } => panic!("zero preparation failed: {error}"),
+                Event::Paused { .. } => panic!("zero emitted an unrelated pause"),
+                _ => {}
+            }
+        }
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn raw_and_fixed_render_zero_leave_the_accepted_prefix_and_cursors_intact() {
+        for (graph, ramp) in [(false, 0), (false, 4), (true, 0), (true, 4)] {
+            let (mut playback, events, receiver) = prepared_nonzero_frames(257);
+            if graph {
+                let observed = playback.observe().unwrap();
+                let (settings, activation, pipeline) =
+                    prepare_activation(&playback.settings, &observed);
+                playback
+                    .activate_graph(settings, activation, pipeline, &events)
+                    .unwrap();
+                playback.settings.snapshot.graph_epoch = 1;
+            }
+            playback.settings.snapshot.muted = false;
+            playback.settings.snapshot.software_gain_db = 0.0;
+            playback.settings.snapshot.gain_ramp_frames = 0;
+            playback.set_gain().unwrap();
+            assert!(playback.source_packet(&events).unwrap());
+            let packet = playback.current.packet.as_ref().unwrap();
+            let frames = playback
+                .period
+                .capacity_frames()
+                .min(packet.header().frame_count as usize);
+            if let Some(render) = playback.pipeline.as_mut().and_then(|p| p.render_mut()) {
+                render.process(packet, 0, frames).unwrap();
+            } else {
+                for i in 0..frames * 2 {
+                    playback
+                        .period
+                        .set_integer_sample(i, packet.integer_sample(i).unwrap())
+                        .unwrap();
+                }
+                playback
+                    .period
+                    .set_span(playback.epochs(), playback.sequence, 0, frames as u64)
+                    .unwrap();
+                playback.gain.process(&mut playback.period).unwrap();
+            }
+            playback.pending = true;
+            playback.pending_kind = PendingPeriodKind::Source;
+            let before = playback.native_period().clone();
+            assert!(before.integer_sample(frames * 2 - 1).unwrap() > 0);
+            let accepted = playback
+                .output
+                .write(&before, 0, 7.min(frames - 1))
+                .unwrap()
+                .unwrap();
+            playback.period_offset = accepted;
+            playback.stream_position += accepted as u64;
+            playback.source_position += accepted as u64;
+            playback.source_stream_position += accepted as u64;
+            let position = playback.source_position;
+            let packet_position = playback.current.offset;
+            let epochs = playback.epochs();
+            receiver.try_iter().for_each(drop);
+            playback.settings.snapshot.software_gain_zero = true;
+            playback.settings.snapshot.gain_ramp_frames = 17;
+            playback.set_gain().unwrap();
+            for i in 0..frames * 2 {
+                assert_eq!(
+                    playback.native_period().integer_sample(i),
+                    if i < accepted * 2 {
+                        before.integer_sample(i)
+                    } else {
+                        Some(0)
+                    }
+                );
+            }
+            assert_eq!(playback.native_period().header(), before.header());
+            assert_eq!(playback.period_offset, accepted);
+            assert_eq!(playback.source_position, position);
+            assert_eq!(playback.current.offset, packet_position);
+            assert_eq!(playback.epochs(), epochs);
+            assert!(playback.pending);
+            assert!(receiver.try_iter().next().is_none());
+            playback.settings.snapshot.software_gain_zero = false;
+            playback.settings.snapshot.gain_ramp_frames = ramp;
+            playback.set_gain().unwrap();
+            assert_eq!(
+                playback.native_period().integer_sample(accepted * 2),
+                Some(0)
+            );
+            playback.step(&events).unwrap();
+            assert_eq!(playback.source_position, frames as u64);
+            assert_eq!(playback.current.offset, frames);
+            playback.step(&events).unwrap();
+            for (frame, expected) in if ramp == 0 {
+                [8192, 8192, 8192, 8192, 8192]
+            } else {
+                [2048, 4096, 6144, 8192, 8192]
+            }
+            .into_iter()
+            .enumerate()
+            {
+                assert_eq!(
+                    playback.native_period().integer_sample(frame * 2),
+                    Some(expected)
+                );
+                assert_eq!(
+                    playback.native_period().integer_sample(frame * 2 + 1),
+                    Some(expected)
+                );
+            }
+            assert_eq!(playback.epochs(), epochs);
+        }
     }
     #[test]
     #[cfg(target_os = "linux")]
@@ -5295,6 +5694,40 @@ pub(crate) mod tests {
                 .iter()
                 .any(|action| matches!(action, Action::Stop(_)))
         );
+    }
+    #[test]
+    fn exact_zero_uses_safety_reserve_and_fails_closed_on_failed_delivery() {
+        for disconnected in [false, true] {
+            let (mut worker, receiver) = admission();
+            let cancel = Arc::new(AtomicBool::new(false));
+            worker.cancel = Some(cancel.clone());
+            let mut zero = settings(false);
+            zero.snapshot.software_gain_zero = true;
+            if disconnected {
+                drop(receiver);
+                assert_eq!(
+                    worker.send(Action::Settings(zero)).unwrap_err().code,
+                    ErrorCode::OutputFault
+                );
+                assert_eq!(worker.queued.load(Ordering::Acquire), 0);
+            } else {
+                for _ in 0..ORDINARY_COMMANDS {
+                    worker.send(Action::Settings(settings(false))).unwrap();
+                }
+                for _ in ORDINARY_COMMANDS..COMMANDS {
+                    worker
+                        .send(Action::Settings(zero.clone()))
+                        .expect("ordinary traffic must leave exact zero its safety reserve");
+                }
+                assert_eq!(
+                    worker.send(Action::Settings(zero)).unwrap_err().code,
+                    ErrorCode::SourceBusy
+                );
+                assert_eq!(worker.queued.load(Ordering::Acquire), COMMANDS);
+                assert_eq!(receiver.try_iter().count(), COMMANDS);
+            }
+            assert!(cancel.load(Ordering::Acquire));
+        }
     }
     #[test]
     fn disconnected_safety_delivery_cancels_without_claiming_delivery() {

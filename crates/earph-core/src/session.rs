@@ -105,6 +105,7 @@ pub struct SessionSnapshot {
     pub transport: TransportState,
     pub muted: bool,
     pub software_gain_db: f64,
+    pub software_gain_zero: bool,
     pub epochs: Epochs,
     pub revision: u64,
     pub graph_epoch: u64,
@@ -398,6 +399,7 @@ impl Session {
                 transport: TransportState::Idle,
                 muted: true,
                 software_gain_db: -40.0,
+                software_gain_zero: false,
                 epochs: Epochs::default(),
                 revision: 0,
                 graph_epoch: 0,
@@ -1049,8 +1051,10 @@ impl Session {
         {
             return Err(STALE);
         }
-        if matches!(command.payload, Command::Mute { .. })
-            && command.session_id.is_some()
+        if matches!(
+            command.payload,
+            Command::Mute { .. } | Command::VolumeSilence | Command::VolumeFactoryDefaults
+        ) && command.session_id.is_some()
             && command.session_id != self.state.session_id
         {
             return Err(STALE);
@@ -1104,6 +1108,8 @@ impl Session {
                 | Command::OutputSelect { .. }
                 | Command::OutputConsent { .. }
                 | Command::VolumeSet { .. }
+                | Command::VolumeSilence
+                | Command::VolumeFactoryDefaults
                 | Command::VolumeCaps { .. }
                 | Command::FixedArm { .. }
         ) && !command.payload.is_profile()
@@ -1140,8 +1146,10 @@ impl Session {
             }
             return Ok(ReceiptStatus::Applied);
         }
-        if !matches!(command.payload, Command::Mute { muted: true })
-            && command.expected_revision != Some(self.state.revision)
+        if !matches!(
+            command.payload,
+            Command::Mute { muted: true } | Command::VolumeSilence
+        ) && command.expected_revision != Some(self.state.revision)
         {
             return Err(EngineError::new(
                 ErrorCode::StaleRevision,
@@ -1246,6 +1254,7 @@ impl Session {
                 next.output_id = Some(output.device_id.clone());
                 next.device_epoch = increment(next.device_epoch)?;
                 next.output = Some(output.clone());
+                Self::validate_software_zero(&next)?;
                 next.configured_profile = None;
                 next.volume_policy = next.local_volume_policy.clone();
                 next.playback = None;
@@ -1324,12 +1333,33 @@ impl Session {
                     ));
                 }
                 next.software_gain_db = gain;
+                next.software_gain_zero = false;
                 if let Some(active) = &self.graph.active {
                     active.validate_headroom(gain, next.volume_policy.software_cap_db())?;
                 }
                 next.gain_ramp_frames = *ramp_frames;
                 if !next.muted {
                     Self::validate_local_unmute(&next)?;
+                }
+                ReceiptStatus::Applied
+            }
+            Command::VolumeSilence => {
+                next.software_gain_zero = true;
+                Self::validate_software_zero(&next)?;
+                next.gain_ramp_frames = 0;
+                ReceiptStatus::Applied
+            }
+            Command::VolumeFactoryDefaults => {
+                next.software_gain_db = self.factory_defaults_gain(&next)?;
+                next.software_gain_zero = false;
+                next.gain_ramp_frames = 0;
+                next.muted = true;
+                if next
+                    .output
+                    .as_ref()
+                    .is_some_and(|o| o.volume_mode == VolumeMode::Fixed)
+                {
+                    next.volume_policy.disarm();
                 }
                 ReceiptStatus::Applied
             }
@@ -1388,6 +1418,7 @@ impl Session {
                     if !self.local_playback_enabled {
                         return Err(STATE);
                     }
+                    Self::validate_software_zero(&next)?;
                     let output = self.state.output.as_ref().ok_or(EngineError::new(
                         ErrorCode::SafetyPolicyBlocked,
                         "select and approve an output before preparing playback",
@@ -1672,6 +1703,7 @@ impl Session {
         Ok(status)
     }
     fn validate_local_unmute(state: &SessionSnapshot) -> Result<(), EngineError> {
+        Self::validate_software_zero(state)?;
         let blocked = EngineError::new(
             ErrorCode::SafetyPolicyBlocked,
             "select and approve the current output before unmuting",
@@ -1697,6 +1729,67 @@ impl Session {
             state.software_gain_db,
             None,
         )
+    }
+    pub(super) fn validate_software_zero(state: &SessionSnapshot) -> Result<(), EngineError> {
+        if !state.software_gain_zero {
+            return Ok(());
+        }
+        let output = state.output.as_ref().ok_or(EngineError::new(
+            ErrorCode::SafetyPolicyBlocked,
+            "select a software output before selecting exact zero",
+        ))?;
+        state.volume_policy.validate_software_zero(
+            output.volume_mode,
+            SampleDomain::Pcm,
+            output.fidelity,
+        )
+    }
+    /// Lists only presets whose complete mutation satisfies current output and graph policy.
+    pub fn renderer_presets(&self) -> &'static [&'static str] {
+        if self.factory_defaults_gain(&self.state).is_ok() {
+            &["FactoryDefaults"]
+        } else {
+            &[]
+        }
+    }
+    fn factory_defaults_gain(&self, state: &SessionSnapshot) -> Result<f64, EngineError> {
+        if self.graph_activation().is_some() {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "graph activation owns the finite gain setting",
+            ));
+        }
+        let output = state.output.as_ref().ok_or(STATE)?;
+        let gain = match output.volume_mode {
+            VolumeMode::Software => {
+                state.volume_policy.validate_software_zero(
+                    output.volume_mode,
+                    SampleDomain::Pcm,
+                    output.fidelity,
+                )?;
+                (-40.0_f64).min(state.volume_policy.software_cap_db())
+            }
+            VolumeMode::Fixed => {
+                state.volume_policy.validate_gain_constraints(
+                    output.volume_mode,
+                    SampleDomain::Pcm,
+                    output.fidelity,
+                    state.software_gain_db,
+                    None,
+                )?;
+                state.software_gain_db
+            }
+            VolumeMode::Hardware => {
+                return Err(EngineError::new(
+                    ErrorCode::CapabilityUnsupported,
+                    "hardware presets require actual volume set and readback",
+                ));
+            }
+        };
+        if let Some(active) = &self.graph.active {
+            active.validate_headroom(gain, state.volume_policy.software_cap_db())?;
+        }
+        Ok(gain)
     }
     fn validate_live_queue_edit(&self, command: &Command) -> Result<(), EngineError> {
         if self.state.source != Some(SourceKind::LocalFile)

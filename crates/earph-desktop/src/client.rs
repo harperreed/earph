@@ -161,15 +161,14 @@ impl Request {
             Command::Stop
                 | Command::Pause
                 | Command::Mute { muted: true }
+                | Command::VolumeSilence
+                | Command::VolumeFactoryDefaults
                 | Command::VolumeCaps { .. }
                 | Command::OwnerShutdown
                 | Command::NetworkGrantsRevoke { .. }
                 | Command::RendererGrantsRevoke { .. }
-                | Command::RendererRequest {
-                    action: earph_core::renderer::RendererAction::Stop { .. },
-                    ..
-                }
-        ) {
+        ) || matches!(&envelope.payload, Command::RendererRequest { action, .. } if action.is_safety())
+        {
             Lane::Safety
         } else {
             Lane::Ordinary

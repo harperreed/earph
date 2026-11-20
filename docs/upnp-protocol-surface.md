@@ -3,7 +3,8 @@
 `earph-network::upnp` supplies the U3 wire layer.
 It does not enable a renderer in Engine or grant playback authority.
 No existing owner, CLI, or desktop startup opens its listeners.
-U1 ownership, U2 gain and presets, U4 execution/events, and U5 interoperability remain separate gates.
+Core ownership and shared gain are qualified foundations.
+U4 execution/events and U5 interoperability remain required gates.
 
 The shared action table defines SOAP admission, ordered responses, and device/SCPD descriptions.
 The surface declares MediaRenderer:1, AVTransport:1, RenderingControl:1, and ConnectionManager:1 under UDA1.0.
@@ -11,7 +12,9 @@ It omits SetNextAVTransportURI and all general administration operations.
 It validates InstanceID=0, scalar types, Master channel, and Play speed=1 before queueing.
 AVTransport and RenderingControl return their distinct invalid-instance faults, 718 and 702.
 The nonseekable contract supplies Seek fault 710 and Next/Previous fault 711 after owner state validation.
-It does not implement network volume conversion, presets, source ownership, or connection-state projection.
+Core supplies volume conversion, presets, and source ownership separately.
+The wire descriptions and scalar validation share Core's volume limits.
+The execution bridge and connection-state projection remain required.
 
 `DeviceIdentity::new` validates the stable UDN, friendly name, and public SERVER header.
 The caller supplies truthful OS/version, UPnP/1.0, and product/version metadata.

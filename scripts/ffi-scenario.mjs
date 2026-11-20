@@ -119,6 +119,7 @@ try {
   save('owner-readiness-private.json', { announced_owner_id: announcedOwner, observed_owner_id: initial.owner_id,
     elapsed_ms: Date.now() - startupStarted, startup_deadline_ms: 8000, endpoint_alone_is_not_readiness: true });
   assert.equal(initial.muted, true); assert.equal(initial.output, null); assert.equal(initial.shutdown_requested, false);
+  assert.equal(initial.software_gain_zero, false, 'owner must report its exact-zero setting');
   const cases = [];
   const add = (name, command) => cases.push({ name, bytes: Buffer.isBuffer(command) ? command : Buffer.from(JSON.stringify(command)) });
   add('state', envelope({ method: 'state.get' }));
@@ -146,7 +147,7 @@ try {
   assert.equal(results.queue.receipt.result.value.entries.length, 1);
   assert.equal(results.queue.receipt.result.value.entries[0].path, 'owned-雪.wav');
   const after = results.after_dispose.receipt.result.value;
-  for (const key of ['owner_id', 'muted', 'software_gain_db', 'output', 'output_consented', 'volume_policy', 'shutdown_requested']) {
+  for (const key of ['owner_id', 'muted', 'software_gain_db', 'software_gain_zero', 'output', 'output_consented', 'volume_policy', 'shutdown_requested']) {
     assert(Object.hasOwn(initial, key) && Object.hasOwn(after, key), `missing state field: ${key}`);
     assert.deepEqual(after[key], initial[key], key);
   }
@@ -163,14 +164,24 @@ try {
   assert.equal(advertisedActivity.measurement_boundary, 'core_audio_sdk_entry_calls');
   assert.deepEqual(advertisedActivity.backends, process.platform === 'darwin' ? ['core_audio'] : []);
   const phases = [];
+  let expectedForeignOutput = null;
   const readForeign = (bytes, label) => {
     const rows = foreign([{ name: 'request', bytes }, {
       name: 'after_dispose', bytes: Buffer.from(JSON.stringify(envelope({ method: 'state.get' }))),
     }], label);
     const after = JSON.parse(replyBytes(rows, 'after_dispose')).receipt.result.value;
     assert.equal(after.owner_id, initial.owner_id);
-    assert.equal(after.muted, true); assert.equal(after.output, null); assert.equal(after.output_consented, false);
+    assert.equal(after.muted, true); assert.deepEqual(after.output, expectedForeignOutput); assert.equal(after.output_consented, false);
     return replyBytes(rows, 'request');
+  };
+  const controlCall = (domain, name, payload, state = null, expected = {}) => {
+    const bytes = Buffer.isBuffer(payload) ? payload : Buffer.from(JSON.stringify(envelope(payload, state)));
+    const reply = readForeign(bytes, `${domain}-${name}`);
+    assert(reply.equals(cli(bytes, `${domain}-${name}`)), `${domain} binding changed reply: ${name}`);
+    const document = JSON.parse(reply);
+    assert.equal(document.receipt.status, expected.status ?? 'applied', name);
+    if (expected.code) assert.equal(document.receipt.error?.code, expected.code, name);
+    return { bytes, reply, value: document.receipt.result?.value };
   };
   async function phase(name, payload, query = false, status = 'applied') {
     const state = query ? null : queryState(`${name}-fresh-state`);
@@ -255,15 +266,6 @@ try {
   try {
     await new Promise((resolve, reject) => { fixture.once('error', reject); fixture.listen(0, networkAddress, resolve); });
     const origin = `http://${networkAddress}:${fixture.address().port}/`;
-    const controlCall = (domain, name, payload, state = null, expected = {}) => {
-      const bytes = Buffer.isBuffer(payload) ? payload : Buffer.from(JSON.stringify(envelope(payload, state)));
-      const reply = readForeign(bytes, `${domain}-${name}`);
-      assert(reply.equals(cli(bytes, `${domain}-${name}`)), `${domain} binding changed reply: ${name}`);
-      const document = JSON.parse(reply);
-      assert.equal(document.receipt.status, expected.status ?? 'applied', name);
-      if (expected.code) assert.equal(document.receipt.error?.code, expected.code, name);
-      return { bytes, reply, value: document.receipt.result?.value };
-    };
     const networkCall = (...args) => { const result = controlCall('network', ...args); networkCommands++; return result; };
     const rendererCall = (...args) => { const result = controlCall('renderer', ...args); rendererCommands++; return result; };
     const firstNetwork = networkCall('initial', { method: 'sources.network.get' }).value;
@@ -319,14 +321,48 @@ try {
   }
   const finalState = queryState('integrated-final');
   assert.equal(finalState.source, null); assert.equal(finalState.transport, 'idle');
-  for (const key of ['owner_id', 'muted', 'software_gain_db', 'output', 'output_consented', 'volume_policy', 'local_volume_policy', 'configured_profile', 'graph_epoch', 'shutdown_requested']) {
+  for (const key of ['owner_id', 'muted', 'software_gain_db', 'software_gain_zero', 'output', 'output_consented', 'volume_policy', 'local_volume_policy', 'configured_profile', 'graph_epoch', 'shutdown_requested']) {
     assert(Object.hasOwn(initial, key) && Object.hasOwn(finalState, key), `missing final state field: ${key}`);
     assert.deepEqual(finalState[key], initial[key], `saved intent changed output authority: ${key}`);
   }
+  let volumeCommands = 0;
+  const volumeCall = (...args) => { const result = controlCall('volume', ...args); volumeCommands++; return result; };
+  expectedForeignOutput = { backend: process.platform === 'darwin' ? 'core_audio' : 'alsa', route: 'system',
+    endpoint: 'unopened-foreign-volume-fixture', device_id: 'foreign-volume-device', profile_id: 'foreign-volume-profile',
+    period_frames: 64, buffer_frames: 256, volume_mode: 'software', fidelity: 'compatible_conversion' };
+  volumeCall('output', { method: 'output.select', output: expectedForeignOutput }, finalState);
+  const beforeZero = queryState('volume-before-zero');
+  const zero = volumeCall('zero', { method: 'volume.silence' }, beforeZero);
+  const silent = queryState('volume-silent-state');
+  assert.equal(silent.software_gain_zero, true); assert.equal(silent.software_gain_db, beforeZero.software_gain_db);
+  assert.equal(silent.muted, beforeZero.muted); assert.equal(silent.gain_ramp_frames, 0);
+  const pathReport = volumeCall('signal-path', { method: 'signal_path.get' }).value.report;
+  const eventReport = volumeCall('events', { method: 'events.get', cursor: null }).value.report;
+  assert.equal(pathReport.requested.software_gain_zero, true);
+  assert.equal(eventReport.snapshot.software_gain_zero, true);
+  volumeCall('finite', { method: 'volume.set', millidecibels: -60000, ramp_frames: 4 }, silent);
+  const finite = queryState('volume-finite-state');
+  assert.equal(finite.software_gain_zero, false); assert.equal(finite.software_gain_db, -60);
+  assert.equal(finite.muted, beforeZero.muted); assert.equal(finite.gain_ramp_frames, 4);
+  assert(volumeCall('zero-replay', zero.bytes).reply.equals(zero.reply));
+  assert.deepEqual(queryState('volume-after-replay-state'), finite);
+  volumeCall('cap-refusal', { method: 'volume.set', millidecibels: 1, ramp_frames: 0 }, finite,
+    { status: 'rejected', code: 'SAFETY_POLICY_BLOCKED' });
+  assert.deepEqual(queryState('volume-after-refusal-state'), finite);
+  volumeCall('preset', { method: 'volume.factory_defaults' }, finite);
+  const preset = queryState('volume-preset-state');
+  assert.equal(preset.software_gain_zero, false); assert.equal(preset.software_gain_db, -40);
+  assert.equal(preset.muted, true); assert.equal(preset.gain_ramp_frames, 0);
+  for (const key of ['owner_id', 'source', 'transport', 'epochs', 'output', 'output_consented', 'volume_policy', 'local_volume_policy', 'graph_epoch']) {
+    assert.deepEqual(preset[key], beforeZero[key], `volume changed unrelated state: ${key}`);
+  }
+  save('volume-control-private.json', { commands: volumeCommands, exact_cli_comparisons: volumeCommands,
+    zero_preserves_mute: true, finite_exit: true, exact_zero_replay: true, cap_refusal_atomic: true,
+    diagnostic_zero_shared: true, factory_defaults: true, output_consented: false, source_started: false });
   save('integrated-phases-private.json', phases);
   summary = { schema_version: 1, status: 'pass', language: options.language,
-    baseline_foreign_commands: cases.length, actual_foreign_commands: cases.length + phases.length * 4 + 2 + (networkCommands + rendererCommands) * 2,
-    exact_cli_comparisons: cases.length + phases.length * 2 + 1 + networkCommands + rendererCommands, typed_local_failures: 4, owner_survives_handle_release: true,
+    baseline_foreign_commands: cases.length, actual_foreign_commands: cases.length + phases.length * 4 + 2 + (networkCommands + rendererCommands + volumeCommands) * 2,
+    exact_cli_comparisons: cases.length + phases.length * 2 + 1 + networkCommands + rendererCommands + volumeCommands, typed_local_failures: 4, owner_survives_handle_release: true,
     integrated_profile_commands: phases.length, exact_terminal_replay_comparisons: phases.length,
     integrated_foreign_frames: phases.length * 4 + 2, accepted_initial_profile_receipts: phases.filter(p => p.first_status === 'accepted').length,
     generated_package_object_hashes_verified: inspected.manifest.objects.length,
@@ -338,7 +374,9 @@ try {
     generated_renderer_foreign_frames: rendererCommands * 2, generated_renderer_exact_cli_comparisons: rendererCommands,
     renderer_grants_refused: true, renderer_untrusted_ingress_denied: true, renderer_rejected_grant_replay_exact: true,
     missing_export_review_refused: true, successful_foreign_package_import_qualified: false,
-    reported_safety_unchanged: true, native_output_opened: false, signal_exercises: 0, cancellation_qualified: false,
+    generated_volume_commands: volumeCommands, generated_volume_foreign_frames: volumeCommands * 2,
+    generated_volume_exact_cli_comparisons: volumeCommands, profile_and_network_safety_unchanged: true,
+    gain_fixture_output_consented: false, native_output_opened: false, signal_exercises: 0, cancellation_qualified: false,
     subscriptions_qualified: false, private_jna_dispatcher_verified: options.language === 'kotlin',
     engine_sha256: engineHash, library_sha256: libraryHash };
 } catch (error) { failure = error; }

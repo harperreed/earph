@@ -298,6 +298,10 @@ pub enum Command {
         millidecibels: i32,
         ramp_frames: u32,
     },
+    #[serde(rename = "volume.silence")]
+    VolumeSilence,
+    #[serde(rename = "volume.factory_defaults")]
+    VolumeFactoryDefaults,
     #[serde(rename = "volume.caps.set")]
     VolumeCaps {
         software_millidecibels: i32,

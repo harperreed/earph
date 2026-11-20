@@ -25,8 +25,9 @@ pub(super) fn show(ui: &mut egui::Ui, controller: &mut GuiController) {
             state.revision
         ));
         ui.label(format!(
-            "Transport: {:?} · Source: {:?} · Muted: {} · Software gain: {:.3} dB",
-            state.transport, state.source, state.muted, state.software_gain_db
+            "Transport: {:?} · Source: {:?} · Muted: {} · Effective software gain: {} · Finite setting: {:.3} dB",
+            state.transport, state.source, state.muted,
+            if state.software_gain_zero { "exact zero" } else { "finite" }, state.software_gain_db
         ));
         if let Some(network) = state.network_observation() {
             ui.label(format!(

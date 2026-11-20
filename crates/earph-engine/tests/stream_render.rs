@@ -71,6 +71,61 @@ fn block() -> PcmBlock {
 }
 
 #[test]
+fn leaving_exact_zero_applies_the_requested_ramp_to_retained_pre_gain_output() {
+    for ramp in [0, 2] {
+        let mut render =
+            PreparedStreamRender::prepare(plan(), config(), Arc::new(AtomicBool::new(false)))
+                .unwrap();
+        render.set_gain_target(None, 0).unwrap();
+        let input = block();
+        let mut offset = 0;
+        for _ in 0..20 {
+            let step = render
+                .pump(Some(SourceSpan {
+                    block: &input,
+                    offset,
+                    frames: 4 - offset,
+                }))
+                .unwrap();
+            offset += step.consumed_frames;
+            if offset == 4 {
+                break;
+            }
+        }
+        assert_eq!(offset, 4);
+        for _ in 0..20 {
+            if render.output_positions().generated == 4 {
+                break;
+            }
+            render.pump(None).unwrap();
+        }
+        assert_eq!(
+            render.output_positions().generated,
+            4,
+            "source frontier {offset}; {:?}",
+            render.stream().stats()
+        );
+        assert_eq!(render.stage().unwrap().unwrap().frames, 2);
+        assert_eq!(render.period().integer_sample(0), Some(0));
+        assert_eq!(render.period().integer_sample(1), Some(0));
+        render.accepted(2).unwrap();
+        render.observe(2, 2).unwrap();
+        let stats = render.stream().stats();
+        let generated = render.output_positions().generated;
+        render.set_gain_target(Some(0.0), ramp).unwrap();
+        assert_eq!(render.stage().unwrap().unwrap().frames, 2);
+        assert_eq!(render.period().header().frame_position, 2);
+        assert_eq!(
+            render.period().integer_sample(0),
+            Some(if ramp == 0 { 3000 } else { 1500 })
+        );
+        assert_eq!(render.period().integer_sample(1), Some(4000));
+        assert_eq!(render.stream().stats(), stats);
+        assert_eq!(render.output_positions().generated, generated);
+    }
+}
+
+#[test]
 fn partial_native_writes_and_holds_preserve_source_frontier_and_reapply_current_volume() {
     let mut render =
         PreparedStreamRender::prepare(plan(), config(), Arc::new(AtomicBool::new(false))).unwrap();

@@ -258,6 +258,59 @@ impl Session {
         now_ns: u64,
     ) -> Result<ReceiptStatus, EngineError> {
         match action {
+            RendererAction::SetVolume { binding, .. }
+            | RendererAction::SetVolumeDb { binding, .. }
+            | RendererAction::FactoryDefaults { binding } => {
+                let owner = self.renderer.active.as_ref().ok_or(STALE)?;
+                if &owner.controller_id != controller_id
+                    || owner.grant_generation != grant_generation
+                    || &owner.binding != binding
+                    || owner.retirement_request.is_some()
+                    || self.network.closing.is_some()
+                    || c.session_id != self.state.session_id
+                    || !self.network_authority_valid(binding, now_ns)
+                {
+                    return Err(STALE);
+                }
+                let mut lowered = c.clone();
+                lowered.payload = match action {
+                    RendererAction::FactoryDefaults { .. } => Command::VolumeFactoryDefaults,
+                    _ => {
+                        use crate::remote_volume::RemoteVolume;
+                        let setting = match action {
+                            RendererAction::SetVolume { volume, .. } => {
+                                RemoteVolume::from_volume(*volume)?
+                            }
+                            RendererAction::SetVolumeDb { volume_db, .. } => {
+                                RemoteVolume::from_volume_db(*volume_db)?
+                            }
+                            _ => unreachable!(),
+                        };
+                        let output = self.state.output.as_ref().ok_or(STATE)?;
+                        self.state.volume_policy.validate_software_zero(
+                            output.volume_mode,
+                            SampleDomain::Pcm,
+                            output.fidelity,
+                        )?;
+                        // Only an already reported finite setting skips lowering after live authority checks.
+                        if !self.state.software_gain_zero
+                            && setting.volume() != 0
+                            && RemoteVolume::from_local(self.state.software_gain_db, false)?
+                                == setting
+                        {
+                            return Ok(ReceiptStatus::Applied);
+                        }
+                        match setting.millidecibels() {
+                            Some(millidecibels) => Command::VolumeSet {
+                                millidecibels,
+                                ramp_frames: 0,
+                            },
+                            None => Command::VolumeSilence,
+                        }
+                    }
+                };
+                self.apply_command(&lowered, now_ns, |_| Err(STATE))
+            }
             RendererAction::StageUri {
                 expected_staging_generation,
                 uri,

@@ -147,3 +147,11 @@ The corrected State label keeps every assertion and exclusive-write guard.
 Only that driver label changed after the successful build phases; the corrected scenario reuses their exact verified products.
 Later test-fixture changes fall outside that frozen source snapshot.
 This proof covers disabled renderer control, rather than enabled renderer ingress or playback.
+
+The [generated Kotlin gain receipt](evidence/ffi/linux-kotlin-volume-20261120.json) covers the later integrated zero setting.
+Its 94 frames use 43 consumers, 52 exact CLI comparisons, and 172 local guard replies.
+Eight gain calls cover zero, finite exit, diagnostic readback, exact replay, cap refusal, and FactoryDefaults.
+The fixture selects an unopened, unconsented output after the earlier intent-preservation checks.
+All 48 JVM invocations retain private JNA guards.
+The owner exits normally without opening audio.
+Two runtime hashes remain stable through the scenario; six products are frozen after the complete gate.

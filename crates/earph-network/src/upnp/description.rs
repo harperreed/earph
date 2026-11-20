@@ -4,6 +4,7 @@ use super::{
     Service, SoapError,
     contract::{input_variable, variable_type},
 };
+use earph_core::remote_volume::{MAX_REMOTE_VOLUME, MIN_REMOTE_VOLUME_DB};
 use std::{collections::BTreeSet, fmt::Write};
 
 pub fn device_description(udn: &str, friendly_name: &str) -> Result<String, SoapError> {
@@ -80,8 +81,8 @@ pub fn service_description(service: Service) -> String {
         )
         .unwrap();
         match variable {
-            "Volume" => xml.push_str("<allowedValueRange><minimum>0</minimum><maximum>100</maximum><step>1</step></allowedValueRange>"),
-            "VolumeDB" => xml.push_str("<allowedValueRange><minimum>-32767</minimum><maximum>0</maximum><step>1</step></allowedValueRange>"),
+            "Volume" => write!(xml, "<allowedValueRange><minimum>0</minimum><maximum>{MAX_REMOTE_VOLUME}</maximum><step>1</step></allowedValueRange>").unwrap(),
+            "VolumeDB" => write!(xml, "<allowedValueRange><minimum>{MIN_REMOTE_VOLUME_DB}</minimum><maximum>0</maximum><step>1</step></allowedValueRange>").unwrap(),
             "A_ARG_TYPE_Channel" => xml.push_str("<allowedValueList><allowedValue>Master</allowedValue></allowedValueList>"),
             _ => {},
         }

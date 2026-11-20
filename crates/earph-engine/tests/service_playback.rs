@@ -326,6 +326,38 @@ fn assert_no_capture(capture: &Path) {
 }
 
 #[test]
+fn executable_zero_and_factory_defaults_keep_the_canonical_gain_contract() {
+    let directory = directory();
+    let (config, capture) = configuration(&directory);
+    let mut host = Host::start(&config);
+    let controller = &host.controller;
+    select_output(controller, "software", "compatible_conversion");
+    let before = controller.state();
+    controller.apply(json!({"method":"volume.silence"}));
+    let zero = controller.state();
+    assert_eq!(zero["software_gain_zero"], true);
+    assert_eq!(zero["software_gain_db"], before["software_gain_db"]);
+    assert_eq!(zero["muted"], before["muted"]);
+    assert_eq!(zero["epochs"], before["epochs"]);
+    let path = controller.query(json!({"method":"signal_path.get"}));
+    assert_eq!(path["report"]["requested"]["software_gain_zero"], true);
+    controller.apply(json!({"method":"volume.set","millidecibels":-60000,"ramp_frames":17}));
+    assert_eq!(controller.state()["software_gain_zero"], false);
+    controller.apply(json!({"method":"volume.silence"}));
+    controller.apply(json!({"method":"volume.factory_defaults"}));
+    let preset = controller.state();
+    assert_eq!(preset["software_gain_zero"], false);
+    assert_eq!(preset["software_gain_db"], -40.0);
+    assert_eq!(preset["gain_ramp_frames"], 0);
+    assert_eq!(preset["muted"], true);
+    assert_eq!(preset["output_consented"], before["output_consented"]);
+    assert_eq!(preset["epochs"], before["epochs"]);
+    assert_no_capture(&capture);
+    controller.apply(json!({"method":"owner.shutdown"}));
+    assert!(host.child.wait().unwrap().success());
+}
+
+#[test]
 fn executable_fixed_output_joins_an_appended_lossless_track_exactly() {
     let directory = directory();
     let first = directory.join("first.wav");

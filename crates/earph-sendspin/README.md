@@ -70,7 +70,12 @@ It must authenticate discarded records and preserve one fragmentation sequence p
 No record can reach the player parser through this library without the caller's explicit dispatch.
 The responder owns no listener, output source, native output, pairing UI, token presentation, or identity persistence.
 
-Mandatory Pairing PSK records, token vectors, retention, finalization, and private persistence remain next gates.
+The `pairing_token` module implements version-zero Pairing PSK token export and decoding.
+The `pairing` module plans protected records and reduces authenticated Pairing PSK events.
+It ends at a durably stored record while the current session remains unpaired.
+The [pairing contract](../../docs/sendspin-pairing.md) defines its ordered writer and commit adapter obligations.
+Persistence runs only in test support with synthetic credentials and explicit private fixture directories.
+Production identity storage, the secret-manager adapter, and deliberate token presentation remain later gates.
 The full in-band re-handshake also remains a next gate.
 It must retain stream and clock state, enforce the quiet period, and authenticate permitted discarded old-key traffic.
 It must use the prior handshake hash as prologue and require `server/activate` first under the new keys.
@@ -98,3 +103,5 @@ Actual Music Assistant interoperability and independent-clock capture remain sep
 Doctor Biz approved the pinned specification licence for this implementation.
 The exact terms are retained at the repository root in `SENDSPIN-SPEC-LICENSE.md`.
 Earph's existing MIT licence remains in place.
+
+See the [integrated pairing receipt](../../docs/evidence/sendspin/pairing-linux-20261120.json) for source-bound checks and limits.

@@ -56,6 +56,7 @@ fn missing_consumed_fields_are_not_deserialized_as_null_or_zero() {
         "output",
         "playback",
         "muted",
+        "software_gain_zero",
         "revision",
         "output_consented",
     ] {

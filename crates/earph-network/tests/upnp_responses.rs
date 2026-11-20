@@ -11,6 +11,50 @@ fn request(service: Service, action: &str, arguments: &str) -> earph_network::up
 }
 
 #[test]
+fn volume_requests_and_responses_use_the_advertised_grid() {
+    for (set, get, valid, invalid) in [
+        ("SetVolume", "GetVolume", ["0", "30700"], ["-1", "30701"]),
+        (
+            "SetVolumeDB",
+            "GetVolumeDB",
+            ["-32767", "0"],
+            ["-32768", "1"],
+        ),
+    ] {
+        let query = request(
+            Service::RenderingControl,
+            get,
+            "<InstanceID>0</InstanceID><Channel>Master</Channel>",
+        );
+        for value in valid {
+            let args = format!(
+                "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>{value}</DesiredVolume>"
+            );
+            assert!(
+                request(Service::RenderingControl, set, &args)
+                    .validate_arguments()
+                    .is_ok(),
+                "{set}: {value}"
+            );
+            assert!(
+                encode_response(&query, &[("CurrentVolume", value)]).is_ok(),
+                "{get}: {value}"
+            );
+        }
+        for value in invalid {
+            let args = format!(
+                "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>{value}</DesiredVolume>"
+            );
+            assert_eq!(
+                request(Service::RenderingControl, set, &args).validate_arguments(),
+                Err(UpnpFault::InvalidArguments)
+            );
+            assert!(encode_response(&query, &[("CurrentVolume", value)]).is_err());
+        }
+    }
+}
+
+#[test]
 fn semantic_types_and_service_faults_precede_any_owner_dispatch() {
     for (service, action, args, code) in [
         (

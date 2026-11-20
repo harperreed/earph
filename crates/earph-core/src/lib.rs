@@ -16,6 +16,7 @@ pub mod profile_packages;
 pub mod profiles;
 pub mod provenance;
 pub mod queue;
+pub mod remote_volume;
 pub mod renderer;
 pub mod safety;
 mod serde_helpers;

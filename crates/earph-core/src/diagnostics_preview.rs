@@ -85,6 +85,8 @@ impl DiagnosticBundle {
             || self.history.cut != self.cut
             || self.signal_path.requested.muted != self.history.snapshot.muted
             || self.signal_path.requested.software_gain_db != self.history.snapshot.software_gain_db
+            || self.signal_path.requested.software_gain_zero
+                != self.history.snapshot.software_gain_zero
             || self.history.has_more
             || self.missing_evidence != MISSING_DIAGNOSTIC_EVIDENCE
             || self.omitted_categories != DIAGNOSTIC_OMISSIONS

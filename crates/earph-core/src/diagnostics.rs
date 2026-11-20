@@ -255,6 +255,7 @@ pub struct RequestedPath {
     pub output: Option<RequestedOutput>,
     pub graph_configured: bool,
     pub software_gain_db: f64,
+    pub software_gain_zero: bool,
     pub gain_ramp_frames: u32,
     pub muted: bool,
     pub software_cap_db: f64,
@@ -584,6 +585,15 @@ impl DiagnosticReport for SignalPathReport {
             || !(-120.0..=requested.software_cap_db).contains(&requested.software_gain_db)
         {
             return Err(INVALID);
+        }
+        if requested.software_gain_zero {
+            let output = requested.output.ok_or(INVALID)?;
+            VolumePolicy::new(requested.software_cap_db, requested.hardware_cap_db)?
+                .validate_software_zero(
+                    output.volume_mode,
+                    crate::safety::SampleDomain::Pcm,
+                    output.fidelity,
+                )?;
         }
         if let Some(resolved) = &self.resolved {
             if !crate::graph_control::graph_boundary_formats_match(

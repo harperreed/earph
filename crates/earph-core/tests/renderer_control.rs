@@ -181,6 +181,9 @@ fn wire_peer_cannot_supply_trusted_renderer_ingress() {
 }
 
 fn supported() -> Session {
+    supported_with_rendering_control(false)
+}
+fn supported_with_rendering_control(rendering_control: bool) -> Session {
     let mut s = owner();
     s.enable_local_playback();
     s.enable_network_playback();
@@ -192,6 +195,14 @@ fn supported() -> Session {
         .push(json!({
             "id":"controller-b","peers":["192.168.1.3"],"rights":["stage","transport","takeover"]
         }));
+    if rendering_control {
+        for controller in document["grants"]["controllers"].as_array_mut().unwrap() {
+            controller["rights"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!("rendering_control"));
+        }
+    }
     for (id, payload) in [
         ("controllers", document),
         (
@@ -815,8 +826,8 @@ fn failed_commit_and_fetch_policy_leave_staging_and_source_authority_unchanged()
 }
 
 #[test]
-fn renderer_metadata_pressure_shares_the_media_budget_and_keeps_exact_stop_available() {
-    let mut s = supported();
+fn renderer_metadata_pressure_keeps_exact_zero_presets_and_stop_available() {
+    let mut s = supported_with_rendering_control(true);
     media_grants(&mut s);
     renderer_request(
         &mut s,
@@ -859,6 +870,31 @@ fn renderer_metadata_pressure_shares_the_media_budget_and_keeps_exact_stop_avail
     );
     assert!(s.network_retained_bytes().unwrap() <= 16 * 1024 * 1024);
     let staged = s.renderer_snapshot().staged;
+    assert_eq!(
+        renderer_request(
+            &mut s,
+            "safety-zero",
+            "controller-a",
+            json!({"operation":"set_volume","binding":binding,"volume":0}),
+            0
+        )
+        .status,
+        ReceiptStatus::Applied
+    );
+    assert!(s.snapshot().software_gain_zero);
+    assert_eq!(
+        renderer_request(
+            &mut s,
+            "safety-preset",
+            "controller-a",
+            json!({"operation":"factory_defaults","binding":binding}),
+            0
+        )
+        .status,
+        ReceiptStatus::Applied
+    );
+    assert!(!s.snapshot().software_gain_zero);
+    assert_eq!(s.renderer_snapshot().staged, staged);
     let stop = renderer_request(
         &mut s,
         "safety-stop",
@@ -1527,6 +1563,341 @@ fn stage_preserves_an_explicit_unmuted_gain_without_output_io() {
     expected.revision += 1;
     expected.event_sequence += 1;
     assert_eq!(s.snapshot(), expected);
+}
+
+#[test]
+fn renderer_zero_requires_current_authority_and_the_exact_active_source() {
+    let mut s = supported_with_rendering_control(true);
+    media_grants(&mut s);
+    renderer_request(
+        &mut s,
+        "stage-zero",
+        "controller-a",
+        stage(0, "http://private.example/a", ""),
+        0,
+    );
+    assert_eq!(
+        play(&mut s, "controller-a", "play-zero", 1).status,
+        ReceiptStatus::Accepted
+    );
+    let binding = s.network_source().unwrap().binding.clone();
+    let receipt = renderer_request(
+        &mut s,
+        "remote-zero",
+        "controller-a",
+        json!({"operation":"set_volume","binding":binding,"volume":0}),
+        0,
+    );
+    assert_eq!(receipt.status, ReceiptStatus::Applied, "{receipt:?}");
+    assert_eq!(
+        serde_json::to_value(s.snapshot()).unwrap()["software_gain_zero"],
+        true
+    );
+    let before = s.snapshot();
+    let receipt = renderer_request(
+        &mut s,
+        "other-zero",
+        "controller-b",
+        json!({"operation":"set_volume","binding":binding,"volume":1}),
+        0,
+    );
+    assert_eq!(receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(s.snapshot(), before);
+    let mut stale = binding.clone();
+    stale.source_generation += 1;
+    assert_eq!(
+        renderer_request(
+            &mut s,
+            "stale-zero",
+            "controller-a",
+            json!({"operation":"set_volume","binding":stale,"volume":0}),
+            0
+        )
+        .status,
+        ReceiptStatus::Rejected
+    );
+    assert_eq!(s.snapshot(), before);
+}
+
+#[test]
+fn a_transport_grant_cannot_authorize_renderer_gain_or_presets() {
+    let mut s = supported();
+    media_grants(&mut s);
+    renderer_request(
+        &mut s,
+        "stage-no-gain",
+        "controller-a",
+        stage(0, "http://private.example/a", ""),
+        0,
+    );
+    assert_eq!(
+        play(&mut s, "controller-a", "play-no-gain", 1).status,
+        ReceiptStatus::Accepted
+    );
+    let binding = s.network_source().unwrap().binding.clone();
+    let before = s.snapshot();
+    for (id, operation) in [
+        (
+            "unauthorized-gain",
+            json!({"operation":"set_volume","binding":binding,"volume":0}),
+        ),
+        (
+            "unauthorized-preset",
+            json!({"operation":"factory_defaults","binding":binding}),
+        ),
+    ] {
+        assert_eq!(
+            renderer_request(&mut s, id, "controller-a", operation, 0)
+                .error
+                .unwrap()
+                .code,
+            earph_core::ErrorCode::AuthDenied
+        );
+        assert_eq!(s.snapshot(), before);
+    }
+}
+
+#[test]
+fn renderer_db_zero_cap_failure_and_preset_keep_one_atomic_gain_ledger() {
+    let mut s = supported_with_rendering_control(true);
+    media_grants(&mut s);
+    renderer_request(
+        &mut s,
+        "stage-level",
+        "controller-a",
+        stage(0, "http://private.example/a", ""),
+        0,
+    );
+    assert_eq!(
+        play(&mut s, "controller-a", "play-level", 1).status,
+        ReceiptStatus::Accepted
+    );
+    let binding = s.network_source().unwrap().binding.clone();
+    let expiry = s.network_source().unwrap().expires_monotonic_ns;
+    assert_eq!(
+        renderer_request(
+            &mut s,
+            "db-silence",
+            "controller-a",
+            json!({"operation":"set_volume_db","binding":binding,"volume_db":-32767}),
+            0
+        )
+        .status,
+        ReceiptStatus::Applied
+    );
+    assert!(s.snapshot().software_gain_zero);
+    assert_eq!(submit_at(&mut s, "remote-cap", json!({"method":"volume.caps.set","software_millidecibels":-60000,"hardware_millidecibels":null}), 0).status, ReceiptStatus::Applied);
+    let before = s.snapshot();
+    let refused = renderer_request(
+        &mut s,
+        "loud-wire",
+        "controller-a",
+        json!({"operation":"set_volume","binding":binding,"volume":30700}),
+        0,
+    );
+    assert_eq!(
+        refused.error.unwrap().code,
+        earph_core::ErrorCode::SafetyPolicyBlocked
+    );
+    assert_eq!(s.snapshot(), before);
+    assert_eq!(
+        renderer_request(
+            &mut s,
+            "db-tie",
+            "controller-a",
+            json!({"operation":"set_volume_db","binding":binding,"volume_db":-15360}),
+            0
+        )
+        .status,
+        ReceiptStatus::Applied
+    );
+    assert_eq!(s.snapshot().software_gain_db, -60.004);
+    assert!(!s.snapshot().software_gain_zero);
+    assert!(s.snapshot().muted);
+    let before = s.snapshot();
+    assert_eq!(
+        renderer_request(
+            &mut s,
+            "factory-preset",
+            "controller-a",
+            json!({"operation":"factory_defaults","binding":binding}),
+            0
+        )
+        .status,
+        ReceiptStatus::Applied
+    );
+    assert_eq!(s.snapshot().revision, before.revision + 1);
+    assert_eq!(s.snapshot().software_gain_db, -60.0);
+    assert_eq!(s.snapshot().epochs, before.epochs);
+    assert_eq!(s.network_source().unwrap().binding, binding);
+    assert_eq!(s.network_source().unwrap().expires_monotonic_ns, expiry);
+}
+
+#[test]
+fn reported_remote_setting_is_idempotent_after_current_authority_checks() {
+    let mut s = supported_with_rendering_control(true);
+    media_grants(&mut s);
+    renderer_request(
+        &mut s,
+        "stage-grid",
+        "controller-a",
+        stage(0, "http://private.example/a", ""),
+        0,
+    );
+    assert_eq!(
+        play(&mut s, "controller-a", "play-grid", 1).status,
+        ReceiptStatus::Accepted
+    );
+    let binding = s.network_source().unwrap().binding.clone();
+    assert_eq!(submit_at(&mut s, "fine-cap", json!({"method":"volume.caps.set","software_millidecibels":-40001,"hardware_millidecibels":null}), 0).status, ReceiptStatus::Applied);
+    // The reported -40 dB wire setting exceeds this exact local cap by 0.001 dB.
+    let before = s.snapshot();
+    assert_eq!(before.software_gain_db, -40.001);
+    let expiry = s.network_source().unwrap().expires_monotonic_ns;
+    let c = command(
+        &s,
+        "repeat-grid",
+        action(
+            "controller-a",
+            json!({"operation":"set_volume","binding":binding,"volume":20467}),
+        ),
+    );
+    let receipt = s.submit_renderer_with_network_effects(
+        c,
+        "192.168.1.2".parse().unwrap(),
+        10,
+        |_, _| panic!("gain must not admit a fetch"),
+        |_| panic!("reported value needs no commit"),
+    );
+    assert_eq!(receipt.status, ReceiptStatus::Applied);
+    assert_eq!(s.snapshot(), before);
+    assert_eq!(s.network_source().unwrap().expires_monotonic_ns, expiry);
+    let c = command(
+        &s,
+        "wrong-peer-grid",
+        action(
+            "controller-a",
+            json!({"operation":"set_volume","binding":binding,"volume":20467}),
+        ),
+    );
+    let receipt = s.submit_renderer_with_network_effects(
+        c,
+        "192.168.1.99".parse().unwrap(),
+        10,
+        |_, _| unreachable!(),
+        |_| unreachable!(),
+    );
+    assert_eq!(receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(s.snapshot(), before);
+}
+
+fn owned_fixed_renderer() -> Session {
+    let mut s = supported_with_rendering_control(true);
+    for (id, payload) in [
+        (
+            "fixed-output",
+            json!({"method":"output.select","output":{"backend":"alsa","route":"system","endpoint":"unopened-fixture","device_id":"dac","profile_id":"profile","period_frames":64,"buffer_frames":256,"volume_mode":"fixed","fidelity":"compatible_conversion"}}),
+        ),
+        (
+            "fixed-unity",
+            json!({"method":"volume.set","millidecibels":0,"ramp_frames":0}),
+        ),
+        (
+            "fixed-consent",
+            json!({"method":"output.consent","device_id":"dac","profile_id":"profile"}),
+        ),
+    ] {
+        assert_eq!(
+            submit_at(&mut s, id, payload, 0).status,
+            ReceiptStatus::Applied
+        );
+    }
+    media_grants(&mut s);
+    renderer_request(
+        &mut s,
+        "fixed-stage",
+        "controller-a",
+        stage(0, "http://private.example/fixed", ""),
+        0,
+    );
+    assert_eq!(
+        play(&mut s, "controller-a", "fixed-play", 1).status,
+        ReceiptStatus::Accepted
+    );
+    assert!(s.snapshot().muted);
+    assert_eq!(s.snapshot().software_gain_db, 0.0);
+    s
+}
+
+#[test]
+fn owned_fixed_renderer_rejects_reported_finite_gain_before_idempotence() {
+    let mut s = owned_fixed_renderer();
+    let binding = s.network_source().unwrap().binding.clone();
+    let before = s.snapshot();
+    for (id, action) in [
+        (
+            "same-volume",
+            json!({"operation":"set_volume","binding":binding,"volume":30700}),
+        ),
+        (
+            "same-db",
+            json!({"operation":"set_volume_db","binding":binding,"volume_db":0}),
+        ),
+    ] {
+        assert_eq!(
+            renderer_request(&mut s, id, "controller-a", action, 0).status,
+            ReceiptStatus::Rejected
+        );
+        assert_eq!(s.snapshot(), before);
+    }
+    assert_eq!(
+        renderer_request(
+            &mut s,
+            "fixed-factory",
+            "controller-a",
+            json!({"operation":"factory_defaults","binding":binding}),
+            0
+        )
+        .status,
+        ReceiptStatus::Applied
+    );
+    assert_eq!(s.snapshot().software_gain_db, 0.0);
+    assert!(s.snapshot().muted);
+}
+
+#[test]
+fn owned_fixed_renderer_rejects_different_finite_gain_while_muted() {
+    let mut s = owned_fixed_renderer();
+    let binding = s.network_source().unwrap().binding.clone();
+    let before = s.snapshot();
+    for (id, action) in [
+        (
+            "different-volume",
+            json!({"operation":"set_volume","binding":binding,"volume":30699}),
+        ),
+        (
+            "different-db",
+            json!({"operation":"set_volume_db","binding":binding,"volume_db":-1}),
+        ),
+    ] {
+        assert_eq!(
+            renderer_request(&mut s, id, "controller-a", action, 0).status,
+            ReceiptStatus::Rejected
+        );
+        assert_eq!(s.snapshot(), before);
+    }
+    assert_eq!(
+        submit_at(
+            &mut s,
+            "local-finite-retains-contract",
+            json!({"method":"volume.set","millidecibels":-4,"ramp_frames":0}),
+            0
+        )
+        .status,
+        ReceiptStatus::Applied
+    );
+    assert_eq!(s.snapshot().software_gain_db, -0.004);
+    assert!(s.snapshot().muted);
 }
 
 #[test]

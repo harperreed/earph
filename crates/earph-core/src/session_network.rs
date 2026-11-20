@@ -117,7 +117,11 @@ impl Session {
         }
         if !matches!(
             command,
-            Command::Stop | Command::OwnerShutdown | Command::Mute { muted: true }
+            Command::Stop
+                | Command::OwnerShutdown
+                | Command::Mute { muted: true }
+                | Command::VolumeSilence
+                | Command::VolumeFactoryDefaults
         ) && self
             .network
             .active
@@ -341,6 +345,7 @@ impl Session {
                         "network grants changed or expired",
                     ));
                 }
+                Self::validate_software_zero(&self.state)?;
                 let output = self.state.output.as_ref().ok_or(STATE)?;
                 if &output.device_id != device_id {
                     return Err(STALE);
@@ -491,14 +496,14 @@ impl Session {
                 command.payload,
                 Command::NetworkGrantsRevoke { .. }
                     | Command::RendererGrantsRevoke { .. }
-                    | Command::RendererRequest {
-                        action: crate::renderer::RendererAction::Stop { .. },
-                        ..
-                    }
                     | Command::Stop
                     | Command::OwnerShutdown
                     | Command::Mute { muted: true }
-            ) {
+                    | Command::VolumeSilence
+                    | Command::VolumeFactoryDefaults
+            )
+            || matches!(&command.payload, Command::RendererRequest { action, .. } if action.is_safety())
+        {
             MAX_NETWORK_AUTHORITY_BYTES
         } else {
             let receipt_reserve = self
@@ -1105,6 +1110,139 @@ mod tests {
             expected_revision: Some(s.state.revision),
             payload,
         }
+    }
+    #[test]
+    fn renderer_gain_rejects_an_owned_hardware_mode_before_finite_noop_or_mutation() {
+        use crate::renderer::{
+            RendererAction, RendererControllerGrant, RendererGrantDocument, RendererRight,
+        };
+        let mut s = fixture();
+        // Public selection and restore reject Hardware. Exercise the network reducer's mode boundary directly.
+        s.state.output.as_mut().unwrap().volume_mode = VolumeMode::Hardware;
+        s.state.software_gain_db = 0.0;
+        s.enable_renderer_control();
+        let controller = RendererControllerId::new("hardware-controller").unwrap();
+        let peer = "192.168.1.2".parse().unwrap();
+        let mut grant = c(
+            &s,
+            Command::RendererGrantsReplace {
+                expected_generation: 0,
+                lifetime_ms: 1000,
+                grants: Arc::new(RendererGrantDocument {
+                    controllers: vec![RendererControllerGrant {
+                        id: controller.clone(),
+                        peers: vec![peer],
+                        rights: vec![
+                            RendererRight::Stage,
+                            RendererRight::Transport,
+                            RendererRight::RenderingControl,
+                        ],
+                    }],
+                }),
+            },
+        );
+        grant.session_id = None;
+        grant.request_id = RequestId::new("hardware-grant").unwrap();
+        assert_eq!(s.submit(grant).status, ReceiptStatus::Applied);
+        let request = |s: &Session, id: &str, action| {
+            let mut command = c(
+                s,
+                Command::RendererRequest {
+                    controller_id: controller.clone(),
+                    grant_generation: 1,
+                    action,
+                },
+            );
+            command.request_id = RequestId::new(id).unwrap();
+            command.session_id = s.state.session_id.clone();
+            command
+        };
+        let stage = request(
+            &s,
+            "hardware-stage",
+            RendererAction::StageUri {
+                expected_staging_generation: s.sources.snapshot().generation,
+                uri: "http://private.example/a".into(),
+                metadata: String::new(),
+            },
+        );
+        assert_eq!(
+            s.submit_renderer_with_network_effects(
+                stage,
+                peer,
+                0,
+                |_, _| unreachable!(),
+                |_| Ok(())
+            )
+            .status,
+            ReceiptStatus::Applied
+        );
+        let staged = s.renderer_snapshot().staged.unwrap();
+        let mut play = request(
+            &s,
+            "hardware-play",
+            RendererAction::Play {
+                media_id: staged.media_id,
+                staging_generation: staged.generation,
+                grant_generation: 1,
+                device_id: DeviceId::new("dac").unwrap(),
+            },
+        );
+        play.session_id = Some(SessionId::new("hardware-owned-source").unwrap());
+        assert_eq!(
+            s.submit_renderer_with_network_effects(play, peer, 0, |_, _| Ok(()), |_| Ok(()))
+                .status,
+            ReceiptStatus::Accepted
+        );
+        let binding = s.network_source().unwrap().binding.clone();
+        let mut outcomes = Vec::new();
+        for (id, action) in [
+            (
+                "hardware-same-volume",
+                RendererAction::SetVolume {
+                    binding: binding.clone(),
+                    volume: 30700,
+                },
+            ),
+            (
+                "hardware-different-volume",
+                RendererAction::SetVolume {
+                    binding: binding.clone(),
+                    volume: 30699,
+                },
+            ),
+            (
+                "hardware-same-db",
+                RendererAction::SetVolumeDb {
+                    binding: binding.clone(),
+                    volume_db: 0,
+                },
+            ),
+            (
+                "hardware-different-db",
+                RendererAction::SetVolumeDb {
+                    binding,
+                    volume_db: -1,
+                },
+            ),
+        ] {
+            let before = s.snapshot();
+            let command = request(&s, id, action);
+            let reply = s.submit_renderer_with_network_effects(
+                command,
+                peer,
+                0,
+                |_, _| unreachable!(),
+                |_| Ok(()),
+            );
+            outcomes.push((reply.status, s.snapshot() == before));
+        }
+        assert!(
+            outcomes
+                .iter()
+                .all(|(status, unchanged)| *status == ReceiptStatus::Rejected && *unchanged),
+            "{outcomes:?}"
+        );
     }
     #[test]
     fn exhausted_source_revision_event_and_epoch_counters_reject_start_atomically() {

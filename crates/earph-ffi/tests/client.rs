@@ -136,6 +136,68 @@ fn ffi_renderer_query_and_disabled_authority_preserve_the_actual_owner_state() {
 }
 
 #[test]
+fn ffi_zero_finite_exit_and_factory_defaults_share_the_actual_owner_gain_ledger() {
+    let mut owner = Owner::start();
+    let client = owner.client();
+    let output = json!({"method":"output.select","output":{
+        "backend":if cfg!(target_os="macos") {"core_audio"} else {"alsa"},
+        "route":"system","endpoint":"unopened-u2-fixture","device_id":"dac","profile_id":"profile",
+        "period_frames":64,"buffer_frames":256,"volume_mode":"software","fidelity":"compatible_conversion"
+    }});
+    for (id, payload) in [
+        ("ffi-output", output),
+        ("ffi-zero", json!({"method":"volume.silence"})),
+    ] {
+        let reply = roundtrip(&owner, &client, envelope(id, Some(&owner.state()), payload));
+        assert_eq!(reply["receipt"]["status"], "applied", "{reply}");
+    }
+    let zero = owner.state();
+    assert_eq!(zero["software_gain_zero"], true);
+    assert_eq!(zero["software_gain_db"], -40.0);
+    for method in ["signal_path.get", "events.get"] {
+        let payload = if method == "events.get" {
+            json!({"method":method,"cursor":null})
+        } else {
+            json!({"method":method})
+        };
+        let reply = roundtrip(&owner, &client, envelope(&unique(), None, payload));
+        let report = &reply["receipt"]["result"]["value"]["report"];
+        let setting = if method == "events.get" {
+            &report["snapshot"]
+        } else {
+            &report["requested"]
+        };
+        assert_eq!(setting["software_gain_zero"], true, "{reply}");
+    }
+    let reply = roundtrip(
+        &owner,
+        &client,
+        envelope(
+            "ffi-finite",
+            Some(&zero),
+            json!({"method":"volume.set","millidecibels":-60000,"ramp_frames":4}),
+        ),
+    );
+    assert_eq!(reply["receipt"]["status"], "applied");
+    assert_eq!(owner.state()["software_gain_zero"], false);
+    assert_eq!(owner.state()["muted"], true);
+    let reply = roundtrip(
+        &owner,
+        &client,
+        envelope(
+            "ffi-preset",
+            Some(&owner.state()),
+            json!({"method":"volume.factory_defaults"}),
+        ),
+    );
+    assert_eq!(reply["receipt"]["status"], "applied", "{reply}");
+    assert_eq!(owner.state()["software_gain_db"], -40.0);
+    assert_eq!(owner.state()["gain_ramp_frames"], 0);
+    assert_eq!(owner.state()["software_gain_zero"], false);
+    owner.stop();
+}
+
+#[test]
 fn real_owner_commands_keep_exact_receipts_dedupe_and_stale_rejections() {
     let owner = Owner::start();
     let client = owner.client();

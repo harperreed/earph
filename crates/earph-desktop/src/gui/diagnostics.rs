@@ -420,10 +420,11 @@ fn origin(ui: &mut egui::Ui, id: &RequestId, binding: &DiagnosticBinding) {
 fn signal_path(ui: &mut egui::Ui, report: &SignalPathReport) {
     ui.heading("Requested configuration");
     ui.label(format!(
-        "Requested source: {:?}; configured graph {}; mute {}; software gain {} dB; ramp {} frames",
+        "Requested source: {:?}; configured graph {}; mute {}; exact zero {}; finite software gain {} dB; ramp {} frames",
         report.requested.source,
         report.requested.graph_configured,
         report.requested.muted,
+        report.requested.software_gain_zero,
         report.requested.software_gain_db,
         report.requested.gain_ramp_frames
     ));
@@ -533,9 +534,10 @@ fn events(ui: &mut egui::Ui, report: &EventsReport) {
         ui.label("History gap: adopt the public recovery facts at this cut, then resume at the reported sequence.");
     }
     ui.label(format!(
-        "Public recovery facts: transport {:?}; muted {}; software gain {} dB; error category {:?}",
+        "Public recovery facts: transport {:?}; muted {}; exact zero {}; finite software gain {} dB; error category {:?}",
         report.snapshot.transport,
         report.snapshot.muted,
+        report.snapshot.software_gain_zero,
         report.snapshot.software_gain_db,
         report.snapshot.error
     ));

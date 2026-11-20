@@ -196,6 +196,116 @@ fn host(
 }
 
 #[test]
+fn exact_software_zero_is_distinct_from_finite_minus_120_db_in_real_signed24_capture() {
+    if isolated(
+        "exact_software_zero_is_distinct_from_finite_minus_120_db_in_real_signed24_capture",
+        None,
+    ) {
+        return;
+    }
+    let directory = artifacts();
+    let source = directory.join("nonzero-signed24.wav");
+    wave(&source, 48000, 4096, 0);
+    for zero in [false, true] {
+        let (c, join) = host("capture");
+        c.apply(serde_json::from_value(json!({"method":"output.select","output":{"backend":"alsa","route":"system","endpoint":"capture","device_id":"native","profile_id":"native-profile","period_frames":64,"buffer_frames":256,"volume_mode":"software","fidelity":"compatible_conversion"}})).unwrap());
+        c.apply(Command::OutputConsent {
+            device_id: DeviceId::new("native").unwrap(),
+            profile_id: ProfileId::new("native-profile").unwrap(),
+        });
+        c.apply(Command::VolumeSet {
+            millidecibels: -120000,
+            ramp_frames: 0,
+        });
+        if zero {
+            c.apply(Command::VolumeSilence);
+        }
+        c.append(&source);
+        c.start();
+        c.wait(|state| state["transport"] == "buffering");
+        c.apply(Command::Mute { muted: false });
+        let state = c.wait(|state| state["transport"] == "idle" || state["transport"] == "failed");
+        assert!(state["error"].is_null(), "{state}");
+        assert_eq!(state["software_gain_zero"], zero);
+        assert_eq!(state["software_gain_db"], -120.0);
+        assert_eq!(state["playback"]["source_position_frames"], 4096);
+        let captured = fs::read(directory.join("capture.pcm")).unwrap();
+        assert_eq!(captured.len(), 4096 * 6);
+        assert_eq!(captured.iter().all(|sample| *sample == 0), zero);
+        fs::write(
+            directory.join(if zero {
+                "exact-zero.pcm"
+            } else {
+                "finite-minus120.pcm"
+            }),
+            captured,
+        )
+        .unwrap();
+        c.apply(Command::OwnerShutdown);
+        join.join().unwrap().unwrap();
+    }
+}
+
+#[test]
+fn factory_defaults_reaches_the_live_worker_before_finite_playback_resumes() {
+    if isolated(
+        "factory_defaults_reaches_the_live_worker_before_finite_playback_resumes",
+        None,
+    ) {
+        return;
+    }
+    let directory = artifacts();
+    let source = directory.join("factory-source.wav");
+    let original = wave(&source, 48000, 300000, 0);
+    let (c, join) = host("capture");
+    c.apply(serde_json::from_value(json!({"method":"output.select","output":{"backend":"alsa","route":"system","endpoint":"capture","device_id":"native","profile_id":"native-profile","period_frames":64,"buffer_frames":256,"volume_mode":"software","fidelity":"compatible_conversion"}})).unwrap());
+    c.apply(Command::OutputConsent {
+        device_id: DeviceId::new("native").unwrap(),
+        profile_id: ProfileId::new("native-profile").unwrap(),
+    });
+    c.append(&source);
+    c.start();
+    c.wait(|state| state["transport"] == "buffering");
+    c.apply(Command::Mute { muted: false });
+    c.wait(|state| {
+        state["transport"] == "playing"
+            && state["playback"]["submitted_frames"].as_u64().unwrap_or(0) > 0
+    });
+    let before = c.state();
+    c.apply(Command::VolumeFactoryDefaults);
+    let muted = c.wait(|state| state["transport"] == "buffering" && state["muted"] == true);
+    assert_eq!(muted["software_gain_db"], -40.0);
+    assert_eq!(muted["software_gain_zero"], false);
+    assert_eq!(muted["source"], before["source"]);
+    assert_eq!(muted["session_id"], before["session_id"]);
+    assert_eq!(muted["output_consented"], before["output_consented"]);
+    let capture = directory.join("capture.pcm");
+    let prefix = fs::read(&capture).unwrap();
+    assert!(!prefix.is_empty() && prefix.len() < original.len());
+    assert_eq!(prefix, original[..prefix.len()]);
+    c.apply(Command::Mute { muted: false });
+    let done = c.wait(|state| state["transport"] == "idle" || state["transport"] == "failed");
+    assert!(done["error"].is_null(), "{done}");
+    let captured = fs::read(capture).unwrap();
+    assert_eq!(captured.len(), original.len());
+    assert_eq!(captured[..prefix.len()], prefix);
+    for (actual, raw) in captured[prefix.len()..]
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(original[prefix.len()..].as_chunks::<3>().0)
+    {
+        let mut bytes = [0_u8; 4];
+        bytes[..3].copy_from_slice(raw);
+        bytes[3] = if raw[2] & 0x80 == 0 { 0 } else { 255 };
+        let attenuated = (f64::from(i32::from_le_bytes(bytes)) * 0.01).round() as i32;
+        assert_eq!(actual, &attenuated.to_le_bytes()[..3]);
+    }
+    c.apply(Command::OwnerShutdown);
+    join.join().unwrap().unwrap();
+}
+
+#[test]
 fn incompatible_future_is_visible_before_any_samples_are_written() {
     if isolated(
         "incompatible_future_is_visible_before_any_samples_are_written",

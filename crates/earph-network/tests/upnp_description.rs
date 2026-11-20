@@ -85,6 +85,22 @@ fn device_identity_is_escaped_and_service_urls_remain_local() {
 }
 
 #[test]
+fn rendering_control_describes_the_accepted_volume_grid() {
+    let root = parse(&service_description(Service::RenderingControl));
+    let variables = &root.child("serviceStateTable").children;
+    for (name, minimum, maximum) in [("Volume", 0, 30700), ("VolumeDB", -32767, 0)] {
+        let variable = variables
+            .iter()
+            .find(|v| v.child("name").text == name)
+            .unwrap();
+        let range = variable.child("allowedValueRange");
+        assert_eq!(range.child("minimum").text.parse::<i32>().unwrap(), minimum);
+        assert_eq!(range.child("maximum").text.parse::<i32>().unwrap(), maximum);
+        assert_eq!(range.child("step").text.parse::<i32>().unwrap(), 1);
+    }
+}
+
+#[test]
 fn downloaded_action_and_state_tables_form_consistent_soap_requests() {
     for service in [
         Service::AvTransport,
