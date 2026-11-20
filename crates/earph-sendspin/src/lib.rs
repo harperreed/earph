@@ -2,9 +2,11 @@
 // ABOUTME: Grants no connection, playback, pairing, clock, or native output authority.
 use std::fmt;
 
+pub mod message;
 pub mod noise;
 pub mod pairing;
 pub mod pairing_token;
+pub mod session;
 
 pub const SPEC_REVISION: &str = "9d2f15ee8f172c67ce00dc0d9f6603c3b1030d9f";
 

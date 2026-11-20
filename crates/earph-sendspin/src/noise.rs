@@ -97,6 +97,8 @@ pub struct Responder {
     limits: Limits,
     selection: Option<Selection>,
     handshake_hash: Option<[u8; 32]>,
+    matched_id: Option<[u8; 32]>,
+    allow_fallback: bool,
 }
 impl fmt::Debug for Responder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -147,7 +149,41 @@ impl Responder {
             limits,
             selection: None,
             handshake_hash: None,
+            matched_id: None,
+            allow_fallback: true,
         })
+    }
+    /// Strict rotation carries identities and uses only the immediately preceding hash.
+    pub(crate) fn rehandshake(
+        private: &[u8; 32],
+        server_public: [u8; 32],
+        prior_hash: [u8; 32],
+        limits: Limits,
+    ) -> Result<Self, ChannelError> {
+        let handshake = snow::Builder::new(PATTERN.parse().map_err(|_| ChannelError::Crypto)?)
+            .local_private_key(private)
+            .map_err(|_| ChannelError::Crypto)?
+            .remote_public_key(&server_public)
+            .map_err(|_| ChannelError::Crypto)?
+            .prologue(&prior_hash)
+            .map_err(|_| ChannelError::Crypto)?
+            .build_responder()
+            .map_err(|_| ChannelError::Crypto)?;
+        Ok(Self {
+            state: State::Handshake(Box::new(handshake)),
+            server_public,
+            limits,
+            selection: None,
+            handshake_hash: None,
+            matched_id: None,
+            allow_fallback: false,
+        })
+    }
+    pub(crate) fn server_public(&self) -> [u8; 32] {
+        self.server_public
+    }
+    pub(crate) fn matched_id(&self) -> Option<[u8; 32]> {
+        self.matched_id
     }
     pub fn phase(&self) -> Phase {
         match &self.state {
@@ -188,8 +224,16 @@ impl Responder {
             let n = handshake
                 .read_message(record, &mut payload)
                 .map_err(|_| ChannelError::Authentication)?;
-            let (psk, selection) =
-                select_credential(&payload[..n], credentials, &self.server_public)?;
+            let ResolvedCredential {
+                psk,
+                selection,
+                matched_id,
+            } = select_credential(
+                &payload[..n],
+                credentials,
+                &self.server_public,
+                self.allow_fallback,
+            )?;
             handshake
                 .set_psk(2, &psk)
                 .map_err(|_| ChannelError::Crypto)?;
@@ -210,6 +254,7 @@ impl Responder {
                 confirmed: false,
             };
             self.selection = Some(selection);
+            self.matched_id = matched_id;
             self.handshake_hash = Some(hash);
             Ok(reply)
         })();
@@ -303,6 +348,7 @@ impl Responder {
         self.state = State::Closed;
         self.selection = None;
         self.handshake_hash = None;
+        self.matched_id = None;
     }
     fn check_record(&self, bytes: usize) -> Result<(), ChannelError> {
         if bytes > self.limits.record_bytes.min(65535) {
@@ -371,11 +417,18 @@ fn decode_key(value: Option<&Value>) -> Result<[u8; 32], ChannelError> {
     Ok(decoded)
 }
 
+struct ResolvedCredential {
+    psk: [u8; 32],
+    selection: Selection,
+    matched_id: Option<[u8; 32]>,
+}
+
 fn select_credential(
     payload: &[u8],
     credentials: &[Credential],
     server_public: &[u8; 32],
-) -> Result<([u8; 32], Selection), ChannelError> {
+    allow_fallback: bool,
+) -> Result<ResolvedCredential, ChannelError> {
     let value: Value = serde_json::from_slice(payload).map_err(|_| ChannelError::Malformed)?;
     let requested = decode_key(value.get("psk_id"))?;
     let category = match value.get("psk_category").and_then(Value::as_str) {
@@ -385,13 +438,14 @@ fn select_credential(
         _ => return Err(ChannelError::Malformed),
     };
     if category == Category::Sentinel && requested == psk_id(&SENTINEL) {
-        return Ok((
-            SENTINEL,
-            Selection {
+        return Ok(ResolvedCredential {
+            psk: SENTINEL,
+            selection: Selection {
                 category,
                 sentinel_fallback: false,
             },
-        ));
+            matched_id: None,
+        });
     }
     for credential in credentials {
         let (psk, candidate, binding) = match credential {
@@ -404,25 +458,30 @@ fn select_credential(
             if binding.is_some_and(|key| key != server_public) {
                 return Err(ChannelError::CredentialBinding);
             }
-            return Ok((
-                *psk,
-                Selection {
+            return Ok(ResolvedCredential {
+                psk: *psk,
+                selection: Selection {
                     category,
                     sentinel_fallback: false,
                 },
-            ));
+                matched_id: Some(requested),
+            });
         }
     }
-    Ok((
-        SENTINEL,
-        Selection {
+    if !allow_fallback {
+        return Err(ChannelError::CredentialBinding);
+    }
+    Ok(ResolvedCredential {
+        psk: SENTINEL,
+        selection: Selection {
             category: Category::Sentinel,
             sentinel_fallback: true,
         },
-    ))
+        matched_id: None,
+    })
 }
 
-fn psk_id(psk: &[u8; 32]) -> [u8; 32] {
+pub(crate) fn psk_id(psk: &[u8; 32]) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash.update(b"sendspin-psk-id-v1");
     hash.update(psk);

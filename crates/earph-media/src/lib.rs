@@ -4,6 +4,7 @@
 mod admission;
 pub mod cli_io;
 pub mod correction_text;
+pub mod dsd;
 mod fir;
 mod fir_manifest;
 mod pcm;

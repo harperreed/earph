@@ -102,6 +102,7 @@ jobs:
         run: |
           node --version
           earph_swiftc=$(xcrun --find swiftc)
+          "$earph_swiftc" --version
           earph_sdkroot=$(xcrun --sdk macosx --show-sdk-path)
           test -d "$earph_sdkroot"
           earph_swift_output="$RUNNER_TEMP/earph-swift"

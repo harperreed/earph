@@ -90,7 +90,8 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "evidence/foundation/verification.json"
+        "evidence/foundation/verification.json",
+        "evidence/dsd/software-linux-20261120.json"
       ]
     },
     {
@@ -285,9 +286,11 @@
         "ARCH-04",
         "OUT-03"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/dsd/software-linux-20261120.json"
+      ]
     },
     {
       "id": "PLAY-08",
@@ -338,9 +341,11 @@
         "PLAY-05",
         "CTL-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/sendspin/session-linux-20261120.json"
+      ]
     },
     {
       "id": "SRC-03",
@@ -807,9 +812,11 @@
       "depends_on": [
         "PLAY-07"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/dsd/software-linux-20261120.json"
+      ]
     },
     {
       "id": "SAFE-05",

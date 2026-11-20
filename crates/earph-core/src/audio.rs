@@ -392,6 +392,9 @@ impl PcmBlock {
     }
 }
 
+/// Canonical DSD fragments interleave channels and store the oldest bit at bit 7.
+/// Concatenated fragments start at channel zero on an explicit stream boundary.
+/// Public fields remain compatible. Consumers must validate every fragment.
 /// An opaque DSD lane cannot enter a PCM consumer.
 /// ```compile_fail
 /// use earph_core::audio::{DsdBlock, PcmBlock};
@@ -404,6 +407,38 @@ pub struct DsdBlock {
     pub bit_rate_hz: u32,
     pub channels: ChannelLayout,
     pub epochs: Epochs,
+}
+impl DsdBlock {
+    pub fn new(
+        payload: Vec<u8>,
+        bit_rate_hz: u32,
+        channels: ChannelLayout,
+        epochs: Epochs,
+    ) -> Result<Self, EngineError> {
+        let block = Self {
+            payload,
+            bit_rate_hz,
+            channels,
+            epochs,
+        };
+        block.validate()?;
+        Ok(block)
+    }
+    /// Validate public fields again before consuming a fragment.
+    pub fn validate(&self) -> Result<(), EngineError> {
+        if !matches!(self.bit_rate_hz, 2_822_400 | 5_644_800)
+            || self.channels != ChannelLayout::Stereo
+        {
+            return Err(FORMAT);
+        }
+        if self.payload.is_empty() || self.payload.len() > 8192 {
+            return Err(INVALID);
+        }
+        if self.payload.capacity() > 8192 {
+            return Err(BUDGET);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

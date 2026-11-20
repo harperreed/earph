@@ -76,12 +76,32 @@ It ends at a durably stored record while the current session remains unpaired.
 The [pairing contract](../../docs/sendspin-pairing.md) defines its ordered writer and commit adapter obligations.
 Persistence runs only in test support with synthetic credentials and explicit private fixture directories.
 Production identity storage, the secret-manager adapter, and deliberate token presentation remain later gates.
-The full in-band re-handshake also remains a next gate.
-It must retain stream and clock state, enforce the quiet period, and authenticate permitted discarded old-key traffic.
-It must use the prior handshake hash as prologue and require `server/activate` first under the new keys.
-`handshake_hash` exposes that hash for future composition; it does not implement or authorize a re-handshake.
-The current constructor always validates a fresh init exchange and supplies initial-handshake Sentinel fallback.
-It must not be reused as a shortcut for the stricter re-handshake rules.
+
+## Ordered client session
+
+Use `session::ClientSession` to compose framing, initial sequencing, pairing, admission, and complete in-band re-handshake.
+One synchronous owner holds both crypto epochs, all fragment state, and the sole ordered writer.
+The adapter supplies complete transport messages, caller-clock timestamps, and opaque complete-write receipts.
+The owner starts send suppression at authenticated message one and finishes an already-started producer message.
+The writer requires positive reducer authorization before starting a queued pairing flight.
+Timeout and supersession retire unstarted flight entries; old attempt effects cannot cross the rotation quiet period.
+Already authenticated pairing acknowledgments retain their ordered durable-commit boundary.
+It writes message two under old keys and installs new keys only after the complete write succeeds.
+The first complete new-key message must be a valid activation submitted for generation-fenced admission.
+The existing pairing reducer retains the single sticky role list across generations.
+Callers retain their stream, buffer, and clock owners.
+
+The initial raw responder API and Sentinel fallback behavior remain intact.
+A private strict constructor uses the immediate prior hash and forbids fallback during rotation.
+The selector retains the matched credential identifier and shares the normative PSK identifier helper with pairing.
+These internal changes require fresh source-bound qualification.
+The earlier raw Noise receipt remains evidence for its original frozen source bytes.
+
+The [session contract](../../docs/sendspin-session.md) documents the actual API, limits, ownership, and completion rules.
+Its default reassembled-body ceiling is 64 MiB, with explicit fragment, queue, and deadline bounds.
+The library emits authenticated control events without claiming role-payload validation, clock readiness, or native output authority.
+The explicit `session_python` tests use actual pinned handshake, wire, pairing, and re-handshake drivers through bounded private pipes.
+They prove durable fixture promotion, two rotations, fragmented traffic, retained caller context, and rejection of corrupt old-key discard.
 
 Portable Rust tests use a real Snow initiator.
 The ignored `noise_python` test requires `EARPH_SENDSPIN_PEER` to name an explicitly pinned Python interpreter.

@@ -5,6 +5,7 @@ pub mod audio;
 pub mod control;
 pub mod devices;
 pub mod diagnostics;
+pub mod dop;
 pub mod dsp_nodes;
 pub mod gain;
 pub mod graph;

@@ -116,6 +116,10 @@ An earlier Mac software pass does not establish that this new gate passed.
 Read the workflow result for the exact changed commit before claiming current Swift compatibility.
 Native playback, GUI access, SDK distribution, and release qualification remain separate.
 
+The [hosted Swift receipt](evidence/ffi/macos-swift-hosted-20261120.json) records both passing gates for `d2fa9f7`.
+Each gate completed 94 request frames and 52 exact CLI comparisons, with normal owner shutdown and no audio.
+Those Mac products retain their own hashes and source scope, separate from later Linux builds.
+
 ## Qualification limits
 
 The first unit covers control bytes, immutable replies, object disposal, bounds, and local IPC failures.

@@ -7,9 +7,12 @@ The test peer checks installed source hashes before calling its real producers a
 No upstream implementation code is copied into Earph.
 
 The unit ends in `RecordStored` after durable commit and readback.
-The current Noise selection remains `pr`, which remains unpaired.
-Only the later long-term PSK re-handshake can produce a paired session.
-The existing `noise::Responder` source and API remain unchanged.
+Storing a record does not change the current transport's Noise selection.
+A Pairing PSK (`pr`) transport therefore remains unpaired.
+A later long-term PSK re-handshake can establish a paired session.
+The raw `noise::Responder` API remains available.
+The [encrypted session owner](sendspin-session.md) adds that re-handshake and shares the credential identifier implementation.
+The earlier Noise receipt retains its original frozen source scope.
 
 ## Tokens and secrets
 
@@ -135,9 +138,9 @@ They run `run_pairing_psk_server` against Earph's encrypted flight and verify st
 Their lost-ack case leaves Earph's committed catalog unchanged despite the real peer storing its record.
 These are end-to-end tests of this bounded library unit.
 
-The dispatcher, production secret-manager adapter, token presentation, and full re-handshake remain later units.
-Later integration must advertise exactly `supported_pair_methods: {"pairing_psk": {}}`.
-It must keep unpaired access disabled.
+The encrypted session owner composes pairing, admission, and full in-band re-handshake.
+Its hello advertises exactly `supported_pair_methods: {"pairing_psk": {}}` and keeps unpaired access disabled.
+The application dispatcher, production secret-manager adapter, and token presentation remain later units.
 This unit starts no app, listener, native output, pairing window, or code emission.
 
 The [Linux pairing receipt](evidence/sendspin/pairing-linux-20261120.json) records the combined check and real peer qualification.

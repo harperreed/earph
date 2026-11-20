@@ -3,7 +3,6 @@
 use crate::noise::{Category, SENTINEL, Selection};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,12 +19,9 @@ impl fmt::Display for PairingError {
 }
 impl std::error::Error for PairingError {}
 
-/// The protocol label is identical to the frozen Noise credential selector's label.
+/// Uses the same normative identifier function as the Noise credential selector.
 pub fn psk_id(psk: &[u8; 32]) -> [u8; 32] {
-    let mut hash = Sha256::new();
-    hash.update(b"sendspin-psk-id-v1");
-    hash.update(psk);
-    hash.finalize().into()
+    crate::noise::psk_id(psk)
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -331,6 +327,26 @@ struct Staged {
     first_sent_ms: Option<u64>,
     finalize_started: bool,
 }
+pub(crate) struct CheckedActivation {
+    pub roles: Vec<String>,
+    pub activities: Vec<String>,
+}
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ActivationError {
+    Protocol,
+    Goodbye(GoodbyeReason),
+    Method,
+}
+#[derive(Clone, Copy)]
+pub(crate) enum FlightPart {
+    Init,
+    Finalize,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FlightAuthorization {
+    Authorized,
+    Revoked,
+}
 pub struct PairingClient {
     context: PairingContext,
     catalog: RecordCatalog,
@@ -616,52 +632,36 @@ impl PairingClient {
             | PairingEvent::CommitFailed(..) => vec![],
         }
     }
-    fn activate(&mut self, payload: Value) -> Vec<PairingEffect> {
-        let Some(object) = payload.as_object() else {
-            return self.close(CloseReason::Protocol);
-        };
-        let Some(activities) = object.get("activities").and_then(Value::as_array) else {
-            return self.close(CloseReason::Protocol);
-        };
-        let Some(activities) = activities
+
+    pub(crate) fn validate_activation(
+        &self,
+        payload: &Value,
+    ) -> Result<CheckedActivation, ActivationError> {
+        let object = payload.as_object().ok_or(ActivationError::Protocol)?;
+        let activities = object
+            .get("activities")
+            .and_then(Value::as_array)
+            .ok_or(ActivationError::Protocol)?;
+        let activities = activities
             .iter()
             .map(Value::as_str)
             .collect::<Option<Vec<_>>>()
-        else {
-            return self.close(CloseReason::Protocol);
-        };
+            .ok_or(ActivationError::Protocol)?;
         if activities.iter().collect::<BTreeSet<_>>().len() != activities.len() {
-            return self.close(CloseReason::Protocol);
+            return Err(ActivationError::Protocol);
         }
         let pairing = activities.contains(&"pairing");
-        self.discard();
-        let id = if pairing {
-            self.index = match self.index.checked_add(1) {
-                Some(index) => index,
-                None => return self.close(CloseReason::CounterExhausted),
-            };
-            Some(AttemptId {
-                connection_generation: self.context.connection_generation,
-                handshake_generation: self.context.handshake_generation,
-                pairing_index: self.index,
-            })
-        } else {
-            None
-        };
         let explicit_roles = object.get("active_roles");
         let mut roles = if let Some(value) = explicit_roles {
-            let Some(values) = value.as_array() else {
-                return self.close(CloseReason::Protocol);
-            };
-            let Some(roles) = values
+            let roles = value
+                .as_array()
+                .ok_or(ActivationError::Protocol)?
                 .iter()
                 .map(|v| v.as_str().map(str::to_owned))
                 .collect::<Option<Vec<_>>>()
-            else {
-                return self.close(CloseReason::Protocol);
-            };
+                .ok_or(ActivationError::Protocol)?;
             if roles.iter().collect::<BTreeSet<_>>().len() != roles.len() {
-                return self.close(CloseReason::Protocol);
+                return Err(ActivationError::Protocol);
             }
             roles
         } else {
@@ -677,29 +677,176 @@ impl PairingClient {
             .and_then(|v| v.get("method"))
             .and_then(Value::as_str);
         let format = object.get("pairing").and_then(|v| v.get("format"));
-        if pairing && (method.is_none() || format.is_some_and(|value| !value.is_string())) {
-            return self.close(CloseReason::Protocol);
+        if pairing && (method.is_none() || format.is_some_and(|v| !v.is_string())) {
+            return Err(ActivationError::Protocol);
         }
         let method_allowed = !pairing
             || (self.context.selection.category == Category::Pairing
                 && method == Some("pairing_psk")
                 && format.is_none());
-        let playback_capable = paired && allowed;
-        if !playback_capable && explicit_roles.is_none() {
+        if !(paired && allowed) && explicit_roles.is_none() {
             roles.clear();
         }
         let requires_unpaired = !paired && (activities.contains(&"playback") || !roles.is_empty());
         if requires_unpaired && allowed && method_allowed {
-            return self.goodbye(GoodbyeReason::PairingRequired);
+            return Err(ActivationError::Goodbye(GoodbyeReason::PairingRequired));
         }
         if !allowed || requires_unpaired {
-            return self.goodbye(GoodbyeReason::Unauthorized);
+            return Err(ActivationError::Goodbye(GoodbyeReason::Unauthorized));
         }
-        self.roles = roles;
-        if let Some(id) = id {
-            if !method_allowed {
-                return vec![PairingEffect::Abort(id, AbortReason::MethodNotSupported)];
+        if !method_allowed {
+            return Err(ActivationError::Method);
+        }
+        Ok(CheckedActivation {
+            roles,
+            activities: activities.into_iter().map(str::to_owned).collect(),
+        })
+    }
+    pub fn roles(&self) -> &[String] {
+        &self.roles
+    }
+    fn flight_stage(&self, id: AttemptId) -> Option<&Staged> {
+        if self.active != Some(id) || self.phase != PairingPhase::FlightQueued {
+            return None;
+        }
+        self.staged.as_ref().filter(|stage| stage.id == id)
+    }
+    pub(crate) fn queued_write_is_current(&self, id: AttemptId, part: FlightPart) -> bool {
+        self.flight_stage(id).is_some_and(|stage| {
+            !stage.finalize_started
+                && match part {
+                    FlightPart::Init => stage.first_sent_ms.is_none(),
+                    FlightPart::Finalize => true,
+                }
+        })
+    }
+    /// Authorize a first record only after the reducer applies its canonical deadline and phase rules.
+    pub(crate) fn authorize_flight_start(
+        &mut self,
+        id: AttemptId,
+        part: FlightPart,
+        now: u64,
+    ) -> (FlightAuthorization, Vec<PairingEffect>) {
+        if !self.queued_write_is_current(id, part) {
+            return (FlightAuthorization::Revoked, vec![]);
+        }
+        let event = match part {
+            FlightPart::Init => PairingEvent::Tick,
+            FlightPart::Finalize => PairingEvent::PairingFinalizeStarted(id),
+        };
+        let effects = self.handle(event, now);
+        let allowed = self.flight_stage(id).is_some_and(|stage| match part {
+            FlightPart::Init => stage.first_sent_ms.is_none() && !stage.finalize_started,
+            FlightPart::Finalize => stage.first_sent_ms.is_some() && stage.finalize_started,
+        });
+        (
+            if allowed {
+                FlightAuthorization::Authorized
+            } else {
+                FlightAuthorization::Revoked
+            },
+            effects,
+        )
+    }
+    /// A retired flight completion has neither attempt nor clock authority.
+    pub(crate) fn complete_flight_write(&mut self, id: AttemptId, now: u64) -> Vec<PairingEffect> {
+        let Some(first) = self
+            .flight_stage(id)
+            .filter(|stage| stage.finalize_started)
+            .and_then(|stage| stage.first_sent_ms)
+        else {
+            return vec![];
+        };
+        self.handle(PairingEvent::PairingFlightSent(id, first), now)
+    }
+    /// Rotation and received activation abandon unacknowledged work without local-cancel effects.
+    pub(crate) fn retire_unacknowledged_attempt(&mut self) {
+        if self.pending_commit.is_none() && self.phase != PairingPhase::Closed {
+            self.discard();
+        }
+    }
+    pub(crate) fn owns_candidate(&self, id: AttemptId) -> bool {
+        self.active == Some(id) && self.phase == PairingPhase::AwaitCandidate
+    }
+    pub(crate) fn owns_commit(&self, id: AttemptId) -> bool {
+        self.pending_commit
+            .as_ref()
+            .is_some_and(|(pending, _)| *pending == id)
+    }
+    pub(crate) fn commit_pending(&self) -> bool {
+        self.pending_commit.is_some()
+    }
+    pub(crate) fn protect(&mut self, id: Option<[u8; 32]>) -> Result<(), PairingError> {
+        if let Some(id) = id
+            && !self.protected.contains(&id)
+        {
+            let mut next = self.protected.clone();
+            next.push(id);
+            self.catalog.ensure_admission(&next)?;
+            self.protected = next;
+        }
+        Ok(())
+    }
+    pub(crate) fn replace_protection(
+        &mut self,
+        protected: Vec<[u8; 32]>,
+    ) -> Result<(), PairingError> {
+        if self.pending_commit.is_some() {
+            return Err(PairingError::AdmissionInvariant);
+        }
+        self.catalog.ensure_admission(&protected)?;
+        self.protected = protected;
+        Ok(())
+    }
+    pub(crate) fn transition_handshake(
+        &mut self,
+        selection: Selection,
+        generation: u64,
+    ) -> Result<(), PairingError> {
+        if self.pending_commit.is_some()
+            || self.context.handshake_generation.checked_add(1) != Some(generation)
+        {
+            return Err(PairingError::AdmissionInvariant);
+        }
+        self.discard();
+        self.context.selection = selection;
+        self.context.handshake_generation = generation;
+        self.index = 0;
+        Ok(())
+    }
+    fn activate(&mut self, payload: Value) -> Vec<PairingEffect> {
+        let validation = self.validate_activation(&payload);
+        let pairing = payload
+            .get("activities")
+            .and_then(Value::as_array)
+            .is_some_and(|a| a.iter().any(|v| v.as_str() == Some("pairing")));
+        self.discard();
+        let id = if pairing {
+            self.index = match self.index.checked_add(1) {
+                Some(n) => n,
+                None => return self.close(CloseReason::CounterExhausted),
+            };
+            Some(AttemptId {
+                connection_generation: self.context.connection_generation,
+                handshake_generation: self.context.handshake_generation,
+                pairing_index: self.index,
+            })
+        } else {
+            None
+        };
+        let checked = match validation {
+            Ok(checked) => checked,
+            Err(ActivationError::Protocol) => return self.close(CloseReason::Protocol),
+            Err(ActivationError::Goodbye(reason)) => return self.goodbye(reason),
+            Err(ActivationError::Method) => {
+                return vec![PairingEffect::Abort(
+                    id.expect("pairing method rejection"),
+                    AbortReason::MethodNotSupported,
+                )];
             }
+        };
+        self.roles = checked.roles;
+        if let Some(id) = id {
             if self.catalog.ensure_admission(&self.protected).is_err() {
                 return self.close(CloseReason::AdmissionInvariant);
             }
@@ -760,5 +907,40 @@ mod tests {
             vec![PairingEffect::Close(CloseReason::CounterExhausted)]
         );
         assert_eq!(client.index, u32::MAX);
+    }
+}
+
+#[cfg(test)]
+mod generation_tests {
+    use super::*;
+    #[test]
+    fn old_epoch_protection_is_released_after_install_without_releasing_other_connections() {
+        let mut client = PairingClient::new(
+            PairingContext {
+                server_public: [20; 32],
+                selection: Selection {
+                    category: Category::LongTerm,
+                    sentinel_fallback: false,
+                },
+                connection_generation: 1,
+                handshake_generation: 1,
+                pairing_psk: [7; 32],
+            },
+            RecordCatalog::new(5).unwrap(),
+            vec![[8; 32], [9; 32]],
+        )
+        .unwrap();
+        client
+            .transition_handshake(
+                Selection {
+                    category: Category::Pairing,
+                    sentinel_fallback: false,
+                },
+                2,
+            )
+            .unwrap();
+        client.replace_protection(vec![[8; 32]]).unwrap();
+        assert_eq!(client.protected, vec![[8; 32]]);
+        assert_eq!(client.context.handshake_generation, 2);
     }
 }
