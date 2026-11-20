@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-20T17:27:12.947Z",
-  "headline": "Reviewed UPnP units imported; isolated U3 canonical passes; approved Sendspin licence included locally.",
-  "focus": "Author real Engine A/B ownership proof · Validate serialized combined checks · Implement accepted zero/shared-scale contract",
-  "summary": "The approved Sendspin spec licence is included locally with exact verified bytes and MIT unchanged, but is not yet published. Pure parser five-test/producer/review proof is integrated into Root without transport/pairing/playback. Reviewed U1 ownership (16 files, Core/projection/IPC evidence) is integrated, while real Engine A/B proof is being authored and the renderer stays disabled. Corrected U3 passes isolated canonical03 and 62 network tests; 18 files are imported with guarded lock reconciliation. Two overlapping full checks retain deadline failures, while unchanged focused cases pass alone; cause is unproven and heavy checks are now serialized. Latest published 07614e5 CI/Kotlin proof remains scoped to that head. U2 implementation, strict interoperability, physical/DSD/platform/release work remain open.",
+  "updated_at": "2026-11-20T18:49:44.216Z",
+  "headline": "Corrective combined Linux check and explicit Python peer pass; publication and new CI pending.",
+  "focus": "Prepare replacement source publication · Resume U2 scoped gates · Research pairing/state retention without authority changes",
+  "summary": "The corrective combined check fully exits 0 with unchanged source: standard reported blocks are 1385/0/6 across 156 groups, followed by one explicit Python peer test passing 11 live modes. Product build exits 0 and the 1,921-file source archive is bound. Reviewed EOF/SSDP corrections now pass inside the suite without production-policy changes. New source publication is being prepared with no replacement hash asserted; old 3af hosted CI remains Mac2 PASS/Linux2 FAIL. Noise now has integrated source/review/real-peer proof, but pairing/store/full sequence/rehandshake/SourceAudio remain open. U2 final scoped gates resume with outcomes pending. Token/state/retention is research only, with no secrets/backend access. Whole app/native/platform/interop/release remain unfinished.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -25,19 +25,19 @@
   "milestone_states": {
     "M0": {
       "state": "active",
-      "detail": "The current Linux canonical passes 1305/0/5 with frozen Engine/Desktop products. Earlier target packet loss and historical reports remain explicit. Full milestone exit and platform qualification are still open."
+      "detail": "The corrective combined Linux check and explicit real peer pass with unchanged qualified source and product build. Standard/peer counts have separate scopes. Replacement publication/current-head CI and full milestone/platform qualification remain open."
     },
     "M1": {
       "state": "active",
-      "detail": "Current Linux canonical passes, and the idle-only native diagnostic/expiry gate passes on frozen source/products. It establishes no new audio, Mac, or physical-output acceptance. Broader platform and full milestone qualification remain open."
+      "detail": "The corrected Linux software check passes; older native idle/file-capture proofs retain their source boundaries. No new native audio, Mac, physical, or full milestone acceptance follows. U2 scoped behavior is still pending."
     },
     "M2": {
       "state": "active",
-      "detail": "Reviewed protocol units are imported locally and corrected U3 has isolated full canonical proof. Later combined Root qualification remains open after overlapping deadline failures; focused passes do not establish their cause. Existing published-head CI/Kotlin and frozen native idle proof retain their scopes. Full T12/T17, physical/platform, and release remain open."
+      "detail": "Corrective combined standard tests and explicit Python peer pass, with reviewed fixture corrections verified inside the suite. New publication/CI, U2 final gates, native/Mac/ABI, full T12/T17, and release remain open. Old hosted 3af Linux failures remain failures."
     },
     "M3": {
       "state": "active",
-      "detail": "U1 ownership and corrected U3 wire units are locally integrated. Host renderer is disabled, real Engine A/B proof is being authored, and U2 zero/shared-scale implementation is pending. Sendspin pure parser/licence are included locally without transport/pairing/playback. LAN/strict Music Assistant interoperability, Mac multicast, timing/gain, DSD, and arbitration remain unqualified."
+      "detail": "Bounded Noise encrypted records have integrated-source/review/real-peer proof. Pairing/token persistence/full sequence/fragmentation/rehandshake/SourceAudio remain open. U2 scoped gates resume without enabling a renderer. LAN/strict Music Assistant, native clocks, Mac, DSD, and release are unqualified."
     },
     "M4": {
       "state": "planned",
@@ -46,20 +46,20 @@
   },
   "checks": [
     {
-      "title": "Corrected U3 isolated full check passes with explicit count scope",
-      "detail": "Corrected isolated U3 passes 62 network tests, strict Clippy/formatting, and full canonical03 with exit 0. Reported counts are 1,334 passed, zero failed, five ignored, and 149 groups; they include child-process result blocks. Independent correction review has no material findings. Root imports 18 frozen files with guarded lock reconciliation. The receipt binds the corrected unit, not every later combined Root tree. Loopback HTTP/UDP proof does not qualify LAN advertisement, Mac multicast/interface acquisition, actual renderer, gain/bridge/callback/audio, or strict Music Assistant interoperability."
+      "title": "Corrective combined Linux check passes with explicit peer followup",
+      "detail": "The corrective combined Linux scripts/check fully joins with exit 0 and source unchanged. Standard result blocks report 1,385 passed, zero failed, six ignored, and 156 groups, including child-process results. Engine/Desktop product build exits 0. The sixth ignored case is the independent Python peer, explicitly run afterward as one passing test with 11 live modes through offline uv. These are separate scoped results, not an additive unique-test total. Qualified archive SHA256 is d3590c91773afc8652f4c5b629af4f175a75fa1ade1ba129ced13396be802b33 across 1,921 files."
     },
     {
-      "title": "Reviewed U1 ownership imported; actual worker proof pending",
-      "detail": "Reviewed U1 ownership is locally integrated as 16 files, with 344 Core tests, 13 projection tests, and actual IPC evidence. Real Engine A/B worker proof is being authored. The host renderer remains disabled; no completed renderer execution or interoperability claim follows."
+      "title": "Actual pinned Python Noise peer passes 11 modes",
+      "detail": "The explicit independent aiosendspin 10.2.1 NoiseSession peer passes exit 0 in all 11 live modes using the existing pinned environment through offline uv, with no sync/downloads, operator credentials, network connections, or audio. The public sanitized receipt binds actual integrated source, review, and peer log. This is bounded client encrypted-record library proof; pairing records/token finalization/persistence, full application sequence, fragmentation, rehandshake, and SourceAudio authority remain open."
     },
     {
-      "title": "Sendspin parser and exact approved licence included locally",
-      "detail": "The pure Sendspin parser is integrated into Root with five focused tests, an actual pinned Python 10.2.1 producer fixture, and independent review with no findings. This is pure framing/parser proof. It adds no network, crypto/pairing, transport, or source-playback qualification. The exact approved CommunitySpec 1.0 licence is now included locally in the framing worktree and Root as SENDSPIN-SPEC-LICENSE.md. Root bytes match SHA256 3ccde4a9233ba71229ffd323e52a1bd46ed5c3ab953384c326618d69db264027. The MIT licence remains unchanged. Inclusion is not yet published; no approval is requested again."
+      "title": "Replacement publication/new CI not yet claimed",
+      "detail": "Root is preparing a new publication; no replacement commit hash is asserted. Published 3af7c71 hosted outcomes remain two Mac-software passes and two Linux failures until a new commit has its own CI evidence. The local corrective combined pass does not change those historical job statuses or make the draft PR shipping-ready."
     },
     {
-      "title": "Overlapping deadline failures remain unresolved",
-      "detail": "Two overlapping full checks fail existing deadline cases. Five unchanged owner-startup tests and the exact unchanged streaming test each pass alone. The cause is unproven; load is a hypothesis only. Heavy Linux qualification is now serialized via flock while implementation/review remain parallel. No successful replacement combined Root qualification is claimed from the isolated passes or the serialization procedure."
+      "title": "U2 scoped gates resume; next Sendspin unit is research only",
+      "detail": "Isolated U2 corrected Clippy and final Core/Engine/Desktop/FFI scoped gates resume after the shared heavy lock releases. Results are pending. The original epoch fence is retained, without extra provisional graph state, and RenderingControl preserves Transport permissions. No completed exact-zero/volume renderer behavior is claimed. Sendspin token/state/record-retention next-unit research has started only. No secrets or backend access is used. Pairing/store/full sequence/rehandshake/SourceAudio remain unimplemented or unqualified; raw Noise success grants no pairing, playback, or role authority."
     }
   ],
   "verified": [
@@ -593,7 +593,7 @@
     },
     {
       "title": "HTTP source published while direct Mac SSH remains blocked",
-      "detail": "Integration 07614e5 is published to the public draft PR #4, with clean Root source and exact local/remote tree/body verification. Both latest PR and push CI runs complete SUCCESS at that head, each for Linux canonical and Apple Silicon Mac-software. Those results do not qualify isolated later protocol changes, native audio/Mac GUI, physical output, or release. Direct Mac SSH remains unavailable; Doctor Biz cannot restore it now. No retry, repeated question, permission change, or access broadening occurs."
+      "detail": "Checkpoint 3af7c71a5536b01d4c4991b2168ec88c67f5a378 is published via the existing GitHub App path to draft PR #4. Exact local/remote tree verification covers the 51-file publication; Root was clean at that checkpoint. PR body is updated with Related #3 preserved. The PR is not merged. Both new Mac-software jobs pass and both Linux jobs fail; the later local corrective combined check now passes and replacement publication is being prepared. Earlier 07614e5 CI successes remain bound to 07614e5. Direct Mac SSH authentication still cannot be restored; no repeated question, retry, or access change occurs."
     },
     {
       "title": "Canonical-02 current Linux pass with frozen products",
@@ -624,8 +624,8 @@
       "detail": "Earlier Kotlin baseline02 passes 48 frames, 29 CLI comparisons, and nine replays after the retained readiness failure. That checkpoint is separate from the now-passing generated network03 gate; neither is audio/current Mac Swift/legacy ABI acceptance."
     },
     {
-      "title": "Latest published integration and software CI verified at 07614e5",
-      "detail": "Integration 07614e5 is published to the public draft PR #4, with clean Root source and exact local/remote tree/body verification. Both latest PR and push CI runs complete SUCCESS at that head, each for Linux canonical and Apple Silicon Mac-software. Those results do not qualify isolated later protocol changes, native audio/Mac GUI, physical output, or release."
+      "title": "Prior 07614e5 publication and software CI retain their scope",
+      "detail": "The 07614e5 PR/push software CI runs succeeded for Linux canonical/Mac software. Those successes do not qualify newer 3af7c71; the latest 3af Mac-software jobs pass while Linux jobs fail."
     },
     {
       "title": "Generated Kotlin network03 preserves revoked authority on exact replay",
@@ -636,78 +636,110 @@
       "detail": "The pure Sendspin parser is integrated into Root with five focused tests, an actual pinned Python 10.2.1 producer fixture, and independent review with no findings. This is pure framing/parser proof. It adds no network, crypto/pairing, transport, or source-playback qualification."
     },
     {
-      "title": "Exact approved root spec licence included locally; publication pending",
-      "detail": "The exact approved CommunitySpec 1.0 licence is now included locally in the framing worktree and Root as SENDSPIN-SPEC-LICENSE.md. Root bytes match SHA256 3ccde4a9233ba71229ffd323e52a1bd46ed5c3ab953384c326618d69db264027. The MIT licence remains unchanged. Inclusion is not yet published; no approval is requested again."
+      "title": "Approved root spec licence and pure framing now published",
+      "detail": "The approved exact root spec licence and pure framing are published at 3af, with MIT unchanged. A later reviewed Noise unit is now locally imported and awaits combined qualification. There remains no Sendspin listener/pairing store/full application sequence/rehandshake/audio authority."
     },
     {
       "title": "Corrected U3 frozen unit passes canonical03 and is imported",
       "detail": "Corrected isolated U3 passes 62 network tests, strict Clippy/formatting, and full canonical03 with exit 0. Reported counts are 1,334 passed, zero failed, five ignored, and 149 groups; they include child-process result blocks. Independent correction review has no material findings. Root imports 18 frozen files with guarded lock reconciliation. The receipt binds the corrected unit, not every later combined Root tree. Loopback HTTP/UDP proof does not qualify LAN advertisement, Mac multicast/interface acquisition, actual renderer, gain/bridge/callback/audio, or strict Music Assistant interoperability."
     },
     {
-      "title": "Reviewed U1 ownership imported with Core/projection/IPC proof",
-      "detail": "Reviewed U1 ownership is locally integrated as 16 files, with 344 Core tests, 13 projection tests, and actual IPC evidence. Real Engine A/B worker proof is being authored. The host renderer remains disabled; no completed renderer execution or interoperability claim follows."
+      "title": "Reviewed U1 ownership now has published real Engine worker proof",
+      "detail": "Reviewed U1 real Engine ownership proof passes two parent and 14 child cases, with no material review findings. Actual A and B retirement acknowledgements are required; A acknowledgements cannot settle B, and stale/duplicate acknowledgements reject. Queued B makes no HTTP request; started B connection closes before Applied. Each native file capture is exactly 5,376 bytes matching the A prefix, and owned workers/fixture threads join. Internal deferred_start coverage and already-unmuted B playback remain unproven. Production renderer ingress stays disabled; no physical/LAN/Music Assistant/callback/Mac acceptance is claimed."
     },
     {
-      "title": "Overlapping full-check deadline failures retained beside isolated passes",
-      "detail": "Two overlapping full checks fail existing deadline cases. Five unchanged owner-startup tests and the exact unchanged streaming test each pass alone. The cause is unproven; load is a hypothesis only. Heavy Linux qualification is now serialized via flock while implementation/review remain parallel. No successful replacement combined Root qualification is claimed from the isolated passes or the serialization procedure."
+      "title": "Earlier overlap deadline failures retained beside later combined pass",
+      "detail": "Earlier overlapping full checks retain existing deadline failures; unchanged focused cases pass alone and the cause remains unproven, with load only a hypothesis. The later combined serialized Linux check now exits 0. That pass does not establish the cause of the old failures. Heavy Linux qualification stays serialized while implementation/review remain parallel."
+    },
+    {
+      "title": "3af7c71 published with exact tree verification",
+      "detail": "Published 3af7c71 retains its exact local/remote tree and draft PR verification. Its hosted Mac jobs pass and Linux jobs fail. A later local corrective combined check now passes, with replacement publication being prepared and no new hash/CI result asserted."
+    },
+    {
+      "title": "Combined published Linux check exits 0 with explicit reported-count scope",
+      "detail": "The combined Linux scripts/check exits 0 with 1,369 reported passes, zero failed, five ignored, and 154 groups. Report blocks include child-process results and are not additive unique coverage. Source remains unchanged during the check; Engine/Desktop product build exits 0. Qualified source archive SHA256 is d03fff9007400e9accb6ab0642b10dd2372569604dfc95d1e5e19340c1658e80. Later documentation changes preserve that runtime source. No Mac/physical/protocol/release qualification follows from the Linux pass."
+    },
+    {
+      "title": "U1 retirement and HTTP closure proven with exact native file capture",
+      "detail": "Reviewed U1 real Engine ownership proof passes two parent and 14 child cases, with no material review findings. Actual A and B retirement acknowledgements are required; A acknowledgements cannot settle B, and stale/duplicate acknowledgements reject. Queued B makes no HTTP request; started B connection closes before Applied. Each native file capture is exactly 5,376 bytes matching the A prefix, and owned workers/fixture threads join. Internal deferred_start coverage and already-unmuted B playback remain unproven. Production renderer ingress stays disabled; no physical/LAN/Music Assistant/callback/Mac acceptance is claimed."
+    },
+    {
+      "title": "Kotlin composite04/05 generated control/refusal gate passes",
+      "detail": "The Kotlin composite04/05 gate passes on an earlier 3af snapshot: 13 Rust FFI tests, four startup-parser tests, Clippy/build/generation/Kotlin compilation, and the corrected actual scenario. Runtime05 passes 78 frames, 35 consumers, 44 exact CLI comparisons, 140 guards, nine network commands, and six renderer commands. Disabled grant/revoke capability refusals, untrusted authority denial, exact replay, and unchanged owner state are verified. TCP/HTTP/audio counts stay zero; owner exits 0 with fresh absence, and six frozen products remain stable. Original04 retains its EEXIST receipt-label collision. Only StateLabel changes for05; build phases are not repeated. Later fixture fixes lie outside this boundary, and renderer enablement/native/Mac/legacy ABI are not qualified."
+    },
+    {
+      "title": "Sendspin Noise unit has actual cross-language proof and clear review",
+      "detail": "The reviewed ten-file Noise unit is now inside the passing corrective combined source archive. Standard tests and the explicitly executed independent peer have distinct pass evidence. The explicit independent aiosendspin 10.2.1 NoiseSession peer passes exit 0 in all 11 live modes using the existing pinned environment through offline uv, with no sync/downloads, operator credentials, network connections, or audio. The public sanitized receipt binds actual integrated source, review, and peer log. This is bounded client encrypted-record library proof; pairing records/token finalization/persistence, full application sequence, fragmentation, rehandshake, and SourceAudio authority remain open."
+    },
+    {
+      "title": "Hosted Linux CI corrections preserve production policies",
+      "detail": "Reviewed peer-EOF and SSDP test corrections now pass inside the full combined suite, including bounded actual socket cases and diagnostics. The EOF observer awaits the real peer before retirement adoption. Discovery probes retain the original two-second bound and exact error/join checks. Production retirement/SSDP policy is unchanged. Earlier missing datagram cause remains unmeasured; the failed hosted run is not relabeled as a production outage or a green run."
+    },
+    {
+      "title": "Corrective combined check joins 0 with unchanged 1,921-file source",
+      "detail": "The corrective combined Linux scripts/check fully joins with exit 0 and source unchanged. Standard result blocks report 1,385 passed, zero failed, six ignored, and 156 groups, including child-process results. Engine/Desktop product build exits 0. The sixth ignored case is the independent Python peer, explicitly run afterward as one passing test with 11 live modes through offline uv. These are separate scoped results, not an additive unique-test total. Qualified archive SHA256 is d3590c91773afc8652f4c5b629af4f175a75fa1ade1ba129ced13396be802b33 across 1,921 files."
+    },
+    {
+      "title": "EOF and SSDP corrections pass in the full combined source",
+      "detail": "Reviewed peer-EOF and SSDP test corrections now pass inside the full combined suite, including bounded actual socket cases and diagnostics. The EOF observer awaits the real peer before retirement adoption. Discovery probes retain the original two-second bound and exact error/join checks. Production retirement/SSDP policy is unchanged. Earlier missing datagram cause remains unmeasured; the failed hosted run is not relabeled as a production outage or a green run."
+    },
+    {
+      "title": "Independent Python peer actually executed after standard tests",
+      "detail": "The explicit independent aiosendspin 10.2.1 NoiseSession peer passes exit 0 in all 11 live modes using the existing pinned environment through offline uv, with no sync/downloads, operator credentials, network connections, or audio. The public sanitized receipt binds actual integrated source, review, and peer log. This is bounded client encrypted-record library proof; pairing records/token finalization/persistence, full application sequence, fragmentation, rehandshake, and SourceAudio authority remain open."
     }
   ],
   "active": [
     {
-      "title": "Finish real Engine A/B ownership worker proof before enabling a renderer",
-      "detail": "Reviewed U1 ownership is locally integrated as 16 files, with 344 Core tests, 13 projection tests, and actual IPC evidence. Real Engine A/B worker proof is being authored. The host renderer remains disabled; no completed renderer execution or interoperability claim follows."
+      "title": "Publish the corrective checkpoint and obtain its own CI results",
+      "detail": "Root is preparing a new publication; no replacement commit hash is asserted. Published 3af7c71 hosted outcomes remain two Mac-software passes and two Linux failures until a new commit has its own CI evidence. The local corrective combined pass does not change those historical job statuses or make the draft PR shipping-ready."
     },
     {
-      "title": "Qualify the combined imported tree with serialized heavy checks",
-      "detail": "Two overlapping full checks fail existing deadline cases. Five unchanged owner-startup tests and the exact unchanged streaming test each pass alone. The cause is unproven; load is a hypothesis only. Heavy Linux qualification is now serialized via flock while implementation/review remain parallel. No successful replacement combined Root qualification is claimed from the isolated passes or the serialization procedure."
+      "title": "Complete resumed U2 Core/Engine/Desktop/FFI scoped gates",
+      "detail": "Isolated U2 corrected Clippy and final Core/Engine/Desktop/FFI scoped gates resume after the shared heavy lock releases. Results are pending. The original epoch fence is retained, without extra provisional graph state, and RenderingControl preserves Transport permissions. No completed exact-zero/volume renderer behavior is claimed."
     },
     {
-      "title": "Implement the accepted zero/shared-scale U2 contract",
-      "detail": "The exact-zero/shared-scale U2 contract is accepted. Implementation is pending. U1 ownership and U3 wire results do not qualify U2 gain/renderer behavior."
+      "title": "Research mandatory Sendspin token/state/record retention",
+      "detail": "Sendspin token/state/record-retention next-unit research has started only. No secrets or backend access is used. Pairing/store/full sequence/rehandshake/SourceAudio remain unimplemented or unqualified; raw Noise success grants no pairing, playback, or role authority."
     },
     {
-      "title": "Publish local parser/licence integration after qualification",
-      "detail": "The pure Sendspin parser is integrated into Root with five focused tests, an actual pinned Python 10.2.1 producer fixture, and independent review with no findings. This is pure framing/parser proof. It adds no network, crypto/pairing, transport, or source-playback qualification. The exact approved CommunitySpec 1.0 licence is now included locally in the framing worktree and Root as SENDSPIN-SPEC-LICENSE.md. Root bytes match SHA256 3ccde4a9233ba71229ffd323e52a1bd46ed5c3ab953384c326618d69db264027. The MIT licence remains unchanged. Inclusion is not yet published; no approval is requested again. Latest public 07614e5 software CI remains successful and unchanged, without qualifying the newer local imports."
-    },
-    {
-      "title": "Keep platform, physical, and release limits explicit",
-      "detail": "Mac SSH remains blocked with no identity restoration available now; no retry, repeated question, or access change occurs. No deletion occurs. Host renderer, strict Music Assistant, LAN/Mac multicast, callbacks/bridge/audio, current Mac Swift/legacy ABI, full T12/T17, physical/DSD, original dispatch notice, Apple SDK distribution, and release remain open. Dashboard Playwright is absent; no visual/browser check is claimed."
+      "title": "Preserve protocol and platform scope beyond raw records",
+      "detail": "The explicit independent aiosendspin 10.2.1 NoiseSession peer passes exit 0 in all 11 live modes using the existing pinned environment through offline uv, with no sync/downloads, operator credentials, network connections, or audio. The public sanitized receipt binds actual integrated source, review, and peer log. This is bounded client encrypted-record library proof; pairing records/token finalization/persistence, full application sequence, fragmentation, rehandshake, and SourceAudio authority remain open. Mac authentication still cannot be restored; no repeated question, retry, or access broadening occurs. No deletion occurs. Renderer enablement, current Mac Swift/legacy ABI, native output/clocks, strict interop, DSD, original dispatch notice, Apple SDK distribution, and release remain open. Dashboard Playwright is absent; no browser/visual check is claimed."
     }
   ],
   "pending": [
     {
-      "title": "Combined Root qualification and renderer execution remain pending",
-      "detail": "Corrected U3 isolated canonical passes, while two overlapping full checks retain unresolved deadline failures. Real Engine A/B proof is being authored; the host renderer stays disabled. Serialized execution is a procedure, not a proven cause or repaired product result."
+      "title": "New source publication and CI results pending",
+      "detail": "The local corrective combined check and real peer pass. No new commit hash or hosted result is asserted yet, and prior 3af jobs remain Mac2 PASS/Linux2 FAIL. Draft PR/release readiness is not declared."
     },
     {
-      "title": "U2 and Sendspin transport/playback remain unimplemented",
-      "detail": "U2 contract is accepted but implementation pending. Sendspin parser/spec licence are integrated locally, without network/pairing/playback qualification. The new licence and protocol imports are not yet published."
+      "title": "U2 and full Sendspin application lifecycle remain open",
+      "detail": "Scoped U2 gates have resumed without reported final results. Mandatory pairing/store/token persistence, full sequence/fragmentation/rehandshake, and SourceAudio authority remain required. Token/state/retention work is research only."
     },
     {
-      "title": "Broader qualification and dashboard browser checks remain open",
-      "detail": "Latest published 07614e5 software CI success and Kotlin proof retain their original scopes. No physical/DSD/strict-interoperability/release completion follows. Task-local Playwright is absent, so browser/visual checks are not rerun; fresh API equality and seven Node tests are separate checks."
+      "title": "Native, platform, and browser qualification remain open",
+      "detail": "Raw records, local tests, and no-fetch Kotlin proof do not complete native clocks/audio, Mac/legacy ABI, protocol interop, DSD, or release. Playwright is absent; fresh API equality and seven Node checks are separate from browser/visual verification."
     }
   ],
   "activity": [
     {
-      "title": "Exact approved Sendspin spec licence included locally",
-      "detail": "Root/framing inclusion matches the approved SHA256; MIT stays unchanged. It is not yet published and no approval is requested again."
+      "title": "Corrective combined check completes exit 0",
+      "detail": "Standard reported blocks show 1385/0/6 across 156 groups with source unchanged and product build 0. Child-result blocks are included; counts are not unique additive coverage."
     },
     {
-      "title": "Reviewed U1 ownership imported as 16 files",
-      "detail": "344 Core/13 projection tests and actual IPC evidence are scoped proof. Real Engine A/B worker validation is being authored; the host renderer is disabled."
+      "title": "Ignored peer is explicitly executed afterward and passes",
+      "detail": "One test runs 11 actual pinned Python NoiseSession modes through existing offline uv. No dependency downloads, operator credentials, network connections, or audio occur. Public sanitized evidence binds the integrated source, review, and peer log."
     },
     {
-      "title": "Corrected U3 canonical03 exits 0 before guarded import",
-      "detail": "62 network tests/strict Clippy/formatting pass. Canonical reports 1334/0/5 across 149 groups, including child-process result blocks. Root imports 18 frozen files; the isolated receipt does not qualify every later combined tree."
+      "title": "Reviewed EOF/SSDP corrections pass inside the full suite",
+      "detail": "The real EOF and bounded socket tests/diagnostics are GREEN. Production retirement/deadline/error policy remains unchanged; the earlier datagram absence cause stays unmeasured."
     },
     {
-      "title": "Unchanged focused passes do not explain overlapping deadlines",
-      "detail": "Two overlapping full checks fail existing deadline cases. Five owner-startup tests and the exact streaming case each pass alone. Cause is unproven; load remains a hypothesis. Heavy checks are serialized while implementation/review continue in parallel."
+      "title": "Replacement publication is being prepared without a fabricated hash",
+      "detail": "Old published 3af hosted jobs remain Mac2 PASS/Linux2 FAIL. No new CI green or shipping-ready claim follows until replacement publication and its own checks exist."
     },
     {
-      "title": "Accepted U2 contract and pure Sendspin scope remain bounded",
-      "detail": "Exact-zero/shared-scale implementation is pending. Pure parser five-test/Python-producer/no-findings review proof is integrated, without network/pairing/playback. Latest 07614e5 CI successes remain unchanged; physical/DSD/strict MA/release gates stay open."
+      "title": "U2 gates resume; next Sendspin unit stays research",
+      "detail": "Final scoped Clippy/Core/Engine/Desktop/FFI checks resume with the original epoch fence retained. Token/state/record-retention research uses no secrets/backend access. Pairing/full sequence/rehandshake/SourceAudio and platform/release gates remain open."
     }
   ]
 }

@@ -724,6 +724,17 @@ fn run_case(mode: &str, case: &str, directory: &Path) {
         );
     }
     let b_ack = f.ack(&b.binding);
+    if !queued {
+        // Local retirement does not schedule the independent peer's EOF observer.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !f.media.b_closed.load(Ordering::Acquire) {
+            assert!(
+                Instant::now() < deadline,
+                "B peer did not observe transport closure"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
     f.adopt(b_ack);
     f.session
         .expire_network_authority(monotonic(&f.clock))
@@ -749,12 +760,6 @@ fn run_case(mode: &str, case: &str, directory: &Path) {
     assert_eq!(f.session.shutdown_requested(), case == "shutdown");
     let query = f.command("after-cleanup", json!({"method":"renderer.get"}));
     assert_eq!(f.local(query).status, ReceiptStatus::Applied);
-    if !queued {
-        assert!(
-            f.media.b_closed.load(Ordering::Acquire),
-            "B transport must close before cleanup applies"
-        );
-    }
     f.media.release.store(true, Ordering::Release);
     // Actual retirement has joined each owned transport. No queued work may start later.
     let worker = f.worker.take().unwrap();

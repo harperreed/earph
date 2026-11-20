@@ -124,7 +124,7 @@ These operations leave output selection, consent, mute, gain, caps, and configur
 Successful foreign package import and current Swift execution remain separate qualification work.
 See [the Kotlin checkpoint](evidence/desktop/kotlin-profile-replay-linux-20261119.json) for exact counts and limits.
 
-The [current Linux Kotlin gate](evidence/ffi/linux-kotlin-network-20261120.json) also exercises network control through generated bindings.
+The [earlier Linux Kotlin network gate](evidence/ffi/linux-kotlin-network-20261120.json) exercises network control through generated bindings.
 Nine network commands cover grants, URI staging, revocation, and exact grant replay after revocation.
 The replay preserves the revoked generation and absent lease; the source snapshot hides the staged URI query.
 A real HTTP listener on an owned private IPv4 interface observes zero connections and requests.
@@ -132,3 +132,18 @@ The focused gate requires that private interface for its control-only fixture.
 The extended run sends 66 foreign frames through 29 consumers and makes 38 exact CLI comparisons.
 All 116 local guard replies cover four scenarios and two distinct error codes.
 Current Swift execution and older generated-consumer compatibility remain unqualified.
+
+The [renderer refusal snapshot](evidence/ffi/linux-kotlin-renderer-20261120.json) binds the later frozen Linux runtime and driver.
+Thirteen Rust client tests, four startup tests, strict Clippy, generation, and Kotlin compilation pass.
+Its corrected actual scenario sends 78 frames through 35 consumers and makes 44 exact CLI comparisons.
+All 140 local guard replies retain the private JNA settings.
+Six renderer calls verify inspection, refused grants and revocation, denied untrusted ingress, and exact rejected-grant replay.
+The disabled registry and actual owner state remain unchanged.
+The nine network cases still observe zero TCP connections and HTTP requests.
+The owner exits normally, and all six frozen products remain unchanged.
+
+The first scenario reused a receipt filename and failed its exclusive write.
+The corrected State label keeps every assertion and exclusive-write guard.
+Only that driver label changed after the successful build phases; the corrected scenario reuses their exact verified products.
+Later test-fixture changes fall outside that frozen source snapshot.
+This proof covers disabled renderer control, rather than enabled renderer ingress or playback.

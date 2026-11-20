@@ -249,21 +249,23 @@ try {
     return first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168);
   })?.address;
   assert(networkAddress, 'network control fixture requires an owned private IPv4 interface');
-  let networkConnections = 0, networkRequests = 0, networkCommands = 0;
+  let networkConnections = 0, networkRequests = 0, networkCommands = 0, rendererCommands = 0;
   const fixture = http.createServer((_request, response) => { networkRequests++; response.writeHead(500).end(); });
   fixture.on('connection', socket => { networkConnections++; socket.destroy(); });
   try {
     await new Promise((resolve, reject) => { fixture.once('error', reject); fixture.listen(0, networkAddress, resolve); });
     const origin = `http://${networkAddress}:${fixture.address().port}/`;
-    const networkCall = (name, payload, state = null) => {
+    const controlCall = (domain, name, payload, state = null, expected = {}) => {
       const bytes = Buffer.isBuffer(payload) ? payload : Buffer.from(JSON.stringify(envelope(payload, state)));
-      const reply = readForeign(bytes, `network-${name}`);
-      assert(reply.equals(cli(bytes, `network-${name}`)), `network binding changed reply: ${name}`);
+      const reply = readForeign(bytes, `${domain}-${name}`);
+      assert(reply.equals(cli(bytes, `${domain}-${name}`)), `${domain} binding changed reply: ${name}`);
       const document = JSON.parse(reply);
-      assert.equal(document.receipt.status, 'applied', name);
-      networkCommands++;
+      assert.equal(document.receipt.status, expected.status ?? 'applied', name);
+      if (expected.code) assert.equal(document.receipt.error?.code, expected.code, name);
       return { bytes, reply, value: document.receipt.result?.value };
     };
+    const networkCall = (...args) => { const result = controlCall('network', ...args); networkCommands++; return result; };
+    const rendererCall = (...args) => { const result = controlCall('renderer', ...args); rendererCommands++; return result; };
     const firstNetwork = networkCall('initial', { method: 'sources.network.get' }).value;
     assert.equal(firstNetwork.enabled, true); assert.equal(firstNetwork.grant_generation, 0); assert.equal(firstNetwork.origin_count, 0);
     assert.equal(firstNetwork.active, null); assert.equal(firstNetwork.lifecycle, null);
@@ -285,6 +287,25 @@ try {
     assert(replay.reply.equals(grant.reply), 'grant replay changed its original receipt');
     const replayed = networkCall('replayed', { method: 'sources.network.get' }).value;
     assert.equal(replayed.grant_generation, 2); assert.equal(replayed.origin_count, 0); assert.equal(replayed.expires_monotonic_ns, null);
+    const rendererState = queryState('renderer-before');
+    const renderer = rendererCall('initial', { method: 'renderer.get' }).value;
+    assert.equal(renderer.enabled, false); assert.equal(renderer.grant_generation, 0); assert.equal(renderer.controller_count, 0);
+    const unsupported = { status: 'rejected', code: 'CAPABILITY_UNSUPPORTED' };
+    const deniedGrant = rendererCall('grant', { method: 'renderer.grants.replace', expected_generation: 0, lifetime_ms: 60000,
+      grants: { controllers: [{ id: 'foreign-controller', peers: [networkAddress], rights: ['stage'] }] } }, rendererState, unsupported);
+    rendererCall('revoke', { method: 'renderer.grants.revoke', expected_generation: 0,
+      controller_id: 'foreign-controller' }, queryState('renderer-revoke-state'), unsupported);
+    rendererCall('untrusted', { method: 'renderer.request', controller_id: 'foreign-controller', grant_generation: 1,
+      action: { operation: 'stop', binding: null } }, queryState('renderer-untrusted-state'), { status: 'rejected', code: 'AUTH_DENIED' });
+    assert(rendererCall('grant-replay', deniedGrant.bytes, null, unsupported).reply.equals(deniedGrant.reply));
+    const rendererAfter = rendererCall('after', { method: 'renderer.get' }).value;
+    for (const key of ['enabled', 'grant_generation', 'controller_count', 'controllers', 'staged', 'active', 'closing']) {
+      assert.deepEqual(rendererAfter[key], renderer[key], `disabled renderer changed authority: ${key}`);
+    }
+    assert.deepEqual(queryState('renderer-after-state'), rendererState, 'disabled renderer changed the actual owner state');
+    save('renderer-control-private.json', { commands: rendererCommands, exact_cli_comparisons: rendererCommands,
+      disabled: true, grant_and_revoke_refused: true, untrusted_ingress_denied: true,
+      exact_rejected_grant_replay: true, owner_state_unchanged: true });
     await new Promise(setImmediate);
     assert.equal(networkConnections, 0, 'control-only foreign calls connected to the real HTTP fixture');
     assert.equal(networkRequests, 0, 'control-only foreign calls fetched from the real HTTP fixture');
@@ -304,8 +325,8 @@ try {
   }
   save('integrated-phases-private.json', phases);
   summary = { schema_version: 1, status: 'pass', language: options.language,
-    baseline_foreign_commands: cases.length, actual_foreign_commands: cases.length + phases.length * 4 + 2 + networkCommands * 2,
-    exact_cli_comparisons: cases.length + phases.length * 2 + 1 + networkCommands, typed_local_failures: 4, owner_survives_handle_release: true,
+    baseline_foreign_commands: cases.length, actual_foreign_commands: cases.length + phases.length * 4 + 2 + (networkCommands + rendererCommands) * 2,
+    exact_cli_comparisons: cases.length + phases.length * 2 + 1 + networkCommands + rendererCommands, typed_local_failures: 4, owner_survives_handle_release: true,
     integrated_profile_commands: phases.length, exact_terminal_replay_comparisons: phases.length,
     integrated_foreign_frames: phases.length * 4 + 2, accepted_initial_profile_receipts: phases.filter(p => p.first_status === 'accepted').length,
     generated_package_object_hashes_verified: inspected.manifest.objects.length,
@@ -313,6 +334,9 @@ try {
     generated_network_foreign_frames: networkCommands * 2, generated_network_exact_cli_comparisons: networkCommands,
     network_grant_replay_exact: true, network_lease_revoked_after_replay: true, network_staged_uri_redacted: true,
     network_fixture_connections: networkConnections, network_fixture_requests: networkRequests,
+    generated_renderer_disabled_control_qualified: true, generated_renderer_commands: rendererCommands,
+    generated_renderer_foreign_frames: rendererCommands * 2, generated_renderer_exact_cli_comparisons: rendererCommands,
+    renderer_grants_refused: true, renderer_untrusted_ingress_denied: true, renderer_rejected_grant_replay_exact: true,
     missing_export_review_refused: true, successful_foreign_package_import_qualified: false,
     reported_safety_unchanged: true, native_output_opened: false, signal_exercises: 0, cancellation_qualified: false,
     subscriptions_qualified: false, private_jna_dispatcher_verified: options.language === 'kotlin',

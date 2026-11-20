@@ -1,8 +1,14 @@
 # ABOUTME: Defines the bounded Sendspin protocol components without an output owner.
-# ABOUTME: Starts with authenticated-message framing and adds no transport dependencies.
+# ABOUTME: Uses a qualified Noise library without adding socket or output ownership.
 [package]
 name = "earph-sendspin"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+
+[dependencies]
+snow = { version = "=0.10.0", default-features = false, features = ["use-curve25519", "use-chacha20poly1305", "use-sha2", "use-getrandom"] }
+sha2.workspace = true
+serde_json.workspace = true
+base64 = "=0.23.1"

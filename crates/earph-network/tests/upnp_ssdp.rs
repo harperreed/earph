@@ -5,7 +5,7 @@ use earph_network::upnp::{
 };
 use std::{
     io::{Read, Write},
-    net::{Ipv4Addr, SocketAddrV4, TcpStream, UdpSocket},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, UdpSocket},
     time::{Duration, Instant},
 };
 fn identity() -> DeviceIdentity {
@@ -26,6 +26,35 @@ fn advertisement() -> Advertisement {
 }
 fn search(target: &str, mx: &str) -> Vec<u8> {
     format!("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: {mx}\r\nST: {target}\r\n\r\n").into_bytes()
+}
+fn search_reply(
+    controller: &UdpSocket,
+    endpoint: SocketAddr,
+    data: &mut [u8],
+) -> std::io::Result<(usize, SocketAddr)> {
+    controller.set_nonblocking(true)?;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut next_search = Instant::now();
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "no response to bounded discovery queries",
+            ));
+        }
+        // UDP delivery is optional, and replies that miss MX must be discarded.
+        if now >= next_search {
+            controller.send_to(&search("upnp:rootdevice", "1"), endpoint)?;
+            next_search = now + Duration::from_millis(100);
+        }
+        match controller.recv_from(data) {
+            Ok(reply) => return Ok(reply),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(error) => return Err(error),
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 #[test]
 fn standard_targets_usns_and_selected_location_agree() {
@@ -190,12 +219,16 @@ fn refused_reply_peer_keeps_http_and_discovery_running() {
     let mut body = String::new();
     socket.read_to_string(&mut body).unwrap();
     assert!(body.starts_with("HTTP/1.1 200"));
-    controller
-        .send_to(&search("upnp:rootdevice", "1"), receiver_addr)
-        .unwrap();
-    let (length, _) = controller
-        .recv_from(&mut data)
-        .expect("discovery stopped after a refused peer");
+    let (length, _) = match search_reply(&controller, receiver_addr, &mut data) {
+        Ok(reply) => reply,
+        Err(error) => {
+            let stats = server.shutdown();
+            panic!(
+                "no discovery reply after refusal: {error}; joined={}, service_error={:?}",
+                stats.joined, stats.service_error
+            );
+        }
+    };
     assert!(data[..length].starts_with(b"HTTP/1.1 200"));
     shutdown(server);
 }
@@ -207,9 +240,6 @@ fn local_discovery_socket_failure_is_reported_after_join() {
     let receiver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let receiver_addr = receiver.local_addr().unwrap();
     let controller = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-    controller
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .unwrap();
     let sender = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     sender.connect(controller.local_addr().unwrap()).unwrap();
     socket2::SockRef::from(&sender)
@@ -229,13 +259,12 @@ fn local_discovery_socket_failure_is_reported_after_join() {
             .unwrap(),
         )
         .unwrap();
-    controller
-        .send_to(&search("upnp:rootdevice", "1"), receiver_addr)
-        .unwrap();
     let mut bytes = [0; 2049];
     assert_eq!(
-        controller.recv_from(&mut bytes).unwrap_err().kind(),
-        std::io::ErrorKind::WouldBlock
+        search_reply(&controller, receiver_addr, &mut bytes)
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::TimedOut
     );
     let stats = server.shutdown();
     assert!(stats.joined, "the failed runtime thread must still join");
@@ -251,20 +280,16 @@ fn raw_udp_discovery_points_to_the_actual_selected_http_listener() {
     let endpoint = SsdpEndpoint::from_bound(receiver, sender, ad).unwrap();
     server.attach_discovery(endpoint).unwrap();
     let controller = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-    controller.set_nonblocking(true).unwrap();
-    controller
-        .send_to(&search("upnp:rootdevice", "1"), endpoint_addr)
-        .unwrap();
-    let start = Instant::now();
     let mut data = [0; 2049];
-    let (length, peer) = loop {
-        match controller.recv_from(&mut data) {
-            Ok(reply) => break reply,
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(error) => panic!("{error}"),
-        };
-        assert!(start.elapsed() < Duration::from_secs(2));
-        std::thread::sleep(Duration::from_millis(5));
+    let (length, peer) = match search_reply(&controller, endpoint_addr, &mut data) {
+        Ok(reply) => reply,
+        Err(error) => {
+            let stats = server.shutdown();
+            panic!(
+                "no discovery reply: {error}; joined={}, service_error={:?}",
+                stats.joined, stats.service_error
+            );
+        }
     };
     assert_eq!(peer.ip(), Ipv4Addr::LOCALHOST);
     let reply = std::str::from_utf8(&data[..length]).unwrap();
