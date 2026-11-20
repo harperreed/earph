@@ -89,3 +89,6 @@ See [HTTP owner playback](owner-http-playback.md) for the underlying source and 
 See the [Sendspin crate](../crates/earph-sendspin/README.md) for its separate protocol boundary.
 
 The [shared gain receipt](evidence/network/software-zero-linux-20261120.json) binds the integrated Linux source and PCM proofs.
+
+The [native zero acceptance](evidence/desktop/native-zero-linux-20261120.json) also verifies the shared setting through actual GUI views.
+It covers software output and active diagnostics without enabling renderer ingress.

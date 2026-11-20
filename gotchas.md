@@ -91,3 +91,9 @@
   Preserve failures and diagnose timing before changing application behavior or deadlines.
   These observations support load sensitivity; they do not establish a root cause.
   See the [Linux wire receipt](docs/evidence/network/upnp-wire-linux-20261120.json).
+
+- AT-SPI action success confirms event admission, rather than adoption of the next GUI view.
+  Fence route changes against the destination heading before querying its controls.
+  After an external CLI mutation, refresh and fence the observed owner/revision before guarded GUI actions.
+  Retry fresh reads within a deadline; never replay a mutation to observe its completion.
+  See the [active zero qualification](docs/evidence/desktop/native-zero-linux-20261120.json).

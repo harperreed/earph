@@ -212,3 +212,9 @@ The source now gates that support consistently with its existing Linux-only test
 The next committed-source Mac build must verify that fix.
 No current Mac compile or window pass follows from the Linux result.
 See [the preview receipt](evidence/diagnostics/preview-linux-20261119.json) for exact hashes and remaining limits.
+
+The [active zero GUI receipt](evidence/desktop/native-zero-linux-20261120.json) binds the later frozen Linux software-output build.
+Twenty-four native actions verify active graph diagnostics, exact zero, finite exit, mute independence, and FactoryDefaults.
+All 109,975 exported bytes match the exact native preview text, and inspection reports Matching.
+The owner, GUI, and capture reader exit normally.
+This proof covers private X11 and an ALSA file-to-null PCM boundary; physical output and other platforms remain separate.
