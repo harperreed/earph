@@ -31,6 +31,7 @@ else
 fi
 mkdir -p "$(dirname "$earph_output")"
 mkdir "$earph_output"
+node --test scripts/ffi-owner-readiness.test.mjs > "$earph_output/readiness-tests.log" 2>&1
 cargo build --locked -p earph-ffi --features bindgen --bin earph-bindgen > "$earph_output/bindgen-build.log" 2>&1
 cargo clippy --locked -p earph-ffi --all-targets --features bindgen -- -D warnings > "$earph_output/bindgen-clippy.log" 2>&1
 cargo build --locked -p earph-ffi --lib > "$earph_output/library-build.log" 2>&1

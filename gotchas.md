@@ -79,3 +79,8 @@
   Exhausted temporary inodes can break owner, decoder, and foreign-client checks together.
   Preserve evidence and get deletion approval before reclaiming finished fixtures.
   See [tmpfs link accounting](https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/2b66f2cc753243a6adb3e9a5c038b0fc59ba7ec9/mm/shmem.c).
+
+- Engine publishes `endpoint.json` before verifying its discovery helper and entering the IPC loop.
+  Treat that file as discovery identity, rather than serving readiness.
+  Wait for the owner startup announcement, then require a State reply with its owner identity.
+  Reuse the bounded [FFI startup reader](scripts/ffi-owner-readiness.mjs) and the desktop launch handshake.

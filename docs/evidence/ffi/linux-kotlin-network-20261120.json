@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "status": "pass_for_linux_generated_kotlin_control_and_network",
+  "date_utc": "2026-11-20",
+  "source": {
+    "baseline_commit": "5f30b5b5db9444eb2181a7af2c2ca875e6401c04",
+    "source_dirty": true,
+    "source_files": 452,
+    "manifest_sha256": "a2498ab14425fd3735ee67abb131b21f1e3d1dc197b8c441cdf15d314b0f7952",
+    "scenario_sha256": "6e4f5d60d02eaf7a31c4d4c7ffac1eb2aa0c2477f5e0dc488b06f2379149bdee",
+    "source_and_head_unchanged_during_run": true,
+    "changes_after_full_build_gate": [
+      "scripts/ffi-scenario.mjs"
+    ],
+    "compiled_runtime_inputs_unchanged": true,
+    "profile": "dev"
+  },
+  "tools": {
+    "rust": "1.98.1",
+    "node": "26.13.1",
+    "kotlin": "2.4.21",
+    "java": "26.0.2.1",
+    "jna": "5.19.1",
+    "uniffi": "0.32.2"
+  },
+  "checks": {
+    "full_ffi_gate_exit": 0,
+    "rust_client_tests": 12,
+    "startup_parser_tests": 4,
+    "generator_feature_clippy": "pass",
+    "kotlin_warnings_as_errors": "pass",
+    "extended_scenario_exit": 0,
+    "foreign_frames": 66,
+    "consumer_processes": 29,
+    "exact_cli_comparisons": 38,
+    "profile_terminal_replays": 9,
+    "local_guard_scenarios_per_consumer": 4,
+    "local_guard_replies": 116,
+    "distinct_local_error_codes": [
+      "ASSET_INVALID",
+      "RESOURCE_BUDGET_EXCEEDED"
+    ],
+    "network_commands": 9,
+    "network_foreign_frames": 18,
+    "network_exact_cli_comparisons": 9,
+    "exact_grant_envelope_and_reply_replay": true,
+    "revoked_generation_preserved": true,
+    "revoked_lease_expiry_null": true,
+    "staged_uri_query_redacted": true,
+    "real_http_fixture_connections": 0,
+    "real_http_fixture_requests": 0,
+    "owner_exit_code": 0,
+    "owner_signal": null,
+    "owned_pid_absent_at_collection": true,
+    "private_jna_dispatcher_verified": true,
+    "all_consumer_stderr_empty": true,
+    "frozen_products_unchanged": 6,
+    "native_output_opened": false,
+    "signal_exercises": 0
+  },
+  "products": {
+    "engine_sha256": "9146d6b4c67655a0e1257fac70ecd8ecd66bfadb6416d3583f0d84c1378a7294",
+    "library_sha256": "8504c3d33d50e4d99f6f97b45aa9ca15e4203c22268297395ef2e7bb1255f17d",
+    "consumer_jar_sha256": "18f5d3b99b5a21dc8a09d066969c4442fdddf3b0c686bd7c2e21f20fe5a4d54d",
+    "generated_kotlin_sha256": "fad43e6f82b7a40ea9accb70cfbe4d34c6a8458631c4d1d0cf3b51df52e36a6d",
+    "jna_dispatcher_sha256": "ca07953d595210082339753d9e818a1fdb40509a17a41914d9a2cb0d2df6b6af"
+  },
+  "private_evidence": {
+    "baseline_qualification_sha256": "261203ca254719526714afd69ac153990e210da3e21d14770784b3e4d9d72340",
+    "extended_qualification_sha256": "a9d1663ed9d76cb3bb43a807688225189be66adb12334174c634293e9c77f32a"
+  },
+  "review": {
+    "main_model_parent_review_material_findings": 0
+  },
+  "limits": [
+    "Targeted Rust counts overlap the canonical suite; they are not additional unique coverage.",
+    "The consumer still forwards opaque JSON bytes; no typed network policy API is added.",
+    "Current Swift execution remains blocked; historical Swift results do not qualify these current products or new network cases.",
+    "Older generated-consumer compatibility, a stable public C ABI, successful foreign package import, cancellation and subscriptions remain unqualified.",
+    "No native output, hardware playback, GUI, callbacks, DAC delivery or acoustic result is qualified.",
+    "The historical missing JNA before-state receipt remains unresolved."
+  ],
+  "raw_private_values_included": false
+}

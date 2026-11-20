@@ -64,6 +64,10 @@ SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" scripts/check-ffi --language swi
 
 This invocation does not change global Xcode selection or shell configuration.
 The gate builds, generates, compiles, and exercises the actual owner and request CLI.
+It also runs the startup parser's real-file tests before building.
+Endpoint publication identifies the current socket before the owner finishes startup.
+The foreign driver waits for the bounded owner announcement, then checks the same identity through State.
+It retains the existing eight-second startup budget and one-second IPC deadline.
 It runs strict Clippy with the generator feature because default workspace checks omit that binary.
 It preserves all generated files and logs, including failed runs.
 It never installs tools or removes artifacts.
@@ -119,3 +123,12 @@ Exported object hashes and bytes match the owner's original generated objects.
 These operations leave output selection, consent, mute, gain, caps, and configured profile unchanged.
 Successful foreign package import and current Swift execution remain separate qualification work.
 See [the Kotlin checkpoint](evidence/desktop/kotlin-profile-replay-linux-20261119.json) for exact counts and limits.
+
+The [current Linux Kotlin gate](evidence/ffi/linux-kotlin-network-20261120.json) also exercises network control through generated bindings.
+Nine network commands cover grants, URI staging, revocation, and exact grant replay after revocation.
+The replay preserves the revoked generation and absent lease; the source snapshot hides the staged URI query.
+A real HTTP listener on an owned private IPv4 interface observes zero connections and requests.
+The focused gate requires that private interface for its control-only fixture.
+The extended run sends 66 foreign frames through 29 consumers and makes 38 exact CLI comparisons.
+All 116 local guard replies cover four scenarios and two distinct error codes.
+Current Swift execution and older generated-consumer compatibility remain unqualified.

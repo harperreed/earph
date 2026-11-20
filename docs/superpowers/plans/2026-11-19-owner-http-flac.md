@@ -6,7 +6,7 @@ The reviewed transport, decoder, and engine decode worker provide the implementa
 Storage is available again, and the previous ignored build evidence is missing.
 The fresh combined Linux canonical check passes all 1,305 tests.
 Five existing tests remain ignored.
-Mac, native GUI, generated-language bindings, and release gates remain separate.
+Native audio, Mac GUI, Swift, and release gates remain separate.
 
 ## Outcome
 
@@ -212,8 +212,16 @@ General command Debug output continues to redact authority.
 CI runs the full Linux canonical check and a limited Mac software check.
 The Mac job builds all targets and tests Core and DSP.
 It does not qualify native output, GUI access, physical playback, or release readiness.
-The first hosted execution remains pending.
+Both hosted branch and PR executions pass Linux canonical and Apple Silicon Mac software checks.
+The [hosted receipt](../../evidence/ci/software-checks-20261120.json) records their exact commit and job IDs.
 
-The generated Kotlin consumer gate runs separately against the frozen integration.
+The generated Kotlin gate passes 66 foreign frames and 38 exact CLI comparisons.
+Nine profile terminal replays pass, and its owner exits cleanly.
+Nine network commands verify grants, staging, revocation, redaction, and exact grant replay.
+Revoked authority remains revoked after replay, with no TCP connection or HTTP request.
+The [Kotlin receipt](../../evidence/ffi/linux-kotlin-network-20261120.json) separates built products from the later driver extension.
+The [native Linux diagnostic gate](../../evidence/desktop/native-diagnostics-linux-20261120.json) passes against the frozen products.
+It covers idle diagnostic reads, preview expiry, exact export bytes, and matching read-only inspection.
+It does not qualify active playback or native audio.
 Current Mac authentication is unavailable, and Doctor Biz cannot restore it now.
 Leave Mac permissions and credentials unchanged while Linux work continues.

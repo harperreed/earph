@@ -4,7 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import { readOwnerAnnouncement } from './ffi-owner-readiness.mjs';
 
 const options = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, index, all) => {
   if (index % 2 === 0) pairs.push([value.replace(/^--/, ''), all[index + 1]]);
@@ -104,11 +107,17 @@ async function waitExit() {
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let failure, summary;
 try {
+  const startupStarted = Date.now();
   const deadline = Date.now() + 8000;
-  while (!fs.existsSync(path.join(runtime, 'endpoint.json'))) {
+  let announcedOwner = null;
+  while (announcedOwner === null) {
     assert(!ownerExit, 'owner exited before readiness'); assert(Date.now() < deadline, 'owner readiness deadline exceeded'); await sleep(10);
+    announcedOwner = readOwnerAnnouncement(path.join(output, 'owner.stdout.log'));
   }
   const initial = queryState('initial');
+  assert.equal(initial.owner_id, announcedOwner, 'State belongs to a different owner than the startup announcement');
+  save('owner-readiness-private.json', { announced_owner_id: announcedOwner, observed_owner_id: initial.owner_id,
+    elapsed_ms: Date.now() - startupStarted, startup_deadline_ms: 8000, endpoint_alone_is_not_readiness: true });
   assert.equal(initial.muted, true); assert.equal(initial.output, null); assert.equal(initial.shutdown_requested, false);
   const cases = [];
   const add = (name, command) => cases.push({ name, bytes: Buffer.isBuffer(command) ? command : Buffer.from(JSON.stringify(command)) });
@@ -234,18 +243,76 @@ try {
     expected_manifest_sha256: inspected.manifest_sha256 }, false, 'rejected');
   const missing = await phase('package-inspect-missing', { method: 'profiles.package_inspect', directory: path.join(output, 'absent-package') }, false, 'failed');
   for (const key of ['reason', 'object', 'filesystem_state']) assert(Object.hasOwn(missing, key), `missing package failure: ${key}`);
+  const networkAddress = Object.values(os.networkInterfaces()).flat().find(address => {
+    if (address.family !== 'IPv4' || address.internal) return false;
+    const [first, second] = address.address.split('.').map(Number);
+    return first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168);
+  })?.address;
+  assert(networkAddress, 'network control fixture requires an owned private IPv4 interface');
+  let networkConnections = 0, networkRequests = 0, networkCommands = 0;
+  const fixture = http.createServer((_request, response) => { networkRequests++; response.writeHead(500).end(); });
+  fixture.on('connection', socket => { networkConnections++; socket.destroy(); });
+  try {
+    await new Promise((resolve, reject) => { fixture.once('error', reject); fixture.listen(0, networkAddress, resolve); });
+    const origin = `http://${networkAddress}:${fixture.address().port}/`;
+    const networkCall = (name, payload, state = null) => {
+      const bytes = Buffer.isBuffer(payload) ? payload : Buffer.from(JSON.stringify(envelope(payload, state)));
+      const reply = readForeign(bytes, `network-${name}`);
+      assert(reply.equals(cli(bytes, `network-${name}`)), `network binding changed reply: ${name}`);
+      const document = JSON.parse(reply);
+      assert.equal(document.receipt.status, 'applied', name);
+      networkCommands++;
+      return { bytes, reply, value: document.receipt.result?.value };
+    };
+    const firstNetwork = networkCall('initial', { method: 'sources.network.get' }).value;
+    assert.equal(firstNetwork.enabled, true); assert.equal(firstNetwork.grant_generation, 0); assert.equal(firstNetwork.origin_count, 0);
+    assert.equal(firstNetwork.active, null); assert.equal(firstNetwork.lifecycle, null);
+    const grant = networkCall('grant', { method: 'sources.grants.replace', expected_generation: 0,
+      grants: { origins: [{ origin, pins: [networkAddress], roots_der: [] }] }, lifetime_ms: 60000 }, queryState('network-grant-state'));
+    const granted = networkCall('granted', { method: 'sources.network.get' }).value;
+    assert.equal(granted.grant_generation, 1); assert.equal(granted.origin_count, 1);
+    assert(Number.isSafeInteger(granted.expires_monotonic_ns) && granted.expires_monotonic_ns > 0);
+    const privateMarker = 'generated-foreign-private-query';
+    networkCall('stage', { method: 'sources.stage_uri', uri: `${origin}owned.flac?proof=${privateMarker}`,
+      metadata: 'Generated foreign controller metadata' }, queryState('network-stage-state'));
+    const staged = networkCall('sources', { method: 'sources.get' }).value;
+    assert.equal(staged.staged.admission, 'unadmitted');
+    assert(!JSON.stringify(staged).includes(privateMarker), 'foreign source snapshot leaked the URI query');
+    networkCall('revoke', { method: 'sources.grants.revoke', expected_generation: 1 }, queryState('network-revoke-state'));
+    const revoked = networkCall('revoked', { method: 'sources.network.get' }).value;
+    assert.equal(revoked.grant_generation, 2); assert.equal(revoked.origin_count, 0); assert.equal(revoked.expires_monotonic_ns, null);
+    const replay = networkCall('grant-replay', grant.bytes);
+    assert(replay.reply.equals(grant.reply), 'grant replay changed its original receipt');
+    const replayed = networkCall('replayed', { method: 'sources.network.get' }).value;
+    assert.equal(replayed.grant_generation, 2); assert.equal(replayed.origin_count, 0); assert.equal(replayed.expires_monotonic_ns, null);
+    await new Promise(setImmediate);
+    assert.equal(networkConnections, 0, 'control-only foreign calls connected to the real HTTP fixture');
+    assert.equal(networkRequests, 0, 'control-only foreign calls fetched from the real HTTP fixture');
+    save('network-control-private.json', { origin, commands: networkCommands, exact_cli_comparisons: networkCommands,
+      grant_request_sha256: crypto.createHash('sha256').update(grant.bytes).digest('hex'),
+      exact_grant_replay: true, final_grant_generation: replayed.grant_generation, final_origin_count: replayed.origin_count,
+      final_lease_expiry: replayed.expires_monotonic_ns, staged_uri_redacted: true, fixture_connections: networkConnections,
+      fixture_requests: networkRequests });
+  } finally {
+    if (fixture.listening) await new Promise((resolve, reject) => fixture.close(error => error ? reject(error) : resolve()));
+  }
   const finalState = queryState('integrated-final');
+  assert.equal(finalState.source, null); assert.equal(finalState.transport, 'idle');
   for (const key of ['owner_id', 'muted', 'software_gain_db', 'output', 'output_consented', 'volume_policy', 'local_volume_policy', 'configured_profile', 'graph_epoch', 'shutdown_requested']) {
     assert(Object.hasOwn(initial, key) && Object.hasOwn(finalState, key), `missing final state field: ${key}`);
     assert.deepEqual(finalState[key], initial[key], `saved intent changed output authority: ${key}`);
   }
   save('integrated-phases-private.json', phases);
   summary = { schema_version: 1, status: 'pass', language: options.language,
-    baseline_foreign_commands: cases.length, actual_foreign_commands: cases.length + phases.length * 4 + 2,
-    exact_cli_comparisons: cases.length + phases.length * 2 + 1, typed_local_failures: 4, owner_survives_handle_release: true,
+    baseline_foreign_commands: cases.length, actual_foreign_commands: cases.length + phases.length * 4 + 2 + networkCommands * 2,
+    exact_cli_comparisons: cases.length + phases.length * 2 + 1 + networkCommands, typed_local_failures: 4, owner_survives_handle_release: true,
     integrated_profile_commands: phases.length, exact_terminal_replay_comparisons: phases.length,
     integrated_foreign_frames: phases.length * 4 + 2, accepted_initial_profile_receipts: phases.filter(p => p.first_status === 'accepted').length,
     generated_package_object_hashes_verified: inspected.manifest.objects.length,
+    generated_network_control_qualified: true, generated_network_commands: networkCommands,
+    generated_network_foreign_frames: networkCommands * 2, generated_network_exact_cli_comparisons: networkCommands,
+    network_grant_replay_exact: true, network_lease_revoked_after_replay: true, network_staged_uri_redacted: true,
+    network_fixture_connections: networkConnections, network_fixture_requests: networkRequests,
     missing_export_review_refused: true, successful_foreign_package_import_qualified: false,
     reported_safety_unchanged: true, native_output_opened: false, signal_exercises: 0, cancellation_qualified: false,
     subscriptions_qualified: false, private_jna_dispatcher_verified: options.language === 'kotlin',

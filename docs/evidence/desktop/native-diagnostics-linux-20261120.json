@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-11-20",
+  "status": "pass",
+  "scope": "Frozen Linux native diagnostic window, GUI preview expiry refusal, exact redacted artifact export, and read-only inspection",
+  "source": {
+    "base_commit": "716786171414b0a78b381707aa201706ffbf609a",
+    "frozen_source_archive_sha256": "7eb4990a31b26594c24f86c9e2ab42ec986ee40be79ae64bb44243a66fe612a6",
+    "binding": "Archived canonical-02 source and exact products; the mutable checkout advanced during publication."
+  },
+  "products": [
+    {
+      "artifact": "earph-desktop",
+      "bytes": 163900360,
+      "sha256": "9f278eea98145a53a38613725099b0d105bdea26ad585018fb58ef76803abfd1"
+    },
+    {
+      "artifact": "earph-engine",
+      "bytes": 63091288,
+      "sha256": "3874ed3075a07dad0fc480c32fcf58572ee6a2628dc1830a1aa266bd5be9512c"
+    }
+  ],
+  "native": {
+    "platform": "Linux x86_64",
+    "display": "Isolated X11 with Xvfb, Openbox, and compositor",
+    "accessibility": "Actual AT-SPI actions and fresh live application tree reads",
+    "semantic_actions": 22,
+    "scroll_actions": 2,
+    "independent_owner_queries": 5,
+    "diagnostic_observations_adopted": 3,
+    "preview_lifetime_ns": 30000000000,
+    "expired_export_observed_after_ns": 31459829812,
+    "expired_export": "Rejected with AssetInvalid; destination absent",
+    "fresh_capture": "New observation identity and creation clock; unchanged idle payload digest is allowed",
+    "fresh_export": "Applied with installed and verified effect",
+    "inspection": "Applied with matching result and unchanged effect",
+    "installed_files": 2,
+    "diagnostics_bytes": 3207,
+    "diagnostics_sha256": "fc25501800c4728a108a38e86be0b466d8418d1856a527548cc9793168daab3b",
+    "exact_native_payload_equals_installed_bytes": true,
+    "owner_output_unselected": true,
+    "owner_muted": true,
+    "gui_exit": 0,
+    "owner_exit": 0,
+    "recorded_native_processes_remaining": 0,
+    "products_unchanged_during_run": true,
+    "themes_viewed": [
+      "dark",
+      "light"
+    ],
+    "screenshot_count": 4
+  },
+  "privacy": {
+    "screenshots": "Retained privately; not published",
+    "raw_action_and_owner_records": "Retained privately; not published",
+    "public_candidate_contains_no_raw_paths_hostnames_device_or_controller_identities": true
+  },
+  "limits": [
+    "Idle owner only; no active playback, resolved DSP, native output, hardware, DAC, or acoustic qualification.",
+    "No Mac or Wayland window qualification.",
+    "No native cancellation, lost reply, or replacement-owner fault was induced.",
+    "Successful diagnostic read receipts retire after adoption; their original wire bytes were not recovered or replayed.",
+    "No foreign-language or later FFI-script qualification follows from this run.",
+    "No screen-reader user session, packaging, release CPU margin, or full T17 acceptance claim."
+  ]
+}

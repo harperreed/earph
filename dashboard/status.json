@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-20T15:33:29.103Z",
-  "headline": "Linux canonical-02 passes 1305/0/5; Kotlin, publication, and platform gates remain open.",
-  "focus": "Publish reviewed source through existing connector · Read generated Kotlin gate result · UPnP Core ownership and CI preparation",
-  "summary": "Canonical-02 passes 1305/0/5 across 144 groups with unchanged source and frozen Engine/Desktop products. The initial owner-startup size and waiting-label failures are fixed while the existing bound and Debug privacy redaction remain intact. The generated Kotlin FFI gate is released but has no pass result. UPnP U1 Core ownership is active with a real decoder RED, without listener/renderer/interop. CI preparation covers Linux full/Mac software only and is not adopted or run. Mac/Git SSH still lacks the existing identity, which Doctor Biz cannot restore now; source publication is pending via the existing same-account connector. Whole-app/native/Mac/ABI/protocol/release qualification remains unfinished.",
+  "updated_at": "2026-11-20T15:56:25.414Z",
+  "headline": "HTTP integration, scoped CI, idle diagnostics, and Kotlin baseline pass; network extension pending.",
+  "focus": "Finish generated network-language matrix · Continue isolated UPnP ownership/parser work · Preserve native/platform limits",
+  "summary": "HTTP integration 5f30b5b is published to draft PR #4 with exact tree/hooks verified. Local Linux canonical-02 remains 1305/0/5. Both hosted PR/push CI runs now succeed for Linux canonical and Apple Silicon Mac-software only. Frozen-source idle Linux diagnostic/expiry proof passes without audio/Mac/full T17 acceptance. Kotlin baseline02 is green with 48 frames, 29 exact CLI comparisons, nine replays, owner exit 0, and fresh absence; the first readiness failure is retained. The generated-network matrix extension is active, not passed. UPnP ownership/seven parser tests remain isolated without enabled listener/renderer. Mac SSH cannot be restored now. Native Core Audio/Mac GUI/physical, full ABI/protocol, and release gates remain open.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -28,15 +28,15 @@
     },
     "M1": {
       "state": "active",
-      "detail": "The replacement Linux canonical is green after owner startup and local waiting presentation corrections. This is software-suite proof, without a fresh native GUI/Mac or physical-output acceptance. Full milestone qualification remains open."
+      "detail": "Current Linux canonical passes, and the idle-only native diagnostic/expiry gate passes on frozen source/products. It establishes no new audio, Mac, or physical-output acceptance. Broader platform and full milestone qualification remain open."
     },
     "M2": {
       "state": "active",
-      "detail": "Current Linux canonical-02 passes with unchanged source and frozen products; both initial recovery causes are fixed. Generated Kotlin results, native/Mac/FFI ABI, protocol interoperability, full T12/T17, and release remain open. Current source publication is pending."
+      "detail": "Published HTTP integration retains Linux canonical-02 and gains scoped idle native diagnostic/expiry proof. Both software CI runs and Kotlin baseline02 pass separately. Generated network-language coverage, native audio/Mac/FFI ABI, full T12/T17, and release remain open."
     },
     "M3": {
       "state": "planned",
-      "detail": "UPnP U1 Core ownership is active in isolation with real decoder RED evidence. Listener and actual renderer are absent. No current adapter/playback/interop acceptance follows. Other protocol/timing/DSD/arbitration work remains open."
+      "detail": "UPnP U1 ownership and isolated U3 parser work advance with seven wire tests, but no listener or actual renderer is enabled. HTTP publication and diagnostic idle proof do not establish UPnP/other protocol playback or interoperability, timing, DSD, or arbitration."
     },
     "M4": {
       "state": "planned",
@@ -45,20 +45,20 @@
   },
   "checks": [
     {
-      "title": "Current Linux canonical-02 passes 1305/0/5",
-      "detail": "Canonical-02 passes: 1,305 passed, zero failed, five ignored, across 144 groups. Source remains unchanged during the check, and Engine/Desktop products are frozen. This is a current Linux canonical result. It does not qualify the whole app, Mac/native runs, FFI ABI, protocol interoperability, CI execution, or release."
+      "title": "HTTP integration published with verified tree/hooks",
+      "detail": "HTTP integration 5f30b5b is published to the public draft PR #4. Exact local/remote tree comparison and hooks pass. Canonical-02 retains its 1305/0/5 Linux pass with frozen Engine/Desktop source/products. Publication does not complete the whole app or release."
     },
     {
-      "title": "Initial helper and waiting-presentation failures fixed",
-      "detail": "Both confirmed causes from the initial recovery run are fixed. The bounded helper now works with split development debug symbols, keeping the existing size bound, optimization/assertion settings, and security controls. Explicit local waiting detail formatting replaces the misuse of privacy-redacted Debug text; Debug redaction remains intact. Canonical-02 is green. The earlier 1234/71/5 report and unrecoverable terminal exit remain preserved as initial-run evidence."
+      "title": "Idle Linux diagnostic/expiry gate passes on frozen source",
+      "detail": "The Linux diagnostic/expiry native gate passes against frozen canonical-02 source and binaries. It covers 24 native actions and five owner queries. An expired export is refused after 31.46 seconds with no destination; a fresh export is exactly 3,207 bytes and inspection reports Matching. GUI and Engine exit 0; four screenshots remain private. This is idle-only diagnostic proof, without native audio, Mac, or full T17 qualification."
     },
     {
-      "title": "Generated Kotlin gate released; result pending",
-      "detail": "The actual generated Kotlin FFI gate is released, with no result yet. It must not be presented as a passing consumer or FFI ABI qualification. Earlier recovery-tool brief/results remain scoped to their checkpoints. Dashboard maintenance installs nothing and performs no browser/tool recovery."
+      "title": "Both hosted PR/push CI runs succeed in software scope",
+      "detail": "Both hosted CI runs, PR and push, complete SUCCESS at head 5f30b5b. Fresh job readbacks verify Linux canonical and Apple Silicon Mac-software success in each run. No native Core Audio, Mac GUI, physical-output, or release qualification follows. The local canonical-02 1305/0/5 result remains a separate source-bound check; duplicate runs are not added into a test total."
     },
     {
-      "title": "Mac SSH and source publication remain pending",
-      "detail": "Mac SSH remains blocked because the configured agent has no loaded identities. Doctor Biz cannot restore the existing identity now; no question is repeated and no Mac/access change or broadening occurs. The same SSH block affects Git transport. Source publication is pending through the existing same-account GitHub connector. No newly published source head is claimed."
+      "title": "Kotlin baseline02 green; generated-network extension pending",
+      "detail": "The first Kotlin gate failure before the consumer remains retained as a startup-readiness failure. Baseline02 now passes after waiting for the existing startup announcement and same-owner State: 48 foreign frames, 29 exact CLI comparisons, and nine replays. Twelve Rust FFI tests and four readiness-parser tests pass separately. Owner exit is 0 and fresh process absence is checked. The generated-network matrix extension is active and not yet passed; baseline success is not that extension or complete FFI ABI qualification."
     }
   ],
   "verified": [
@@ -591,8 +591,8 @@
       "detail": "Both confirmed causes from the initial recovery run are fixed. The bounded helper now works with split development debug symbols, keeping the existing size bound, optimization/assertion settings, and security controls. Explicit local waiting detail formatting replaces the misuse of privacy-redacted Debug text; Debug redaction remains intact. Canonical-02 is green. The earlier 1234/71/5 report and unrecoverable terminal exit remain preserved as initial-run evidence."
     },
     {
-      "title": "Connected repository read works while SSH transport is blocked",
-      "detail": "Mac SSH remains blocked because the configured agent has no loaded identities. Doctor Biz cannot restore the existing identity now; no question is repeated and no Mac/access change or broadening occurs. The same SSH block affects Git transport. Source publication is pending through the existing same-account GitHub connector. No newly published source head is claimed. The earlier connected read confirmed public/open-draft PR #4 at 716; source publication remains pending."
+      "title": "HTTP source published while direct Mac SSH remains blocked",
+      "detail": "HTTP integration 5f30b5b is published to the public draft PR #4. Exact local/remote tree comparison and hooks pass. Canonical-02 retains its 1305/0/5 Linux pass with frozen Engine/Desktop source/products. Publication does not complete the whole app or release. Mac SSH remains unavailable because the existing identity cannot be restored now. Doctor Biz is not asked again. No personal Mac permission change or access broadening occurs. Source publication is now completed through the existing connected-account path, while Mac direct runtime/native qualification remains open."
     },
     {
       "title": "Canonical-02 current Linux pass with frozen products",
@@ -601,64 +601,80 @@
     {
       "title": "Local waiting formatting and helper split debug verified green",
       "detail": "Both confirmed causes from the initial recovery run are fixed. The bounded helper now works with split development debug symbols, keeping the existing size bound, optimization/assertion settings, and security controls. Explicit local waiting detail formatting replaces the misuse of privacy-redacted Debug text; Debug redaction remains intact. Canonical-02 is green. The earlier 1234/71/5 report and unrecoverable terminal exit remain preserved as initial-run evidence."
+    },
+    {
+      "title": "Published HTTP integration 5f30b5b verified",
+      "detail": "HTTP integration 5f30b5b is published to the public draft PR #4. Exact local/remote tree comparison and hooks pass. Canonical-02 retains its 1305/0/5 Linux pass with frozen Engine/Desktop source/products. Publication does not complete the whole app or release."
+    },
+    {
+      "title": "Frozen-source idle Linux diagnostic/expiry native gate passes",
+      "detail": "The Linux diagnostic/expiry native gate passes against frozen canonical-02 source and binaries. It covers 24 native actions and five owner queries. An expired export is refused after 31.46 seconds with no destination; a fresh export is exactly 3,207 bytes and inspection reports Matching. GUI and Engine exit 0; four screenshots remain private. This is idle-only diagnostic proof, without native audio, Mac, or full T17 qualification."
+    },
+    {
+      "title": "UPnP wire parser passes seven isolated tests",
+      "detail": "UPnP U1 shared ownership is active in isolation, including a deferred-cleanup correction. A separate isolated U3 wire-parser passes seven tests. There is no enabled listener or actual renderer, and no adapter/playback/interoperability acceptance is claimed."
+    },
+    {
+      "title": "Both hosted software CI runs succeed at published head",
+      "detail": "Both hosted CI runs, PR and push, complete SUCCESS at head 5f30b5b. Fresh job readbacks verify Linux canonical and Apple Silicon Mac-software success in each run. No native Core Audio, Mac GUI, physical-output, or release qualification follows. The local canonical-02 1305/0/5 result remains a separate source-bound check; duplicate runs are not added into a test total."
+    },
+    {
+      "title": "Kotlin baseline02 passes with exact CLI/replay proof",
+      "detail": "The first Kotlin gate failure before the consumer remains retained as a startup-readiness failure. Baseline02 now passes after waiting for the existing startup announcement and same-owner State: 48 foreign frames, 29 exact CLI comparisons, and nine replays. Twelve Rust FFI tests and four readiness-parser tests pass separately. Owner exit is 0 and fresh process absence is checked. The generated-network matrix extension is active and not yet passed; baseline success is not that extension or complete FFI ABI qualification."
     }
   ],
   "active": [
     {
-      "title": "Publish source through the existing same-account connector",
-      "detail": "Mac SSH remains blocked because the configured agent has no loaded identities. Doctor Biz cannot restore the existing identity now; no question is repeated and no Mac/access change or broadening occurs. The same SSH block affects Git transport. Source publication is pending through the existing same-account GitHub connector. No newly published source head is claimed."
+      "title": "Complete generated network-language matrix beyond the green baseline",
+      "detail": "The first Kotlin gate failure before the consumer remains retained as a startup-readiness failure. Baseline02 now passes after waiting for the existing startup announcement and same-owner State: 48 foreign frames, 29 exact CLI comparisons, and nine replays. Twelve Rust FFI tests and four readiness-parser tests pass separately. Owner exit is 0 and fresh process absence is checked. The generated-network matrix extension is active and not yet passed; baseline success is not that extension or complete FFI ABI qualification."
     },
     {
-      "title": "Read actual generated Kotlin gate outcome",
-      "detail": "The actual generated Kotlin FFI gate is released, with no result yet. It must not be presented as a passing consumer or FFI ABI qualification. Earlier recovery-tool brief/results remain scoped to their checkpoints. Dashboard maintenance installs nothing and performs no browser/tool recovery."
+      "title": "Keep software CI scope distinct from native/platform acceptance",
+      "detail": "Both hosted CI runs, PR and push, complete SUCCESS at head 5f30b5b. Fresh job readbacks verify Linux canonical and Apple Silicon Mac-software success in each run. No native Core Audio, Mac GUI, physical-output, or release qualification follows. The local canonical-02 1305/0/5 result remains a separate source-bound check; duplicate runs are not added into a test total."
     },
     {
-      "title": "Implement scoped UPnP Core ownership before listeners/renderer",
-      "detail": "UPnP U1 Core ownership work is active in an isolated worktree. A real decoder RED is retained. No listener, actual renderer, playback, or interoperability exists from that unit yet. Prior protocol preparation remains historical, and no adapter completion is claimed."
+      "title": "Continue bounded UPnP ownership and wire integration",
+      "detail": "UPnP U1 shared ownership is active in isolation, including a deferred-cleanup correction. A separate isolated U3 wire-parser passes seven tests. There is no enabled listener or actual renderer, and no adapter/playback/interoperability acceptance is claimed."
     },
     {
-      "title": "Review the limited CI proposal before adoption",
-      "detail": "The CI proposal is prepared for Linux full checks and Mac software checks only. It is not adopted and has not run. The passing local canonical is separate from CI. No workflow or source change is made by dashboard maintenance."
-    },
-    {
-      "title": "Keep platform, ABI, protocol, and release claims scoped",
-      "detail": "Mac access and permissions remain unchanged; Doctor Biz cannot restore the identity now. No repeat question, Mac change, or access broadening occurs. Current native/Mac/FFI ABI/protocol/release qualification remains open. Whole app remains unfinished. Dashboard browser checks cannot run while task-local Playwright is absent; no install or browser recovery is attempted."
+      "title": "Preserve platform and release qualification limits",
+      "detail": "Mac SSH remains unavailable because the existing identity cannot be restored now. Doctor Biz is not asked again. No personal Mac permission change or access broadening occurs. Source publication is now completed through the existing connected-account path, while Mac direct runtime/native qualification remains open. Whole app/release remain unfinished. Idle diagnostic native proof is not native audio or full T17. FFI ABI, Mac runtime/native, protocol renderer/interop, Wayland parity, DSD, original dispatch notice, Apple SDK distribution, and physical/DAC/acoustic gates remain open. Dashboard Playwright is absent; browser checks are not rerun and no recovery/install is attempted."
     }
   ],
   "pending": [
     {
-      "title": "Linux canonical passes; remaining qualification is open",
-      "detail": "Canonical-02 is a genuine current pass, with its source/products frozen. Generated Kotlin outcome, native/Mac, FFI ABI, protocol interoperability, CI execution, source publication, and release are still pending or unqualified."
+      "title": "Green CI/baseline do not complete remaining qualification",
+      "detail": "Both hosted runs and Kotlin baseline02 pass. The generated-network matrix extension is active and unpassed. Native Core Audio/Mac GUI/physical, complete FFI ABI, protocol listener/renderer/interop, full T17, and release remain open."
     },
     {
-      "title": "SSH identity unavailable without access changes",
-      "detail": "Doctor Biz cannot restore the existing identity now. Mac/Git SSH remain blocked. Publication uses the existing connected-account path; no new credential, access broadening, or repeated question is introduced."
+      "title": "Native diagnostic pass has idle-only scope",
+      "detail": "The gate passes frozen-source export/expiry/inspection and process exit, with no native audio, Mac, or full T17 acceptance. No enabled UPnP listener or actual renderer exists."
     },
     {
-      "title": "Browser verification still unavailable",
-      "detail": "Task-local Playwright remains absent. Desktop/mobile, filters, socket delivery, and console checks are not rerun. Current host/API equality and seven Node dashboard tests are distinct verification."
+      "title": "Dashboard browser verification unavailable",
+      "detail": "Task-local Playwright remains absent. Desktop/mobile, filters, socket delivery, and console checks are not rerun. Fresh hosted content/settings equality and seven Node tests remain separate checks."
     }
   ],
   "activity": [
     {
-      "title": "Canonical-02 passes 1305/0/5 across 144 groups",
-      "detail": "Source is unchanged during the full check and Engine/Desktop products are frozen. This is current Linux qualification, not whole-app/native/Mac/ABI/protocol/release completion."
+      "title": "HTTP integration published to draft PR #4",
+      "detail": "Public commit 5f30b5b has exact local/remote tree verification and passing hooks. Linux canonical-02 remains 1305/0/5 with frozen products; whole app/release are not complete."
     },
     {
-      "title": "Both initial failure causes fixed with controls preserved",
-      "detail": "Split debug symbols retain the bounded helper contract. Explicit waiting details preserve Debug privacy redaction. The initial failed report remains separate; no lost terminal exit is invented."
+      "title": "Idle native Linux diagnostic/expiry gate passes",
+      "detail": "Twenty-four actions/five queries cover 31.46-second expired refusal without destination and exact 3,207-byte fresh export/Matching inspection. GUI/Engine exit 0; four screenshots stay private. No audio/Mac/full T17 proof follows."
     },
     {
-      "title": "Generated Kotlin gate released without a pass claim",
-      "detail": "Actual generated FFI validation is authorized/released, but its result is not yet reported. No consumer/ABI success follows from release alone."
+      "title": "Both hosted PR/push CI runs complete SUCCESS",
+      "detail": "Fresh job reads confirm Linux canonical and Apple Silicon Mac-software success at 5f30b5b in each run. Native Core Audio, Mac GUI, physical output, and release remain unqualified."
     },
     {
-      "title": "UPnP Core ownership and limited CI proposal advance in scope",
-      "detail": "UPnP U1 is isolated with a real decoder RED and no listener/actual renderer. CI Linux-full/Mac-software preparation is not adopted or run. No adapter, interop, or CI completion is claimed."
+      "title": "Kotlin baseline02 GREEN; network matrix extension active",
+      "detail": "After the retained startup-readiness failure, baseline02 passes 48 frames/29 exact CLI comparisons/nine replays, with owner exit 0 and fresh absence. Twelve Rust and four readiness-parser tests pass separately. Generated-network coverage is not yet passed."
     },
     {
-      "title": "SSH remains blocked; publication pending via existing connector",
-      "detail": "The configured agent lacks identities and Doctor Biz cannot restore now. No repeated question or Mac/access change occurs. Existing same-account source publication is pending; whole app/release remain unfinished."
+      "title": "UPnP ownership and parser work stay isolated",
+      "detail": "U1 includes deferred cleanup work and U3 passes seven wire-parser tests. No enabled listener or actual renderer/interop exists. Mac SSH remains unavailable without a repeated request or permission change."
     }
   ]
 }
