@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "status": "same_user_development_copy_and_launch_verified",
+  "source": {
+    "archive_sha256": "f65d15dcc5c9ddeea792d97fdb41804feb3a3220a476487ff29fc3ab78ddc17d",
+    "desktop_sha256": "4e1b91e94f04eb1fa7af0788e509a6ef4184458b35150c0cdc79cbf8694083ad",
+    "engine_sha256": "f406a0f847a068fbf48653ac59b7100d92f6dee4ddff8a6d51229f44a1b172fc"
+  },
+  "delivery": {
+    "destination": "$HOME/Applications/Earph.app",
+    "bundle_files": 27,
+    "all_file_bytes_equal": true,
+    "source_unchanged": true,
+    "package_check_exit": 0,
+    "plist_check": "pass",
+    "new_gui_launched": true,
+    "existing_engine_and_window_preserved": true,
+    "fresh_remote_readback_verified": true,
+    "overwritten_existing_files": false,
+    "deletions": false,
+    "new_audio_starts": 0,
+    "permissions_granted": false
+  },
+  "evidence": {
+    "private_receipt_sha256": "1654533c0de58d47fd5907b250337e309552e9d29bef2cb61a6ce084bed22a40",
+    "all_files_list_sha256": "f7c162ea8fec5863eb9ea60abbbe6731291fafa38ac30f48c39d407e625ed66c",
+    "operator_sha256": "c7e9daad90b5f61e26b2e1f09caf55bc26b30472599cbff1599caffc8ec821e7"
+  },
+  "limits": [
+    "Same-user delivery on the named Mac only; no full AC-50 installation, upgrade, rollback, or uninstall claim.",
+    "Unsigned development build; package verification does not authenticate provenance.",
+    "No new audio or hearing confirmation occurred during delivery."
+  ]
+}

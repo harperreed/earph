@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-21T11:24:19.116Z",
-  "headline": "Live upgrade and full-track submission and output closure PASS; hearing confirmation pending.",
-  "focus": "Await Doctor Biz’s hearing confirmation · Preserve the verified EOF and nonzero-PCM evidence · Keep acoustic and release acceptance separate",
-  "summary": "FULL-TRACK SUBMISSION AND OUTPUT CLOSURE PASS. The qualified Engine/native-GUI upgrade succeeds with exit 0 while preserving the old window for drafts and the same selected queue/output, gain, and consent. The selected item starts once into muted Buffering, then one Unmute is applied. Client buffer/period are 4096/64 and software gain is −30 dB. The new candidate is running; hearing remains unconfirmed. Fresh read-only observations confirm Playing and advancing submitted frames, with 44.1 kHz source/client against the 48 kHz device, one SDK Start, and no Engine error. Nonzero software input/output PCM is independently observed mid-track. This is software/native-entry evidence, not confirmed acoustics or heard sound. Final independent read-only observations confirm Idle after all selected-file frames: Idle, muted, no error, session cleared, and submitted/accepted/source-position counts equal all selected-file frames. SDK Start count stays one, close is confirmed, and no counter overflow occurs. The full-track submission and output closure passes without further mutations or repeats. A throwaway observer stops on strict revision equality during the autonomous Playing transition. Read-only followup verifies Playing and final EOF. No Start, Unmute, or other mutation is repeated; the observer-only false alarm is not an Engine failure. The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete.",
+  "updated_at": "2026-11-21T14:51:02.806Z",
+  "headline": "Native app delivered to Applications; the whole Earph build continues.",
+  "focus": "Continue the whole Earph build · Prepare bounded Sendspin PCM and DSD Engine work · Keep hearing and release gates open",
+  "summary": "The exact qualified native app is copied into Doctor Biz’s Applications folder, opened, and revealed in Finder. Fresh bundle hashes, package verification, and plist checks pass. The delivery operator exits 0. Existing Engine and GUI processes remain unchanged. This is an unsigned development app; delivery starts no audio and grants no new permissions. The earlier selected-file run retains its own evidence: Playing with advancing frames and nonzero software PCM, then Idle/muted with all selected-file frames accepted/submitted and output closure confirmed. One SDK Start occurs, with no Engine error or repeated mutation. Hearing and acoustic presentation remain unconfirmed. Root continues implementation beyond these milestones. Separate bounded Sendspin PCM player and DSD Engine contracts are being prepared; those units have no new integration or playback qualification yet. PR #4 remains draft. Signing, acoustic/DAC preservation, broader interoperability, physical DSD, and whole-release acceptance remain open.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -31,7 +31,7 @@
     },
     "M1": {
       "state": "active",
-      "detail": "The qualified live upgrade, one selected-item Start/Unmute, Playing progress, nonzero software PCM, and natural EOF all verify. Final state is Idle/muted/error-free with confirmed close. Hearing/acoustic confirmation remains pending; submission and output closure is not assumed physical acceptance."
+      "detail": "The qualified live upgrade, one selected-item Start/Unmute, Playing progress, nonzero software PCM, and natural EOF all verify. Final state is Idle/muted/error-free with confirmed close. Hearing/acoustic confirmation remains pending; submission and output closure is not assumed physical acceptance. The qualified development app is now delivered to Applications and opened; whole-project work continues."
     },
     "M2": {
       "state": "active",
@@ -153,7 +153,7 @@
     },
     {
       "title": "Sealed round-seven controlled silent lifecycle passes with unchanged inputs",
-      "detail": "Earlier source-seven silent lifecycle and matched timing evidence retain their source boundary. FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance. A later qualified live upgrade and full-track submission and output closure now pass, with nonzero software PCM, natural EOF, matching frame totals, one SDK Start, and confirmed close. Hearing remains pending."
+      "detail": "Earlier source-seven silent lifecycle and matched timing evidence retain their source boundary. FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance. A later qualified live upgrade and full-track submission and output closure now pass, with nonzero software PCM, natural EOF, matching frame totals, one SDK Start, and confirmed close. Hearing remains pending. The exact qualified app is subsequently copied to a fresh user Applications destination, opened, and revealed, with matching bundle hashes and successful verification. This delivery performs no audio Start and remains unsigned development scope."
     }
   ],
   "verified": [
@@ -1008,36 +1008,36 @@
   ],
   "active": [
     {
-      "title": "Record hearing confirmation separately from submission and output closure",
-      "detail": "Fresh read-only observations confirm Playing and advancing submitted frames, with 44.1 kHz source/client against the 48 kHz device, one SDK Start, and no Engine error. Nonzero software input/output PCM is independently observed mid-track. This is software/native-entry evidence, not confirmed acoustics or heard sound. The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete."
+      "title": "Continue the whole Earph build after native app delivery",
+      "detail": "The exact qualified native app is copied into Doctor Biz’s Applications folder, opened, and revealed in Finder. Fresh bundle hashes, package verification, and plist checks pass. The delivery operator exits 0. Existing Engine and GUI processes remain unchanged. This is an unsigned development app; delivery starts no audio and grants no new permissions. Root keeps implementing the remaining specification; app delivery does not finish the whole job."
     },
     {
-      "title": "Preserve final EOF proof without repeating mutations",
-      "detail": "Final independent read-only observations confirm Idle after all selected-file frames: Idle, muted, no error, session cleared, and submitted/accepted/source-position counts equal all selected-file frames. SDK Start count stays one, close is confirmed, and no counter overflow occurs. The full-track submission and output closure passes without further mutations or repeats. A throwaway observer stops on strict revision equality during the autonomous Playing transition. Read-only followup verifies Playing and final EOF. No Start, Unmute, or other mutation is repeated; the observer-only false alarm is not an Engine failure."
+      "title": "Prepare bounded Sendspin PCM player and DSD Engine units",
+      "detail": "Separate implementation contracts are being prepared. Existing clock, codec, and typed-submission evidence keeps its original scope. No new player integration, DSD Engine wiring, physical carriage, or listening result is claimed."
     },
     {
-      "title": "Maintain the published fix and remaining whole-project gates",
-      "detail": "The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete."
+      "title": "Preserve playback proof and complete remaining release gates",
+      "detail": "The earlier selected-file run retains its own evidence: Playing with advancing frames and nonzero software PCM, then Idle/muted with all selected-file frames accepted/submitted and output closure confirmed. One SDK Start occurs, with no Engine error or repeated mutation. Hearing and acoustic presentation remain unconfirmed. Signing, wider platform and protocol coverage, and whole-release qualification remain open."
     }
   ],
   "pending": [
     {
-      "title": "Doctor Biz’s hearing/acoustic confirmation remains pending",
-      "detail": "The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete."
+      "title": "Hearing and acoustic confirmation remain unknown",
+      "detail": "The earlier selected-file run retains its own evidence: Playing with advancing frames and nonzero software PCM, then Idle/muted with all selected-file frames accepted/submitted and output closure confirmed. One SDK Start occurs, with no Engine error or repeated mutation. Hearing and acoustic presentation remain unconfirmed."
     },
     {
-      "title": "Physical preservation, broader interoperability, and whole release remain open",
-      "detail": "Fresh read-only observations confirm Playing and advancing submitted frames, with 44.1 kHz source/client against the 48 kHz device, one SDK Start, and no Engine error. Nonzero software input/output PCM is independently observed mid-track. This is software/native-entry evidence, not confirmed acoustics or heard sound. Final independent read-only observations confirm Idle after all selected-file frames: Idle, muted, no error, session cleared, and submitted/accepted/source-position counts equal all selected-file frames. SDK Start count stays one, close is confirmed, and no counter overflow occurs. The full-track submission and output closure passes without further mutations or repeats. The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete."
+      "title": "Physical preservation, interoperability, and whole release remain open",
+      "detail": "App delivery and scoped software/native proofs do not qualify DAC preservation, every output, complete protocol interoperability, physical DSD, signing, or release."
     },
     {
       "title": "Native, platform, and browser qualification remain open",
-      "detail": "Earlier software/native proofs do not qualify physical routes, native clocks, further native playback/legacy ABI, protocol interop, DSD device carriage, or release. Strict configured SSH to the chosen Mac works; the native package has been built and launched without access changes. Package construction/verification is published, but installation/signing/release remain open. Playwright is absent; fresh API equality and seven Node checks are separate from browser/visual verification."
+      "detail": "Earlier software/native proofs do not qualify physical routes, native clocks, further native playback/legacy ABI, protocol interop, DSD device carriage, or release. Strict configured SSH to the chosen Mac works; the native package has been built and launched without access changes. The qualified development app is now delivered to the user Applications folder and opened. Signing and release remain open. Playwright is absent; fresh API equality and seven Node checks are separate from browser/visual verification."
     }
   ],
   "activity": [
     {
-      "title": "Qualified live Engine and native GUI handover succeeds",
-      "detail": "FULL-TRACK SUBMISSION AND OUTPUT CLOSURE PASS. The qualified Engine/native-GUI upgrade succeeds with exit 0 while preserving the old window for drafts and the same selected queue/output, gain, and consent. The selected item starts once into muted Buffering, then one Unmute is applied. Client buffer/period are 4096/64 and software gain is −30 dB. The new candidate is running; hearing remains unconfirmed."
+      "title": "Qualified native app delivered and opened",
+      "detail": "The exact qualified native app is copied into Doctor Biz’s Applications folder, opened, and revealed in Finder. Fresh bundle hashes, package verification, and plist checks pass. The delivery operator exits 0. Existing Engine and GUI processes remain unchanged. This is an unsigned development app; delivery starts no audio and grants no new permissions."
     },
     {
       "title": "One Start/Unmute yields Playing and nonzero software PCM",
@@ -1048,8 +1048,8 @@
       "detail": "Final independent read-only observations confirm Idle after all selected-file frames: Idle, muted, no error, session cleared, and submitted/accepted/source-position counts equal all selected-file frames. SDK Start count stays one, close is confirmed, and no counter overflow occurs. The full-track submission and output closure passes without further mutations or repeats."
     },
     {
-      "title": "Observer-only false alarm causes no repeats; hearing remains unconfirmed",
-      "detail": "A throwaway observer stops on strict revision equality during the autonomous Playing transition. Read-only followup verifies Playing and final EOF. No Start, Unmute, or other mutation is repeated; the observer-only false alarm is not an Engine failure. The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete."
+      "title": "Whole-project implementation continues",
+      "detail": "Root continues the remaining Earph build. Bounded Sendspin PCM player and DSD Engine contracts are being prepared. Existing full-track submission/output-closure proof remains valid under its original scope; hearing and whole release remain open."
     }
   ]
 }

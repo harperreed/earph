@@ -1,5 +1,9 @@
 # Gotchas
 
+- Whole-release work continues after a unit, review, commit, or first-listen checkpoint.
+  Use SPEC.md section 19 as the completion boundary and continue independent work around physical-evidence gates.
+  See the [release execution plan](docs/superpowers/plans/2026-11-21-release-completion.md).
+
 - Core Audio System uses AudioQueue conversion; DirectHardware keeps strict HAL format and callback requirements.
   Map queue time through actual buffer schedules before retiring payload; raw queue time is not a payload count.
   In native qualification, a 256-frame client window fed slowly against the 48 kHz/512-frame device.
