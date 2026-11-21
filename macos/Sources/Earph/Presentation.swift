@@ -79,3 +79,22 @@ struct NativeSnapshot: Sendable {
 }
 
 enum PresentationError: Error { case invalidSnapshot }
+
+struct OutputGeometryDraft {
+    var period = "64"
+    var buffer = "4096"
+
+    func fields() throws -> [String: JSONValue] {
+        ["period_frames": .uint(try wholeNumber(period, name: "Period")),
+         "buffer_frames": .uint(try wholeNumber(buffer, name: "Buffer"))]
+    }
+}
+
+enum DraftError: LocalizedError {
+    case invalid(String)
+    var errorDescription: String? { if case .invalid(let message) = self { return message }; return nil }
+}
+func wholeNumber(_ text: String, name: String) throws -> UInt64 {
+    guard let value = UInt64(text) else { throw DraftError.invalid("\(name) must be a nonnegative whole number.") }
+    return value
+}

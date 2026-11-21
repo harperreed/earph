@@ -1,5 +1,5 @@
 // ABOUTME: Owns the worker's explicit Core Audio stream and bounded prebuffer.
-// ABOUTME: Restarts only from callback boundaries and drains through the SDK clock boundary.
+// ABOUTME: Uses route-specific restart evidence and drains through the native completion boundary.
 use super::activity::ActivityTracker;
 use super::*;
 use earph_coreaudio::{CoreAudioOutput, OutputState, SignalPermission, WriteProgress};
@@ -36,6 +36,7 @@ fn open_error(operation: &'static str, failure: earph_coreaudio::CoreAudioError)
     error(failure)
 }
 fn counters(
+    restart_cursor: Option<u64>,
     operation: &'static str,
     progress: earph_coreaudio::OutputProgress,
 ) -> Result<Counters, EngineError> {
@@ -49,9 +50,13 @@ fn counters(
     Ok(Counters {
         submitted: progress.submitted_frames,
         consumed: None,
-        restart_cursor: Some(progress.callback_delivered_frames),
+        restart_cursor,
         delay: None,
-        basis: "core_audio_ioproc_delivery_not_audible_position",
+        basis: if progress.queue_acquired_frames.is_some() {
+            "audio_queue_sample_time_not_audible_position"
+        } else {
+            "core_audio_ioproc_delivery_not_audible_position"
+        },
     })
 }
 pub(in crate::output) struct NativeOutput {
@@ -105,11 +110,19 @@ impl NativeOutput {
         report_fault(operation, Some(failure), Some(self.native.progress()));
         error(failure)
     }
+    fn counters(&self, operation: &'static str) -> Result<Counters, EngineError> {
+        let progress = self.native.progress();
+        let restart = self
+            .native
+            .restart_cursor_frames()
+            .map_err(|failure| self.native_error(operation, failure))?;
+        counters(restart, operation, progress)
+    }
     fn start_ready(&mut self, eof: bool) -> Result<(), EngineError> {
         if self.native.state() == OutputState::Prepared
             && self.native.progress().submitted_frames > 0
             && (eof
-                || self.native.progress().queued_frames
+                || self.native.progress().submitted_frames
                     >= u64::from(self.request.buffer_frames) * 2)
         {
             #[cfg(test)]
@@ -131,7 +144,7 @@ impl Output for NativeOutput {
         self.native.audio_storage_bytes().map_err(error)
     }
     fn is_running(&self) -> bool {
-        self.native.state() == OutputState::Running
+        self.native.state() == OutputState::Running && !self.native.initial_restart_cursor_pending()
     }
     fn observation(&self) -> Result<BackendObservation, EngineError> {
         backend_observation(
@@ -156,9 +169,11 @@ impl Output for NativeOutput {
             WriteProgress::WouldBlock => Ok(None),
         }
     }
+    fn initial_restart_cursor_pending(&self) -> bool {
+        self.native.initial_restart_cursor_pending()
+    }
     fn progress(&mut self) -> Result<Counters, EngineError> {
-        self.complete
-            .map_or_else(|| counters("progress", self.native.progress()), Ok)
+        self.complete.map_or_else(|| self.counters("progress"), Ok)
     }
     fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError> {
         if self.native.state() == OutputState::Running {
@@ -166,7 +181,7 @@ impl Output for NativeOutput {
                 .pause()
                 .map_err(|failure| self.native_error("suspend_pause", failure))?;
         }
-        let progress = counters("suspend_progress", self.native.progress())?;
+        let progress = self.counters("suspend_progress")?;
         self.native
             .close()
             .map_err(|failure| self.native_error("suspend_close", failure))?;
@@ -189,7 +204,7 @@ impl Output for NativeOutput {
             .finish()
             .map_err(|failure| self.native_error("finish", failure))?;
         self.start_ready(true)?;
-        let progress = counters("finish_progress", self.native.progress())?;
+        let progress = self.counters("finish_progress")?;
         if progress.submitted == 0
             || self
                 .native
@@ -197,6 +212,8 @@ impl Output for NativeOutput {
                 .map_err(|failure| self.native_error("finish_presentation", failure))?
                 == Some(true)
         {
+            // Completion may first be observed above. Read its proven final prefix before disposal.
+            let progress = self.counters("finish_complete")?;
             self.native
                 .close()
                 .map_err(|failure| self.native_error("finish_close", failure))?;
@@ -314,7 +331,7 @@ mod tests {
         let progress = output.native.progress();
         assert_eq!(progress.submitted_frames, accepted);
         assert_eq!(progress.callback_delivered_frames, 0);
-        assert_eq!(progress.callbacks_observed, 0);
+        assert!(progress.queue_acquired_frames.is_some());
         assert_eq!(output.native.state(), OutputState::Prepared);
         let activity = output.activity().unwrap();
         assert_eq!(activity.sdk_write_attempts, 2);

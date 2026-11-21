@@ -1,11 +1,12 @@
 # Gotchas
 
-- Core Audio's current System compatibility route requires the observed device rate and callback size.
-  UI `period_frames` maps to that callback size; `buffer_frames` only sets the Rust ring capacity.
-  A decoded 44.1 kHz file with default period64 fails against a 48 kHz/512-frame device.
-  Control-only GUI tests do not qualify that native open path.
-  Preserve the guards until real conversion exists; do not retune hardware or relax format checks as a workaround.
-  See the [native control receipt](docs/evidence/desktop/macos-native-controls-20261121.json).
+- Core Audio System uses AudioQueue conversion; DirectHardware keeps strict HAL format and callback requirements.
+  Map queue time through actual buffer schedules before retiring payload; raw queue time is not a payload count.
+  In native qualification, a 256-frame client window fed slowly against the 48 kHz/512-frame device.
+  A 4096-frame window restored the observed acceptance slope near that source rate without changing device settings.
+  Use the larger Mac draft default and preserve explicit geometry choices.
+  Timing observations do not establish acoustic presentation or underrun-free playback.
+  See the [System qualification](docs/evidence/local-playback/coreaudio-system-20261121.json).
 
 - Streaming Pause advances the output epoch and resets native submitted counts.
   Compare absolute output frontiers through `processing.streaming.backend_origin_frames`, rather than directly comparing native and source counts.

@@ -40,6 +40,7 @@ fn reviewed_license(
         return Err("reviewed license provider must be a local directory".into());
     }
     let legacy_directory = match package["name"].as_str() {
+        Some("objc2-audio-toolbox") if package["version"] == "0.3.2" => Some("objc2-0.3.2"),
         Some("objc2-core-audio" | "objc2-core-audio-types" | "objc2-core-foundation") => {
             Some("objc2-0.3.2")
         }

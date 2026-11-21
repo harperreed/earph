@@ -49,7 +49,12 @@ fn core_audio_licenses_are_bound_to_the_published_source_revision() {
     for package in snapshot["packages"].as_array().unwrap() {
         if matches!(
             package["name"].as_str(),
-            Some("objc2-core-audio" | "objc2-core-audio-types" | "objc2-core-foundation")
+            Some(
+                "objc2-audio-toolbox"
+                    | "objc2-core-audio"
+                    | "objc2-core-audio-types"
+                    | "objc2-core-foundation"
+            )
         ) {
             count += 1;
             assert_eq!(package["version"], "0.3.2");
@@ -64,7 +69,7 @@ fn core_audio_licenses_are_bound_to_the_published_source_revision() {
             assert!(!package["license_files"].as_array().unwrap().is_empty());
         }
     }
-    assert_eq!(count, 3);
+    assert_eq!(count, 4);
 }
 
 #[test]

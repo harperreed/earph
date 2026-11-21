@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-21T06:56:30.521Z",
-  "headline": "Native UI ready; first actual Play is BLOCKED by FORMAT_UNSUPPORTED at Core Audio open.",
-  "focus": "Fix System compatibility rate/frame handling · Preserve the current device and Engine · Prove actual playback before claiming first audio",
-  "summary": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved. The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures. Root is correcting the System compatibility path without retuning the device or weakening guards. The correction and actual native playback qualification are pending. Existing fixture/control tests do not qualify arbitrary-rate native-device open or this failed first-listen scenario. The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction. Whole Earph release remains incomplete.",
+  "updated_at": "2026-11-21T11:02:40.961Z",
+  "headline": "Final code/default gates PASS; live handover remains preparation only.",
+  "focus": "Review the exact-owner graceful handover · Preserve drafts and checkpoints · Bind first listen after the new app is actually launched",
+  "summary": "FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance. LIVE HANDOVER IS PREPARATION ONLY. The current user runtime remains failed and muted; its existing selection and checkpoint are backed up privately. The candidate operator is preparing a reviewable, exact-owner-fenced graceful upgrade that preserves the old GUI drafts and packages. It retains the runtime/output, existing gain and consent, and changes only the client buffer to 4096 before a normal native-app launch. First listen is separately bound. None of this handover has executed yet. The new candidate has not been delivered into the live session, no song is playing by this work, and no human-heard music is verified. Final code/default checks are complete; the next step is reviewed handover and first-listen evidence, not a claim that Earph is released.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -27,19 +27,19 @@
   "milestone_states": {
     "M0": {
       "state": "active",
-      "detail": "The native UI/control milestone has six Mac checks, manual paste confirmation, independent view-review clearance, and final Linux canonical exit 0. Root is preparing its durable publication. This does not qualify audio or the whole release."
+      "detail": "The verified native UI/control source and typed DoP/live clock work are published in 2318253 with exact manifest, normal hooks, final Linux canonical, and clean remote/local checks. PR #4 remains draft; the whole release is incomplete."
     },
     "M1": {
       "state": "active",
-      "detail": "First actual Play receives RequestRejected/FORMAT_UNSUPPORTED at Core Audio open. The source is decoded ready, while native rate/frame requirements do not match the requested path. Playback is muted and failed with no sound report. UI readiness remains valid; actual audio is blocked."
+      "detail": "The corrected candidate passes all final code/default gates, but the existing user runtime is still failed/muted and unupgraded. Handover preparation preserves drafts, selected state, gain, and consent. Real music/listening is unverified."
     },
     "M2": {
       "state": "active",
-      "detail": "Final current-source Linux canonical and six Mac UI/control checks pass, without covering arbitrary-rate native-device open. The first real Play exposes the System compatibility route gap. Its correction and actual playback qualification are pending; previous product/interoperability scopes stay separate."
+      "detail": "Source-eight canonical and private package checks pass against 2070 files, including all six native checks and focused default review. Earlier source-seven timing keeps its backend binding. Live handover is not executed and no new live playback or physical/music acceptance follows."
     },
     "M3": {
       "state": "active",
-      "detail": "The System compatibility correction is active without device retuning or weaker guards. No current first-audio, native preservation, full controller/player/clocks/output, physical DSD, or release qualification follows from UI/control checks."
+      "detail": "The code/default verification hold is cleared. Exact-owner handover and separately bound first listen remain future actions. Controlled silent/timing/package proof does not complete acoustic/music, controller/player/output, SDK distribution, or whole-release acceptance."
     },
     "M4": {
       "state": "planned",
@@ -48,8 +48,8 @@
   },
   "checks": [
     {
-      "title": "Final Linux canonical passes for the UI/control milestone",
-      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction."
+      "title": "Published native UI/control checkpoint passes exact source and Linux checks",
+      "detail": "Checkpoint 23182537de3e5a0497c8ba560dd14a437dc34ba9 is published with native UI, typed ALSA DoP, and live Sendspin clock work. All 81 manifest files match exactly, normal hooks pass, final Linux canonical exits 0, and fresh remote/branch/PR reads verify a clean Root checkout. PR #4 stays draft. Its body records manual paste success and the real playback blocker. Publication does not complete the whole release or qualify the failed macOS audio path."
     },
     {
       "title": "Packaged software-native proof keeps its older product boundary",
@@ -57,7 +57,7 @@
     },
     {
       "title": "Earlier 2aa software CI remains successful under its own source scope",
-      "detail": "All four 2aa hosted software jobs remain successful at the last verified reads. Published runtime/timing/native and finite MA receipts keep their original source boundaries. They do not qualify the later DoP import, unimported clock unit, or planned native macOS host. The MA zero-LSB result remains one 2048-frame segment on the older Engine/fixture, without full U5 or physical proof."
+      "detail": "Historical CI scope: all four 2aa software jobs passed. Those jobs do not qualify later source changes. The later DoP, live-clock, and native macOS UI work is now published in checkpoint 2318253 under its own checks; actual macOS audio remains blocked. The MA zero-LSB result remains one 2048-frame segment on the older Engine/fixture, without full U5 or physical proof."
     },
     {
       "title": "Actual volume FFI and real HTTP range cases pass",
@@ -81,11 +81,11 @@
     },
     {
       "title": "Reviewed pure timing passes scoped mapping and pipeline checks",
-      "detail": "The pure timing unit is complete and independently reviewed clear. It has 147 package passes and six existing Python ignores, with 26 math/lifecycle and two real in-process pipeline cases scoped separately. Strict Clippy and formatting pass. Root imports five reviewed files, but whole-candidate qualification now passes, while timing publication remains pending. This is pure mapping proof, with no precision output, live ASRC, or AC-17 acceptance."
+      "detail": "The pure timing unit is complete and independently reviewed clear. It has 147 package passes and six existing Python ignores, with 26 math/lifecycle and two real in-process pipeline cases scoped separately. Strict Clippy and formatting pass. Root imports five reviewed files, but whole-candidate qualification now passes, with the timing/clock checkpoint now published in 2318253 under its own source scope. This is pure mapping proof, with no precision output, live ASRC, or AC-17 acceptance."
     },
     {
       "title": "Reviewed local bridge passes fresh private Linux native E2E",
-      "detail": "The local Sendspin bridge is complete and independent review is clear. Engine tests report 187 passes and one ignore. Actual pinned authenticated transport and gated-helper success/uncertainty cases pass, alongside process/compile/helper/lint/format/inventory checks. Real Linux native E2E now passes in a fresh private environment: all three children exit 0, with no production store or output. The bridge is now integrated into Root; whole-candidate qualification now passes and publication remains pending. Provisioning, startup, recovery acknowledgement, player, clocks, and output remain unfinished."
+      "detail": "The local Sendspin bridge is complete and independent review is clear. Engine tests report 187 passes and one ignore. Actual pinned authenticated transport and gated-helper success/uncertainty cases pass, alongside process/compile/helper/lint/format/inventory checks. Real Linux native E2E now passes in a fresh private environment: all three children exit 0, with no production store or output. The bridge is now integrated into Root; whole-candidate qualification now passes; the current candidate’s live handover remains pending. Provisioning, startup, recovery acknowledgement, player, clocks, and output remain unfinished."
     },
     {
       "title": "Focused GUPnP reads succeed; InvalidArgs blocks mutation qualification",
@@ -117,11 +117,11 @@
     },
     {
       "title": "Sealed Swift sources pass actual Mac typecheck and component runtime gates",
-      "detail": "Root imports fifteen sealed Swift files with prior paths preserved. Nine sealed sources pass actual Mac strict typecheck and NativeControls/Presentation runtime checks. A later integrated candidate passes static linking, owned-view rendering, and real-owner/lifecycle checks. Main-window/manual acceptance and final corrected-source canonical remain pending."
+      "detail": "Root imports fifteen sealed Swift files with prior paths preserved. Nine sealed sources pass actual Mac strict typecheck and NativeControls/Presentation runtime checks. A later integrated candidate passes static linking, owned-view rendering, and real-owner/lifecycle checks. Later native UI/manual paste and final source-eight code/default canonical checks pass; live handover and listening remain pending."
     },
     {
       "title": "Rust bridge checkpoint passes focused and desktop checks before final sealing",
-      "detail": "The earlier bridge checkpoint passes fourteen focused cases and 253 reported desktop passes across 35 executions, with strict Clippy. A later integrated native candidate passes static Swift/Rust linking and five actual checks, including real Engine lifecycle. The corrected candidate and final current-source canonical remain pending."
+      "detail": "The earlier bridge checkpoint passes fourteen focused cases and 253 reported desktop passes across 35 executions, with strict Clippy. A later integrated native candidate passes static Swift/Rust linking and five actual checks, including real Engine lifecycle. The later corrected source-eight candidate and canonical checks pass; live handover and real listening remain pending."
     },
     {
       "title": "Native build/check/provenance scripts pass scoped checks",
@@ -150,6 +150,10 @@
     {
       "title": "First actual Play fails at native Core Audio open",
       "detail": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved. The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures."
+    },
+    {
+      "title": "Sealed round-seven controlled silent lifecycle passes with unchanged inputs",
+      "detail": "Earlier source-seven silent lifecycle and matched timing evidence retain their source boundary. FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance."
     }
   ],
   "verified": [
@@ -682,8 +686,8 @@
       "detail": "Both confirmed causes from the initial recovery run are fixed. The bounded helper now works with split development debug symbols, keeping the existing size bound, optimization/assertion settings, and security controls. Explicit local waiting detail formatting replaces the misuse of privacy-redacted Debug text; Debug redaction remains intact. Canonical-02 is green. The earlier 1234/71/5 report and unrecoverable terminal exit remain preserved as initial-run evidence."
     },
     {
-      "title": "HTTP source published while direct Mac SSH remains blocked",
-      "detail": "Published ce0be5b now has fresh GitHub readback of all four software jobs succeeding: Linux and Apple Silicon Mac software in both push and PR runs. Push run 44797313595 and PR run 44797328655 remain bound to ce0. Draft PR #4 stays open. Old 3af Linux failures remain preserved under their original jobs. This does not qualify later uncommitted work, native Mac/audio, interop, or release. Direct Mac SSH authentication still cannot be restored; no repeated question, retry, or access change occurs."
+      "title": "Historical HTTP publication and earlier Mac SSH block",
+      "detail": "Published ce0be5b now has fresh GitHub readback of all four software jobs succeeding: Linux and Apple Silicon Mac software in both push and PR runs. Push run 44797313595 and PR run 44797328655 remain bound to ce0. Draft PR #4 stays open. Old 3af Linux failures remain preserved under their original jobs. This does not qualify later uncommitted work, native Mac/audio, interop, or release. Historical access scope: direct Mac SSH was blocked at that earlier checkpoint. The chosen Mac now has working strict configured SSH, and its native package has been built and launched."
     },
     {
       "title": "Canonical-02 current Linux pass with frozen products",
@@ -995,53 +999,57 @@
     },
     {
       "title": "Native UI/control checks remain valid with final canonical exit 0",
-      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction."
+      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. That verified native UI milestone is now published in 2318253 before the new audio correction."
+    },
+    {
+      "title": "Native UI, typed ALSA DoP, and live Sendspin clock checkpoint publishes",
+      "detail": "Checkpoint 23182537de3e5a0497c8ba560dd14a437dc34ba9 is published with native UI, typed ALSA DoP, and live Sendspin clock work. All 81 manifest files match exactly, normal hooks pass, final Linux canonical exits 0, and fresh remote/branch/PR reads verify a clean Root checkout. PR #4 stays draft. Its body records manual paste success and the real playback blocker. Publication does not complete the whole release or qualify the failed macOS audio path."
     }
   ],
   "active": [
     {
-      "title": "Correct System compatibility rate/frame handling",
-      "detail": "The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures. Root is correcting the System compatibility path without retuning the device or weakening guards. The correction and actual native playback qualification are pending. Existing fixture/control tests do not qualify arbitrary-rate native-device open or this failed first-listen scenario."
+      "title": "Prepare and review the exact-owner-fenced graceful handover",
+      "detail": "LIVE HANDOVER IS PREPARATION ONLY. The current user runtime remains failed and muted; its existing selection and checkpoint are backed up privately. The candidate operator is preparing a reviewable, exact-owner-fenced graceful upgrade that preserves the old GUI drafts and packages. It retains the runtime/output, existing gain and consent, and changes only the client buffer to 4096 before a normal native-app launch. First listen is separately bound. None of this handover has executed yet."
     },
     {
-      "title": "Verify first actual native playback with guards intact",
-      "detail": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved. Root is correcting the System compatibility path without retuning the device or weakening guards. The correction and actual native playback qualification are pending. Existing fixture/control tests do not qualify arbitrary-rate native-device open or this failed first-listen scenario."
+      "title": "Preserve final source/default gate evidence",
+      "detail": "FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance."
     },
     {
-      "title": "Persist the valid native UI/control milestone separately",
-      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction."
+      "title": "Bind first listen after actual handover without assuming delivery",
+      "detail": "The new candidate has not been delivered into the live session, no song is playing by this work, and no human-heard music is verified. Final code/default checks are complete; the next step is reviewed handover and first-listen evidence, not a claim that Earph is released."
     }
   ],
   "pending": [
     {
-      "title": "Actual audio is blocked at Core Audio open",
-      "detail": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved. The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures. Root is correcting the System compatibility path without retuning the device or weakening guards. The correction and actual native playback qualification are pending. Existing fixture/control tests do not qualify arbitrary-rate native-device open or this failed first-listen scenario."
+      "title": "Live handover has not executed",
+      "detail": "LIVE HANDOVER IS PREPARATION ONLY. The current user runtime remains failed and muted; its existing selection and checkpoint are backed up privately. The candidate operator is preparing a reviewable, exact-owner-fenced graceful upgrade that preserves the old GUI drafts and packages. It retains the runtime/output, existing gain and consent, and changes only the client buffer to 4096 before a normal native-app launch. First listen is separately bound. None of this handover has executed yet."
     },
     {
-      "title": "Playback qualification and the whole release remain incomplete",
-      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction. UI usability is delivered, but the source/protocol fixtures do not establish this native-output path."
+      "title": "Actual candidate delivery and real music/listening remain unverified",
+      "detail": "The new candidate has not been delivered into the live session, no song is playing by this work, and no human-heard music is verified. Final code/default checks are complete; the next step is reviewed handover and first-listen evidence, not a claim that Earph is released."
     },
     {
       "title": "Native, platform, and browser qualification remain open",
-      "detail": "Earlier software/native proofs do not qualify physical routes, native clocks, current Mac GUI/legacy ABI, protocol interop, DSD device carriage, or release. Direct Mac SSH remains unavailable; no retry, repeat question, or access change occurs. Package construction/verification is published, but installation/signing/release remain open. Playwright is absent; fresh API equality and seven Node checks are separate from browser/visual verification."
+      "detail": "Earlier software/native proofs do not qualify physical routes, native clocks, further native playback/legacy ABI, protocol interop, DSD device carriage, or release. Strict configured SSH to the chosen Mac works; the native package has been built and launched without access changes. Package construction/verification is published, but installation/signing/release remain open. Playwright is absent; fresh API equality and seven Node checks are separate from browser/visual verification."
     }
   ],
   "activity": [
     {
-      "title": "Doctor Biz clicks Play and gets RequestRejected",
-      "detail": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved."
+      "title": "Final source-eight canonical and package gates pass",
+      "detail": "FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification."
     },
     {
-      "title": "Live read-only diagnosis confirms exact-format compatibility gap",
-      "detail": "The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures."
+      "title": "Focused default review and actual Mac regression clear",
+      "detail": "Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance."
     },
     {
-      "title": "System compatibility correction starts with device and guards preserved",
-      "detail": "Root is correcting the System compatibility path without retuning the device or weakening guards. The correction and actual native playback qualification are pending. Existing fixture/control tests do not qualify arbitrary-rate native-device open or this failed first-listen scenario."
+      "title": "Existing live runtime is backed up privately for reviewed handover",
+      "detail": "LIVE HANDOVER IS PREPARATION ONLY. The current user runtime remains failed and muted; its existing selection and checkpoint are backed up privately. The candidate operator is preparing a reviewable, exact-owner-fenced graceful upgrade that preserves the old GUI drafts and packages. It retains the runtime/output, existing gain and consent, and changes only the client buffer to 4096 before a normal native-app launch. First listen is separately bound. None of this handover has executed yet."
     },
     {
-      "title": "Final canonical passes for the native UI/control milestone",
-      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction."
+      "title": "No candidate delivery or real music/listening is claimed yet",
+      "detail": "The new candidate has not been delivered into the live session, no song is playing by this work, and no human-heard music is verified. Final code/default checks are complete; the next step is reviewed handover and first-listen evidence, not a claim that Earph is released."
     }
   ]
 }

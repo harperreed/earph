@@ -907,7 +907,14 @@ impl Playback {
     fn observe(&mut self) -> Result<PlaybackObservation, EngineError> {
         let progress = self.output.progress()?;
         if let Some(stream) = self.pipeline.as_mut().and_then(|p| p.stream_render_mut()) {
-            stream.observe(progress.submitted, restart_cursor(progress)?)?;
+            if let Some(restart) = progress.restart_cursor {
+                stream.observe(progress.submitted, restart)?;
+            } else if !self.output.initial_restart_cursor_pending() {
+                return Err(EngineError::new(
+                    ErrorCode::CapabilityUnsupported,
+                    "streaming requires a known backend restart boundary",
+                ));
+            }
         }
         self.last_counters = progress;
         self.last_counter_epochs = self.native_epochs;
@@ -5741,5 +5748,156 @@ pub(crate) mod tests {
         assert_eq!(error.code, ErrorCode::OutputFault);
         assert!(cancel.load(Ordering::Acquire));
         assert_eq!(worker.queued.load(Ordering::Acquire), 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    mod initial_clock_tests {
+        use super::*;
+        use std::sync::atomic::AtomicU8;
+        // Only timing observations are controlled. Real SRC, replay, PCM writes, and ALSA null remain active.
+        struct InitialClock {
+            inner: Box<dyn Output>,
+            phase: Arc<AtomicU8>,
+        }
+        impl InitialClock {
+            fn counters(&self, mut counters: Counters) -> Counters {
+                if self.phase.load(Ordering::Acquire) != 2 {
+                    counters.restart_cursor = None;
+                    counters.consumed = None;
+                }
+                counters
+            }
+        }
+        impl Output for InitialClock {
+            fn audio_storage_bytes(&self) -> Result<u64, EngineError> {
+                self.inner.audio_storage_bytes()
+            }
+            fn is_running(&self) -> bool {
+                self.inner.is_running()
+            }
+            fn observation(&self) -> Result<BackendObservation, EngineError> {
+                self.inner.observation()
+            }
+            fn write(
+                &mut self,
+                block: &PcmBlock,
+                offset: usize,
+                frames: usize,
+            ) -> Result<Option<usize>, EngineError> {
+                self.inner.write(block, offset, frames)
+            }
+            fn initial_restart_cursor_pending(&self) -> bool {
+                self.phase.load(Ordering::Acquire) == 0
+            }
+            fn progress(&mut self) -> Result<Counters, EngineError> {
+                if self.phase.load(Ordering::Acquire) == 3 {
+                    return Err(EngineError::new(
+                        ErrorCode::OutputFault,
+                        "controlled native clock fault",
+                    ));
+                }
+                let counters = self.inner.progress()?;
+                Ok(self.counters(counters))
+            }
+            fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError> {
+                let counters = self.inner.suspend(epochs)?;
+                Ok(self.counters(counters))
+            }
+            fn finish(&mut self) -> Result<Option<Counters>, EngineError> {
+                let counters = self.inner.finish()?;
+                Ok(counters.map(|c| self.counters(c)))
+            }
+            fn wait(&mut self) -> Result<(), EngineError> {
+                self.inner.wait()
+            }
+            fn stop(&mut self) -> Result<(), EngineError> {
+                self.inner.stop()
+            }
+        }
+        fn pending() -> (Playback, SyncSender<Event>, Receiver<Event>, Arc<AtomicU8>) {
+            let (mut playback, events, receiver, _) = staged_streaming_playback();
+            let phase = Arc::new(AtomicU8::new(0));
+            let render = playback
+                .pipeline
+                .as_mut()
+                .unwrap()
+                .stream_render_mut()
+                .unwrap();
+            let accepted = playback
+                .output
+                .write(render.period(), 0, 1)
+                .unwrap()
+                .unwrap();
+            render.accepted(accepted).unwrap();
+            playback.stream_position += accepted as u64;
+            playback.output = Box::new(InitialClock {
+                inner: playback.output,
+                phase: phase.clone(),
+            });
+            (playback, events, receiver, phase)
+        }
+        #[test]
+        fn pending_coreaudio_clock_preserves_real_stream_replay_until_a_known_frontier() {
+            let (mut playback, _events, _receiver, phase) = pending();
+            let before = playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .output_positions();
+            let observed = playback.observe().unwrap();
+            assert!(observed.consumed_frames.is_none());
+            assert_eq!(
+                playback
+                    .pipeline
+                    .as_ref()
+                    .unwrap()
+                    .stream_render()
+                    .unwrap()
+                    .output_positions(),
+                before
+            );
+            phase.store(2, Ordering::Release);
+            playback.observe().unwrap();
+            let after = playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .output_positions();
+            assert_eq!(after.generated, before.generated);
+            assert_eq!(after.next_submission, before.next_submission);
+            assert!(after.retained_start > before.retained_start);
+            phase.store(1, Ordering::Release);
+            assert_eq!(
+                playback.observe().unwrap_err().code,
+                ErrorCode::CapabilityUnsupported
+            );
+            phase.store(3, Ordering::Release);
+            assert_eq!(playback.observe().unwrap_err().code, ErrorCode::OutputFault);
+        }
+        #[test]
+        fn pending_clock_does_not_authorize_pause_or_final_stream_retirement() {
+            let (mut playback, events, _receiver, _phase) = pending();
+            playback.phase = RenderPhase::BackendDrain;
+            assert_eq!(
+                playback.step_streaming(&events).unwrap_err().code,
+                ErrorCode::CapabilityUnsupported
+            );
+            let (mut playback, events, _receiver, _phase) = pending();
+            let mut settings = playback.settings.clone();
+            settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
+            settings.snapshot.muted = true;
+            settings.playing = false;
+            assert_eq!(
+                playback
+                    .reposition(settings, None, &events, true)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::CapabilityUnsupported
+            );
+        }
     }
 }

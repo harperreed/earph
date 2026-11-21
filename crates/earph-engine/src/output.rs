@@ -32,6 +32,10 @@ pub(crate) trait Output {
         offset: usize,
         frames: usize,
     ) -> Result<Option<usize>, EngineError>;
+    /// True only while CoreAudio awaits its first valid client clock within its startup deadline.
+    fn initial_restart_cursor_pending(&self) -> bool {
+        false
+    }
     fn progress(&mut self) -> Result<Counters, EngineError>;
     fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError>;
     fn finish(&mut self) -> Result<Option<Counters>, EngineError>;

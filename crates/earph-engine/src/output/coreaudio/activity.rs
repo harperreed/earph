@@ -1,4 +1,4 @@
-// ABOUTME: Counts SDK entry calls for one output instance across native reopens.
+// ABOUTME: Counts CoreAudioOutput adapter entries across native reopens.
 // ABOUTME: Keeps diagnostic overflow and close status separate from playback results.
 use earph_core::{
     ids::Epochs,
@@ -6,6 +6,7 @@ use earph_core::{
 };
 use earph_coreaudio::{CoreAudioError, WriteProgress};
 
+// Public counter names retain their existing spelling; writes do not count AudioQueue enqueue calls.
 pub(super) struct ActivityTracker {
     sample: OutputActivity,
 }

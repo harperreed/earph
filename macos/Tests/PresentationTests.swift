@@ -34,6 +34,22 @@ struct PresentationTests {
             _ = try NativeSnapshot(json: "{\"version\":1,\"flags\":false}")
             preconditionFailure("Malformed availability must fail closed")
         } catch {}
-        print("PASS exact counters, captured action basis, availability, and malformed snapshots")
+        var geometry = OutputGeometryDraft()
+        let outputAction = snapshot.action("control_edit", fields: ["command": .object([
+            "method": .string("output.select"), "output": .object(try geometry.fields())
+        ])])
+        let output = try JSONDecoder().decode(JSONValue.self, from: Data(outputAction.encoded().utf8))
+        precondition(output["basis_token"].string == "captured-a")
+        precondition(output["command"]["output"]["period_frames"].uint == 64)
+        precondition(output["command"]["output"]["buffer_frames"].uint == 4096, "Mac output defaults must provide the measured 4096-frame headroom")
+        geometry.buffer = "256"
+        let explicit = try geometry.fields()
+        precondition(explicit["buffer_frames"]?.uint == 256, "Explicit buffer choices must remain unchanged")
+        geometry.buffer = "-1"
+        do {
+            _ = try geometry.fields()
+            preconditionFailure("Invalid geometry must fail before constructing an action")
+        } catch {}
+        print("PASS exact counters, captured actions, output geometry, availability, and malformed snapshots")
     }
 }

@@ -143,8 +143,7 @@ struct OutputView: View {
     @State private var route = "system"
     @State private var device = "mac-output"
     @State private var profile = "listening"
-    @State private var period = "64"
-    @State private var buffer = "256"
+    @State private var geometry = OutputGeometryDraft()
     @State private var mode = "software"
     @State private var fidelity = "compatible_conversion"
     @State private var level = "-30000"
@@ -195,8 +194,8 @@ struct OutputView: View {
                 }.disabled(!actions.flag("control_edit_available"))
                 TextField("Configured Device ID", text: $device)
                 TextField("Configured Profile ID", text: $profile)
-                TextField("Period frames", text: $period)
-                TextField("Buffer frames", text: $buffer)
+                TextField("Period frames", text: $geometry.period)
+                TextField("Buffer frames", text: $geometry.buffer)
                 Picker("Volume mode", selection: $mode) { Text("Software").tag("software"); Text("Fixed").tag("fixed") }
                 FidelityPicker(value: $fidelity)
                 TextField("Ramp frames", text: $ramp)
@@ -217,14 +216,14 @@ struct OutputView: View {
             guard let saved = store.drafts["output"] else { return }
             backend = saved["backend"].string ?? backend; endpoint = saved["endpoint"].string ?? endpoint
             route = saved["route"].string ?? route; device = saved["device"].string ?? device
-            profile = saved["profile"].string ?? profile; period = saved["period"].string ?? period
-            buffer = saved["buffer"].string ?? buffer; mode = saved["mode"].string ?? mode
+            profile = saved["profile"].string ?? profile; geometry.period = saved["period"].string ?? geometry.period
+            geometry.buffer = saved["buffer"].string ?? geometry.buffer; mode = saved["mode"].string ?? mode
             fidelity = saved["fidelity"].string ?? fidelity; level = saved["level"].string ?? level
             ramp = saved["ramp"].string ?? ramp; softwareCap = saved["software_cap"].string ?? softwareCap
             hardwareCap = saved["hardware_cap"].string ?? hardwareCap
         }
         .onDisappear {
-            store.drafts["output"] = .object(["backend": .string(backend), "endpoint": .string(endpoint), "route": .string(route), "device": .string(device), "profile": .string(profile), "period": .string(period), "buffer": .string(buffer), "mode": .string(mode), "fidelity": .string(fidelity), "level": .string(level), "ramp": .string(ramp), "software_cap": .string(softwareCap), "hardware_cap": .string(hardwareCap)])
+            store.drafts["output"] = .object(["backend": .string(backend), "endpoint": .string(endpoint), "route": .string(route), "device": .string(device), "profile": .string(profile), "period": .string(geometry.period), "buffer": .string(geometry.buffer), "mode": .string(mode), "fidelity": .string(fidelity), "level": .string(level), "ramp": .string(ramp), "software_cap": .string(softwareCap), "hardware_cap": .string(hardwareCap)])
         }
     }
     private func currentOutput(_ method: String) {
@@ -232,11 +231,10 @@ struct OutputView: View {
     }
     private func selectOutput() {
         store.perform {
-            let output: JSONValue = .object([
+            let output: JSONValue = .object(try geometry.fields().merging([
                 "backend": .string(backend), "route": .string(route), "endpoint": .string(endpoint),
-                "device_id": .string(device), "profile_id": .string(profile), "volume_mode": .string(mode), "fidelity": .string(fidelity),
-                "period_frames": .uint(try wholeNumber(period, name: "Period")), "buffer_frames": .uint(try wholeNumber(buffer, name: "Buffer"))
-            ])
+                "device_id": .string(device), "profile_id": .string(profile), "volume_mode": .string(mode), "fidelity": .string(fidelity)
+            ]) { _, value in value })
             actions.command("control_edit", method: "output.select", fields: ["output": output])
         }
     }

@@ -86,9 +86,18 @@ fn backend_observation(
         backend: OutputBackend::CoreAudio,
         device_identity_sha256: Some(digest.try_into()?),
         audio_storage_bytes,
-        client_format: observed(&stream.virtual_format),
+        client_format: observed(
+            report
+                .queue_client_format
+                .as_ref()
+                .unwrap_or(&stream.virtual_format),
+        ),
         device_format: Some(observed(&stream.physical)),
-        measurement_boundary: "core_audio_observed_stream_formats",
+        measurement_boundary: if report.queue_client_format.is_some() {
+            "audio_queue_client_and_observed_device_formats"
+        } else {
+            "core_audio_observed_stream_formats"
+        },
         preservation: if report.requested.route == PlaybackRoute::Float32Compatibility {
             PreservationState::Modified
         } else {
@@ -300,6 +309,7 @@ mod tests {
             evidence_level: "registered_not_started",
             payload_preservation: "unverified",
             downstream_transformations: "unknown",
+            queue_client_format: None,
         };
         let first = backend_observation(&report, 256).unwrap();
         assert_eq!(
@@ -472,6 +482,19 @@ mod tests {
             state: earph_coreaudio::OutputState::Failed,
             submitted_frames: 2993,
             callback_delivered_frames: 2560,
+            queue_acquired_frames: None,
+            queue_running_observed: None,
+            queue_clock_status: None,
+            queue_clock_ready: None,
+            queue_clock_sample_time_bits: None,
+            queue_clock_sample_time_finite: None,
+            queue_clock_flags: None,
+            queue_clock_discontinuity: None,
+            queue_clock_observed_enqueued_frames: None,
+            queue_enqueued_frames: None,
+            queue_clock_last_valid_frame: None,
+            queue_schedule: None,
+            queue_retired_frames: None,
             queued_frames: 433,
             callbacks_observed: 6,
             measurement_boundary: "core_audio_ioproc_delivery",
@@ -573,5 +596,52 @@ mod tests {
         }
         write_fault_diagnostic(&mut InterleavedStderr { wrote: false }, "open", None, None)
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod system_format_tests {
+    use super::*;
+    use earph_core::{
+        audio::{ChannelLayout, PcmRepresentation},
+        ids::{DeviceId, ProfileId},
+        safety::{FidelityPolicy, VolumeMode},
+    };
+    #[test]
+    fn queue_client_observation_preserves_source_rate_instead_of_physical_rate() {
+        let physical = serde_json::json!({"sample_rate_hz":48000.0,"format_id":u32::from_be_bytes(*b"lpcm"),"format_flags":9,"bytes_per_packet":8,"frames_per_packet":1,"bytes_per_frame":8,"channels_per_frame":2,"bits_per_channel":32});
+        let snapshot = serde_json::from_value(serde_json::json!({"object_id":42,"uid":"test","name":"fixture","alive":true,"nominal_rate_hz":48000.0,"nominal_rate_settable":false,"buffer_frames":512,"buffer_frame_range":{"minimum":64.0,"maximum":1024.0},"hog_owner_pid":null,"hog_mode_settable":null,"output_streams":[{"object_id":43,"physical":physical,"virtual_format":physical,"physical_settable":false,"virtual_settable":false,"available_physical":[],"available_virtual":[]}]})).unwrap();
+        let config = OutputConfiguration {
+            backend: OutputBackend::CoreAudio,
+            route: OutputRoute::System,
+            endpoint: "test".into(),
+            device_id: DeviceId::new("test").unwrap(),
+            profile_id: ProfileId::new("test").unwrap(),
+            period_frames: 64,
+            buffer_frames: 256,
+            volume_mode: VolumeMode::Software,
+            fidelity: FidelityPolicy::CompatibleConversion,
+        };
+        let format =
+            PcmFormat::new(44100, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
+        let mut client: StreamFormat = serde_json::from_value(physical).unwrap();
+        client.sample_rate_hz = 44100.0;
+        let report = earph_coreaudio::OutputReport {
+            requested: request(&config, format).unwrap(),
+            observed: snapshot,
+            evidence_level: "prepared_queue_client_readback",
+            payload_preservation: "modified_integer_to_float32",
+            downstream_transformations: "os_conversion_unverified",
+            queue_client_format: Some(client),
+        };
+        let observation = backend_observation(&report, 4096).unwrap();
+        assert_eq!(observation.client_format.sample_rate_hz, 44100.0);
+        assert_eq!(
+            observation.client_format.representation,
+            ObservedSampleRepresentation::Float32
+        );
+        assert_eq!(observation.device_format.unwrap().sample_rate_hz, 48000.0);
+        assert_eq!(observation.preservation, PreservationState::Modified);
+        assert_eq!(observation.audio_storage_bytes, 4096);
     }
 }
