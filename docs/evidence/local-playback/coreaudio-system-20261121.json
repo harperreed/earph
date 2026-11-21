@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "date": "2026-11-21",
-  "status": "silent_backend_lifecycle_and_packaged_engine_timing_comparison_passed",
+  "status": "system_playback_software_lifecycle_passed_listening_unconfirmed",
   "source": {
     "kind": "working_tree_snapshot",
     "parent_commit": "23182537de3e5a0497c8ba560dd14a437dc34ba9",
@@ -83,5 +83,28 @@
     "canonical_check": "scripts/check passed",
     "canonical_log_sha256": "d27a6c92207321c982164857e9b133020e941697ebe03c75bafe695025205556",
     "backend_runtime": "Unchanged from the native-qualified source snapshot."
+  },
+  "live_playback": {
+    "engine_sha256": "f406a0f847a068fbf48653ac59b7100d92f6dee4ddff8a6d51229f44a1b172fc",
+    "handover_receipt_sha256": "f1a049c5b1a9f42cf80b287ca71c1ea72dc6b88db666c4c3cf4fce80e3352e3c",
+    "playing_observation_sha256": "d7e4ba757a0cf1cad478aa150ef03dfa20c58ece1b1ee551a17d126eaa79f8ee",
+    "final_state_receipt_sha256": "4dcc34cd4b6fbb077e862c3d813337dc6276007f290994595e8044b038974e48",
+    "handover_queue_preserved": true,
+    "old_window_preserved": true,
+    "source_rate_hz": 44100,
+    "device_rate_hz": 48000,
+    "period_frames": 64,
+    "buffer_frames": 4096,
+    "software_gain_db": -30,
+    "source_frames": 11543616,
+    "submitted_frames": 11543616,
+    "accepted_frames": 11543616,
+    "native_start_attempts": 1,
+    "nonzero_software_pcm_observed": true,
+    "final_transport": "idle",
+    "final_muted": true,
+    "engine_error": null,
+    "close_confirmed": true,
+    "acoustic_acceptance": "not_confirmed"
   }
 }

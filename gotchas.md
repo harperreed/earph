@@ -73,6 +73,9 @@
 
 - Fence a read refresh against its fresh Before state, rather than an earlier captured control revision.
   Exact reconciliation can advance that revision before an explicit refresh starts.
+  After Unmute applies, an autonomous Playing transition can advance the revision before the next State read.
+  A later State need not match the command receipt's revision.
+  Verify the receipt and observed owner, session, and outcome before sending another mutation.
   Keep the initial owner and zone checks, full Before/After fence, and complete mutation preflight.
   See [the real-owner regression](crates/earph-desktop/tests/gui_profiles.rs).
 

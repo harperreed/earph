@@ -182,3 +182,14 @@ They do not establish acoustic speed, pitch, or underrun counts.
 The default change passed all six native UI checks and the full repository check.
 Its qualified source archive is SHA256 `f65d15dcc5c9ddeea792d97fdb41804feb3a3220a476487ff29fc3ab78ddc17d`.
 See the [redacted qualification](../../evidence/local-playback/coreaudio-system-20261121.json).
+
+## Live handover result
+
+The qualified development package replaced the failed Engine through a graceful owner shutdown.
+The existing queue and old window survived; the new native window opened separately.
+The selected local track started once at the existing −30 dB software level.
+Two fresh observations confirmed Playing, advancing frames, and nonzero software PCM.
+The track submitted and accepted all 11,543,616 frames, then reached Idle without an Engine error.
+The adapter confirmed output closure, and the Engine returned to muted.
+Actual hearing remains unconfirmed.
+The source fix is published as `2c6ab56a38aec2248e5cf02174560124b9ef193b`.

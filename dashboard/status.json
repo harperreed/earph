@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-21T11:02:40.961Z",
-  "headline": "Final code/default gates PASS; live handover remains preparation only.",
-  "focus": "Review the exact-owner graceful handover · Preserve drafts and checkpoints · Bind first listen after the new app is actually launched",
-  "summary": "FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance. LIVE HANDOVER IS PREPARATION ONLY. The current user runtime remains failed and muted; its existing selection and checkpoint are backed up privately. The candidate operator is preparing a reviewable, exact-owner-fenced graceful upgrade that preserves the old GUI drafts and packages. It retains the runtime/output, existing gain and consent, and changes only the client buffer to 4096 before a normal native-app launch. First listen is separately bound. None of this handover has executed yet. The new candidate has not been delivered into the live session, no song is playing by this work, and no human-heard music is verified. Final code/default checks are complete; the next step is reviewed handover and first-listen evidence, not a claim that Earph is released.",
+  "updated_at": "2026-11-21T11:24:19.116Z",
+  "headline": "Live upgrade and full-track submission and output closure PASS; hearing confirmation pending.",
+  "focus": "Await Doctor Biz’s hearing confirmation · Preserve the verified EOF and nonzero-PCM evidence · Keep acoustic and release acceptance separate",
+  "summary": "FULL-TRACK SUBMISSION AND OUTPUT CLOSURE PASS. The qualified Engine/native-GUI upgrade succeeds with exit 0 while preserving the old window for drafts and the same selected queue/output, gain, and consent. The selected item starts once into muted Buffering, then one Unmute is applied. Client buffer/period are 4096/64 and software gain is −30 dB. The new candidate is running; hearing remains unconfirmed. Fresh read-only observations confirm Playing and advancing submitted frames, with 44.1 kHz source/client against the 48 kHz device, one SDK Start, and no Engine error. Nonzero software input/output PCM is independently observed mid-track. This is software/native-entry evidence, not confirmed acoustics or heard sound. Final independent read-only observations confirm Idle after all selected-file frames: Idle, muted, no error, session cleared, and submitted/accepted/source-position counts equal all selected-file frames. SDK Start count stays one, close is confirmed, and no counter overflow occurs. The full-track submission and output closure passes without further mutations or repeats. A throwaway observer stops on strict revision equality during the autonomous Playing transition. Read-only followup verifies Playing and final EOF. No Start, Unmute, or other mutation is repeated; the observer-only false alarm is not an Engine failure. The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -31,15 +31,15 @@
     },
     "M1": {
       "state": "active",
-      "detail": "The corrected candidate passes all final code/default gates, but the existing user runtime is still failed/muted and unupgraded. Handover preparation preserves drafts, selected state, gain, and consent. Real music/listening is unverified."
+      "detail": "The qualified live upgrade, one selected-item Start/Unmute, Playing progress, nonzero software PCM, and natural EOF all verify. Final state is Idle/muted/error-free with confirmed close. Hearing/acoustic confirmation remains pending; submission and output closure is not assumed physical acceptance."
     },
     "M2": {
       "state": "active",
-      "detail": "Source-eight canonical and private package checks pass against 2070 files, including all six native checks and focused default review. Earlier source-seven timing keeps its backend binding. Live handover is not executed and no new live playback or physical/music acceptance follows."
+      "detail": "Verified code/default/package gates are followed by an executed owner-fenced handover and full-track submission and output closure. All file frames reach matching submitted/accepted/source-position counts with one SDK Start and no Engine error. Whole release, acoustic/DAC preservation, and broader interoperability remain open."
     },
     "M3": {
       "state": "active",
-      "detail": "The code/default verification hold is cleared. Exact-owner handover and separately bound first listen remain future actions. Controlled silent/timing/package proof does not complete acoustic/music, controller/player/output, SDK distribution, or whole-release acceptance."
+      "detail": "Actual live conversion/submission and EOF are observed from source/client44.1kHz to device48kHz, with nonzero software PCM mid-track. This does not qualify heard sound, physical DAC preservation, every output/path, or the whole release. No mutation retry follows the observer-only revision false alarm."
     },
     "M4": {
       "state": "planned",
@@ -153,7 +153,7 @@
     },
     {
       "title": "Sealed round-seven controlled silent lifecycle passes with unchanged inputs",
-      "detail": "Earlier source-seven silent lifecycle and matched timing evidence retain their source boundary. FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance."
+      "detail": "Earlier source-seven silent lifecycle and matched timing evidence retain their source boundary. FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance. A later qualified live upgrade and full-track submission and output closure now pass, with nonzero software PCM, natural EOF, matching frame totals, one SDK Start, and confirmed close. Hearing remains pending."
     }
   ],
   "verified": [
@@ -1008,26 +1008,26 @@
   ],
   "active": [
     {
-      "title": "Prepare and review the exact-owner-fenced graceful handover",
-      "detail": "LIVE HANDOVER IS PREPARATION ONLY. The current user runtime remains failed and muted; its existing selection and checkpoint are backed up privately. The candidate operator is preparing a reviewable, exact-owner-fenced graceful upgrade that preserves the old GUI drafts and packages. It retains the runtime/output, existing gain and consent, and changes only the client buffer to 4096 before a normal native-app launch. First listen is separately bound. None of this handover has executed yet."
+      "title": "Record hearing confirmation separately from submission and output closure",
+      "detail": "Fresh read-only observations confirm Playing and advancing submitted frames, with 44.1 kHz source/client against the 48 kHz device, one SDK Start, and no Engine error. Nonzero software input/output PCM is independently observed mid-track. This is software/native-entry evidence, not confirmed acoustics or heard sound. The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete."
     },
     {
-      "title": "Preserve final source/default gate evidence",
-      "detail": "FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance."
+      "title": "Preserve final EOF proof without repeating mutations",
+      "detail": "Final independent read-only observations confirm Idle after all selected-file frames: Idle, muted, no error, session cleared, and submitted/accepted/source-position counts equal all selected-file frames. SDK Start count stays one, close is confirmed, and no counter overflow occurs. The full-track submission and output closure passes without further mutations or repeats. A throwaway observer stops on strict revision equality during the autonomous Playing transition. Read-only followup verifies Playing and final EOF. No Start, Unmute, or other mutation is repeated; the observer-only false alarm is not an Engine failure."
     },
     {
-      "title": "Bind first listen after actual handover without assuming delivery",
-      "detail": "The new candidate has not been delivered into the live session, no song is playing by this work, and no human-heard music is verified. Final code/default checks are complete; the next step is reviewed handover and first-listen evidence, not a claim that Earph is released."
+      "title": "Maintain the published fix and remaining whole-project gates",
+      "detail": "The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete."
     }
   ],
   "pending": [
     {
-      "title": "Live handover has not executed",
-      "detail": "LIVE HANDOVER IS PREPARATION ONLY. The current user runtime remains failed and muted; its existing selection and checkpoint are backed up privately. The candidate operator is preparing a reviewable, exact-owner-fenced graceful upgrade that preserves the old GUI drafts and packages. It retains the runtime/output, existing gain and consent, and changes only the client buffer to 4096 before a normal native-app launch. First listen is separately bound. None of this handover has executed yet."
+      "title": "Doctor Biz’s hearing/acoustic confirmation remains pending",
+      "detail": "The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete."
     },
     {
-      "title": "Actual candidate delivery and real music/listening remain unverified",
-      "detail": "The new candidate has not been delivered into the live session, no song is playing by this work, and no human-heard music is verified. Final code/default checks are complete; the next step is reviewed handover and first-listen evidence, not a claim that Earph is released."
+      "title": "Physical preservation, broader interoperability, and whole release remain open",
+      "detail": "Fresh read-only observations confirm Playing and advancing submitted frames, with 44.1 kHz source/client against the 48 kHz device, one SDK Start, and no Engine error. Nonzero software input/output PCM is independently observed mid-track. This is software/native-entry evidence, not confirmed acoustics or heard sound. Final independent read-only observations confirm Idle after all selected-file frames: Idle, muted, no error, session cleared, and submitted/accepted/source-position counts equal all selected-file frames. SDK Start count stays one, close is confirmed, and no counter overflow occurs. The full-track submission and output closure passes without further mutations or repeats. The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete."
     },
     {
       "title": "Native, platform, and browser qualification remain open",
@@ -1036,20 +1036,20 @@
   ],
   "activity": [
     {
-      "title": "Final source-eight canonical and package gates pass",
-      "detail": "FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification."
+      "title": "Qualified live Engine and native GUI handover succeeds",
+      "detail": "FULL-TRACK SUBMISSION AND OUTPUT CLOSURE PASS. The qualified Engine/native-GUI upgrade succeeds with exit 0 while preserving the old window for drafts and the same selected queue/output, gain, and consent. The selected item starts once into muted Buffering, then one Unmute is applied. Client buffer/period are 4096/64 and software gain is −30 dB. The new candidate is running; hearing remains unconfirmed."
     },
     {
-      "title": "Focused default review and actual Mac regression clear",
-      "detail": "Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance."
+      "title": "One Start/Unmute yields Playing and nonzero software PCM",
+      "detail": "Fresh read-only observations confirm Playing and advancing submitted frames, with 44.1 kHz source/client against the 48 kHz device, one SDK Start, and no Engine error. Nonzero software input/output PCM is independently observed mid-track. This is software/native-entry evidence, not confirmed acoustics or heard sound."
     },
     {
-      "title": "Existing live runtime is backed up privately for reviewed handover",
-      "detail": "LIVE HANDOVER IS PREPARATION ONLY. The current user runtime remains failed and muted; its existing selection and checkpoint are backed up privately. The candidate operator is preparing a reviewable, exact-owner-fenced graceful upgrade that preserves the old GUI drafts and packages. It retains the runtime/output, existing gain and consent, and changes only the client buffer to 4096 before a normal native-app launch. First listen is separately bound. None of this handover has executed yet."
+      "title": "Full-track submission and output closure independently verified",
+      "detail": "Final independent read-only observations confirm Idle after all selected-file frames: Idle, muted, no error, session cleared, and submitted/accepted/source-position counts equal all selected-file frames. SDK Start count stays one, close is confirmed, and no counter overflow occurs. The full-track submission and output closure passes without further mutations or repeats."
     },
     {
-      "title": "No candidate delivery or real music/listening is claimed yet",
-      "detail": "The new candidate has not been delivered into the live session, no song is playing by this work, and no human-heard music is verified. Final code/default checks are complete; the next step is reviewed handover and first-listen evidence, not a claim that Earph is released."
+      "title": "Observer-only false alarm causes no repeats; hearing remains unconfirmed",
+      "detail": "A throwaway observer stops on strict revision equality during the autonomous Playing transition. Read-only followup verifies Playing and final EOF. No Start, Unmute, or other mutation is repeated; the observer-only false alarm is not an Engine failure. The fix is published as 2c6ab56 and PR #4 remains draft. Final code/default/canonical/package evidence keeps its verified source scope. Hearing confirmation is pending; acoustic presentation, DAC preservation, broader interoperability, and whole Earph release remain incomplete."
     }
   ]
 }
