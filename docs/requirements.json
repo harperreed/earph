@@ -348,7 +348,8 @@
       "verification_status": "partial",
       "evidence": [
         "evidence/sendspin/session-linux-20261120.json",
-        "evidence/sendspin/runtime-linux-20261121.json"
+        "evidence/sendspin/runtime-linux-20261121.json",
+        "evidence/sendspin/native-credentials-linux-20261121.json"
       ]
     },
     {

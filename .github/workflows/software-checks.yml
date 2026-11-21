@@ -116,3 +116,19 @@ jobs:
             done
             exit 1
           fi
+      - name: Qualify credentials in one private hosted Mac keychain
+        if: runner.os == 'macOS'
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          umask 077
+          earph_cargo=$(rustup which --toolchain 1.98.1 cargo)
+          test -x "$earph_cargo"
+          printf '%s  %s\n' '5b84299d2aac9d3b6c065cd48aec918d3f3803da03f900c2bac8dd990458ceb9' \
+            'scripts/qualify-native-credentials-macos.mjs' | shasum --algorithm 256 --check --status
+          earph_qualification_log=$(mktemp "$RUNNER_TEMP/earph-credentials-startup.XXXXXX")
+          earph_qualification_status=0
+          node scripts/qualify-native-credentials-macos.mjs "$earph_cargo" \
+            >"$earph_qualification_log" 2>&1 || earph_qualification_status=$?
+          node scripts/report-native-credentials-macos.mjs \
+            "$earph_qualification_log" "$earph_qualification_status"

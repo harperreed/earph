@@ -413,6 +413,21 @@ Invalid input returns a fixed error without generating identity or repairing sta
 The encoded wrapper redacts Debug and exposes plaintext only through its explicit secret-byte API.
 The [credential contract](sendspin-credentials.md) defines this boundary without selecting an OS store or granting runtime authority.
 
+## Native credential transactions
+
+[`CredentialStore`](../crates/earph-credentials/src/lib.rs) owns one native helper and one stable exclusive marker lock.
+An operation records pending intent before issuing a native mutation.
+Exact fresh readback permits completion; timeout, cancellation, or lost acknowledgement preserves uncertainty.
+The pending operation identity survives reopening the store.
+A recovery read observes storage without clearing that identity.
+Explicit native-completion acknowledgement requires a later fresh read inside that acknowledgement.
+Helper exit alone cannot establish daemon-side completion.
+The marker file and its parent directory sync before helper execution.
+Directory-sync failure refuses opening and preserves existing pending bytes.
+The [native contract](native-credentials.md) requires explicit providers and forbids prompts, repair, and plaintext fallback.
+The [Linux receipt](evidence/sendspin/native-credentials-linux-20261121.json) binds actual isolated native storage and directory-failure checks.
+Hosted Mac qualification and production service wiring remain separate gates.
+
 ## Typed DSD software transport
 
 [`DsdFile`](../crates/earph-media/src/dsd.rs) owns the file, one-bit sample position, sequence, and epochs.

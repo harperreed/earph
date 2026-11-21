@@ -12009,7 +12009,9 @@
         "async-lock",
         "async-process",
         "async-task",
-        "blocking"
+        "blocking",
+        "blocking-api",
+        "default"
       ],
       "license_expression": "MIT",
       "license_files": [
@@ -12053,6 +12055,7 @@
     },
     {
       "features": [
+        "blocking-api",
         "default"
       ],
       "license_expression": "MIT",
