@@ -4,6 +4,7 @@
 import { readFile, realpath, lstat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { isAbsolute, join, relative, sep } from 'node:path';
+import { keychainDiagnostics } from './native-credentials-diagnostics.mjs';
 
 const operatorSha = '5b84299d2aac9d3b6c065cd48aec918d3f3803da03f900c2bac8dd990458ceb9';
 const names = ['cargo-version', 'clippy', 'ordinary-tests', 'native-build', 'isolated-keychain'];
@@ -56,6 +57,7 @@ try {
     if (helper !== receipt.helper_sha256 || test !== receipt.test_sha256) throw 0;
     if (operations.some(op => op.name === 'isolated-keychain')) {
       const native = (await privateFile(join(root, 'isolated-keychain.log'), root, 1024 * 1024)).toString();
+      Object.assign(output, keychainDiagnostics(native));
       const counts = /^test result: (ok|FAILED)\. ([0-9]+) passed; ([0-9]+) failed; ([0-9]+) ignored;/m.exec(native);
       if (counts) output.native_test_counts = { passed: Number(counts[2]), failed: Number(counts[3]), ignored: Number(counts[4]) };
     }
