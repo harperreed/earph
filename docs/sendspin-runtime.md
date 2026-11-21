@@ -3,7 +3,7 @@
 `earph_network::sendspin` owns one explicitly started, roleless outbound connection.
 It drives the existing `ClientSession` through an unsplit WebSocket.
 It creates one current-thread Tokio runtime and one operating-system thread.
-It adds no application startup path, listener, discovery, source, clock, or output owner.
+It adds no application startup path, listener, discovery, source, or output owner.
 
 Call `SendspinConnectPermit::new` with an opaque owner, nonzero connection and grant generations, expiry, endpoint, and pins.
 The endpoint must use explicit `ws`, a nonzero port, and an absolute path.
@@ -17,6 +17,11 @@ No ambient proxy, cookie, Origin, authentication header, redirect, or TLS root e
 Mandatory Noise authentication remains inside `ClientSession`.
 
 Construct `SessionConfig` with injected credentials and an authoritative catalog.
+Pass one explicit `ClockConfiguration` with a caller-owned `MonotonicDomain` and `TimePolicy`.
+The domain uses a private monotonic origin and a nonzero generation.
+Clones sample that same domain.
+Choose a fresh generation when replacing the clock domain.
+Transport admission grants no clock or output authority.
 Set `supported_roles` to an empty array.
 Role-specific `_support` fields are rejected, including player format offers.
 Use `roleless_session_limits()` or tighter values.
@@ -47,7 +52,8 @@ These three owned slots remain below the four-completion ceiling.
 
 Pairing and empty activities still require affirmative admission.
 The driver rejects every active role and every activity except pairing.
-Application sends are limited to explicit core JSON `client/time` and `client/goodbye` traffic.
+Application sends are limited to explicit core JSON `client/goodbye` traffic.
+The dedicated clock driver owns every `client/time`; generic producer APIs reject caller-stamped probes.
 The caller must validate each core payload before submitting it.
 Rejected sends return their original producer message.
 Rotation suppression returns producers through bounded `Unsent` event leases.
@@ -78,9 +84,26 @@ Successful reply flush reports `PeerClosed`; an expired flush reports `Deadline`
 If the transport stays unwritable, the deadline ends the reply attempt and the socket closes.
 The transport never re-encrypts, retransmits, or resumes that write on another socket.
 RFC fragmentation and Ping/Pong remain below the complete-message session boundary.
-The final-message delivery `Instant` is captured before session parsing or service dispatch.
-The existing session contract receives checked elapsed milliseconds.
-Its timestamp precision remains unqualified for microsecond clock discipline.
+The worker samples checked monotonic microseconds when WebSocket delivery returns a complete message.
+Its single `ReceiveStamp` survives ciphertext queues, plaintext queues, and final-fragment reassembly.
+The session derives milliseconds from that stamp for its existing deadlines.
+It never reconstructs microseconds from truncated milliseconds.
+
+The existing Network thread also owns one roleless `TimeSync` driver.
+A probe stays an opaque, bounded offer while earlier output or socket readiness blocks it.
+After socket readiness, the worker samples T1 immediately before serialization and encryption.
+Only accepted `start_send` records an emitted probe.
+Probe writes use existing control ownership and leave the ordinary producer slot available.
+Probe fragments finish before a queued producer starts.
+The original `WriteId` still waits for complete flush and retains uncertain-write shutdown.
+Authenticated `server/time` replies feed the clock before ordinary event publication or timeout polling.
+The worker consumes these protocol replies internally, without charging consumer event credits.
+Integer, echo, binding, and domain checks reject unauthorized samples without extending a deadline.
+Suppression or blocked ordered session delivery abandons the incomplete burst before later clock advancement.
+A released held reply retains its original stamp and cannot update an abandoned probe.
+Re-handshake preserves the established filter; activation permits fresh probes.
+A fresh connection, server binding, or domain creates a fresh filter.
+The existing reducer owns every numeric, burst, timeout, age, and cadence policy.
 
 Transport and service deadlines use absolute monotonic instants.
 Control traffic never extends a partially flushed write or a handshake exchange.
@@ -97,7 +120,12 @@ The reducer owns its phase deadline and exposes no getter.
 `session_deadline_ms` explicitly remains unavailable.
 Root accepted this diagnostic limitation without changing reducer deadline enforcement.
 Transport and service deadlines report only the actual deadlines this module owns.
-Message counters and `last_arrival_ms` expose actual complete-message delivery samples.
+Message counters and `last_arrival` expose the single checked microsecond delivery stamp.
+Receive stamps and mapping facts use the supplied clock domain.
+Transport and service deadline diagnostics retain their existing worker-relative millisecond origin.
+`Observation.clock` copies the bound mapping snapshot, revision, age, status, and diagnostics.
+Debug output omits mapping estimates and authenticated identity bytes.
+A mapped snapshot grants neither player availability nor output readiness.
 Errors and Debug output omit URLs, identities, pins, credentials, tokens, and raw messages.
 
 The default ceilings are 8192 endpoint bytes, eight pins, and one socket.
@@ -138,7 +166,7 @@ Its filesystem store contains synthetic credentials and is development-only.
 Each scenario restarts a separate process to read and verify its committed catalog.
 Do not use it as a production persistence fallback.
 
-Production storage, full player, Music Assistant interoperability, clocks, and output remain unqualified.
+Full player support, Music Assistant interoperability, output-clock mapping, and physical synchronization remain unqualified.
 
 The dormant Engine [native services bridge](sendspin-native-services.md) connects explicit credential ownership to these services.
 It requires a definitively committed document and explicit activity admission.

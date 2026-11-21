@@ -1,16 +1,20 @@
 # Desktop controller and presentation boundary
 
 Date: November 18, 2026.
-Status: Root accepts the direction and reviewed client/model unit. Shared-workspace integration remains pending.
+Status: The shared controller is integrated. Native macOS rendering is being replaced and remains under qualification.
 
 ## Decision
 
-Use pinned eframe/egui 0.37.0 for the later native desktop shell.
-Paint an opaque central panel and return a matching opaque clear color.
-Keep Light/Dark choices inside the application without changing OS appearance settings.
+Use pinned eframe/egui 0.37.0 for the Linux desktop shell.
+Use SwiftUI and AppKit system controls for macOS.
+The Mac app uses standard windows, menus, forms, text editing, tables, and file dialogs.
+It defaults to the system appearance without changing OS settings.
+The Linux renderer paints matching opaque panel and clear colors.
+Its Light/Dark choices stay inside the application.
 Root's retained X11, macOS, and nested Wayland proofs establish the scoped native-window and accessibility behavior.
 They do not establish screen-reader user sessions, native dialogs, packaging, or product workflows.
-This first lasting unit adds no toolkit dependency.
+The Mac app statically links the shared controller through generated UniFFI bindings.
+Both renderers reuse the same request and workflow implementation.
 
 Attach through the existing `earph-ffi::LocalClient` on both platforms.
 Keep the standalone Engine executable as the authoritative owner.
@@ -57,4 +61,8 @@ Transport-fault tests forward to the actual owner before losing or delaying a re
 A standalone-process E2E uses generated queue media and profile saves without selecting output or starting a source.
 The established Linux canonical suite retains its separately authorized file-to-null playback coverage.
 
-Owner launching, native views, dialogs, packaging, and full transport equivalence remain later units.
+Explicit owner launch, queue, output, profile, and diagnostic workflows use that shared controller.
+The Mac renderer preserves those workflows through captured presentation tokens.
+An expired token fails instead of silently selecting a newer State.
+Native rendering and packaging require their own real Mac checks.
+See the [native Mac plan](../superpowers/plans/2026-11-21-native-macos-controller.md).

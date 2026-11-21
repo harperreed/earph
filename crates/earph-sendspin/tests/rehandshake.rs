@@ -37,7 +37,7 @@ fn rotations_chain_immediate_hash_and_require_activation_each_time() {
         let now = 10 + i * 5;
         rotate(&mut client, &mut peer, psk, category, now);
         let rejected = client
-            .send(ApplicationMessage::json("client/time", json!({})), now)
+            .send(ApplicationMessage::json("client/goodbye", json!({})), now)
             .unwrap_err();
         assert_eq!(rejected.message.id, 0);
         let events = peer
@@ -136,7 +136,7 @@ fn already_started_fragmented_send_drains_before_old_key_reply() {
     let early = peer.encrypt(b"\0{\"type\":\"server/activate\",\"payload\":{\"activities\":[]}}");
     assert!(
         client
-            .receive(TransportKind::Binary, &early, 9)
+            .receive(TransportKind::Binary, &early, fixture::stamp_ms(9))
             .unwrap()
             .is_empty()
     );
@@ -289,7 +289,9 @@ fn stale_prologue_and_wrong_new_tag_poison_without_epoch_retry() {
     let mut bad = peer.encrypt(b"\0{\"type\":\"server/activate\",\"payload\":{\"activities\":[]}}");
     bad[0] ^= 1;
     assert_eq!(
-        client.receive(TransportKind::Binary, &bad, 11).unwrap_err(),
+        client
+            .receive(TransportKind::Binary, &bad, fixture::stamp_ms(11))
+            .unwrap_err(),
         SessionError::Authentication
     );
     assert!(client.next_write(12).unwrap().is_none());
@@ -325,12 +327,14 @@ fn binding_mismatch_closes_silently_and_new_activation_can_be_fragmented() {
     let first = peer.encrypt(&[&[1, 2, 0], &body[..20]].concat());
     assert!(
         client
-            .receive(TransportKind::Binary, &first, 11)
+            .receive(TransportKind::Binary, &first, fixture::stamp_ms(11))
             .unwrap()
             .is_empty()
     );
     let last = peer.encrypt(&[&[1, 1], &body[20..]].concat());
-    let events = client.receive(TransportKind::Binary, &last, 12).unwrap();
+    let events = client
+        .receive(TransportKind::Binary, &last, fixture::stamp_ms(12))
+        .unwrap();
     client.admit(admission(&events), true, 13).unwrap();
     assert_eq!(client.phase(), SessionPhase::Active);
 }
@@ -477,7 +481,7 @@ fn unsupported_first_new_activation_aborts_then_admits_later_activation() {
     assert!(
         client
             .send(
-                ApplicationMessage::json("client/time", json!({"client_transmitted":1})),
+                ApplicationMessage::json("client/goodbye", json!({"client_transmitted":1})),
                 12
             )
             .is_err()
@@ -486,5 +490,52 @@ fn unsupported_first_new_activation_aborts_then_admits_later_activation() {
         .send_json(&mut client, "server/activate", json!({"activities":[]}), 13)
         .unwrap();
     client.admit(admission(&events), true, 14).unwrap();
+    assert_eq!(client.phase(), SessionPhase::Active);
+}
+
+#[test]
+fn captured_ciphertext_stamp_survives_rotation_flush_and_admission() {
+    let (mut client, mut peer) = active();
+    let (handshake, payload) = peer.rotation([7; 32], "pr", None);
+    peer.send_json(&mut client, "noise/handshake", payload, 8)
+        .unwrap();
+    let reply = client.next_write(8).unwrap().unwrap();
+    let message = peer.read_json(&reply.bytes);
+    peer.install(handshake, &message);
+    let activation =
+        peer.encrypt(b"\0{\"type\":\"server/activate\",\"payload\":{\"activities\":[]}}");
+    assert!(
+        client
+            .receive(
+                TransportKind::Binary,
+                &activation,
+                earph_sendspin::message::ReceiveStamp::new(9001).unwrap()
+            )
+            .unwrap()
+            .is_empty()
+    );
+    let state = peer.encrypt(b"\0{\"type\":\"server/state\",\"payload\":{}}");
+    assert!(
+        client
+            .receive(
+                TransportKind::Binary,
+                &state,
+                earph_sendspin::message::ReceiveStamp::new(9037).unwrap()
+            )
+            .unwrap()
+            .is_empty()
+    );
+    let events = client
+        .complete_write(reply.id, WriteResult::Complete, 10)
+        .unwrap();
+    let events = client.admit(admission(&events), true, 11).unwrap();
+    let message = events
+        .iter()
+        .find_map(|event| match event {
+            SessionEvent::Message(message) => Some(message),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(message.arrival.microseconds(), 9037);
     assert_eq!(client.phase(), SessionPhase::Active);
 }

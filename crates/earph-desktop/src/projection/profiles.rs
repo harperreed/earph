@@ -14,10 +14,10 @@ use earph_core::{
     },
     safety::{FidelityPolicy, VolumeMode},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileOutputSelectorView {
     pub backend: OutputBackend,
@@ -26,7 +26,7 @@ pub struct ProfileOutputSelectorView {
     #[serde(deserialize_with = "nullable")]
     pub manual_setup: Option<String>,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileVolumeIntentView {
     pub mode: VolumeMode,
@@ -34,7 +34,7 @@ pub struct ProfileVolumeIntentView {
     #[serde(deserialize_with = "nullable")]
     pub hardware_cap_db: Option<f64>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileLatencyIntentView {
     pub mode: ProfileLatencyMode,
@@ -43,7 +43,7 @@ pub struct ProfileLatencyIntentView {
     #[serde(deserialize_with = "nullable")]
     pub max_latency_frames: Option<u64>,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileDocumentView {
     pub schema_version: u32,
@@ -58,7 +58,7 @@ pub struct ProfileDocumentView {
     pub latency: ProfileLatencyIntentView,
     pub corrections: Vec<ProfileCorrectionReference>,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileApplicationBindingView {
     pub profile: ProfileCatalogReference,
@@ -72,21 +72,21 @@ pub struct ProfileApplicationBindingView {
     pub software_gain_db: f64,
     pub latency: ProfileLatencyIntentView,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileCorrectionObjectView {
     pub kind: ProfileCorrectionKind,
     pub object_sha256: ProfileObjectHash,
     pub document_json: Arc<str>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileCorrectionContextView {
     pub sample_rate_hz: u32,
     pub channels: ChannelLayout,
     pub quantum_frames: usize,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileCorrectionPreviewView {
     pub context: ProfileCorrectionContextView,
@@ -95,7 +95,7 @@ pub struct ProfileCorrectionPreviewView {
     pub required_headroom_db: FiniteGraphScalar,
     pub normalization: CorrectionNormalization,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileRecordView {
     pub profile: Arc<ProfileDocumentView>,
@@ -105,7 +105,7 @@ pub struct ProfileRecordView {
     #[serde(deserialize_with = "nullable")]
     pub correction_preview: Option<Arc<ProfileCorrectionPreviewView>>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileSummaryView {
     pub id: ProfileId,
@@ -113,13 +113,13 @@ pub struct ProfileSummaryView {
     pub name: String,
     pub profile_sha256: ProfileObjectHash,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfileSaveStageView {
     Saving,
     Retiring,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileSaveInspectionView {
     #[serde(deserialize_with = "nullable")]
@@ -129,7 +129,7 @@ pub struct ProfileSaveInspectionView {
     #[serde(deserialize_with = "nullable")]
     pub deadline_monotonic_ns: Option<u64>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfilePageView {
     pub entries: Vec<ProfileSummaryView>,
@@ -138,25 +138,25 @@ pub struct ProfilePageView {
     pub next_offset: Option<usize>,
     pub operation: ProfileSaveInspectionView,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileRevisionView {
     pub id: ProfileId,
     pub revision: u64,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfileSelectionReasonView {
     Manual,
     ExactDevice,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfileSelectionIssueView {
     NoVerifiedMatch,
     Ambiguous,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProfileResolutionView {
     Selected {
@@ -168,7 +168,7 @@ pub enum ProfileResolutionView {
         candidates: Vec<ProfileRevisionView>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileApplicationCapabilitiesView {
     pub volume_modes: Vec<VolumeMode>,

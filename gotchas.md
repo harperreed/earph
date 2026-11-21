@@ -1,5 +1,12 @@
 # Gotchas
 
+- Core Audio's current System compatibility route requires the observed device rate and callback size.
+  UI `period_frames` maps to that callback size; `buffer_frames` only sets the Rust ring capacity.
+  A decoded 44.1 kHz file with default period64 fails against a 48 kHz/512-frame device.
+  Control-only GUI tests do not qualify that native open path.
+  Preserve the guards until real conversion exists; do not retune hardware or relax format checks as a workaround.
+  See the [native control receipt](docs/evidence/desktop/macos-native-controls-20261121.json).
+
 - Streaming Pause advances the output epoch and resets native submitted counts.
   Compare absolute output frontiers through `processing.streaming.backend_origin_frames`, rather than directly comparing native and source counts.
   Check rates, epochs, graph transforms, and capture boundaries before mapping source frames to output frames.

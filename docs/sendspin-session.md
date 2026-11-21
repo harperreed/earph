@@ -21,9 +21,11 @@ Either result closes the connection permanently.
 Only one write result may remain outstanding.
 WebSocket frame assembly and control frames belong to the transport adapter.
 
-Call `receive(kind, bytes, arrival_ms)` with one complete transport message.
-Sample its final-byte arrival before calling the session or decrypting it.
-Use one monotonic millisecond clock for receive timestamps, completions, and `tick`.
+Call `receive(kind, bytes, arrival)` with one complete transport message and a checked `ReceiveStamp`.
+Sample its final-byte monotonic microseconds before calling the session or decrypting it.
+Keep that exact stamp through deferred ciphertext, decrypted messages, and final-fragment reassembly.
+Derive milliseconds from the same domain for completions, `tick`, and the existing deadline policies.
+Never reconstruct receive microseconds from truncated milliseconds.
 Call `tick` when idle so fixed deadlines can expire.
 The adapter must bound its own socket buffers and transport message assembly.
 The library cannot bound memory allocated before its receive call.
@@ -54,6 +56,11 @@ Neither an admission result nor a paired identity grants a native output lease.
 This crate produces no clock-ready or output-ready token.
 
 Use `send(ApplicationMessage, now_ms)` for caller-validated application messages.
+Generic application sends reject caller-stamped `client/time`.
+Use `time_probe_write(ReceiveStamp)` only after transport readiness and earlier session output drain.
+That dedicated writer serializes and encrypts the sampled T1 through the existing write ownership path.
+`clock_context()` returns authenticated binding facts, actual send suppression, and ordered delivery blocking.
+Those facts grant no clock-ready or output-ready token.
 A refusal returns the original message in `SendRejected`.
 Only one producer message may wait or run at a time.
 The owner generates one fragment at a time and encrypts only when obtaining the next write.

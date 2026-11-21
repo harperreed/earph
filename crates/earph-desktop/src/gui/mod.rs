@@ -7,6 +7,7 @@ mod diagnostics;
 mod dsp;
 mod graph_editor;
 mod host;
+mod native;
 mod output;
 mod package_files;
 mod packages;
@@ -20,6 +21,7 @@ mod transport;
 mod workflow;
 pub use app::{GuiApp, run};
 pub use host::HostStatus;
+pub use native::{NativeController, NativeError};
 pub use profile_files::{
     CorrectionPreview, CorrectionPreviewRequest, CorrectionSource, CorrectionWorker,
 };

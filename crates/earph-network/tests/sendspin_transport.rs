@@ -97,6 +97,7 @@ fn a_clean_peer_close_receives_its_queued_response() {
             p.clone(),
             &p,
             config(),
+            clock_configuration(),
             Box::new(Services),
             DriverLimits::default(),
         )
@@ -153,6 +154,7 @@ fn exact_upgrade_owns_one_socket_and_rejects_invalid_session_input() {
             p.clone(),
             &p,
             config(),
+            clock_configuration(),
             Box::new(Services),
             DriverLimits::default(),
         )
@@ -162,6 +164,7 @@ fn exact_upgrade_owns_one_socket_and_rejects_invalid_session_input() {
             p.clone(),
             &p,
             config(),
+            clock_configuration(),
             Box::new(Services),
             DriverLimits::default()
         ),
@@ -196,6 +199,7 @@ fn stale_grants_local_roles_and_zero_generations_fail_before_dial() {
             p.clone(),
             &changed,
             config(),
+            clock_configuration(),
             Box::new(Services),
             DriverLimits::default()
         ),
@@ -208,6 +212,7 @@ fn stale_grants_local_roles_and_zero_generations_fail_before_dial() {
             p.clone(),
             &p,
             c,
+            clock_configuration(),
             Box::new(Services),
             DriverLimits::default()
         ),
@@ -238,6 +243,7 @@ fn roleless_hello_cannot_carry_a_player_format_offer() {
             p.clone(),
             &p,
             c,
+            clock_configuration(),
             Box::new(Services),
             DriverLimits::default()
         ),
@@ -254,6 +260,7 @@ fn cancellation_bypasses_full_producer_queue_and_observers_do_not_cancel() {
             p.clone(),
             &p,
             config(),
+            clock_configuration(),
             Box::new(Services),
             DriverLimits {
                 commands: 2,
@@ -274,14 +281,14 @@ fn cancellation_bypasses_full_producer_queue_and_observers_do_not_cancel() {
     assert!(!format!("{private:?}").contains("SECRET"));
     for _ in 0..2 {
         h.try_send(ApplicationMessage::json(
-            "client/time",
+            "client/goodbye",
             json!({"counter":1}),
         ))
         .unwrap();
     }
     let rejected = h
         .try_send(ApplicationMessage::json(
-            "client/time",
+            "client/goodbye",
             json!({"counter":2}),
         ))
         .unwrap_err();
@@ -313,6 +320,7 @@ fn stalled_upgrade_expires_without_reset_and_cancels() {
                 p.clone(),
                 &p,
                 config(),
+                clock_configuration(),
                 Box::new(Services),
                 DriverLimits {
                     upgrade_ms: 40,
@@ -357,6 +365,7 @@ fn rejected_redirect_is_not_followed() {
             p.clone(),
             &p,
             config(),
+            clock_configuration(),
             Box::new(Services),
             DriverLimits::default(),
         )
@@ -420,6 +429,7 @@ fn malformed_and_oversized_frames_fail_closed() {
                 p.clone(),
                 &p,
                 config(),
+                clock_configuration(),
                 Box::new(Services),
                 DriverLimits::default(),
             )
@@ -457,6 +467,7 @@ fn fragmented_message_waits_for_final_frame_and_services_interleaved_ping() {
             p.clone(),
             &p,
             config(),
+            clock_configuration(),
             Box::new(Services),
             DriverLimits::default(),
         )
@@ -489,6 +500,7 @@ fn cancellation_after_flush_sends_a_bounded_websocket_close() {
             p.clone(),
             &p,
             config(),
+            clock_configuration(),
             Box::new(Services),
             DriverLimits::default(),
         )
@@ -520,6 +532,7 @@ fn a_missing_pong_expires_the_absolute_control_deadline() {
             p.clone(),
             &p,
             config(),
+            clock_configuration(),
             Box::new(Services),
             DriverLimits {
                 ping_ms: 20,
@@ -561,6 +574,7 @@ fn grant_expiry_closes_an_established_idle_connection() {
             p.clone(),
             &p,
             config(),
+            clock_configuration(),
             Box::new(Services),
             DriverLimits::default(),
         )
@@ -569,4 +583,11 @@ fn grant_expiry_closes_an_established_idle_connection() {
     assert_eq!(wait(&o).terminal, Some(DriverError::Expired));
     w.retire().unwrap();
     server.join().unwrap();
+}
+
+fn clock_configuration() -> earph_network::sendspin::ClockConfiguration {
+    earph_network::sendspin::ClockConfiguration {
+        domain: earph_network::sendspin::MonotonicDomain::new(1).unwrap(),
+        policy: earph_sendspin::timing::TimePolicy::new(250_000, 9_000_000, 20_000_000).unwrap(),
+    }
 }

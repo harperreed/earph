@@ -1,6 +1,9 @@
 // ABOUTME: Serializes WebSocket messages and complete session write receipts.
 // ABOUTME: Retains one socket and acknowledged service work until retirement.
-use earph_sendspin::session::{TransportKind, TransportWrite};
+use earph_sendspin::{
+    message::ReceiveStamp,
+    session::{TransportKind, TransportWrite},
+};
 use futures_util::Sink;
 use std::{
     pin::Pin,
@@ -28,19 +31,26 @@ impl PendingWrite {
         }
         if !self.started {
             std::task::ready!(Pin::new(&mut *socket).poll_ready(cx))?;
-            let bytes = std::mem::take(&mut self.write.bytes);
-            let message = match self.write.kind {
-                TransportKind::Binary => Message::Binary(bytes.into()),
-                TransportKind::Text => Message::Text(
-                    String::from_utf8(bytes)
-                        .map_err(|_| Error::AlreadyClosed)?
-                        .into(),
-                ),
-            };
-            Pin::new(&mut *socket).start_send(message)?;
-            self.started = true;
+            self.start_ready(socket)?;
         }
         Pin::new(socket).poll_flush(cx)
+    }
+    fn start_ready<S: AsyncRead + AsyncWrite + Unpin>(
+        &mut self,
+        socket: &mut WebSocketStream<S>,
+    ) -> Result<(), Error> {
+        let bytes = std::mem::take(&mut self.write.bytes);
+        let message = match self.write.kind {
+            TransportKind::Binary => Message::Binary(bytes.into()),
+            TransportKind::Text => Message::Text(
+                String::from_utf8(bytes)
+                    .map_err(|_| Error::AlreadyClosed)?
+                    .into(),
+            ),
+        };
+        Pin::new(&mut *socket).start_send(message)?;
+        self.started = true;
+        Ok(())
     }
 }
 
@@ -268,7 +278,10 @@ mod tests {
     }
 }
 
-use super::{DriverError, DriverLimits, Operation, SendspinConnectPermit, SendspinServices};
+use super::{
+    ClockConfiguration, ClockObservation, DriverError, DriverLimits, Operation,
+    SendspinConnectPermit, SendspinServices, clock::ClockDriver,
+};
 use earph_sendspin::{
     pairing::{AttemptId, Candidate, CommitOutcome},
     session::{
@@ -326,7 +339,8 @@ pub struct Observation {
     pub writes_completed: u64,
     pub recovery_required: bool,
     pub received_messages: u64,
-    pub last_arrival_ms: Option<u64>,
+    pub last_arrival: Option<ReceiveStamp>,
+    pub clock: Option<ClockObservation>,
 }
 struct State {
     observation: Observation,
@@ -417,14 +431,14 @@ impl Shared {
             },
         ))
     }
-    fn arrival(&self, arrival: u64) -> Result<(), DriverError> {
+    fn arrival(&self, arrival: ReceiveStamp) -> Result<(), DriverError> {
         let mut s = self.lock();
         s.observation.received_messages = s
             .observation
             .received_messages
             .checked_add(1)
             .ok_or(DriverError::Budget)?;
-        s.observation.last_arrival_ms = Some(arrival);
+        s.observation.last_arrival = Some(arrival);
         Ok(())
     }
     fn publish(&self, event: SessionEvent) -> Result<(), DriverError> {
@@ -514,6 +528,7 @@ impl SendspinWorker {
         permit: SendspinConnectPermit,
         current: &SendspinConnectPermit,
         mut config: SessionConfig,
+        clock: ClockConfiguration,
         services: Box<dyn SendspinServices>,
         limits: DriverLimits,
     ) -> Result<SendspinHandle, DriverError> {
@@ -551,7 +566,8 @@ impl SendspinWorker {
         }
         config.catalog = config.catalog.clone();
         config.protected = config.protected.into_boxed_slice().into_vec();
-        let session = ClientSession::new(config, 0).map_err(session_error)?;
+        let session =
+            ClientSession::new(config, clock.domain.milliseconds()).map_err(session_error)?;
         let shared = Arc::new(Shared {
             limits,
             state: Mutex::new(State {
@@ -581,7 +597,8 @@ impl SendspinWorker {
                     writes_completed: 0,
                     recovery_required: false,
                     received_messages: 0,
-                    last_arrival_ms: None,
+                    last_arrival: None,
+                    clock: None,
                 },
             }),
         });
@@ -595,7 +612,13 @@ impl SendspinWorker {
                         .enable_all()
                         .build()
                         .map_err(|_| DriverError::Internal)?;
-                    runtime.block_on(run(permit, session, services, owned.clone()))
+                    runtime.block_on(run(
+                        permit,
+                        session,
+                        ClockDriver::new(clock),
+                        services,
+                        owned.clone(),
+                    ))
                 }));
                 if !matches!(result, Ok(Ok(()))) {
                     owned.terminal(match result {
@@ -684,7 +707,7 @@ impl SendspinHandle {
         // Parsing owns no state lock, so cancellation and commit completion remain independent.
         let valid = message.id == 0
             && earph_sendspin::message::Envelope::parse(&message.body)
-                .is_ok_and(|e| matches!(e.kind.as_str(), "client/time" | "client/goodbye"));
+                .is_ok_and(|e| matches!(e.kind.as_str(), "client/goodbye"));
         let mut s = self.shared.lock();
         let error = if s.cancelled || s.observation.terminal.is_some() {
             Some(DriverError::Cancelled)
@@ -746,9 +769,6 @@ fn websocket_error(e: Error) -> DriverError {
         Error::Capacity(_) | Error::WriteBufferFull(_) => DriverError::Budget,
         _ => DriverError::Protocol,
     }
-}
-fn elapsed(start: Instant) -> u64 {
-    u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 fn millis(start: Instant, deadline: Instant) -> u64 {
     u64::try_from(deadline.saturating_duration_since(start).as_millis()).unwrap_or(u64::MAX)
@@ -817,6 +837,7 @@ struct Service<T, I> {
     deadline: Instant,
 }
 struct Pump {
+    clock: ClockDriver,
     session: ClientSession,
     services: Box<dyn SendspinServices>,
     shared: Arc<Shared>,
@@ -853,7 +874,18 @@ impl Pump {
                 e => ordinary.push(e),
             }
         }
+        let context = self.session.clock_context();
+        let mut visible = Vec::new();
         for event in ordinary {
+            if let SessionEvent::Message(message) = &event
+                && self.clock.consume(context, message)?
+            {
+                continue;
+            }
+            visible.push(event);
+        }
+        self.sync_clock()?;
+        for event in visible {
             match event {
                 SessionEvent::Admission(proposal) => {
                     if !proposal.roles().is_empty()
@@ -891,6 +923,12 @@ impl Pump {
         }
         Ok(())
     }
+    fn sync_clock(&mut self) -> Result<(), DriverError> {
+        let now = self.clock.domain.sample()?;
+        let observation = self.clock.advance(self.session.clock_context(), now)?;
+        self.shared.lock().observation.clock = observation;
+        Ok(())
+    }
     fn update(&self, pending: bool, transport_deadline: Option<Instant>) {
         let mut s = self.shared.lock();
         let o = &mut s.observation;
@@ -914,7 +952,11 @@ impl Pump {
 }
 enum Step {
     Tick,
-    Read(Option<Result<Message, Error>>, Instant),
+    Read(
+        Option<Result<Message, Error>>,
+        Result<ReceiveStamp, DriverError>,
+    ),
+    ClockWrite(Result<PendingWrite, DriverError>),
     Written(Result<(), Error>),
     Admission(AdmissionId, Result<bool, DriverError>),
     Candidate(AttemptId, Result<Candidate, DriverError>),
@@ -923,6 +965,7 @@ enum Step {
 async fn run(
     permit: SendspinConnectPermit,
     session: ClientSession,
+    clock: ClockDriver,
     services: Box<dyn SendspinServices>,
     shared: Arc<Shared>,
 ) -> Result<(), DriverError> {
@@ -964,6 +1007,7 @@ async fn run(
     let mut socket = socket;
     shared.lock().observation.retirement = RetirementState::Connected;
     let mut p = Pump {
+        clock,
         session,
         services,
         shared: shared.clone(),
@@ -989,16 +1033,16 @@ async fn run(
         {
             break DriverError::Deadline;
         }
-        if let Err(e) = p
+        if let Err(error) = p
             .session
-            .tick(elapsed(start))
+            .tick(p.clock.domain.milliseconds())
             .map_err(session_error)
-            .and_then(|e| p.events(e))
+            .and_then(|events| p.events(events))
         {
-            break e;
+            break error;
         }
         if pending.is_none() {
-            match p.session.next_write(elapsed(start)) {
+            match p.session.next_write(p.clock.domain.milliseconds()) {
                 Ok(Some(write)) => {
                     pending = Some((
                         PendingWrite {
@@ -1023,13 +1067,13 @@ async fn run(
         if let Some((c, credit)) = shared.pop_command() {
             // Session validation shares the same input and parse-copy allowance as pending enqueues.
             let result = match c {
-                Command::Send(m) => match p.session.send(m, elapsed(start)) {
+                Command::Send(m) => match p.session.send(m, p.clock.domain.milliseconds()) {
                     Ok(()) => Ok(()),
                     Err(e) => shared.publish(SessionEvent::Unsent(e.message)),
                 },
                 Command::CancelPairing => p
                     .session
-                    .cancel_pairing(elapsed(start))
+                    .cancel_pairing(p.clock.domain.milliseconds())
                     .map_err(session_error)
                     .and_then(|e| p.events(e)),
             };
@@ -1037,6 +1081,9 @@ async fn run(
             if let Err(e) = result {
                 break e;
             }
+        }
+        if let Err(error) = p.sync_clock() {
+            break error;
         }
         let timer = tokio::time::sleep(Duration::from_millis(5));
         let mut timer = std::pin::pin!(timer);
@@ -1058,13 +1105,20 @@ async fn run(
             }
             // Observe closure before accepting this adapter's ConnectionClosed-to-Ok flush mapping.
             if let Poll::Ready(v) = Pin::new(&mut socket).poll_next(cx) {
-                return Poll::Ready(Step::Read(v, Instant::now()));
+                return Poll::Ready(Step::Read(v, p.clock.domain.sample()));
             }
             if let Some((w, _)) = &mut pending {
                 if let Poll::Ready(v) = w.poll(&mut socket, cx, false) {
                     return Poll::Ready(Step::Written(v));
                 }
             } else {
+                match poll_clock_write(&mut socket, cx, &mut p.session, &mut p.clock) {
+                    Poll::Ready(Ok(Some(write))) => {
+                        return Poll::Ready(Step::ClockWrite(Ok(write)));
+                    }
+                    Poll::Ready(Err(error)) => return Poll::Ready(Step::ClockWrite(Err(error))),
+                    _ => {}
+                }
                 if !control_flush && pong_due.is_none() && Instant::now() >= ping_due {
                     match Pin::new(&mut socket).poll_ready(cx) {
                         Poll::Ready(Ok(())) => {
@@ -1096,6 +1150,13 @@ async fn run(
         .await;
         let result = match step {
             Step::Tick => Ok(()),
+            Step::ClockWrite(result) => match result {
+                Ok(write) => {
+                    pending = Some((write, Instant::now() + Duration::from_millis(l.write_ms)));
+                    Ok(())
+                }
+                Err(error) => Err(error),
+            },
             Step::Written(result) => match result {
                 Ok(()) => {
                     if let Some((w, _)) = pending.take() {
@@ -1104,7 +1165,11 @@ async fn run(
                         if let Some(count) = next_count {
                             let events = p
                                 .session
-                                .complete_write(w.write.id, WriteResult::Complete, elapsed(start))
+                                .complete_write(
+                                    w.write.id,
+                                    WriteResult::Complete,
+                                    p.clock.domain.milliseconds(),
+                                )
                                 .map_err(session_error);
                             shared.lock().observation.writes_completed = count;
                             events.and_then(|e| p.events(e))
@@ -1112,7 +1177,7 @@ async fn run(
                             let _ = p.session.complete_write(
                                 w.write.id,
                                 WriteResult::Uncertain,
-                                elapsed(start),
+                                p.clock.domain.milliseconds(),
                             );
                             Err(DriverError::Budget)
                         }
@@ -1122,16 +1187,16 @@ async fn run(
                 }
                 Err(e) => Err(websocket_error(e)),
             },
-            Step::Read(Some(Ok(message)), arrival) => {
+            Step::Read(Some(Ok(message)), arrival) => arrival.and_then(|stamp| {
                 let recorded = if matches!(&message, Message::Text(_) | Message::Binary(_)) {
-                    shared.arrival(millis(start, arrival))
+                    shared.arrival(stamp)
                 } else {
                     Ok(())
                 };
                 recorded.and_then(|_| match message {
                     Message::Text(text) => p
                         .session
-                        .receive(TransportKind::Text, text.as_bytes(), millis(start, arrival))
+                        .receive(TransportKind::Text, text.as_bytes(), stamp)
                         .map_err(session_error)
                         .and_then(|e| p.events(e)),
                     Message::Binary(bytes) => {
@@ -1139,7 +1204,7 @@ async fn run(
                             Err(DriverError::Budget)
                         } else {
                             p.session
-                                .receive(TransportKind::Binary, &bytes, millis(start, arrival))
+                                .receive(TransportKind::Binary, &bytes, stamp)
                                 .map_err(session_error)
                                 .and_then(|e| p.events(e))
                         }
@@ -1157,7 +1222,7 @@ async fn run(
                     Message::Close(_) => Err(DriverError::PeerClosed),
                     Message::Frame(_) => Err(DriverError::Protocol),
                 })
-            }
+            }),
             Step::Read(Some(Err(e)), _) => Err(websocket_error(e)),
             Step::Read(None, _) => Err(DriverError::Protocol),
             Step::Admission(id, result) => {
@@ -1165,7 +1230,7 @@ async fn run(
                 result
                     .and_then(|accepted| {
                         p.session
-                            .admit(id, accepted, elapsed(start))
+                            .admit(id, accepted, p.clock.domain.milliseconds())
                             .map_err(session_error)
                     })
                     .and_then(|e| p.events(e))
@@ -1175,7 +1240,7 @@ async fn run(
                 result
                     .and_then(|candidate| {
                         p.session
-                            .candidate(id, candidate, elapsed(start))
+                            .candidate(id, candidate, p.clock.domain.milliseconds())
                             .map_err(session_error)
                     })
                     .and_then(|e| p.events(e))
@@ -1183,12 +1248,15 @@ async fn run(
             Step::Commit(id, result) => {
                 p.commit = None;
                 let events = match result {
-                    Ok(()) => p.session.commit_succeeded(id, elapsed(start)),
+                    Ok(()) => p
+                        .session
+                        .commit_succeeded(id, p.clock.domain.milliseconds()),
                     Err(outcome) => {
                         if outcome == CommitOutcome::Uncertain {
                             shared.lock().observation.recovery_required = true;
                         }
-                        p.session.commit_failed(id, outcome, elapsed(start))
+                        p.session
+                            .commit_failed(id, outcome, p.clock.domain.milliseconds())
                     }
                 };
                 events.map_err(session_error).and_then(|e| p.events(e))
@@ -1205,9 +1273,16 @@ async fn run(
     }
     let uncertain = pending.is_some();
     if let Some((w, _)) = pending.take() {
-        let _ = p
-            .session
-            .complete_write(w.write.id, WriteResult::Uncertain, elapsed(start));
+        let _ = p.session.complete_write(
+            w.write.id,
+            WriteResult::Uncertain,
+            p.clock.domain.milliseconds(),
+        );
+    }
+    if let Ok(now) = p.clock.domain.sample()
+        && let Ok(observation) = p.clock.retire(now)
+    {
+        shared.lock().observation.clock = observation;
     }
     p.session.close();
     p.admission = None;
@@ -1237,12 +1312,15 @@ async fn run(
         // The service deadline closes transport, but cannot cancel or retry an acknowledged storage operation.
         let result = commit.future.as_mut().await;
         let callback = match result {
-            Ok(()) => p.session.commit_succeeded(commit.id, elapsed(start)),
+            Ok(()) => p
+                .session
+                .commit_succeeded(commit.id, p.clock.domain.milliseconds()),
             Err(outcome) => {
                 if outcome == CommitOutcome::Uncertain {
                     shared.lock().observation.recovery_required = true;
                 }
-                p.session.commit_failed(commit.id, outcome, elapsed(start))
+                p.session
+                    .commit_failed(commit.id, outcome, p.clock.domain.milliseconds())
             }
         };
         let _ = callback;
@@ -1288,7 +1366,8 @@ mod resource_tests {
                     writes_completed: 0,
                     recovery_required: false,
                     received_messages: 0,
-                    last_arrival_ms: None,
+                    last_arrival: None,
+                    clock: None,
                 },
             }),
         })
@@ -1305,7 +1384,7 @@ mod resource_tests {
         Arc::get_mut(&mut owned).unwrap().limits.producer_bytes = 32;
         let handle = SendspinHandle { shared: owned };
         for body in [
-            br#"{"type":"client/time","payload":{"client_transmitted":1}}"#.to_vec(),
+            br#"{"type":"client/goodbye","payload":{"client_transmitted":1}}"#.to_vec(),
             vec![b'{'; 64],
         ] {
             let original = body.clone();
@@ -1320,7 +1399,7 @@ mod resource_tests {
         let handle = SendspinHandle { shared: owned };
         handle
             .try_send(ApplicationMessage::json(
-                "client/time",
+                "client/goodbye",
                 serde_json::json!({"client_transmitted":1}),
             ))
             .unwrap();
@@ -1359,7 +1438,7 @@ mod resource_tests {
         assert_eq!(handle.observer().observation().command_entries, 0);
         handle
             .try_send(ApplicationMessage::json(
-                "client/time",
+                "client/goodbye",
                 serde_json::json!({"client_transmitted":1}),
             ))
             .unwrap();
@@ -1371,7 +1450,7 @@ mod resource_tests {
         let admission = handle.shared.admit_producer(8).unwrap();
         handle
             .try_send(ApplicationMessage::json(
-                "client/time",
+                "client/goodbye",
                 serde_json::json!({"client_transmitted":1}),
             ))
             .unwrap();
@@ -1398,7 +1477,7 @@ mod resource_tests {
                             .try_send(ApplicationMessage {
                                 id: 0,
                                 body:
-                                    br#"{"type":"client/time","payload":{"client_transmitted":1}}"#
+                                    br#"{"type":"client/goodbye","payload":{"client_transmitted":1}}"#
                                         .to_vec(),
                             })
                             .is_ok()
@@ -1423,7 +1502,7 @@ mod resource_tests {
         handle
             .try_send(ApplicationMessage {
                 id: 0,
-                body: br#"{"type":"client/time","payload":{"client_transmitted":1}}"#.to_vec(),
+                body: br#"{"type":"client/goodbye","payload":{"client_transmitted":1}}"#.to_vec(),
             })
             .unwrap();
         let (command, credit) = handle.shared.pop_command().unwrap();
@@ -1441,6 +1520,17 @@ mod resource_tests {
         drop(command);
         drop(credit);
         assert_eq!(handle.observer().observation().producer_bytes, 0);
+        assert_eq!(handle.observer().observation().command_entries, 0);
+    }
+    #[test]
+    fn caller_stamped_time_returns_without_queue_admission() {
+        let handle = SendspinHandle { shared: shared() };
+        let message =
+            ApplicationMessage::json("client/time", serde_json::json!({"client_transmitted":123}));
+        let expected = message.body.clone();
+        let rejected = handle.try_send(message).unwrap_err();
+        assert_eq!(rejected.error, DriverError::Protocol);
+        assert_eq!(rejected.message.body, expected);
         assert_eq!(handle.observer().observation().command_entries, 0);
     }
     #[test]
@@ -1482,7 +1572,7 @@ mod resource_tests {
         let shared = shared();
         let handle = SendspinHandle { shared };
         let mut body = Vec::with_capacity(1048577);
-        body.extend_from_slice(br#"{"type":"client/time","payload":{}}"#);
+        body.extend_from_slice(br#"{"type":"client/goodbye","payload":{}}"#);
         let rejected = handle
             .try_send(ApplicationMessage { id: 0, body })
             .unwrap_err();
@@ -1493,12 +1583,63 @@ mod resource_tests {
     fn arrival_counter_exhaustion_cannot_wrap_or_replace_the_last_sample() {
         let shared = shared();
         shared.lock().observation.received_messages = u64::MAX;
-        shared.lock().observation.last_arrival_ms = Some(17);
-        assert_eq!(shared.arrival(19), Err(DriverError::Budget));
-        assert_eq!(shared.lock().observation.last_arrival_ms, Some(17));
+        shared.lock().observation.last_arrival = Some(ReceiveStamp::new(17).unwrap());
+        assert_eq!(
+            shared.arrival(ReceiveStamp::new(19).unwrap()),
+            Err(DriverError::Budget)
+        );
+        assert_eq!(
+            shared.lock().observation.last_arrival,
+            Some(ReceiveStamp::new(17).unwrap())
+        );
     }
 }
 
 #[cfg(test)]
 #[path = "../../tests/support/sendspin_flush.rs"]
 mod flush_tests;
+
+/// The socket accepts readiness before T1 sampling, serialization, or Noise nonce consumption.
+fn poll_clock_write<S: AsyncRead + AsyncWrite + Unpin>(
+    socket: &mut WebSocketStream<S>,
+    cx: &mut Context<'_>,
+    session: &mut ClientSession,
+    clock: &mut ClockDriver,
+) -> Poll<Result<Option<PendingWrite>, DriverError>> {
+    if !clock.has_offer() || !session.probe_write_ready() {
+        return Poll::Ready(Ok(None));
+    }
+    std::task::ready!(Pin::new(&mut *socket).poll_ready(cx)).map_err(websocket_error)?;
+    let t1 = clock.domain.sample()?;
+    let Some(token) = clock.offered_at(t1)? else {
+        return Poll::Ready(Ok(None));
+    };
+    let Some(write) = session.time_probe_write(t1).map_err(session_error)? else {
+        return Poll::Ready(Ok(None));
+    };
+    let mut pending = PendingWrite {
+        write,
+        started: false,
+    };
+    if let Err(error) = pending.start_ready(socket) {
+        let _ = session.complete_write(
+            pending.write.id,
+            WriteResult::Uncertain,
+            clock.domain.milliseconds(),
+        );
+        return Poll::Ready(Err(websocket_error(error)));
+    }
+    if let Err(error) = clock.started(token, t1) {
+        let _ = session.complete_write(
+            pending.write.id,
+            WriteResult::Uncertain,
+            clock.domain.milliseconds(),
+        );
+        return Poll::Ready(Err(error));
+    }
+    Poll::Ready(Ok(Some(pending)))
+}
+
+#[cfg(test)]
+#[path = "../../tests/support/sendspin_clock_writer.rs"]
+mod clock_writer_tests;

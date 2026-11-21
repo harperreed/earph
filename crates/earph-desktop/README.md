@@ -1,21 +1,35 @@
 # Native desktop controller
 
 This package controls the existing owner through `earph-ffi::LocalClient`.
-The native window provides Connect, Queue, actual state, safety actions, and receipt details.
-Its explicit Start local engine action launches the existing standalone executable.
+The window provides connection, queue, output, playback, profiles, DSP, diagnostics, and receipt views.
+Its explicit engine-start action launches the existing standalone executable.
 It never hosts a second engine or duplicates owner policy.
-Native dialogs, packaging, output setup, playback, profiles, and detailed signal-path views remain later units.
+macOS uses SwiftUI and AppKit controls over the same Rust workflow.
+Linux keeps the egui renderer.
+Platform qualification and physical audio remain separate from feature availability.
 
 ## Launch and use
 
-Build the owner and controller from the shared workspace:
+On Linux, build the owner and controller from the shared workspace:
 
 ```sh
 cargo build --locked -p earph-engine -p earph-desktop
 target/debug/earph-desktop
 ```
 
-In Connect, enter an absolute private runtime path with at most 60 UTF-8 bytes.
+On macOS, build the native controller and run its software checks:
+
+```sh
+scripts/check-macos-desktop --output /absolute/new-native-build
+```
+
+Use the resulting `products/earph-desktop` and adjacent engine for native packaging.
+The Cargo desktop executable provides the egui development renderer, rather than the packaged Mac interface.
+See [native packaging](../../docs/native-packaging.md) for candidate construction and qualification limits.
+
+The Mac runtime defaults to `~/.earph`; its executable defaults to the adjacent engine.
+Use Advanced to change those local drafts.
+On Linux, enter an absolute private runtime path with at most 60 UTF-8 bytes.
 Its parent must already exist and satisfy the owner's private-directory checks.
 Use Attach for an existing owner or Start local engine for the displayed absolute executable path.
 The initial executable path names the controller's sibling `earph-engine`.
@@ -24,7 +38,8 @@ Launch logs remain in a new private directory beside the selected runtime.
 Startup error details identify those logs when launch fails.
 The UI reads bounded startup prefixes; it does not impose a disk quota on owner logs.
 
-In Queue, enter literal file or folder paths and use the explicit Add buttons.
+In the Mac Queue view, use Add Files or Add Folder with the standard system dialog.
+On Linux, enter literal file or folder paths and use the explicit Add buttons.
 Queue edits do not decode media or start playback.
 Select, move, and remove use stable entry identities and a captured owner/revision context.
 An external edit requires refreshing and reviewing the draft before another submission.
@@ -33,8 +48,10 @@ Unprepared is a real preparation state, not a playable-media claim.
 
 The status strip shows actual state and local observation freshness.
 Mute and Stop use the existing safety lane independently of ordinary reads.
-There is no Unmute, Start, output-selection, or fixed-arming control in this unit.
-Light and Dark paint an opaque central panel with a matching clear color.
+Select an output and approve its current device and profile before listening.
+Play, Set Level, fixed arming, and Unmute remain separate explicit actions.
+The Mac interface follows system appearance and standard Edit menu behavior.
+Linux Light and Dark paint an opaque central panel with a matching clear color.
 No appearance choice changes OS settings.
 
 Closing the controller leaves the local engine running.

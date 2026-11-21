@@ -85,7 +85,7 @@ impl Peer {
         let mut events = vec![];
         while let Some(plain) = outgoing.next_record() {
             let record = self.encrypt(&plain);
-            events.extend(client.receive(TransportKind::Binary, &record, now)?);
+            events.extend(client.receive(TransportKind::Binary, &record, stamp_ms(now))?);
         }
         Ok(events)
     }
@@ -152,7 +152,9 @@ pub fn initial_from_with_record_limit(
     let private = [11; 32];
     let public = noise::static_public_key(&private).unwrap();
     let server=serde_json::to_vec(&json!({"type":"server/init","payload":{"version":1,"server_id":URL_SAFE_NO_PAD.encode(public)}})).unwrap();
-    client.receive(TransportKind::Text, &server, 1).unwrap();
+    client
+        .receive(TransportKind::Text, &server, stamp_ms(1))
+        .unwrap();
     let mut handshake = snow::Builder::new(PATTERN.parse().unwrap())
         .local_private_key(&private)
         .unwrap()
@@ -174,7 +176,9 @@ pub fn initial_from_with_record_limit(
         &json!({"type":"noise/handshake","payload":{"data":URL_SAFE_NO_PAD.encode(&record[..n])}}),
     )
     .unwrap();
-    client.receive(TransportKind::Text, &envelope, 2).unwrap();
+    client
+        .receive(TransportKind::Text, &envelope, stamp_ms(2))
+        .unwrap();
     let reply = client.next_write(2).unwrap().unwrap();
     let value: Value = serde_json::from_slice(&reply.bytes).unwrap();
     let record = URL_SAFE_NO_PAD
@@ -205,7 +209,7 @@ pub fn initial_from_with_record_limit(
     loop {
         let hello = client.next_write(3).unwrap().unwrap();
         let plain = peer.read(&hello.bytes);
-        let message = reader.push(&plain, 3).unwrap();
+        let message = reader.push(&plain, stamp_ms(3)).unwrap();
         client
             .complete_write(hello.id, WriteResult::Complete, 3)
             .unwrap();
@@ -219,4 +223,8 @@ pub fn initial_from_with_record_limit(
         }
     }
     (client, peer)
+}
+
+pub fn stamp_ms(ms: u64) -> earph_sendspin::message::ReceiveStamp {
+    earph_sendspin::message::ReceiveStamp::new(i64::try_from(ms).unwrap() * 1000).unwrap()
 }

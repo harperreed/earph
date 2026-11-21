@@ -133,3 +133,11 @@ jobs:
             done
             exit 1
           fi
+      - name: Check standard macOS controls and the real controller
+        if: runner.os == 'macOS'
+        env:
+          TMPDIR: ${{ runner.temp }}
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: |
+          earph_swiftc=$(xcrun --find swiftc)
+          scripts/check-macos-desktop --output "$RUNNER_TEMP/earph-native-desktop" --swiftc "$earph_swiftc"

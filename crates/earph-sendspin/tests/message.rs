@@ -15,12 +15,12 @@ fn fragment_roundtrip_keeps_last_arrival_and_exact_body() {
     let mut count = 0;
     while let Some(record) = writer.next_record() {
         count += 1;
-        complete = reader.push(&record, count).unwrap();
+        complete = reader.push(&record, stamp_ms(count)).unwrap();
     }
     let complete = complete.unwrap();
     assert_eq!(complete.id, 4);
     assert_eq!(complete.body, body);
-    assert_eq!(complete.arrival_ms, count);
+    assert_eq!(complete.arrival.milliseconds(), count);
 }
 
 #[test]
@@ -37,13 +37,13 @@ fn malformed_fragment_sequences_poison_assembly() {
         let mut reader = Reassembler::new(MessageLimits::default());
         let mut failed = false;
         for record in records {
-            if reader.push(&record, 0).is_err() {
+            if reader.push(&record, stamp_ms(0)).is_err() {
                 failed = true;
                 break;
             }
         }
         assert!(failed);
-        assert!(reader.push(&[0, b'{', b'}'], 0).is_err());
+        assert!(reader.push(&[0, b'{', b'}'], stamp_ms(0)).is_err());
     }
 }
 
@@ -56,12 +56,15 @@ fn unknown_fragment_discard_is_still_bounded() {
         ..MessageLimits::default()
     };
     let mut reader = Reassembler::new(limits);
-    assert!(reader.push(&[1, 2, 2, 9], 0).unwrap().is_none());
-    assert!(reader.push(&[1, 0, 9], 1).unwrap().is_none());
-    assert_eq!(reader.push(&[1, 1], 2), Err(MessageError::Budget));
+    assert!(reader.push(&[1, 2, 2, 9], stamp_ms(0)).unwrap().is_none());
+    assert!(reader.push(&[1, 0, 9], stamp_ms(1)).unwrap().is_none());
+    assert_eq!(reader.push(&[1, 1], stamp_ms(2)), Err(MessageError::Budget));
     let mut reader = Reassembler::new(limits);
-    reader.push(&[1, 2, 3], 0).unwrap();
-    assert_eq!(reader.push(&[1, 1], 5), Err(MessageError::Deadline));
+    reader.push(&[1, 2, 3], stamp_ms(0)).unwrap();
+    assert_eq!(
+        reader.push(&[1, 1], stamp_ms(5)),
+        Err(MessageError::Deadline)
+    );
 }
 
 #[test]
@@ -96,14 +99,17 @@ fn first_last_empty_and_limit_boundaries_are_valid() {
     };
     let mut reader = Reassembler::new(limits);
     assert_eq!(
-        reader.push(&[1, 3, 4], 7).unwrap().unwrap().body,
+        reader.push(&[1, 3, 4], stamp_ms(7)).unwrap().unwrap().body,
         Vec::<u8>::new()
     );
     assert_eq!(
-        reader.push(&[4, 1, 2], 8).unwrap().unwrap().body,
+        reader.push(&[4, 1, 2], stamp_ms(8)).unwrap().unwrap().body,
         vec![1, 2]
     );
-    assert_eq!(reader.push(&[4, 1, 2, 3], 9), Err(MessageError::Budget));
+    assert_eq!(
+        reader.push(&[4, 1, 2, 3], stamp_ms(9)),
+        Err(MessageError::Budget)
+    );
 }
 
 #[test]
@@ -133,4 +139,37 @@ fn exact_wire_record_boundaries_fragment_only_when_needed() {
         ),
         Err(MessageError::Budget)
     );
+}
+
+#[test]
+fn fragment_deadline_uses_milliseconds_without_rounding_its_receive_fact() {
+    let mut reader = Reassembler::new(MessageLimits {
+        assembly_ms: 1,
+        ..MessageLimits::default()
+    });
+    assert!(
+        reader
+            .push(&[1, 2, 4, 7], ReceiveStamp::new(1001).unwrap())
+            .unwrap()
+            .is_none()
+    );
+    let complete = reader
+        .push(&[1, 1, 8], ReceiveStamp::new(1999).unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(complete.body, [7, 8]);
+    assert_eq!(complete.arrival.microseconds(), 1999);
+}
+
+fn stamp_ms(ms: u64) -> earph_sendspin::message::ReceiveStamp {
+    earph_sendspin::message::ReceiveStamp::new(i64::try_from(ms).unwrap() * 1000).unwrap()
+}
+
+#[test]
+fn receive_stamp_checks_the_numeric_envelope_and_derives_deadline_milliseconds() {
+    assert!(ReceiveStamp::new(-1).is_err());
+    assert!(ReceiveStamp::new(earph_sendspin::timing::MAX_TIME_US + 1).is_err());
+    let maximum = ReceiveStamp::new(earph_sendspin::timing::MAX_TIME_US).unwrap();
+    assert_eq!(maximum.microseconds(), earph_sendspin::timing::MAX_TIME_US);
+    assert_eq!(ReceiveStamp::new(1999).unwrap().milliseconds(), 1);
 }

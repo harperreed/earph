@@ -361,6 +361,14 @@ impl GuiController {
             .latest_state()
             .map(|observed| observed.state.as_ref())
     }
+    pub(super) fn state_basis(&self) -> Option<Arc<StateView>> {
+        self.model()
+            .latest_state()
+            .map(|observed| observed.state.clone())
+    }
+    pub(super) fn queue_state_basis(&self) -> Option<Arc<StateView>> {
+        self.queue_basis.clone()
+    }
     pub fn package_candidate(&self) -> Option<&crate::ProfilePackageResultView> {
         self.profiles
             .package

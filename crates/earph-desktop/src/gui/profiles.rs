@@ -129,7 +129,7 @@ impl Draft {
             )?;
         Ok((id, Some(reference.revision)))
     }
-    fn load(&mut self, record: &ProfileRecordView) -> Result<(), String> {
+    pub(super) fn load(&mut self, record: &ProfileRecordView) -> Result<(), String> {
         let profile = &record.profile;
         if profile.volume.mode == VolumeMode::Hardware {
             return Err(
@@ -168,6 +168,21 @@ impl Draft {
             profile_sha256: record.profile_sha256,
         });
         Ok(())
+    }
+    pub(super) fn native_snapshot(&self) -> serde_json::Value {
+        serde_json::json!({
+            "profile_fields": {
+                "id": self.id, "name": self.name, "backend": self.backend,
+                "route": self.route, "device": self.device, "setup": self.setup,
+                "mode": self.mode, "fidelity": self.fidelity,
+                "software_cap": self.software_cap, "hardware_cap": self.hardware_cap,
+                "latency": self.latency, "resident": self.resident,
+                "preparation": self.preparation, "latency_frames": self.latency_frames
+            },
+            "profile_selected": self.selected,
+            "profile_loaded": self.loaded,
+            "profile_corrected": self.corrected
+        })
     }
 }
 fn millidecibels(db: f64) -> Result<i32, String> {

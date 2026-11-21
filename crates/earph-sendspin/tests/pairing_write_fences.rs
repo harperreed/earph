@@ -46,7 +46,7 @@ fn read_json(client: &mut ClientSession, peer: &mut Peer, now: u64) -> Option<Va
     let first = client.next_write(now).unwrap()?;
     let mut reader = Reassembler::new(MessageLimits::default());
     let plain = peer.read(&first.bytes);
-    let message = reader.push(&plain, now).unwrap();
+    let message = reader.push(&plain, fixture::stamp_ms(now)).unwrap();
     client
         .complete_write(first.id, WriteResult::Complete, now)
         .unwrap();
@@ -70,7 +70,7 @@ fn finish_fragments(
             .unwrap()
             .expect("started message must drain");
         let plain = peer.read(&write.bytes);
-        let complete = reader.push(&plain, now).unwrap();
+        let complete = reader.push(&plain, fixture::stamp_ms(now)).unwrap();
         client
             .complete_write(write.id, WriteResult::Complete, now)
             .unwrap();
@@ -209,7 +209,7 @@ fn already_started_pair_init_drains_without_starting_its_revoked_finalize() {
     let plain = peer.read(&first.bytes);
     assert_eq!(&plain[..3], &[1, 2, 0]);
     let mut reader = Reassembler::new(MessageLimits::default());
-    assert!(reader.push(&plain, 7).unwrap().is_none());
+    assert!(reader.push(&plain, fixture::stamp_ms(7)).unwrap().is_none());
     let events = peer
         .send_json_fragmented(
             &mut client,
@@ -237,7 +237,7 @@ fn already_started_finalize_drains_but_its_late_ack_cannot_commit() {
     let plain = peer.read(&first.bytes);
     assert_eq!(&plain[..3], &[1, 2, 0]);
     let mut reader = Reassembler::new(MessageLimits::default());
-    assert!(reader.push(&plain, 8).unwrap().is_none());
+    assert!(reader.push(&plain, fixture::stamp_ms(8)).unwrap().is_none());
     let events = peer
         .send_json_fragmented(
             &mut client,
@@ -296,7 +296,12 @@ fn timeout_during_started_finalize_drains_before_abort_without_committing() {
     let first = client.next_write(120_006).unwrap().unwrap();
     let plain = peer.read(&first.bytes);
     let mut reader = Reassembler::new(MessageLimits::default());
-    assert!(reader.push(&plain, 120_006).unwrap().is_none());
+    assert!(
+        reader
+            .push(&plain, fixture::stamp_ms(120_006))
+            .unwrap()
+            .is_none()
+    );
     client.tick(120_007).unwrap();
     client
         .complete_write(first.id, WriteResult::Complete, 120_007)
@@ -349,7 +354,7 @@ fn rotation_crossing(reply_outstanding: bool) {
     assert!(client.catalog().records().is_empty());
     client
         .send(
-            ApplicationMessage::json("client/time", json!({"client_transmitted":42})),
+            ApplicationMessage::json("client/goodbye", json!({"client_transmitted":42})),
             120_010,
         )
         .unwrap();
@@ -446,7 +451,12 @@ fn started_old_finalize_drains_before_reply_without_reviving_its_timeout() {
     let first = client.next_write(120_006).unwrap().unwrap();
     let plain = peer.read(&first.bytes);
     let mut reader = Reassembler::new(MessageLimits::default());
-    assert!(reader.push(&plain, 120_006).unwrap().is_none());
+    assert!(
+        reader
+            .push(&plain, fixture::stamp_ms(120_006))
+            .unwrap()
+            .is_none()
+    );
     let (handshake, payload) = peer.rotation([7; 32], "pr", None);
     peer.send_json_fragmented(&mut client, "noise/handshake", payload, 120_006, 64)
         .unwrap();

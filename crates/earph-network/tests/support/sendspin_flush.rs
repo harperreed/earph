@@ -1,8 +1,7 @@
 // ABOUTME: Exercises rotation epoch installation across the actual WebSocket flush boundary.
 // ABOUTME: Reuses the existing real Snow peer without mocked crypto or copied transcripts.
-#[path = "../../../earph-sendspin/tests/support/session_fixture.rs"]
-mod fixture;
 use super::*;
+use crate::sendspin::session_fixture as fixture;
 use serde_json::json;
 use tokio::{io::AsyncReadExt, runtime::Builder};
 use tokio_tungstenite::tungstenite::protocol::Role;

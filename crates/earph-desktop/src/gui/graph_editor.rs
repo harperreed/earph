@@ -21,6 +21,63 @@ pub(super) struct GraphIntentEditor {
 }
 
 impl GraphIntentEditor {
+    pub(super) fn native_snapshot(&self) -> serde_json::Value {
+        serde_json::json!({
+            "graph": self.intent,
+            "graph_json": serde_json::to_string_pretty(&self.intent).expect("typed graph serialization"),
+            "graph_raw": self.raw,
+            "graph_error": self.error,
+            "graph_dirty": self.has_pending_raw_edits(),
+            "graph_chain_nodes": chain_order(&self.intent.graph).map(|order|order.into_iter().enumerate().map(|(position,index)|
+                serde_json::json!({"id":self.intent.graph.nodes[index].id,"position":position})).collect::<Vec<_>>()),
+            "graph_node_kinds": common_kinds().into_iter().map(|(label, node_kind)|
+                serde_json::json!({"label": label, "node_kind": node_kind})).collect::<Vec<_>>()
+        })
+    }
+    pub(super) fn native_accept(&mut self, text: String) {
+        self.raw = text;
+        self.accept_raw();
+    }
+    pub(super) fn native_chain_edit(
+        &mut self,
+        operation: &str,
+        node_kind: Option<NodeKind>,
+        from: Option<usize>,
+        to: Option<usize>,
+    ) -> Result<(), String> {
+        if self.has_pending_raw_edits() {
+            return Err("Accept or restore raw graph edits before using common controls".into());
+        }
+        let order = chain_order(&self.intent.graph)
+            .ok_or("A serial graph is required; preserve arbitrary topology through JSON")?;
+        let internal = |position: usize| position > 0 && position < order.len().saturating_sub(1);
+        let action = match (operation, node_kind, from, to) {
+            ("add", Some(kind), None, None) => {
+                if self.intent.graph.nodes.len() >= MAX_GRAPH_NODES
+                    || matches!(
+                        kind,
+                        NodeKind::Input | NodeKind::Output | NodeKind::Convolution { .. }
+                    )
+                {
+                    return Err("Choose a common node within the graph limit; use explicit FIR review for assets".into());
+                }
+                ChainAction::Add(kind)
+            }
+            ("move", None, Some(from), Some(to)) if internal(from) && internal(to) => {
+                ChainAction::Move(from, to)
+            }
+            ("remove", None, Some(from), None) if internal(from) => ChainAction::Remove(from),
+            _ => return Err("Invalid chain edit or endpoint position".into()),
+        };
+        let mut candidate = self.intent.clone();
+        edit_chain(&mut candidate, &order, action);
+        candidate
+            .graph
+            .validate_structure()
+            .map_err(|error| error.to_string())?;
+        self.load(candidate);
+        Ok(())
+    }
     pub(super) fn intent(&self) -> &GraphIntent {
         &self.intent
     }

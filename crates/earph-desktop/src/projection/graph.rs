@@ -10,10 +10,10 @@ use earph_core::{
     ids::*,
     profiles::ProfileObjectHash,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphBindingView {
     pub owner_id: OwnerId,
@@ -22,12 +22,12 @@ pub struct GraphBindingView {
     pub device_epoch: u64,
     pub expected_revision: u64,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GraphTransitionView {
     MutedRebuffer,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SignalTransformationView {
     Kernel {
@@ -42,7 +42,7 @@ pub enum SignalTransformationView {
         client_representation: ObservedSampleRepresentationView,
     },
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphResidentUsageView {
     pub backend_audio_bytes: u64,
@@ -56,13 +56,13 @@ pub struct GraphResidentUsageView {
     pub pipeline_bytes: u64,
     pub aggregate_peak_bytes: u64,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GraphTailPolicyView {
     AuthoredFiniteSupport,
     BoundedIirTruncation,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FilterTailView {
     pub node: NodeId,
@@ -70,13 +70,13 @@ pub struct FilterTailView {
     pub horizon_frames: u64,
     pub terminal_output_bounds: Vec<f64>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SrcResourcesView {
     pub resident_bytes: u64,
     pub preparation_peak_bytes: u64,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SrcParametersView {
     pub input_rate: u32,
@@ -95,7 +95,7 @@ pub struct SrcParametersView {
     pub library_max_relative_ratio: f64,
     pub resources: SrcResourcesView,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CompiledStreamStageKindView {
     Island {
@@ -115,7 +115,7 @@ pub enum CompiledStreamStageKindView {
         truncated_library_output_delay_frames: Option<u64>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CompiledStreamStageView {
     pub original_nodes: Vec<NodeId>,
@@ -125,7 +125,7 @@ pub struct CompiledStreamStageView {
     pub output_peak_bounds: Vec<f64>,
     pub kind: CompiledStreamStageKindView,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "timing_kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum GraphTimingView {
     SameRate {
@@ -139,7 +139,7 @@ pub enum GraphTimingView {
         stages: Arc<[CompiledStreamStageView]>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct GraphPreviewView {
     #[serde(deserialize_with = "nullable")]
     pub profile_application: Option<Arc<ProfileApplicationBindingView>>,
@@ -164,28 +164,28 @@ pub struct GraphPreviewView {
     pub required_headroom_db: f64,
     pub transition: GraphTransitionView,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphPreparedView {
     pub token: PreparedGraphId,
     pub expires_monotonic_ns: u64,
     pub preview: Arc<GraphPreviewView>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GraphOperationStageView {
     Validating,
     Preparing,
     Activating,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphServiceView {
     pub resident_bytes: u64,
     pub pending_retirements: usize,
     pub preparing_or_candidate: bool,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphInspectionView {
     pub service: GraphServiceView,
@@ -202,7 +202,7 @@ pub struct GraphInspectionView {
     #[serde(deserialize_with = "nullable")]
     pub prepared: Option<GraphPreparedView>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphDiagnosticView {
     pub code: ErrorCode,

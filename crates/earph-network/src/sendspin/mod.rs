@@ -1,5 +1,7 @@
 // ABOUTME: Owns explicitly admitted roleless outbound Sendspin transport.
 // ABOUTME: Keeps credentials, source authority, and output outside application startup.
+mod clock;
+pub use clock::{ClockConfiguration, ClockObservation, MonotonicDomain};
 mod policy;
 mod worker;
 pub use policy::SendspinConnectPermit;
@@ -25,6 +27,7 @@ pub enum DriverError {
     StorageUncertain,
     CleanupTimeout,
     Internal,
+    Clock,
 }
 impl std::fmt::Display for DriverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -200,3 +203,7 @@ mod limits_tests {
         assert!(d.validate(session).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "../../../earph-sendspin/tests/support/session_fixture.rs"]
+mod session_fixture;

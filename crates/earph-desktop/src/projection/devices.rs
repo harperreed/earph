@@ -7,9 +7,9 @@ use earph_core::{
     devices::{DeviceReadBoundary, DeviceSelectionIntent, DeviceStream, DeviceValueRange},
     ids::OwnerId,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeviceCapabilitiesView {
     pub backends: Vec<OutputBackend>,
@@ -23,7 +23,7 @@ pub struct DeviceCapabilitiesView {
     pub query_timeout_ms: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeviceQueryErrorView {
     pub code: ErrorCode,
@@ -34,7 +34,7 @@ pub struct DeviceQueryErrorView {
     pub native_object_id: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeviceSummaryView {
     pub endpoint: String,
@@ -48,7 +48,7 @@ pub struct DeviceSummaryView {
     pub selection_error: Option<ErrorCode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DevicePropertiesView {
     pub object_id: u32,
@@ -66,7 +66,7 @@ pub struct DevicePropertiesView {
     pub output_streams: Vec<DeviceStream>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DeviceObservationView {
     List {
@@ -89,7 +89,7 @@ pub enum DeviceObservationView {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeviceQueryResultView {
     pub owner_id: OwnerId,

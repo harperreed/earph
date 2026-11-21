@@ -1,7 +1,7 @@
 # Sendspin timing arithmetic
 
 Doctor Biz authorized this pure timing unit and its fixed policies.
-The authority is [Sendspin spec 9d2f15e](https://github.com/Sendspin/spec/blob/9d2f15ee8f172c67ce00dc0d9f6603c3b1030d9f/README.md#clock-synchronization).
+The authority is [Sendspin spec 9d2f15e](https://github.com/Sendspin/spec/blob/9d2f15ee8f172c67ce00dc0d9f6603c3b1030d9f/messaging.md#clock-synchronization).
 The player authority is the same revision's [player v1](https://github.com/Sendspin/spec/blob/9d2f15ee8f172c67ce00dc0d9f6603c3b1030d9f/roles/player/v1.md).
 
 `earph_sendspin::timing::TimeSync` owns one connection's scalar filter and bounded burst state.
@@ -27,7 +27,7 @@ Call methods in local timestamp order.
 Capture T1 at the declared actual send boundary.
 Capture T4 at complete transport delivery, using final-fragment arrival for fragmented messages.
 Deliver captured replies before a tick that would expire their pending request.
-Do not reconstruct microseconds from the existing session's truncated milliseconds.
+`ReceiveStamp` stores the original checked microseconds; only deadline calculations derive milliseconds.
 Do not timestamp a reply when the consumer dequeues it.
 An unmatched old reply has no authority to advance or regress the current clock.
 A current-domain clock regression retires the reducer.
@@ -94,6 +94,18 @@ Music Assistant's vendored browser filter also has different defaults.
 Neither peer supplies this unit's numeric oracle.
 No upstream implementation source was copied.
 
-Transport microsecond export, output-clock mapping, live ASRC, and a scheduling latency plan remain unresolved.
+The roleless Network worker now supplies live authenticated clock exchanges.
+Its explicit `ClockConfiguration` separates the clock domain from transport and credential admission.
+The worker consumes `server/time` before advancing timeout policy.
+It abandons incomplete bursts whenever actual send suppression or ordered session blocking starts.
+It keeps established estimates through re-handshake and publishes redacted mapping snapshots.
+One pending probe uses the existing Network thread and the original socket.
+
+The pinned Python WebSocket tests use eight unique live T1 values and real server monotonic timestamps.
+They cover fragmented replies, invalid fields, duplicates, timeout, and re-handshake.
+Deterministic session tests preserve submillisecond T4 through acknowledged commit, rotation flush, and admission.
+The peer is a transport check; the existing hand-calculated reducer vectors remain the numeric oracle.
+
+Output-clock mapping, live ASRC, and a scheduling latency plan remain unresolved.
 These tests establish no AC-17, acoustic alignment, production timing, or synchronized-player completion.
 Root owns combined canonical checks and independent contract review before integration.

@@ -1,7 +1,9 @@
 // ABOUTME: Owns ordered encrypted client sessions, pairing, admission, and key rotation.
 // ABOUTME: Emits bounded transport writes without granting clock or native output authority.
 use crate::{
-    message::{self, Complete, Direction, Envelope, MessageLimits, Outgoing, Reassembler},
+    message::{
+        self, Complete, Direction, Envelope, MessageLimits, Outgoing, Reassembler, ReceiveStamp,
+    },
     noise::{self, Category, Credential, Responder},
     pairing::{
         AbortReason, ActivationError, AttemptId, Candidate, CommitOutcome, FlightAuthorization,
@@ -117,6 +119,34 @@ pub enum SessionPhase {
     Closing,
     Closed,
 }
+/// Authenticated channel facts. These grant no playback or output authority.
+#[derive(Clone, Copy)]
+pub struct ClockContext {
+    server_public: [u8; 32],
+    connection_generation: u64,
+    send_suppressed: bool,
+    delivery_blocked: bool,
+}
+impl ClockContext {
+    pub fn server_public(self) -> [u8; 32] {
+        self.server_public
+    }
+    pub fn connection_generation(self) -> u64 {
+        self.connection_generation
+    }
+    pub fn send_suppressed(self) -> bool {
+        self.send_suppressed
+    }
+    pub fn delivery_blocked(self) -> bool {
+        self.delivery_blocked
+    }
+}
+impl fmt::Debug for ClockContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ClockContext([REDACTED])")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WriteId {
     owner: u64,
@@ -268,6 +298,7 @@ enum Purpose {
     InitialReply,
     Hello,
     Application,
+    TimeProbe,
     PairInit(AttemptId),
     PairFinalize(AttemptId),
     PairAbort {
@@ -295,7 +326,7 @@ struct Outstanding {
 struct RawInput {
     kind: TransportKind,
     bytes: Vec<u8>,
-    arrival: u64,
+    arrival: ReceiveStamp,
 }
 struct PendingAdmission {
     id: AdmissionId,
@@ -445,6 +476,50 @@ impl ClientSession {
     pub fn handshake_hash(&self) -> Option<[u8; 32]> {
         self.channel.as_ref().and_then(Responder::handshake_hash)
     }
+    pub fn clock_context(&self) -> Option<ClockContext> {
+        let channel = self.channel.as_ref()?;
+        channel.handshake_hash()?;
+        Some(ClockContext {
+            server_public: channel.server_public(),
+            connection_generation: self.connection_generation,
+            send_suppressed: self.phase != SessionPhase::Active || self.quiet,
+            delivery_blocked: self.blocked() || self.buffer_raw(),
+        })
+    }
+    /// True only when no prior session output can precede a dedicated clock probe.
+    pub fn probe_write_ready(&self) -> bool {
+        self.phase == SessionPhase::Active
+            && !self.quiet
+            && !self.blocked()
+            && !self.buffer_raw()
+            && self.outstanding.is_none()
+            && self.queue.is_empty()
+            && self.current.is_none()
+            && self.application.is_none()
+    }
+    /// Call only at transport readiness. Serialization and encryption use this exact sampled T1.
+    pub fn time_probe_write(
+        &mut self,
+        stamp: ReceiveStamp,
+    ) -> Result<Option<TransportWrite>, SessionError> {
+        if !self.probe_write_ready() {
+            return Ok(None);
+        }
+        let message = ApplicationMessage::json(
+            "client/time",
+            json!({"client_transmitted":stamp.microseconds()}),
+        );
+        self.send_application(message, stamp.milliseconds(), true)
+            .map_err(|e| e.error)?;
+        self.current = Some(Current {
+            outgoing: self
+                .application
+                .take()
+                .expect("dedicated probe owns its temporary staging"),
+            purpose: Purpose::TimeProbe,
+        });
+        self.next_write(stamp.milliseconds())
+    }
     pub fn roles(&self) -> &[String] {
         self.pairing.as_ref().map_or(&[], PairingClient::roles)
     }
@@ -480,18 +555,18 @@ impl ClientSession {
         &mut self,
         kind: TransportKind,
         bytes: &[u8],
-        arrival_ms: u64,
+        arrival: ReceiveStamp,
     ) -> Result<Vec<SessionEvent>, SessionError> {
-        let result = self.receive_inner(kind, bytes, arrival_ms);
+        let result = self.receive_inner(kind, bytes, arrival);
         self.outcome(result)
     }
     fn receive_inner(
         &mut self,
         kind: TransportKind,
         bytes: &[u8],
-        arrival: u64,
+        arrival: ReceiveStamp,
     ) -> Result<Vec<SessionEvent>, SessionError> {
-        self.check_now(arrival)?;
+        self.check_now(arrival.milliseconds())?;
         let limit = if kind == TransportKind::Binary {
             self.limits.noise.record_bytes.min(65535)
         } else {
@@ -537,7 +612,7 @@ impl ClientSession {
         &mut self,
         kind: TransportKind,
         bytes: &[u8],
-        arrival: u64,
+        arrival: ReceiveStamp,
         events: &mut Vec<SessionEvent>,
     ) -> Result<(), SessionError> {
         if self.phase == SessionPhase::AwaitServerInit {
@@ -599,6 +674,7 @@ impl ClientSession {
                     // Fence sends immediately. Earlier authenticated acknowledgments retain their wire order.
                     self.quiet = true;
                     let deadline = arrival
+                        .milliseconds()
                         .checked_add(self.limits.exchange_ms)
                         .ok_or(SessionError::Counter)?;
                     self.deadline = Some(
@@ -969,6 +1045,14 @@ impl ClientSession {
     }
     /// Returns unsent producer data on suppression or backpressure. No encryption starts here.
     pub fn send(&mut self, message: ApplicationMessage, now: u64) -> Result<(), SendRejected> {
+        self.send_application(message, now, false)
+    }
+    fn send_application(
+        &mut self,
+        message: ApplicationMessage,
+        now: u64,
+        time_probe: bool,
+    ) -> Result<(), SendRejected> {
         let result = (|| {
             self.check_now(now)?;
             if self.phase != SessionPhase::Active || self.quiet {
@@ -980,6 +1064,7 @@ impl ClientSession {
             if message.id == 0 {
                 let envelope = Envelope::parse(&message.body)?;
                 if envelope.direction() == Some(Direction::Server)
+                    || (envelope.kind == "client/time" && !time_probe)
                     || matches!(
                         envelope.kind.as_str(),
                         "noise/handshake"
@@ -1073,7 +1158,8 @@ impl ClientSession {
         }
         let started = self.application.as_ref().is_some_and(Outgoing::started);
         let (kind, bytes, purpose, last) = if started
-            || (self.queue.is_empty()
+            || (self.current.is_none()
+                && self.queue.is_empty()
                 && self.phase == SessionPhase::Active
                 && !self.quiet
                 && self.application.is_some())
@@ -1267,7 +1353,7 @@ impl ClientSession {
                     events.push(SessionEvent::Closed);
                     return Ok(events);
                 }
-                Purpose::Application | Purpose::PairAbort { .. } => {}
+                Purpose::Application | Purpose::TimeProbe | Purpose::PairAbort { .. } => {}
             }
         }
         self.drain(&mut events)?;

@@ -6,12 +6,13 @@ use earph_core::ids::OwnerId;
 use earph_network::sendspin::*;
 use earph_sendspin::{noise, pairing::*, session::*};
 use fixture::*;
+#[path = "support/sendspin_transport_peer.rs"]
+mod real_peer;
+use real_peer::Peer;
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::{BufRead, BufReader, Write},
     net::{IpAddr, UdpSocket},
-    process::{Child, Command, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -20,11 +21,6 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
-struct Peer {
-    child: Child,
-    lines: mpsc::Receiver<Value>,
-    reader: Option<JoinHandle<()>>,
-}
 struct GateRelease(Option<mpsc::Sender<()>>);
 impl GateRelease {
     fn release(&mut self) {
@@ -43,97 +39,6 @@ impl Drop for StorageThreads {
     fn drop(&mut self) {
         for thread in self.0.lock().unwrap().drain(..) {
             let _ = thread.join();
-        }
-    }
-}
-impl Peer {
-    fn new(ip: IpAddr, mode: &str, directory: &std::path::Path) -> Self {
-        Self::spawn([ip.to_string(), mode.to_owned()], directory, "peer")
-    }
-    fn readback(directory: &std::path::Path) -> Self {
-        Self::spawn(
-            ["--readback".into(), directory.to_str().unwrap().to_owned()],
-            directory,
-            "restart",
-        )
-    }
-    fn spawn(arguments: [String; 2], directory: &std::path::Path, name: &str) -> Self {
-        let mut child = Command::new(
-            std::env::var_os("EARPH_SENDSPIN_PEER").expect("set pinned peer interpreter"),
-        )
-        .arg(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/support/sendspin_peer.py"
-        ))
-        .args(arguments)
-        .arg(directory)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::from(
-            fs::File::create(directory.join(format!("{name}-stderr.log"))).unwrap(),
-        ))
-        .spawn()
-        .unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let (tx, lines) = mpsc::sync_channel(32);
-        let mut log = fs::File::create(directory.join(format!("{name}-stdout.log"))).unwrap();
-        let reader = thread::spawn(move || {
-            let mut source = BufReader::new(stdout);
-            let mut total = 0;
-            loop {
-                let mut line = Vec::new();
-                loop {
-                    let available = source.fill_buf().unwrap();
-                    if available.is_empty() {
-                        return;
-                    }
-                    let end = available.iter().position(|b| *b == b'\n').map(|i| i + 1);
-                    let count = end.unwrap_or(available.len());
-                    assert!(line.len() + count <= 32000);
-                    line.extend_from_slice(&available[..count]);
-                    source.consume(count);
-                    if end.is_some() {
-                        break;
-                    }
-                }
-                total += line.len();
-                assert!(total < 128000);
-                log.write_all(&line).unwrap();
-                tx.try_send(serde_json::from_slice(&line).unwrap()).unwrap();
-            }
-        });
-        Self {
-            child,
-            lines,
-            reader: Some(reader),
-        }
-    }
-    fn read(&self) -> Value {
-        self.lines
-            .recv_timeout(Duration::from_secs(10))
-            .expect("real peer stage deadline")
-    }
-    fn finish(&mut self) {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            if let Some(status) = self.child.try_wait().unwrap() {
-                assert!(status.success(), "peer failed; inspect retained stderr");
-                break;
-            }
-            assert!(Instant::now() < deadline);
-            thread::sleep(Duration::from_millis(5));
-        }
-        self.reader.take().unwrap().join().unwrap();
-    }
-}
-impl Drop for Peer {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
         }
     }
 }
@@ -156,19 +61,19 @@ fn exercise_backpressured_write(
     observer: &SendspinObserver,
     expire: bool,
 ) {
-    for transmitted in 0..200 {
+    for sequence in 0..200 {
         let completed = observer.observation().writes_completed;
         handle
             .try_send(ApplicationMessage::json(
-                "client/time",
-                json!({"client_transmitted":transmitted,"padding":"a".repeat(60000)}),
+                "client/goodbye",
+                json!({"marker":sequence,"padding":"a".repeat(60000)}),
             ))
             .unwrap();
         let deadline = Instant::now() + Duration::from_millis(200);
         loop {
             let state = observer.observation();
             if let Some(terminal) = state.terminal {
-                assert!(expire && transmitted > 1);
+                assert!(expire && sequence > 1);
                 assert_eq!(terminal, DriverError::Deadline);
                 return;
             }
@@ -184,7 +89,7 @@ fn exercise_backpressured_write(
                     !expire,
                     "the absolute write deadline must expire before this fixture wait"
                 );
-                assert!(transmitted > 1, "pressure must cross multiple real writes");
+                assert!(sequence > 1, "pressure must cross multiple real writes");
                 handle.cancel();
                 until(|| observer.observation().terminal.is_some());
                 assert_eq!(
@@ -285,7 +190,14 @@ fn scenario(mode: &str) {
     };
     let mut worker = SendspinWorker::default();
     let handle = worker
-        .start(p.clone(), &p, config, Box::new(services), limits)
+        .start(
+            p.clone(),
+            &p,
+            config,
+            clock_configuration(),
+            Box::new(services),
+            limits,
+        )
         .unwrap();
     let observer = handle.observer();
     let mut release = GateRelease(Some(start_tx));
@@ -311,7 +223,7 @@ fn scenario(mode: &str) {
         let count = sent["messages"].as_u64().unwrap();
         until(|| observer.observation().received_messages == count);
         assert!(observer.observation().pending_commit);
-        let arrival = observer.observation().last_arrival_ms.unwrap();
+        let arrival = observer.observation().last_arrival.unwrap();
         release.release();
         Some(arrival)
     } else {
@@ -389,7 +301,14 @@ fn scenario(mode: &str) {
                 candidate_delay_ms: 0,
             };
             assert!(matches!(
-                worker.start(p.clone(), &p, config, Box::new(service), limits),
+                worker.start(
+                    p.clone(),
+                    &p,
+                    config,
+                    clock_configuration(),
+                    Box::new(service),
+                    limits
+                ),
                 Err(DriverError::StorageUncertain)
             ));
             assert_eq!(
@@ -409,8 +328,8 @@ fn scenario(mode: &str) {
             {
                 handle
                     .try_send(ApplicationMessage::json(
-                        "client/time",
-                        json!({"client_transmitted":99}),
+                        "client/goodbye",
+                        json!({"marker":99}),
                     ))
                     .unwrap();
                 queued_during_rotation = true;
@@ -424,18 +343,18 @@ fn scenario(mode: &str) {
                     SessionEvent::Message(m) => {
                         assert_eq!(m.id, 0);
                         let value: Value = serde_json::from_slice(&m.body).unwrap();
-                        assert_eq!(value["type"], "server/time");
-                        if value["payload"]["client_transmitted"] == -1
+                        assert_eq!(value["type"], "server/state");
+                        if value["payload"]["marker"] == -1
                             && let Some(expected) = preserved_arrival
                         {
-                            assert_eq!(m.arrival_ms, expected);
+                            assert_eq!(m.arrival, expected);
                             assert_eq!(value["payload"]["padding"].as_str().unwrap().len(), 70000);
                         }
-                        arrivals.push(m.arrival_ms);
+                        arrivals.push(m.arrival);
                         handle
                             .try_send(ApplicationMessage::json(
-                                "client/time",
-                                json!({"client_transmitted":value["payload"]["client_transmitted"]}),
+                                "client/goodbye",
+                                json!({"marker":value["payload"]["marker"]}),
                             ))
                             .unwrap();
                     }
@@ -443,7 +362,7 @@ fn scenario(mode: &str) {
                         assert_eq!(mode, "suppression");
                         assert_eq!(
                             serde_json::from_slice::<Value>(&message.body).unwrap()["payload"],
-                            json!({"client_transmitted":99})
+                            json!({"marker":99})
                         );
                         suppressed = true;
                     }
@@ -578,5 +497,12 @@ fn real_socket_services_cancel_expire_and_fence_stale_candidates() {
         "stale_candidate",
     ] {
         scenario(mode);
+    }
+}
+
+fn clock_configuration() -> earph_network::sendspin::ClockConfiguration {
+    earph_network::sendspin::ClockConfiguration {
+        domain: earph_network::sendspin::MonotonicDomain::new(1).unwrap(),
+        policy: earph_sendspin::timing::TimePolicy::new(250_000, 9_000_000, 20_000_000).unwrap(),
     }
 }

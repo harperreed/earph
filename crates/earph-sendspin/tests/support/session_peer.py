@@ -141,7 +141,7 @@ async def run():
             await enc.send_bytes(bytes([4]) + (123456).to_bytes(8, "big", signed=True) + (1000).to_bytes(4, "big") + bytes([42]) * 70000)
         message = await enc.receive()
         assert message.type == WSMsgType.TEXT
-        assert json.loads(message.data) == {"type": "client/time", "payload": {"client_transmitted": rotation}}
+        assert json.loads(message.data) == {"type": "client/goodbye", "payload": {"client_transmitted": rotation}}
     send({"stage": "done", "hash": result.handshake_hash.hex()})
 
 

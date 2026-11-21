@@ -12,7 +12,7 @@ fn initial_sequence_requires_hello_then_fenced_admission() {
     assert!(
         client
             .send(
-                ApplicationMessage::json("client/time", json!({"client_transmitted":1})),
+                ApplicationMessage::json("client/goodbye", json!({"client_transmitted":1})),
                 4
             )
             .is_err()
@@ -31,12 +31,12 @@ fn initial_sequence_requires_hello_then_fenced_admission() {
     assert_eq!(client.phase(), SessionPhase::Active);
     client
         .send(
-            ApplicationMessage::json("client/time", json!({"client_transmitted":2})),
+            ApplicationMessage::json("client/goodbye", json!({"client_transmitted":2})),
             7,
         )
         .unwrap();
     let write = client.next_write(7).unwrap().unwrap();
-    assert_eq!(peer.read_json(&write.bytes)["type"], "client/time");
+    assert_eq!(peer.read_json(&write.bytes)["type"], "client/goodbye");
     client
         .complete_write(write.id, WriteResult::Complete, 7)
         .unwrap();
@@ -46,7 +46,7 @@ fn initial_sequence_requires_hello_then_fenced_admission() {
 fn unknown_and_wrong_direction_before_activation_close() {
     for kind in [
         "client/future",
-        "client/time",
+        "client/goodbye",
         "server/hello",
         "server/init",
     ] {
@@ -71,7 +71,11 @@ fn stale_admission_cannot_release_sends_and_text_after_encryption_closes() {
     client.admit(id, true, 8).unwrap();
     assert_eq!(client.phase(), SessionPhase::AwaitAdmission);
     client.admit(second_id, true, 9).unwrap();
-    assert!(client.receive(TransportKind::Text, b"{}", 10).is_err());
+    assert!(
+        client
+            .receive(TransportKind::Text, b"{}", fixture::stamp_ms(10))
+            .is_err()
+    );
 }
 
 #[test]
@@ -150,7 +154,7 @@ fn activation_rejection_precedence_and_ordered_goodbye_remain_suppressed() {
         assert_eq!(client.phase(), SessionPhase::Closing);
         assert!(
             client
-                .send(ApplicationMessage::json("client/time", json!({})), 6)
+                .send(ApplicationMessage::json("client/goodbye", json!({})), 6)
                 .is_err()
         );
         let write = client.next_write(6).unwrap().unwrap();
@@ -191,7 +195,7 @@ fn encrypted_unknown_ids_are_not_legacy_fragments_and_unknown_types_ignore_only_
         let record = peer.encrypt(&[id, 0, 1]);
         assert!(
             client
-                .receive(TransportKind::Binary, &record, 7)
+                .receive(TransportKind::Binary, &record, fixture::stamp_ms(7))
                 .unwrap()
                 .is_empty()
         );
@@ -204,7 +208,7 @@ fn encrypted_unknown_ids_are_not_legacy_fragments_and_unknown_types_ignore_only_
     assert!(
         peer.send_json(
             &mut client,
-            "client/time",
+            "client/goodbye",
             json!({"client_transmitted":1}),
             9
         )
@@ -220,11 +224,15 @@ fn discarded_unknown_fragments_must_authenticate_every_record() {
         .unwrap();
     client.admit(admission(&events), true, 6).unwrap();
     let first = peer.encrypt(&[1, 2, 250, 8]);
-    client.receive(TransportKind::Binary, &first, 7).unwrap();
+    client
+        .receive(TransportKind::Binary, &first, fixture::stamp_ms(7))
+        .unwrap();
     let mut last = peer.encrypt(&[1, 1, 9]);
     last[0] ^= 1;
     assert_eq!(
-        client.receive(TransportKind::Binary, &last, 8).unwrap_err(),
+        client
+            .receive(TransportKind::Binary, &last, fixture::stamp_ms(8))
+            .unwrap_err(),
         SessionError::Authentication
     );
     assert_eq!(client.phase(), SessionPhase::Closed);
@@ -360,4 +368,76 @@ fn producer_reserves_its_first_record_before_taking_ownership() {
         .unwrap_err();
     assert_eq!(rejected.error, SessionError::Budget);
     assert_eq!(rejected.message.body, vec![42; 800]);
+}
+
+#[test]
+fn generic_application_cannot_supply_clock_probe_timestamps() {
+    let (mut client, mut peer) = initial();
+    let events = peer
+        .send_json(&mut client, "server/activate", json!({"activities":[]}), 5)
+        .unwrap();
+    client.admit(admission(&events), true, 6).unwrap();
+    let message = ApplicationMessage::json("client/time", json!({"client_transmitted":123}));
+    let expected = message.body.clone();
+    let rejected = client.send(message, 7).unwrap_err();
+    assert_eq!(rejected.error, SessionError::Protocol);
+    assert_eq!(rejected.message.body, expected);
+}
+
+#[test]
+fn a_clock_write_preserves_the_ordinary_producer_slot_and_fragment_order() {
+    use earph_sendspin::message::{MessageLimits, Reassembler, ReceiveStamp};
+    for record_bytes in [32, 65519] {
+        let limits = SessionLimits {
+            messages: MessageLimits {
+                record_plaintext_bytes: record_bytes,
+                ..MessageLimits::default()
+            },
+            ..SessionLimits::default()
+        };
+        let (mut client, mut peer) = initial_from_with_record_limit(
+            new_client_with_limits(
+                earph_sendspin::pairing::RecordCatalog::new(5).unwrap(),
+                limits,
+            ),
+            record_bytes,
+        );
+        let events = peer
+            .send_json_fragmented(
+                &mut client,
+                "server/activate",
+                json!({"activities":[]}),
+                5,
+                record_bytes,
+            )
+            .unwrap();
+        client.admit(admission(&events), true, 6).unwrap();
+        let first = client
+            .time_probe_write(ReceiveStamp::new(7001).unwrap())
+            .unwrap()
+            .unwrap();
+        client
+            .send(
+                ApplicationMessage::json("client/goodbye", json!({"reason":"done"})),
+                7,
+            )
+            .expect("one ordinary producer must remain admissible while a clock write flushes");
+        let mut reader = Reassembler::new(MessageLimits::default());
+        let mut values = Vec::new();
+        let mut next = Some(first);
+        while let Some(write) = next {
+            let plain = peer.read(&write.bytes);
+            if let Some(message) = reader.push(&plain, fixture::stamp_ms(7)).unwrap() {
+                values.push(serde_json::from_slice::<serde_json::Value>(&message.body).unwrap());
+            }
+            client
+                .complete_write(write.id, WriteResult::Complete, 7)
+                .unwrap();
+            next = client.next_write(7).unwrap();
+        }
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0]["type"], "client/time");
+        assert_eq!(values[0]["payload"]["client_transmitted"], 7001);
+        assert_eq!(values[1]["type"], "client/goodbye");
+    }
 }

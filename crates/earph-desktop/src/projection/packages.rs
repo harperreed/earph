@@ -5,14 +5,14 @@ use earph_core::{
     profile_control::ProfileCatalogReference, profile_packages::PackageObject,
     profiles::ProfileObjectHash,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfilePackageFormatView {
     Directory,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfilePackageCapabilitiesView {
     pub schema_version: u32,
@@ -28,27 +28,27 @@ pub struct ProfilePackageCapabilitiesView {
     pub automatic_application: bool,
     pub archives: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackageManifestView {
     pub schema_version: u32,
     pub profile: ProfileCatalogReference,
     pub objects: Vec<PackageObject>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfilePackageStageView {
     Inspected,
     Previewed,
     Exported,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackageReviewSourceView {
     pub object: PackageObject,
     pub local_path: String,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfilePackageResultView {
     pub operation: ProfilePackageStageView,
@@ -60,7 +60,7 @@ pub struct ProfilePackageResultView {
     pub content_review_required: bool,
     pub review_sources: Vec<PackageReviewSourceView>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfilePackageReasonView {
     MissingObject,
@@ -74,13 +74,13 @@ pub enum ProfilePackageReasonView {
     ResourceLimit,
     IoFailure,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PackageFilesystemStateView {
     Unchanged,
     InspectRequired,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfilePackageIssueView {
     pub reason: ProfilePackageReasonView,

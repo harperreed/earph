@@ -85,6 +85,22 @@ Linux runtime dependencies remain external and incompletely enumerated.
 
 macOS candidates contain `Earph.app/Contents/MacOS/earph-desktop` and the adjacent engine.
 Resources live under `Earph.app/Contents/Resources`.
+The native Mac controller uses SwiftUI and standard AppKit text editing.
+Build it against the generated desktop bindings and Rust static library:
+
+```sh
+scripts/check-macos-desktop --output /absolute/new-native-build
+```
+
+This command requires macOS, Xcode, and the pinned Rust toolchain.
+It retains compiler logs, generated bindings, native link arguments, tests, and product hashes.
+Its owner integration uses a separate private runtime without selecting output or starting playback.
+It retains that runtime after the check.
+It never changes the general clipboard or grants system permissions.
+Use its `products/earph-desktop` and `products/earph-engine` as the package inputs.
+The Swift product statically links the Rust controller; no extra runtime bridge library is bundled.
+Build and package checks do not establish native user acceptance or physical audio delivery.
+
 The XML property list uses the canonical workspace version and `com.harperreed.earph`.
 It does not advertise a minimum OS, permissions, file associations, or hardware support.
 Set `linux_final_prefix` to `null` for macOS.
@@ -133,6 +149,11 @@ REL-03 and AC-50 remain partial.
 Installation, authenticated artifacts, signing, macOS launch, rollback, and the full release evidence matrix remain later gates.
 
 ## Qualified software scope
+
+The [Mac native-control receipt](evidence/desktop/macos-native-controls-20261121.json) binds the standard-control application and six native checks.
+The operator confirmed external paste in the launched app.
+The first real Play attempt remains blocked by the separate Core Audio rate and callback mismatch.
+This evidence qualifies control workflows and package consistency, rather than physical playback.
 
 The [Linux package receipt](evidence/packaging/software-linux-20261120.json) binds construction and verification to the integrated source.
 The [packaged GUI receipt](evidence/packaging/packaged-gui-linux-20261120.json) covers a separate, exact retained product pair.

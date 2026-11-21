@@ -136,18 +136,36 @@ pub(crate) fn bounded_json(value: &Value, limit: usize) -> Result<Vec<u8>, Messa
     Ok(sink.bytes)
 }
 
+/// One checked local receive-time fact. Deadlines derive milliseconds from this value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ReceiveStamp(i64);
+impl ReceiveStamp {
+    pub fn new(microseconds: i64) -> Result<Self, MessageError> {
+        if !(0..=crate::timing::MAX_TIME_US).contains(&microseconds) {
+            return Err(MessageError::Malformed);
+        }
+        Ok(Self(microseconds))
+    }
+    pub fn microseconds(self) -> i64 {
+        self.0
+    }
+    pub fn milliseconds(self) -> u64 {
+        (self.0 / 1000) as u64
+    }
+}
+
 #[derive(PartialEq, Eq)]
 pub struct Complete {
     pub id: u8,
     pub body: Vec<u8>,
-    pub arrival_ms: u64,
+    pub arrival: ReceiveStamp,
 }
 impl fmt::Debug for Complete {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Complete")
             .field("id", &self.id)
             .field("bytes", &self.body.len())
-            .field("arrival_ms", &self.arrival_ms)
+            .field("arrival", &self.arrival)
             .finish()
     }
 }
@@ -200,9 +218,9 @@ impl Reassembler {
     pub fn push(
         &mut self,
         record: &[u8],
-        arrival_ms: u64,
+        arrival: ReceiveStamp,
     ) -> Result<Option<Complete>, MessageError> {
-        let result = self.push_inner(record, arrival_ms);
+        let result = self.push_inner(record, arrival);
         if result.is_err() {
             self.close();
         }
@@ -211,9 +229,9 @@ impl Reassembler {
     fn push_inner(
         &mut self,
         record: &[u8],
-        arrival_ms: u64,
+        arrival: ReceiveStamp,
     ) -> Result<Option<Complete>, MessageError> {
-        self.check_deadline(arrival_ms)?;
+        self.check_deadline(arrival.milliseconds())?;
         if record.len() > self.limits.record_plaintext_bytes.min(65519) {
             return Err(MessageError::Budget);
         }
@@ -233,7 +251,7 @@ impl Reassembler {
                 } else {
                     vec![]
                 },
-                arrival_ms,
+                arrival,
             }));
         }
         let flags = *record.get(1).ok_or(MessageError::Malformed)?;
@@ -255,7 +273,7 @@ impl Reassembler {
                 body: vec![],
                 bytes: 0,
                 count: 0,
-                started: arrival_ms,
+                started: arrival.milliseconds(),
             });
             &record[3..]
         } else {
@@ -280,7 +298,7 @@ impl Reassembler {
             Ok(Some(Complete {
                 id: a.id,
                 body: a.body,
-                arrival_ms,
+                arrival,
             }))
         } else {
             Ok(None)

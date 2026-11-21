@@ -95,7 +95,7 @@ fn commit_delays_rotation_but_send_suppression_starts_at_authenticated_message_o
     );
     assert!(
         client
-            .send(ApplicationMessage::json("client/time", json!({})), 11)
+            .send(ApplicationMessage::json("client/goodbye", json!({})), 11)
             .is_err()
     );
     assert!(client.next_write(11).unwrap().is_none());
@@ -203,7 +203,7 @@ fn commit_preserves_earlier_authenticated_message_order_before_deferred_rotation
         .unwrap();
     assert!(
         client
-            .send(ApplicationMessage::json("client/time", json!({})), 11)
+            .send(ApplicationMessage::json("client/goodbye", json!({})), 11)
             .is_err()
     );
     let events = client.commit_succeeded(id, 12).unwrap();
@@ -215,7 +215,7 @@ fn commit_preserves_earlier_authenticated_message_order_before_deferred_rotation
         })
         .collect::<Vec<_>>();
     assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].arrival_ms, 10);
+    assert_eq!(messages[0].arrival, fixture::stamp_ms(10));
     assert_eq!(client.phase(), SessionPhase::Quiet);
 }
 
@@ -243,4 +243,62 @@ fn activation_queued_before_rotation_cannot_release_the_later_quiet_period() {
     assert_eq!(client.phase(), SessionPhase::Quiet);
     let reply = client.next_write(13).unwrap().unwrap();
     assert_eq!(peer.read_json(&reply.bytes)["type"], "noise/handshake");
+}
+
+#[test]
+fn final_fragment_receive_fact_survives_commit_and_deferred_rotation() {
+    use earph_sendspin::message::{MessageLimits, Outgoing};
+    let (mut client, mut peer) = initial();
+    let id = begin(&mut client, &mut peer);
+    client.candidate(id, Candidate::new([90; 32]), 7).unwrap();
+    for _ in 0..2 {
+        let write = client.next_write(8).unwrap().unwrap();
+        peer.read_json(&write.bytes);
+        client
+            .complete_write(write.id, WriteResult::Complete, 8)
+            .unwrap();
+    }
+    peer.send_json(&mut client, "server/pair-finalize", json!({}), 9)
+        .unwrap();
+    let body = serde_json::to_vec(&json!({"type":"server/state","payload":{"marker":"preserve"}}))
+        .unwrap();
+    let mut outgoing = Outgoing::new(
+        0,
+        body,
+        MessageLimits {
+            record_plaintext_bytes: 12,
+            ..MessageLimits::default()
+        },
+    )
+    .unwrap();
+    let mut final_stamp = 10_001;
+    while let Some(plain) = outgoing.next_record() {
+        final_stamp += 37;
+        let cipher = peer.encrypt(&plain);
+        assert!(
+            client
+                .receive(
+                    TransportKind::Binary,
+                    &cipher,
+                    earph_sendspin::message::ReceiveStamp::new(final_stamp).unwrap()
+                )
+                .unwrap()
+                .is_empty()
+        );
+    }
+    let (_, payload) = peer.rotation([90; 32], "lt", None);
+    // Millisecond reducer deadlines stay independent from exact receive microseconds.
+    peer.send_json(&mut client, "noise/handshake", payload, 11)
+        .unwrap();
+    let events = client.commit_succeeded(id, 12).unwrap();
+    let message = events
+        .iter()
+        .find_map(|e| match e {
+            SessionEvent::Message(m) => Some(m),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(message.arrival.microseconds(), final_stamp);
+    assert_ne!(final_stamp % 1000, 0);
+    assert_eq!(client.phase(), SessionPhase::Quiet);
 }

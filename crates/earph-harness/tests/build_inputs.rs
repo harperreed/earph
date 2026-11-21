@@ -120,6 +120,22 @@ fn each_declared_input_including_shared_helper_changes_the_digest() {
 }
 
 #[test]
+fn native_mac_controller_source_changes_the_harness_digest() {
+    let temporary = retained_directory();
+    fixture(&temporary.0, provenance::HARNESS_INPUTS);
+    let source = temporary.0.join("macos/Sources/Earph/EarphApp.swift");
+    fs::create_dir_all(source.parent().unwrap()).unwrap();
+    fs::write(&source, b"import SwiftUI\n").unwrap();
+    let before = provenance::source_digest(&temporary.0, provenance::HARNESS_INPUTS).unwrap();
+    fs::write(&source, b"import SwiftUI\n// changed native application\n").unwrap();
+    assert_ne!(
+        before,
+        provenance::source_digest(&temporary.0, provenance::HARNESS_INPUTS).unwrap(),
+        "The native Mac controller must belong to the packaged source identity"
+    );
+}
+
+#[test]
 fn real_engine_producer_decodes_and_missing_git_stays_unavailable() {
     let temporary = retained_directory();
     fixture(&temporary.0, provenance::ENGINE_INPUTS);

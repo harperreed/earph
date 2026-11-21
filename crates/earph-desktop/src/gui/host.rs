@@ -16,7 +16,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum HostStatus {
     #[default]
     Idle,

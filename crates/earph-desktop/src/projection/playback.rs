@@ -2,10 +2,10 @@
 // ABOUTME: Keeps nullable accounting separate from explicitly omitted processing observations.
 use super::{graph::*, nullable, present};
 use earph_core::{audio::PcmFormat, control::OutputBackend, ids::*, profiles::ProfileObjectHash};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ObservedSampleRepresentationView {
     Signed16,
@@ -15,7 +15,7 @@ pub enum ObservedSampleRepresentationView {
     Float64,
     Unknown,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObservedStreamFormatView {
     pub sample_rate_hz: f64,
@@ -24,13 +24,13 @@ pub struct ObservedStreamFormatView {
     pub bytes_per_frame: u32,
     pub interleaved: bool,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PreservationStateView {
     Unverified,
     Modified,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BackendObservationView {
     pub backend: OutputBackend,
@@ -43,24 +43,24 @@ pub struct BackendObservationView {
     pub measurement_boundary: String,
     pub preservation: PreservationStateView,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputActivityScopeView {
     OutputInstanceAcrossNativeReopens,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputActivityBoundaryView {
     CoreAudioSdkEntryCalls,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OutputActivityCapabilitiesView {
     pub backends: Vec<OutputBackend>,
     pub scope: OutputActivityScopeView,
     pub measurement_boundary: OutputActivityBoundaryView,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OutputActivityView {
     pub scope: OutputActivityScopeView,
@@ -73,7 +73,7 @@ pub struct OutputActivityView {
     pub counter_overflow: bool,
     pub close_confirmed: bool,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlaybackObservationView {
     #[serde(deserialize_with = "nullable")]
@@ -101,7 +101,7 @@ pub struct PlaybackObservationView {
     #[serde(deserialize_with = "nullable")]
     pub output_activity: Option<OutputActivityView>,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct PlaybackProcessingView {
     pub resident_bytes: u64,
     #[serde(deserialize_with = "nullable")]
@@ -122,7 +122,7 @@ pub struct PlaybackProcessingView {
     #[serde(deserialize_with = "nullable")]
     pub prequantization_peak: Option<f64>,
 }
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "timing_kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlaybackTimingView {
     SameRate {
@@ -133,7 +133,7 @@ pub enum PlaybackTimingView {
         stages: Arc<[CompiledStreamStageView]>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StreamingRuntimeView {
     pub source_epochs: Epochs,
@@ -144,7 +144,7 @@ pub struct StreamingRuntimeView {
     pub backend_origin_frames: u64,
     pub retained_start_frames: u64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StreamingReplacementView {
     pub source_entry_id: QueueEntryId,
@@ -153,7 +153,7 @@ pub struct StreamingReplacementView {
     pub discarded_output_frames: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkPlaybackObservationView {
     pub binding: earph_core::network_source::NetworkSourceBinding,

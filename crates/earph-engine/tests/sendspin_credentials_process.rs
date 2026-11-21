@@ -467,6 +467,7 @@ fn transport() {
                 permit.clone(),
                 &permit,
                 handoff.config,
+                clock_configuration(),
                 Box::new(handoff.services),
                 DriverLimits {
                     retire_ms: 10,
@@ -509,5 +510,12 @@ fn transport() {
         supervisor.retire(Duration::from_secs(1)).unwrap();
         drop(handle);
         println!("real transport with synthetic helper: {case} passed");
+    }
+}
+
+fn clock_configuration() -> earph_network::sendspin::ClockConfiguration {
+    earph_network::sendspin::ClockConfiguration {
+        domain: earph_network::sendspin::MonotonicDomain::new(1).unwrap(),
+        policy: earph_sendspin::timing::TimePolicy::new(250_000, 9_000_000, 20_000_000).unwrap(),
     }
 }

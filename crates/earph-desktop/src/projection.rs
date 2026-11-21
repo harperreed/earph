@@ -9,7 +9,7 @@ use earph_core::{
     profiles::ProfileAssociation,
     queue::QueueEntry,
 };
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::sync::Arc;
 mod devices;
 mod graph;
@@ -33,7 +33,7 @@ fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     T::deserialize(deserializer).map(Some)
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VolumePolicyView {
     pub software_cap_db: f64,
@@ -41,7 +41,7 @@ pub struct VolumePolicyView {
     pub hardware_cap_db: Option<f64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReplyStatus {
     Accepted,
@@ -51,14 +51,14 @@ pub enum ReplyStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ErrorDetail {
     pub code: ErrorCode,
     pub message: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransportView {
     Idle,
@@ -72,7 +72,7 @@ pub enum TransportView {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StateView {
     pub profile_worker_busy: bool,
@@ -123,7 +123,7 @@ pub struct StateView {
     pub network_playback: Option<NetworkPlaybackObservationView>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileCapabilitiesView {
     pub save: bool,
@@ -141,7 +141,7 @@ pub struct ProfileCapabilitiesView {
     pub max_graph_bytes: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapabilitiesView {
     pub diagnostics: Arc<earph_core::diagnostics::DiagnosticCapabilities>,
@@ -154,7 +154,7 @@ pub struct CapabilitiesView {
     pub devices: Arc<DeviceCapabilitiesView>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct QueueView {
     pub entries: Vec<QueueEntry>,
@@ -164,7 +164,7 @@ pub struct QueueView {
     pub total: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(
     tag = "kind",
     content = "value",
@@ -199,7 +199,7 @@ pub enum ResultView {
     FirAsset(Arc<FirAssetReference>),
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReceiptView {
     pub request_id: RequestId,
@@ -254,7 +254,7 @@ pub struct ProjectionError {
 }
 
 pub fn decode_reply(bytes: Vec<u8>) -> Result<Reply, ProjectionError> {
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Serialize)]
     #[serde(deny_unknown_fields)]
     struct Envelope {
         #[serde(default, deserialize_with = "present")]

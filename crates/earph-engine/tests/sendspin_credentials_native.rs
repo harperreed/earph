@@ -158,6 +158,7 @@ fn isolated_secret_service() {
             permit.clone(),
             &permit,
             handoff.config,
+            clock_configuration(),
             Box::new(handoff.services),
             DriverLimits::default(),
         )
@@ -247,4 +248,11 @@ fn isolated_secret_service() {
     ));
     unavailable.retire(Duration::from_secs(1)).unwrap();
     fs::write(root.join("sendspin-native-results.json"),b"{\"native_exact_readback\":true,\"restart_load\":true,\"authenticated_transport\":true,\"locked_refused\":true,\"unavailable_refused\":true,\"playback\":false,\"music_assistant\":false}\n").unwrap();
+}
+
+fn clock_configuration() -> earph_network::sendspin::ClockConfiguration {
+    earph_network::sendspin::ClockConfiguration {
+        domain: earph_network::sendspin::MonotonicDomain::new(1).unwrap(),
+        policy: earph_sendspin::timing::TimePolicy::new(250_000, 9_000_000, 20_000_000).unwrap(),
+    }
 }

@@ -20,7 +20,8 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CorrectionSource {
     Text {
         text: String,
@@ -35,7 +36,8 @@ pub enum CorrectionSource {
         purpose: FirPurpose,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CorrectionPreviewRequest {
     pub source: CorrectionSource,
     pub context: ImportContext,
@@ -58,7 +60,8 @@ impl CorrectionPreviewRequest {
         })
     }
 }
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CorrectionPreview {
     Text {
         report: Box<CorrectionImport>,

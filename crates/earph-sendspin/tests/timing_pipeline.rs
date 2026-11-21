@@ -50,7 +50,10 @@ fn decoded_id4_target_subtracts_local_delay_once_and_lead_only_affects_diagnosti
     body.extend_from_slice(&[0x55, 0xaa]);
     let mut producer = Outgoing::new(4, body, MessageLimits::default()).unwrap();
     let record = producer.next_record().unwrap();
-    let complete = reader.push(&record, 1900).unwrap().unwrap();
+    let complete = reader
+        .push(&record, fixture::stamp_ms(1900))
+        .unwrap()
+        .unwrap();
     let mut plaintext = vec![complete.id];
     plaintext.extend_from_slice(&complete.body);
     let frame = decode_player_audio(&plaintext, plaintext.len()).unwrap();
@@ -99,13 +102,12 @@ fn portable_end_to_end_drives_actual_session_producers_timeout_rotation_and_reti
         let t = 1_000_000 + i * 300_000;
         let token = token(&mut s, t);
         let request = s.probe_started(token, t).unwrap();
-        session
-            .send(
-                ApplicationMessage::json("client/time", serde_json::to_value(request).unwrap()),
-                1000 + i as u64 * 300,
+        let write = session
+            .time_probe_write(
+                earph_sendspin::message::ReceiveStamp::new(request.client_transmitted).unwrap(),
             )
+            .unwrap()
             .unwrap();
-        let write = session.next_write(1000 + i as u64 * 300).unwrap().unwrap();
         let sent = peer.read_json(&write.bytes);
         assert_eq!(sent["payload"]["client_transmitted"], t);
         session
@@ -115,7 +117,16 @@ fn portable_end_to_end_drives_actual_session_producers_timeout_rotation_and_reti
             s.poll(t + 250_000).unwrap();
             continue;
         }
-        let events=peer.send_json(&mut session,"server/time",json!({"client_transmitted":t,"server_received":t+10_002,"server_transmitted":t+10_102}),1001+i as u64*300).unwrap();
+        let mut plaintext = vec![0];
+        plaintext.extend(serde_json::to_vec(&json!({"type":"server/time","payload":{"client_transmitted":t,"server_received":t+10_002,"server_transmitted":t+10_102}})).unwrap());
+        let record = peer.encrypt(&plaintext);
+        let events = session
+            .receive(
+                TransportKind::Binary,
+                &record,
+                earph_sendspin::message::ReceiveStamp::new(t + 104).unwrap(),
+            )
+            .unwrap();
         let message = events
             .iter()
             .find_map(|event| {
@@ -128,8 +139,9 @@ fn portable_end_to_end_drives_actual_session_producers_timeout_rotation_and_reti
             .unwrap();
         let envelope: serde_json::Value = serde_json::from_slice(&message.body).unwrap();
         let reply: ServerTime = serde_json::from_value(envelope["payload"].clone()).unwrap();
-        // Captured microseconds are supplied independently; session milliseconds cannot restore them.
-        s.reply(token, reply, t + 104).unwrap();
+        // The canonical transport capture reaches the timing reducer without reconstruction.
+        s.reply(token, reply, message.arrival.microseconds())
+            .unwrap();
     }
     let before = s.snapshot(4_000_000).unwrap();
     assert_eq!(before.estimate.unwrap().offset_us, 10_000.);
@@ -139,11 +151,9 @@ fn portable_end_to_end_drives_actual_session_producers_timeout_rotation_and_reti
         .unwrap();
     assert!(
         session
-            .send(
-                ApplicationMessage::json("client/time", json!({"client_transmitted":4_001_000})),
-                4001
-            )
-            .is_err()
+            .time_probe_write(earph_sendspin::message::ReceiveStamp::new(4_001_000).unwrap())
+            .unwrap()
+            .is_none()
     );
     s.set_suppressed(true, 4_001_000).unwrap();
     assert_eq!(s.poll(4_001_001).unwrap().action, Action::NoAction);

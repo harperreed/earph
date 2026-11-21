@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-21T04:22:19.732Z",
-  "headline": "Combined snapshot qualifies and archives; finite older-scope S24 software comparison is exact.",
-  "focus": "Publish the qualified snapshot · Review finite MA evidence and remaining matrix · Fix isolated clock admission and prove DoP submission",
-  "summary": "The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained. The qualified snapshot and reviewed safe runtime/timing/native receipt are prepared for the next checkpoint, which is not published yet. Latest published dbc retains four successful hosted jobs. Its two isolated hosted Mac native summaries qualify dbc’s source only; they do not qualify the unpublished bridge on Mac. Catalog SRC-03 stays partial, with no full clock/player acceptance. The fresh explicit TRACK software run reaches 48 kHz/24-bit input, native ALSA S24 with six bytes per stereo frame, and GraphReady while muted. Explicit Unmute, Pause, and Stop pass. The original measurement guard mixes absolute source position with an epoch-relative native counter. Retained equal paused cuts, capture, and final drain support an offline exact check: 2,048 stereo S24 frames at source offset 153,792 and capture-byte offset 922,752, gain 0.5/0 dB, have zero LSB error. The offline verifier joins exit 0 without search, stripping, or a new runtime. This is the older Engine 36ac/fixture 8d30 scope, not the new qualified products, physical output, or full AC-15. The bounded MA attempt retires all five objects at exit 0 with three Applied revokes and an empty network. The original tool-handle gap stays retained separately from actual process joins; the offline verifier’s handle joins exit 0. Resume, the new matrix/cap cases, and independent GUPnP interoperability remain pending. A sanitized MA receipt is prepared privately and awaits Root review. The separate clock agent has five real E2E and 23 unit passes plus broader green checks, then a legacy regression exposes a writer probe occupying an ordinary command slot. Regression and correction are active in that worktree. Those changes are outside Root’s qualified source. No complete clock/player/output or live-ASRC qualification follows. Typed ALSA DoP submission prerequisites record API compile RED, stub compile GREEN, and existing media-fixture passes. Exact software file/null tests are reviewed and released; meaningful guard and valid-granted-but-missing-submission REDs are next. No native DoP byte pass exists yet and Engine DSD remains unwired. No physical output, SSH, or permission changes occur.",
+  "updated_at": "2026-11-21T06:56:30.521Z",
+  "headline": "Native UI ready; first actual Play is BLOCKED by FORMAT_UNSUPPORTED at Core Audio open.",
+  "focus": "Fix System compatibility rate/frame handling · Preserve the current device and Engine · Prove actual playback before claiming first audio",
+  "summary": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved. The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures. Root is correcting the System compatibility path without retuning the device or weakening guards. The correction and actual native playback qualification are pending. Existing fixture/control tests do not qualify arbitrary-rate native-device open or this failed first-listen scenario. The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction. Whole Earph release remains incomplete.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -27,19 +27,19 @@
   "milestone_states": {
     "M0": {
       "state": "active",
-      "detail": "The second combined candidate qualifies with source unchanged and a verified 2030-file archive. Its next publication is pending; published dbc retains four hosted successes. Full project/release completion stays open."
+      "detail": "The native UI/control milestone has six Mac checks, manual paste confirmation, independent view-review clearance, and final Linux canonical exit 0. Root is preparing its durable publication. This does not qualify audio or the whole release."
     },
     "M1": {
       "state": "active",
-      "detail": "The packaged software-native GUI proof uses older session/DSD products and archive ba0bd7, separate from the newer Core/package source. It passes 24 interactions, 52 requests including one pre-ready failure, 108 scenario D-Bus calls, and 97,375 exact preview/export bytes. All 83,968 captured software PCM bytes are zero. The 28 package files stay unchanged and 12 owned process identities are freshly absent. It proves no physical/native Mac/Wayland/HTTP path, acoustic result, ramp shape, installation, signing, or release. Direct Mac SSH remains unavailable; no retry, repeat question, or access change occurs."
+      "detail": "First actual Play receives RequestRejected/FORMAT_UNSUPPORTED at Core Audio open. The source is decoded ready, while native rate/frame requirements do not match the requested path. Playback is muted and failed with no sound report. UI readiness remains valid; actual audio is blocked."
     },
     "M2": {
       "state": "active",
-      "detail": "The new timing/bridge/native snapshot qualifies with 1700 reported passes and separate real peer/native gates. The earlier finite MA S24 comparison is exact but keeps older Engine/fixture scope. Next publication, remaining MA matrix/resume/cap, GUPnP U5, platform/ABI, and release remain open."
+      "detail": "Final current-source Linux canonical and six Mac UI/control checks pass, without covering arbitrary-rate native-device open. The first real Play exposes the System compatibility route gap. Its correction and actual playback qualification are pending; previous product/interoperability scopes stay separate."
     },
     "M3": {
       "state": "active",
-      "detail": "Finite software S24 preservation passes for an older controller fixture, without physical or full AC-15 acceptance. Separate live-clock work has an admission regression under correction and is outside Root’s qualified source. Typed DoP submission has compile/fixture progress but no native byte pass; Engine DSD stays unwired. Full player/clocks/output/interoperability remain open."
+      "detail": "The System compatibility correction is active without device retuning or weaker guards. No current first-audio, native preservation, full controller/player/clocks/output, physical DSD, or release qualification follows from UI/control checks."
     },
     "M4": {
       "state": "planned",
@@ -48,16 +48,16 @@
   },
   "checks": [
     {
-      "title": "Second combined snapshot qualifies with exact archive",
-      "detail": "The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained. The qualified snapshot and reviewed safe runtime/timing/native receipt are prepared for the next checkpoint, which is not published yet. Latest published dbc retains four successful hosted jobs. Its two isolated hosted Mac native summaries qualify dbc’s source only; they do not qualify the unpublished bridge on Mac. Catalog SRC-03 stays partial, with no full clock/player acceptance."
+      "title": "Final Linux canonical passes for the UI/control milestone",
+      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction."
     },
     {
       "title": "Packaged software-native proof keeps its older product boundary",
       "detail": "The packaged software-native GUI proof uses older session/DSD products and archive ba0bd7, separate from the newer Core/package source. It passes 24 interactions, 52 requests including one pre-ready failure, 108 scenario D-Bus calls, and 97,375 exact preview/export bytes. All 83,968 captured software PCM bytes are zero. The 28 package files stay unchanged and 12 owned process identities are freshly absent. It proves no physical/native Mac/Wayland/HTTP path, acoustic result, ramp shape, installation, signing, or release."
     },
     {
-      "title": "All four dbc hosted software jobs succeed",
-      "detail": "All four dbc1916 hosted jobs finish successfully, confirmed by fresh GitHub reads: push and PR Linux canonical plus both Mac jobs. Both Mac build/component and generated Swift steps pass. Retained allowlisted native summaries preserve the locked-refused stage, five successful operations, and exact helper/test hashes. Earlier a654 failures stay preserved; this is scoped hosted software/private-Keychain proof, not physical output or whole-product acceptance."
+      "title": "Earlier 2aa software CI remains successful under its own source scope",
+      "detail": "All four 2aa hosted software jobs remain successful at the last verified reads. Published runtime/timing/native and finite MA receipts keep their original source boundaries. They do not qualify the later DoP import, unimported clock unit, or planned native macOS host. The MA zero-LSB result remains one 2048-frame segment on the older Engine/fixture, without full U5 or physical proof."
     },
     {
       "title": "Actual volume FFI and real HTTP range cases pass",
@@ -93,11 +93,63 @@
     },
     {
       "title": "Integrated timing/bridge scripts/check passes; full qualification pending",
-      "detail": "The first run’s Network fixture failure and test-only correction remain retained. The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained. The qualified snapshot and reviewed safe runtime/timing/native receipt are prepared for the next checkpoint, which is not published yet. Latest published dbc retains four successful hosted jobs. Its two isolated hosted Mac native summaries qualify dbc’s source only; they do not qualify the unpublished bridge on Mac. Catalog SRC-03 stays partial, with no full clock/player acceptance."
+      "detail": "The first run’s Network fixture failure and test-only correction remain retained. The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained. The qualified snapshot and reviewed safe runtime/timing/native receipt are now published in 2aa. Current 2aa has four successful hosted jobs; prior dbc retains its own successful scope. Its two isolated hosted Mac native summaries qualify dbc’s source only; they do not alone qualify the bridge on Mac. Catalog SRC-03 stays partial, with no full clock/player acceptance."
     },
     {
       "title": "Finite older-scope MA S24 software comparison has zero LSB error",
-      "detail": "The fresh explicit TRACK software run reaches 48 kHz/24-bit input, native ALSA S24 with six bytes per stereo frame, and GraphReady while muted. Explicit Unmute, Pause, and Stop pass. The original measurement guard mixes absolute source position with an epoch-relative native counter. Retained equal paused cuts, capture, and final drain support an offline exact check: 2,048 stereo S24 frames at source offset 153,792 and capture-byte offset 922,752, gain 0.5/0 dB, have zero LSB error. The offline verifier joins exit 0 without search, stripping, or a new runtime. This is the older Engine 36ac/fixture 8d30 scope, not the new qualified products, physical output, or full AC-15. The bounded MA attempt retires all five objects at exit 0 with three Applied revokes and an empty network. The original tool-handle gap stays retained separately from actual process joins; the offline verifier’s handle joins exit 0. Resume, the new matrix/cap cases, and independent GUPnP interoperability remain pending. A sanitized MA receipt is prepared privately and awaits Root review."
+      "detail": "The fresh explicit TRACK software run reaches 48 kHz/24-bit input, native ALSA S24 with six bytes per stereo frame, and GraphReady while muted. Explicit Unmute, Pause, and Stop pass. The original measurement guard mixes absolute source position with an epoch-relative native counter. Retained equal paused cuts, capture, and final drain support an offline exact check: 2,048 stereo S24 frames at source offset 153,792 and capture-byte offset 922,752, gain 0.5/0 dB, have zero LSB error. The offline verifier joins exit 0 without search, stripping, or a new runtime. This is the older Engine 36ac/fixture 8d30 scope, not the new qualified products, physical output, or full AC-15. The bounded MA attempt retires all five objects at exit 0 with three Applied revokes and an empty network. The original tool-handle gap stays retained separately from actual process joins; the offline verifier’s handle joins exit 0. Resume, the new matrix/cap cases, and independent GUPnP interoperability remain pending. The sanitized MA receipt is now published in 2aa, keeping the same older single-segment scope."
+    },
+    {
+      "title": "Exact-source chosen-Mac app builds and verifies",
+      "detail": "First listen is now the priority. Exact published 2aa sources compile on Doctor Biz’s chosen Apple Silicon Mac using Rust 1.98.1. Locked desktop/Engine/harness builds and app construction/verification pass, alongside plist, system-linkage, and fifteen MPL checksum checks. It is an unsigned debug package with declared-unverified structural metadata. Its separate exact Git source archive is not the Linux-qualified archive."
+    },
+    {
+      "title": "Mac window is confirmed and intentionally closed",
+      "detail": "Doctor Biz confirms he saw Earph’s window on the chosen Mac, then closed it himself. That close is intentional, not a crash. Root did not start the Engine or audio, and no audible playback is confirmed. This replaces the earlier unconfirmed-visibility snapshot; a launch process alone was not treated as proof."
+    },
+    {
+      "title": "Real native text editing component passes strict compile/runtime checks",
+      "detail": "The old preview’s paste cause is confirmed: its configured clipboard feature was disabled. The real native text-view component on the chosen Mac passes strict compilation and runtime checks for selection, exact Unicode/multiline private copy/paste, and standard editing responders. This is component proof, not acceptance of the complete replacement window. The general clipboard, TCC, audio, and permissions are not changed."
+    },
+    {
+      "title": "Swift presentation preserves exact UInt64 and capture basis",
+      "detail": "The separate Swift presentation check passes with exact UInt64 values and capture-basis handling. It does not establish full-window, Rust-link, real-owner, or audio acceptance."
+    },
+    {
+      "title": "Sealed Swift sources pass actual Mac typecheck and component runtime gates",
+      "detail": "Root imports fifteen sealed Swift files with prior paths preserved. Nine sealed sources pass actual Mac strict typecheck and NativeControls/Presentation runtime checks. A later integrated candidate passes static linking, owned-view rendering, and real-owner/lifecycle checks. Main-window/manual acceptance and final corrected-source canonical remain pending."
+    },
+    {
+      "title": "Rust bridge checkpoint passes focused and desktop checks before final sealing",
+      "detail": "The earlier bridge checkpoint passes fourteen focused cases and 253 reported desktop passes across 35 executions, with strict Clippy. A later integrated native candidate passes static Swift/Rust linking and five actual checks, including real Engine lifecycle. The corrected candidate and final current-source canonical remain pending."
+    },
+    {
+      "title": "Native build/check/provenance scripts pass scoped checks",
+      "detail": "Native build/check/provenance scripts pass seven scoped checks. The final native candidate also passes all six current Mac checks and final Linux canonical for UI/control behavior. Actual first Play is separately blocked by FORMAT_UNSUPPORTED at Core Audio open; these results do not qualify playback."
+    },
+    {
+      "title": "First integrated native Mac candidate passes all five actual checks",
+      "detail": "The first integrated native Mac candidate passes the strict static Swift/Rust build and all five actual checks: private clipboard, exact JSON, pending/refused shutdown plus dismiss/recovery lifecycle, native hosting-view rendering, and real Engine queue/close/reattach/shutdown. Its app package, verification, plist, and fifteen MPL archive checks pass. It remains unsigned and unreleased. That first candidate was not opened at its initial checkpoint; the later final candidate is now open with manual paste confirmed. No physical audio or permission change occurs."
+    },
+    {
+      "title": "Two genuine Mac regression REDs have source-reviewed corrections",
+      "detail": "Both same-profile reload and stale file-batch receipt defects have genuine Mac REDs, frozen corrections, targeted independent clearance, and actual runtime GREENs inside the final six-check candidate."
+    },
+    {
+      "title": "Integrated Linux scripts/check passes; remaining qualification stays active",
+      "detail": "The final current-source Linux canonical run is active. The prior integrated source has eleven nested gates independently verified exit 0 with source unchanged: 1,742 reported passes, zero failures, 22 ignores, and 192 groups, including child results rather than unique totals, plus actual clock peers and native-credential gates. Its outer controller unexpectedly ends 143 with a missing outer receipt. Nested logs/source hashes verify, operations are absent, and the lock is free; no outer exit-0 claim is made. The final current-source run remains the handoff gate."
+    },
+    {
+      "title": "All six current Mac checks pass with both real regressions GREEN",
+      "detail": "All six current native Mac checks pass, including the actual profile-reload and combined file-batch regressions. Both earlier medium-priority findings have targeted independent source clearance and genuine runtime GREENs. All seven Swift compile logs are empty and warning-free. The final arm64 app package, verification, plist, system-library linkage, and exact private modes pass. The 2,064 source files remain unchanged before and after, and all test Engine processes retire. Root’s Git source matches those Mac sources exactly."
+    },
+    {
+      "title": "Doctor Biz confirms paste in the open final native app",
+      "detail": "The final native Mac app is open and usable for Doctor Biz’s requested native UI workflow. Doctor Biz directly confirms paste works in the new Advanced Runtime field. Root opens the exact verified final package after fresh product/manifest checks; no Engine is observed at launch. There is no audio or heard-sound report yet. The native UI/paste delivery is distinct from completion of the whole Earph release."
+    },
+    {
+      "title": "First actual Play fails at native Core Audio open",
+      "detail": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved. The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures."
     }
   ],
   "verified": [
@@ -863,7 +915,7 @@
     },
     {
       "title": "Integrated timing and bridge pass scripts/check",
-      "detail": "The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained. The qualified snapshot and reviewed safe runtime/timing/native receipt are prepared for the next checkpoint, which is not published yet. Latest published dbc retains four successful hosted jobs. Its two isolated hosted Mac native summaries qualify dbc’s source only; they do not qualify the unpublished bridge on Mac. Catalog SRC-03 stays partial, with no full clock/player acceptance."
+      "detail": "The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained. The qualified snapshot and reviewed safe runtime/timing/native receipt are now published in 2aa. Current 2aa has four successful hosted jobs; prior dbc retains its own successful scope. Its two isolated hosted Mac native summaries qualify dbc’s source only; they do not alone qualify the bridge on Mac. Catalog SRC-03 stays partial, with no full clock/player acceptance."
     },
     {
       "title": "Focused GUPnP retirement and evidence hashes verify",
@@ -879,39 +931,95 @@
     },
     {
       "title": "Second full combined run qualifies source unchanged with an exact archive",
-      "detail": "The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained."
+      "detail": "The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained. The safe combined receipt is now published in 2aa."
     },
     {
       "title": "Finite old-fixture MA S24 comparison is exact without a new runtime",
-      "detail": "The fresh explicit TRACK software run reaches 48 kHz/24-bit input, native ALSA S24 with six bytes per stereo frame, and GraphReady while muted. Explicit Unmute, Pause, and Stop pass. The original measurement guard mixes absolute source position with an epoch-relative native counter. Retained equal paused cuts, capture, and final drain support an offline exact check: 2,048 stereo S24 frames at source offset 153,792 and capture-byte offset 922,752, gain 0.5/0 dB, have zero LSB error. The offline verifier joins exit 0 without search, stripping, or a new runtime. This is the older Engine 36ac/fixture 8d30 scope, not the new qualified products, physical output, or full AC-15. The bounded MA attempt retires all five objects at exit 0 with three Applied revokes and an empty network. The original tool-handle gap stays retained separately from actual process joins; the offline verifier’s handle joins exit 0. Resume, the new matrix/cap cases, and independent GUPnP interoperability remain pending. A sanitized MA receipt is prepared privately and awaits Root review."
+      "detail": "The fresh explicit TRACK software run reaches 48 kHz/24-bit input, native ALSA S24 with six bytes per stereo frame, and GraphReady while muted. Explicit Unmute, Pause, and Stop pass. The original measurement guard mixes absolute source position with an epoch-relative native counter. Retained equal paused cuts, capture, and final drain support an offline exact check: 2,048 stereo S24 frames at source offset 153,792 and capture-byte offset 922,752, gain 0.5/0 dB, have zero LSB error. The offline verifier joins exit 0 without search, stripping, or a new runtime. This is the older Engine 36ac/fixture 8d30 scope, not the new qualified products, physical output, or full AC-15. The bounded MA attempt retires all five objects at exit 0 with three Applied revokes and an empty network. The original tool-handle gap stays retained separately from actual process joins; the offline verifier’s handle joins exit 0. Resume, the new matrix/cap cases, and independent GUPnP interoperability remain pending. The sanitized MA receipt is now published in 2aa, retaining the same older single-segment scope."
+    },
+    {
+      "title": "Exact published app builds on the chosen Apple Silicon Mac",
+      "detail": "First listen is now the priority. Exact published 2aa sources compile on Doctor Biz’s chosen Apple Silicon Mac using Rust 1.98.1. Locked desktop/Engine/harness builds and app construction/verification pass, alongside plist, system-linkage, and fifteen MPL checksum checks. It is an unsigned debug package with declared-unverified structural metadata. Its separate exact Git source archive is not the Linux-qualified archive."
+    },
+    {
+      "title": "Chosen Mac GUI-controller launch is observed without Engine startup",
+      "detail": "Root’s exact-package GUI-controller launch succeeds without Engine or audio startup. Doctor Biz subsequently confirms window visibility and closes it intentionally. No audible playback is confirmed."
+    },
+    {
+      "title": "2aa publishes scoped receipts and all four hosted jobs pass",
+      "detail": "Checkpoint 2aa09906fa79f26c9f6419a953ad2b75d5eb3156 is published with verified tree cda9427605969789506c554cd5a10e6d1fb8fed1 and a clean Root checkout. Twenty-nine files pass privacy review and normal hooks. PR #4 stays open/draft with a verified body. Fresh GitHub reads confirm all four current Linux/Mac software jobs succeed. Earlier dbc jobs retain their own scope. The combined runtime/timing/native receipt and finite MA S24 receipt are now published. The qualified Linux source keeps archive 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f and its 1700 reported passes, zero failures, sixteen ignores, separate peer/native gates, and child-count caveat. The MA proof remains only one exact 2048-frame software segment on older Engine 36ac/fixture 8d30. SRC-03 is partial; AC-15/16/17 are not complete."
+    },
+    {
+      "title": "Doctor Biz confirms the Mac window and an intentional close",
+      "detail": "Doctor Biz confirms he saw Earph’s window on the chosen Mac, then closed it himself. That close is intentional, not a crash. Root did not start the Engine or audio, and no audible playback is confirmed. This replaces the earlier unconfirmed-visibility snapshot; a launch process alone was not treated as proof."
+    },
+    {
+      "title": "DoP imports and live-clock review clears under separate remaining gates",
+      "detail": "Seven reviewed DoP paths and 27 clear-reviewed live-clock paths are now imported into Root. Combined canonical qualification is pending with native units. These imports do not qualify full player/output or physical Engine DSD."
+    },
+    {
+      "title": "Native text-view component proves private Unicode/multiline paste and standard editing",
+      "detail": "The old preview’s paste cause is confirmed: its configured clipboard feature was disabled. The real native text-view component on the chosen Mac passes strict compilation and runtime checks for selection, exact Unicode/multiline private copy/paste, and standard editing responders. This is component proof, not acceptance of the complete replacement window. The general clipboard, TCC, audio, and permissions are not changed."
+    },
+    {
+      "title": "Actual Swift presentation check passes exact values and capture basis",
+      "detail": "The separate Swift presentation check passes with exact UInt64 values and capture-basis handling. It does not establish full-window, Rust-link, real-owner, or audio acceptance."
+    },
+    {
+      "title": "Sealed fifteen-file native Swift unit imports with prior paths preserved",
+      "detail": "Root imports fifteen sealed Swift files with prior paths preserved. Nine sealed sources pass actual Mac strict typecheck and NativeControls/Presentation runtime checks. A later integrated candidate passes static linking, owned-view rendering, and real-owner/lifecycle checks. Main-window/manual acceptance and final corrected-source canonical remain pending."
+    },
+    {
+      "title": "Rust bridge checkpoint has real scoped test passes before sealing",
+      "detail": "The earlier bridge checkpoint passes fourteen focused cases and 253 reported desktop passes across 35 executions, with strict Clippy. A later integrated native candidate passes static Swift/Rust linking and five actual checks, including real Engine lifecycle. The corrected candidate and final current-source canonical remain pending."
+    },
+    {
+      "title": "Integrated native candidate passes strict build, actual checks, and packaging",
+      "detail": "The first integrated native Mac candidate passes the strict static Swift/Rust build and all five actual checks: private clipboard, exact JSON, pending/refused shutdown plus dismiss/recovery lifecycle, native hosting-view rendering, and real Engine queue/close/reattach/shutdown. Its app package, verification, plist, and fifteen MPL archive checks pass. It remains unsigned and unreleased. That first candidate was not opened at its initial checkpoint; the later final candidate is now open with manual paste confirmed. No physical audio or permission change occurs."
+    },
+    {
+      "title": "Clean Mac link becomes warning-free after duplicate-library correction",
+      "detail": "The duplicate-library correction yields a warning-free clean Mac link. The later final candidate passes all six actual checks, and all seven current Swift compile logs are empty."
+    },
+    {
+      "title": "Final native candidate passes all six checks and exact package/source verification",
+      "detail": "All six current native Mac checks pass, including the actual profile-reload and combined file-batch regressions. Both earlier medium-priority findings have targeted independent source clearance and genuine runtime GREENs. All seven Swift compile logs are empty and warning-free. The final arm64 app package, verification, plist, system-library linkage, and exact private modes pass. The 2,064 source files remain unchanged before and after, and all test Engine processes retire. Root’s Git source matches those Mac sources exactly. These are UI/control checks; subsequent actual Play is blocked by FORMAT_UNSUPPORTED at native output open."
+    },
+    {
+      "title": "Manual native paste works in the open final app",
+      "detail": "The final native Mac app is open and usable for Doctor Biz’s requested native UI workflow. Doctor Biz directly confirms paste works in the new Advanced Runtime field. Root opens the exact verified final package after fresh product/manifest checks; no Engine is observed at launch. There is no audio or heard-sound report yet. The native UI/paste delivery is distinct from completion of the whole Earph release. The subsequent first actual Play is rejected at Core Audio open; no audio is confirmed."
+    },
+    {
+      "title": "Read-only live diagnosis identifies the first actual playback blocker",
+      "detail": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved. The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures."
+    },
+    {
+      "title": "Native UI/control checks remain valid with final canonical exit 0",
+      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction."
     }
   ],
   "active": [
     {
-      "title": "Publish the qualified archived runtime/timing/native snapshot",
-      "detail": "The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained. The qualified snapshot and reviewed safe runtime/timing/native receipt are prepared for the next checkpoint, which is not published yet. Latest published dbc retains four successful hosted jobs. Its two isolated hosted Mac native summaries qualify dbc’s source only; they do not qualify the unpublished bridge on Mac. Catalog SRC-03 stays partial, with no full clock/player acceptance."
+      "title": "Correct System compatibility rate/frame handling",
+      "detail": "The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures. Root is correcting the System compatibility path without retuning the device or weakening guards. The correction and actual native playback qualification are pending. Existing fixture/control tests do not qualify arbitrary-rate native-device open or this failed first-listen scenario."
     },
     {
-      "title": "Review finite MA evidence and finish remaining controller cases",
-      "detail": "The fresh explicit TRACK software run reaches 48 kHz/24-bit input, native ALSA S24 with six bytes per stereo frame, and GraphReady while muted. Explicit Unmute, Pause, and Stop pass. The original measurement guard mixes absolute source position with an epoch-relative native counter. Retained equal paused cuts, capture, and final drain support an offline exact check: 2,048 stereo S24 frames at source offset 153,792 and capture-byte offset 922,752, gain 0.5/0 dB, have zero LSB error. The offline verifier joins exit 0 without search, stripping, or a new runtime. This is the older Engine 36ac/fixture 8d30 scope, not the new qualified products, physical output, or full AC-15. The bounded MA attempt retires all five objects at exit 0 with three Applied revokes and an empty network. The original tool-handle gap stays retained separately from actual process joins; the offline verifier’s handle joins exit 0. Resume, the new matrix/cap cases, and independent GUPnP interoperability remain pending. A sanitized MA receipt is prepared privately and awaits Root review."
+      "title": "Verify first actual native playback with guards intact",
+      "detail": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved. Root is correcting the System compatibility path without retuning the device or weakening guards. The correction and actual native playback qualification are pending. Existing fixture/control tests do not qualify arbitrary-rate native-device open or this failed first-listen scenario."
     },
     {
-      "title": "Correct the isolated clock writer-probe admission regression",
-      "detail": "The separate clock agent has five real E2E and 23 unit passes plus broader green checks, then a legacy regression exposes a writer probe occupying an ordinary command slot. Regression and correction are active in that worktree. Those changes are outside Root’s qualified source. No complete clock/player/output or live-ASRC qualification follows."
-    },
-    {
-      "title": "Prove typed DoP submission before Engine wiring",
-      "detail": "Typed ALSA DoP submission prerequisites record API compile RED, stub compile GREEN, and existing media-fixture passes. Exact software file/null tests are reviewed and released; meaningful guard and valid-granted-but-missing-submission REDs are next. No native DoP byte pass exists yet and Engine DSD remains unwired. No physical output, SSH, or permission changes occur."
+      "title": "Persist the valid native UI/control milestone separately",
+      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction."
     }
   ],
   "pending": [
     {
-      "title": "Qualified snapshot publication remains pending",
-      "detail": "The qualified snapshot and reviewed safe runtime/timing/native receipt are prepared for the next checkpoint, which is not published yet. Latest published dbc retains four successful hosted jobs. Its two isolated hosted Mac native summaries qualify dbc’s source only; they do not qualify the unpublished bridge on Mac. Catalog SRC-03 stays partial, with no full clock/player acceptance."
+      "title": "Actual audio is blocked at Core Audio open",
+      "detail": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved. The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures. Root is correcting the System compatibility path without retuning the device or weakening guards. The correction and actual native playback qualification are pending. Existing fixture/control tests do not qualify arbitrary-rate native-device open or this failed first-listen scenario."
     },
     {
-      "title": "Broader controller, clock, and DoP qualification remains open",
-      "detail": "The bounded MA attempt retires all five objects at exit 0 with three Applied revokes and an empty network. The original tool-handle gap stays retained separately from actual process joins; the offline verifier’s handle joins exit 0. Resume, the new matrix/cap cases, and independent GUPnP interoperability remain pending. A sanitized MA receipt is prepared privately and awaits Root review. The separate clock agent has five real E2E and 23 unit passes plus broader green checks, then a legacy regression exposes a writer probe occupying an ordinary command slot. Regression and correction are active in that worktree. Those changes are outside Root’s qualified source. No complete clock/player/output or live-ASRC qualification follows. Typed ALSA DoP submission prerequisites record API compile RED, stub compile GREEN, and existing media-fixture passes. Exact software file/null tests are reviewed and released; meaningful guard and valid-granted-but-missing-submission REDs are next. No native DoP byte pass exists yet and Engine DSD remains unwired. No physical output, SSH, or permission changes occur."
+      "title": "Playback qualification and the whole release remain incomplete",
+      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction. UI usability is delivered, but the source/protocol fixtures do not establish this native-output path."
     },
     {
       "title": "Native, platform, and browser qualification remain open",
@@ -920,24 +1028,20 @@
   ],
   "activity": [
     {
-      "title": "Second combined run joins qualified true with source unchanged",
-      "detail": "The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained."
+      "title": "Doctor Biz clicks Play and gets RequestRejected",
+      "detail": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved."
     },
     {
-      "title": "Next checkpoint remains unpublished; old Mac proof keeps its scope",
-      "detail": "The qualified snapshot and reviewed safe runtime/timing/native receipt are prepared for the next checkpoint, which is not published yet. Latest published dbc retains four successful hosted jobs. Its two isolated hosted Mac native summaries qualify dbc’s source only; they do not qualify the unpublished bridge on Mac. Catalog SRC-03 stays partial, with no full clock/player acceptance."
+      "title": "Live read-only diagnosis confirms exact-format compatibility gap",
+      "detail": "The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures."
     },
     {
-      "title": "Retained MA capture yields exact finite S24 software comparison",
-      "detail": "The fresh explicit TRACK software run reaches 48 kHz/24-bit input, native ALSA S24 with six bytes per stereo frame, and GraphReady while muted. Explicit Unmute, Pause, and Stop pass. The original measurement guard mixes absolute source position with an epoch-relative native counter. Retained equal paused cuts, capture, and final drain support an offline exact check: 2,048 stereo S24 frames at source offset 153,792 and capture-byte offset 922,752, gain 0.5/0 dB, have zero LSB error. The offline verifier joins exit 0 without search, stripping, or a new runtime. This is the older Engine 36ac/fixture 8d30 scope, not the new qualified products, physical output, or full AC-15. The bounded MA attempt retires all five objects at exit 0 with three Applied revokes and an empty network. The original tool-handle gap stays retained separately from actual process joins; the offline verifier’s handle joins exit 0. Resume, the new matrix/cap cases, and independent GUPnP interoperability remain pending. A sanitized MA receipt is prepared privately and awaits Root review."
+      "title": "System compatibility correction starts with device and guards preserved",
+      "detail": "Root is correcting the System compatibility path without retuning the device or weakening guards. The correction and actual native playback qualification are pending. Existing fixture/control tests do not qualify arbitrary-rate native-device open or this failed first-listen scenario."
     },
     {
-      "title": "Separate clock regression is under correction",
-      "detail": "The separate clock agent has five real E2E and 23 unit passes plus broader green checks, then a legacy regression exposes a writer probe occupying an ordinary command slot. Regression and correction are active in that worktree. Those changes are outside Root’s qualified source. No complete clock/player/output or live-ASRC qualification follows."
-    },
-    {
-      "title": "Typed DoP submission prerequisites begin without native byte proof",
-      "detail": "Typed ALSA DoP submission prerequisites record API compile RED, stub compile GREEN, and existing media-fixture passes. Exact software file/null tests are reviewed and released; meaningful guard and valid-granted-but-missing-submission REDs are next. No native DoP byte pass exists yet and Engine DSD remains unwired. No physical output, SSH, or permission changes occur."
+      "title": "Final canonical passes for the native UI/control milestone",
+      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. Root is preparing to persist that verified native UI milestone before the new audio correction."
     }
   ]
 }

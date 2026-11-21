@@ -2,7 +2,8 @@
 
 Earph provides a bounded software reader and transport codec for stereo DSD64 and DSD128.
 This library unit supports DSF and uncompressed DFF.
-Engine playback, native output and device transitions require later integration and qualification.
+The Linux `DopOutput` library submits typed carrier bytes to ALSA.
+Engine playback and device transitions require later integration and qualification.
 
 ## Reader contract
 
@@ -46,6 +47,31 @@ The shared working allowance charges 24580 bytes for reader scratch, source, car
 This allowance describes those owned buffers, rather than total process memory or caller-retained blocks.
 The codec validates public `DsdBlock` fields on every push.
 
+## Typed ALSA submission
+
+On Linux, open `earph_alsa::DopOutput` with an `OpenRequest` and explicit `DopStream`.
+The request must match stereo packed `Signed24` at the stream's carrier rate.
+The source starts at an aligned bit position, sequence zero, and marker `0x05`.
+The writer accepts `DopBlock` directly, without a `PcmBlock` or numeric conversion.
+
+Each write requires granted signal permission and the current stream epochs.
+The writer checks format, sequence, marker phase, position, period budget, and the offered span before native I/O.
+Partial writes retain the current block and its exact bytes in the existing period scratch.
+Retry only the unaccepted suffix with the same block.
+Rejected work changes neither the accepted count nor the stream cursor.
+Native errors close the handle and preserve the accepted prefix without recovery or replay.
+
+Source positions count bits per channel.
+`submitted_frames()` and the ALSA progress report count carrier frames.
+Each carrier frame contains sixteen source bits per channel and six transport bytes.
+`audio_storage_bytes()` charges the actual native period scratch separately from the codec's 24580-byte allowance.
+No additional native owner, thread, or transport buffer is created.
+
+`stop()` and Drop close without drain, PCM filler, or suffix replay.
+The typed writer exposes no generic PCM suspend, drain, or silence operation.
+Opening verifies exact ALSA parameter readback and leaves payload preservation `unverified`.
+A file-to-null software route establishes no physical DSD capability.
+
 ## Safety and evidence
 
 `DsdBlock` and `DopBlock` have separate types from `PcmBlock`.
@@ -56,8 +82,18 @@ No generic DSD silence, PCM filler or implicit conversion belongs to this codec.
 The software tests generate independent DSF and DFF containers from known source bits.
 Production readers and packers write carrier files, which an independent consumer reopens and verifies.
 Coverage includes both rates, bit orders, fragmented reads, seeks, malformed files, budgets and descriptor cleanup.
+The typed native tests use child-local ALSA configs with explicit file-to-null sinks.
+The Engine library E2E follows `DsdFile` through `DopPacker` and `DopOutput` into actual ALSA capture.
+An independent parser checks retained capture bytes, channel order, source suffixes, and marker continuity.
+These tests do not start Engine playback or change its PCM-only observations.
+
+Cursor unit tests cover zero and partial progress without claiming native short-write or `EAGAIN` evidence.
+File-to-null may accept every offered span; caller-selected small spans do not establish native short writes.
+The real `/dev/full` fixture covers terminal native error cleanup.
+Stop-based captures prove accepted software bytes, without establishing safe physical EOF, pause, or mute.
 The software pipeline establishes no DAC carriage, acoustic behavior or safe device transition.
 PLAY-07 and SAFE-04 remain partial.
 AC-13 requires actual qualified routes on both launch operating systems.
 
-The [Linux software receipt](evidence/dsd/software-linux-20261120.json) binds the reviewed codec, real file pipeline and combined check.
+The [Linux codec receipt](evidence/dsd/software-linux-20261120.json) binds the earlier reader, codec, file pipeline and combined check.
+That receipt predates the typed ALSA boundary and does not qualify it or a physical endpoint.

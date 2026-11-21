@@ -50,7 +50,7 @@ fn peer_scenario(mode: &str) {
                     if message.id == 4 {
                         assert_eq!(message.body.len(), 70_012);
                         assert_eq!(&message.body[12..], vec![42; 70_000]);
-                        preserved_arrival = Some(message.arrival_ms);
+                        preserved_arrival = Some(message.arrival);
                         audio = Some(message);
                     } else if message.id == 0 {
                         let value: Value = serde_json::from_slice(&message.body).unwrap();
@@ -98,7 +98,7 @@ fn peer_scenario(mode: &str) {
             } else {
                 unhex(wire["data"].as_str().unwrap())
             };
-            events.extend(client.receive(kind, &bytes, now).unwrap());
+            events.extend(client.receive(kind, &bytes, stamp_ms(now)).unwrap());
             await_m1 = false;
             continue;
         }
@@ -121,7 +121,7 @@ fn peer_scenario(mode: &str) {
                 client
                     .send(
                         ApplicationMessage::json(
-                            "client/time",
+                            "client/goodbye",
                             json!({"client_transmitted":rotations-1}),
                         ),
                         now,
@@ -130,10 +130,7 @@ fn peer_scenario(mode: &str) {
                 assert_eq!(client.roles(), ["player@v1", "_fixture@v1"]);
                 if rotations == 2 {
                     assert!(stream.is_some());
-                    assert_eq!(
-                        audio.as_ref().unwrap().arrival_ms,
-                        preserved_arrival.unwrap()
-                    );
+                    assert_eq!(audio.as_ref().unwrap().arrival, preserved_arrival.unwrap());
                 }
             }
             "queue_old" => {
@@ -183,4 +180,8 @@ fn pinned_driver_pairing_promotion_rotations_and_context_preservation() {
 #[ignore = "requires explicitly pinned offline Python driver"]
 fn pinned_server_rejects_corrupt_old_key_traffic_instead_of_discarding_unauthenticated() {
     peer_scenario("corrupt_old");
+}
+
+fn stamp_ms(ms: u64) -> earph_sendspin::message::ReceiveStamp {
+    earph_sendspin::message::ReceiveStamp::new(i64::try_from(ms).unwrap() * 1000).unwrap()
 }
