@@ -140,3 +140,7 @@ That pair passed private X11 interaction, graph diagnostics, exact-zero software
 Its preview matched all 97375 exported diagnostic bytes.
 Post-run verification found every package file unchanged and every tracked process retired.
 This qualifies those Linux software products without extending the result to later binaries or physical output.
+
+The [current candidate receipt](evidence/packaging/candidate-linux-20261121.json) binds the later renderer and Sendspin products.
+It verifies package consistency, a real packaged owner/CLI exchange, and normal shutdown.
+Its GUI, installation, signing, and physical-output gates remain separate.

@@ -14,7 +14,10 @@ See [local decoding](docs/local-playback.md) for supported files and offline com
 See [the state-machine map](docs/state-machines.md) for state owners, transitions, and recovery actions.
 See [renderer ownership](docs/renderer-control.md) and [UPnP wire handling](docs/upnp-protocol-surface.md) for the disabled protocol foundation.
 See [renderer execution](docs/upnp-core-contract.md) for graph authorization, callbacks, subscriptions, and their remaining adapter gates.
+See [owner execution](docs/upnp-owner-execution.md) for the explicit Engine bridge and pending controller qualification.
 See [Sendspin sessions](docs/sendspin-session.md) for bounded pairing, encrypted messages and key rotation.
+See [outbound Sendspin transport](docs/sendspin-runtime.md) for explicit roleless connections and bounded retirement.
+See [committed credentials](docs/sendspin-credentials.md) for the bounded secret format and its remaining native-storage work.
 See [DSD software transport](docs/dsd-software.md) for the typed DSF/DFF reader and DoP codec.
 See [native package candidates](docs/native-packaging.md) for unsigned construction, verification, and scoped Linux GUI evidence.
 See [the ALSA spike](docs/alsa-spike.md) for Linux output commands, evidence, and qualification limits.

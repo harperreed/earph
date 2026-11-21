@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "source": {
+    "baseline_commit": "486760081d49a4bcd7500f13400a50369a6ded42",
+    "source_dirty": true,
+    "qualified_archive_sha256": "d3c186401b9b4438bf1f496e8c1b7cdad33c3f081646c4ef736d27a9123bc45a",
+    "qualified_source_files": 1994,
+    "source_unchanged_during_checks": true,
+    "publication_note": "Derived receipts and progress notes are added after this source archive."
+  },
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "measurement_boundary": "Software contracts; physical output unqualified"
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "reported_results": {
+      "passed": 1660,
+      "failed": 0,
+      "ignored": 14,
+      "groups": 180
+    },
+    "log_sha256": "6f4c892edd8ecba16243449a274ecf5bec4fe7356df03de2b7245a50141b1a2c",
+    "product_build_exit": 0,
+    "count_note": "Reported blocks include child results and are not a unique-test total. Ignored peer suites ran explicitly afterward."
+  },
+  "integrated_peers": {
+    "session": {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "groups": 17,
+      "exit": 0,
+      "log_sha256": "f1709514c43b9f035c0c4af0abf8f27289d5da6f1f8e7c3abcd71026835b886e"
+    },
+    "outbound_network": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "groups": 1,
+      "actual_scenarios": 18,
+      "exit": 0,
+      "log_sha256": "807fdd3b47af1eb38a852341c1f3c81586836563df8b7e6cf1a0568674cd5962"
+    }
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "36ac0a5eb091a24da197efeab2ff6676890f152e90221df2cba7da8ac5b2d28d"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "72d7ad7ececede9d4da24ec0e004f4e80b4b45106d19116f87002bfa1b830bdf"
+    }
+  ],
+  "requirement_status": "partial",
+  "scope": "Explicit roleless outbound Sendspin transport and strict committed-credential document",
+  "source_files": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "19da83ed1b5e72238b571d35b25f5ef3bcf33f2e6e538bc52cf0e0a2516c54a0"
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.txt",
+      "sha256": "06130bbfc37228b02d4a797f65cd7afb38feaeb270e406eb07dac6717652e12b"
+    },
+    {
+      "path": "crates/earph-network/Cargo.toml",
+      "sha256": "6d10b6e752ecaa640292a2a8af2a31c504929dae44a1300c7904afe5f37f4618"
+    },
+    {
+      "path": "crates/earph-network/src/lib.rs",
+      "sha256": "f9eae4a387d1d835e1f114c8e7cdb04a881c486ccc2ef9349876c95720cc9649"
+    },
+    {
+      "path": "crates/earph-network/src/policy.rs",
+      "sha256": "56711ddd446190f791260f4259ac93b1f811e9e77ea9a89c2e4daf7c4636feff"
+    },
+    {
+      "path": "crates/earph-network/src/sendspin/mod.rs",
+      "sha256": "9dfde9840f6e18688426bcd0d4ef30a3ce6339e0bad89944215912d67beb30f9"
+    },
+    {
+      "path": "crates/earph-network/src/sendspin/policy.rs",
+      "sha256": "814a789d80e65bd913112be1ce2e2e016ad29d01135e93b817d175a812facf01"
+    },
+    {
+      "path": "crates/earph-network/src/sendspin/worker.rs",
+      "sha256": "e157e089d199b829cf68e2be9b00fdf87b843e7bd8cd8a69bc9e25a8aeb584e9"
+    },
+    {
+      "path": "crates/earph-network/tests/sendspin_policy.rs",
+      "sha256": "4f51034cede7f04d19f09abf204be2e26bc7c7b1f73281baebb3172bdff5641d"
+    },
+    {
+      "path": "crates/earph-network/tests/sendspin_python.rs",
+      "sha256": "4cd27d02f2817c27c8fdc9b698f8df255076e223b8ca48b244de1a9d4e0d1849"
+    },
+    {
+      "path": "crates/earph-network/tests/sendspin_transport.rs",
+      "sha256": "4b91c782173935ee052d191cbf6180c5fcf66b4c12b111e75d18b7962622f3fa"
+    },
+    {
+      "path": "crates/earph-network/tests/support/sendspin_fixture.rs",
+      "sha256": "53eae07e584da36b352e32ea6520383259780c47f9cc3db28a976543ad06a314"
+    },
+    {
+      "path": "crates/earph-network/tests/support/sendspin_flush.rs",
+      "sha256": "d1cef6508c9dee7a783b98e9b8b8bf391fc92b459d95d0721462e0af7fd3d8f4"
+    },
+    {
+      "path": "crates/earph-network/tests/support/sendspin_peer.py",
+      "sha256": "4bb43ddcb9d86d6386ef92d03b1b0f3a65dc5e44b54276206ee08090a081bbf1"
+    },
+    {
+      "path": "crates/earph-sendspin/Cargo.toml",
+      "sha256": "93cf8f699fdaab90a3b674b97b713e85db1ae023e53e165d7b709ab70ad8b356"
+    },
+    {
+      "path": "crates/earph-sendspin/src/credentials.rs",
+      "sha256": "e1caabe51c5940a52b48c9ecb7e26c1cf83961761de569b95a242fdad6368ed4"
+    },
+    {
+      "path": "crates/earph-sendspin/src/lib.rs",
+      "sha256": "ee16cc400a9ad68c3493dbf93a992cab87fd8447a842d39b72b059427419ea6a"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/credentials.rs",
+      "sha256": "d02cd6a52d568953b73a9f2201c5ab005a810b8cea12758e46666fb6b12ca303"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/credentials_end_to_end.rs",
+      "sha256": "362fce2cee9b6f886626cc51e26225fc898d877d4b1d9f66aa3d9153c2427631"
+    },
+    {
+      "path": "docs/dependency-lock.json",
+      "sha256": "b3413718e74bbac9cc8303200d84709ce314741ba44fa1e4ec5631bf4951532b"
+    },
+    {
+      "path": "docs/sendspin-credentials.md",
+      "sha256": "97eb4b759e3da85f5692cd34d00d769492a1a124bb2a71a37830cb98f09be8ca"
+    },
+    {
+      "path": "docs/sendspin-runtime.md",
+      "sha256": "435df09aa9157eee2d7608fd556d35ba7b4dade5478b8ce7a0390ad958dd2ec1"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-11-20-sendspin-credentials.md",
+      "sha256": "ac895bb889e4ae5ae7cc37b4b880fa5e589e2f29be8093650ee62b9bb3b84da6"
+    }
+  ],
+  "unit": {
+    "focused_reported_passes": 208,
+    "focused_ignored": 9,
+    "real_peer_scenarios": 18,
+    "real_peer_groups": 3,
+    "credential_document_new_tests": 7,
+    "dependency_packages_added": [
+      "data-encoding 2.11.1",
+      "futures-sink 0.3.34",
+      "sha1 0.11.0",
+      "tokio-tungstenite 0.30.0",
+      "tungstenite 0.30.0"
+    ],
+    "lock_reconciliation": "Keep outbound dependency graph and the credential codec direct Serde edge."
+  },
+  "independent_reviews": {
+    "runtime": {
+      "status": "complete",
+      "material_findings": 0,
+      "report_sha256": "ffd004b01ae5775cde09f528f82cee882f02ad97d521497f4d4a9069e6f6dda6"
+    },
+    "credentials": {
+      "status": "complete",
+      "material_findings": 0,
+      "report_sha256": "00db22bf94887526f5c3cb424a43eea66a9aa23d31fcb592c9cf808661d87bd0"
+    }
+  },
+  "peer": {
+    "package": "aiosendspin",
+    "version": "10.2.1",
+    "commit": "692831b07bc453a38d5a39a16ee566141547bfa1",
+    "boundary": "Actual private TCP/WebSocket, Noise and pairing producers with independently restarted synthetic-catalog readback."
+  },
+  "verified_behavior": [
+    "Producer credits are reserved before parsing and retained through pending enqueue and validation.",
+    "Valid peer Close drains the same socket within a deadline after pending writes become Uncertain.",
+    "Close draining never completes or retries the poisoned write.",
+    "Acknowledged durable commit operations remain owned after socket closure.",
+    "The strict bounded document preserves permanent identity, pairing PSK, catalog and last-playback server."
+  ],
+  "allocation_probe_executed": false,
+  "limits": [
+    "Application startup, production storage, full player roles, Music Assistant interoperability, clock discipline and output remain unqualified.",
+    "Caller services must remain bounded, nonblocking and nonpanicking.",
+    "Session phase deadline diagnostics remain explicitly unavailable.",
+    "Codec tests use synthetic private files without a production plaintext fallback.",
+    "No protected-memory or secure-erasure claim is made."
+  ]
+}

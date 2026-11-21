@@ -18,6 +18,8 @@ mod output_replay;
 mod plan;
 mod profiles;
 mod render;
+mod renderer;
+pub use renderer::RendererConfiguration;
 mod runtime;
 pub mod stream_render;
 mod transport;
@@ -59,9 +61,29 @@ pub struct EngineOwner {
     token: String,
     session: Session,
     device_helper: Option<DeviceDiscoveryHelper>,
+    renderer: Option<renderer::RendererRuntime>,
 }
 
 impl EngineOwner {
+    /// Binds trusted ingress before enabling Core admission. Grants remain explicit local commands.
+    pub fn with_renderer(
+        mut self,
+        configuration: RendererConfiguration,
+    ) -> Result<Self, EngineError> {
+        if self.renderer.is_some() {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "renderer listener already bound",
+            ));
+        }
+        let renderer = configuration.bind()?;
+        self.session.enable_renderer_control();
+        self.renderer = Some(renderer::RendererRuntime::new(renderer, &self.session));
+        Ok(self)
+    }
+    pub fn renderer_address(&self) -> Option<std::net::SocketAddrV4> {
+        self.renderer.as_ref().map(|renderer| renderer.local_addr())
+    }
     /// Enables discovery only when this host explicitly supplies the production engine helper.
     pub fn with_device_discovery(mut self, helper: DeviceDiscoveryHelper) -> Self {
         if let Some(backend) = helper.backend() {
@@ -137,6 +159,7 @@ impl EngineOwner {
             token,
             session,
             device_helper: None,
+            renderer: None,
         })
     }
 
@@ -148,9 +171,10 @@ impl EngineOwner {
             token,
             session,
             device_helper,
+            renderer,
         } = self;
         let _owner_lock = _lock;
-        host::serve(session, listener, runtime, token, device_helper)
+        host::serve(session, listener, runtime, token, device_helper, renderer)
     }
 }
 

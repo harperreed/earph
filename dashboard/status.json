@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-20T22:25:01.626Z",
-  "headline": "Session/DSD combined gate passes; hosted Swift passes; next publication pending.",
-  "focus": "Publish the reviewed session/DSD checkpoint · Review callback consumers · Finish package qualification",
-  "summary": "The reviewed Sendspin session and DSD codec integrations pass the combined Linux gate with exit 0 and source unchanged. Standard result blocks report 1,530 passes, zero failures, 11 ignored cases, and 169 groups, including child results. These are reported blocks, not a unique-test total. All six explicit Sendspin Python peer tests pass separately. The frozen 1,955-file archive SHA256 is ba0bd7a3c8cdc9366fa2becfbc78115ec9672aa6affd35c7d1fe935be1fe21e8. New Engine/Desktop products are Linux builds; they have no fresh native GUI or hardware proof. All four d2fa9f7 push/PR software jobs now pass, including actual generated Swift owner/CLI gates in both Mac jobs. The Swift scenario reports 94 frames and 52 exact CLI comparisons across nine network, six disabled-renderer, and eight volume commands. Fixture connections/requests stay zero; output is neither consented nor opened; the owner exits 0. The exact Swift compiler version is unknown in that log. Version printing is added for the next checkpoint. Earlier c8/a302 passes keep their original source scope. Latest published head remains d2fa9f7 and PR #4 remains draft. Reviewed session/DSD integrations and their prepared public receipts/docs are not yet committed or published. Root is preparing the next checkpoint; the new combined gate does not establish hosted CI for that future commit. Both independent session and DSD reviews are clear. The session unit resolves the stale queued-finalize and quiet-period timeout findings with reviewed regressions. Its new integrated source passes the combined and six explicit peer tests. Production secret storage, startup/player integration, clocks, and output remain separate unfinished work. The next roleless outbound WebSocket driver has completed read-only preparation; implementation and dependency audit have not started. U4 Core public graph/callback/subscription signatures are frozen. Final Debug-redaction verification is queued; independent review and consumers remain pending. A signature freeze is not an enabled renderer or interoperability qualification. Packaging implementation is active with 14 focused cases passing after meaningful REDs. Final harness checks, strict lint, real frozen-product E2E, and independent review remain pending. No package installation, signing, or release is qualified. Earlier pinned MPL source retention remains a separate research result.",
+  "updated_at": "2026-11-21T01:04:47.403Z",
+  "headline": "Reviewed renderer/runtime fixes integrated; combined gate active; actual controller U5 pending.",
+  "focus": "Complete the frozen combined gate · Compile the public-API controller fixture · Qualify synthetic credential storage",
+  "summary": "Root’s combined renderer/runtime gate is queued or running under the shared lock, with product builds, six session-peer tests, and three Network peer groups included. No result is reported yet. Root source stays frozen; the dashboard does not copy into that checkout. Published HEAD remains 486, whose hosted result stays three passes and the known proxy-test failure. Its reviewed proxy fix is still unpublished. The final roleless Sendspin driver passes targeted independent review with 208 focused passes and 18 actual pinned-peer scenarios. Root imports its sixteen files. An explicit lock merge preserves only the codec serde edge; dependency inventory and notices regenerate successfully. The reviewed thirteen-path Network renderer unit is also imported. These imports await the new combined gate and publication; they do not establish production startup, player, clock, or output qualification. Independent Engine review found paused-source A/staged-source B Play routing was wrong. A real SOAP RED exposes that defect; the correction then exposes lost Core waiting authority while A closes. The narrow eight-path unit fixes both while blocking new execution until the old worker joins. Sixty Core tests and three actual SOAP child scenarios pass, with strict Clippy/format checks. Targeted independent review clears all eight owned paths and thirteen borrowed Network paths; Root imports the corrected unit. No joint U5 acceptance follows. The private GUPnP image imports successfully and image-only metadata passes eight real binary/dependency checks and bootstrap syntax; its container stops cleanly. No actual Music Assistant, GUPnP controller, or Earph service is started. The default Music Assistant socket fails without a multicast /32 route. The exact private /32 route plus generated traffic succeeds, and all four generated peers stop cleanly. The original wrapper exits 1 because of a duplicate log and remains retained; a separate read-only recovery receipt records the traffic result. Actual controller U5 remains pending. A separate public-API Engine fixture is being prepared for ALSA file/null capture only; final Root compilation is pending. Native credential-store implementation starts in isolation with a strict document, native OS-store boundary, and owned helper. The initial lock delta adds no new dependency packages. Pure checks have started. The exact private D-Bus/gnome-keyring operator is reviewed and released only for a synthetic private environment; no native-test pass is claimed yet. No workstation credential store, native Mac, permission, SSH, or hardware access is performed. Whole-app, platform, and release gates remain open.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -27,19 +27,19 @@
   "milestone_states": {
     "M0": {
       "state": "active",
-      "detail": "Published d2fa9f7 has four passing software jobs, including actual Swift gates on both hosted Mac jobs. The newer reviewed session/DSD source passes its local combined gate but remains unpublished. Full milestone/platform/release completion remains open."
+      "detail": "Published 486 retains its three-pass/one-fail hosted result. Reviewed proxy, renderer/runtime, and Engine corrections are integrated but unpublished. The new combined gate has no result yet; full milestone/platform/release completion remains open."
     },
     "M1": {
       "state": "active",
-      "detail": "The a302 publication includes the scoped native software-only proof: 24 native actions, 52 actual CLI calls, 107 D-Bus calls, 83,968 all-zero captured bytes, and 109,975 exact GUI-export bytes with Matching inspection and clean exits. Three failed operator attempts remain retained. It proves no Mac/Wayland/HTTP/physical/acoustic path or ramp shape. Direct Mac SSH remains blocked; no repeat question or access change occurs."
+      "detail": "The packaged software-native GUI proof uses older session/DSD products and archive ba0bd7, separate from the newer Core/package source. It passes 24 interactions, 52 requests including one pre-ready failure, 108 scenario D-Bus calls, and 97,375 exact preview/export bytes. All 83,968 captured software PCM bytes are zero. The 28 package files stay unchanged and 12 owned process identities are freshly absent. It proves no physical/native Mac/Wayland/HTTP path, acoustic result, ramp shape, installation, signing, or release. Direct Mac SSH remains unavailable; no retry, repeat question, or access change occurs."
     },
     "M2": {
       "state": "active",
-      "detail": "The new combined source passes 1530 reported passes with six separately executed Python peers. Its Linux products have no new native acceptance. d2 hosted Swift and earlier Kotlin/native proofs keep their own source boundaries. New publication/CI, full T12/T17, current Mac GUI/legacy ABI, interop, and release remain open."
+      "detail": "Reviewed roleless, Network, and corrected Engine/Core units are integrated. The new frozen combined/product/peer gate is queued or running, without a pass claim. Older packaged GUI product boundaries remain unchanged. Actual U5, full T12/T17, native platform/ABI, and release remain open."
     },
     "M3": {
       "state": "active",
-      "detail": "Reviewed session and DSD software integrations pass the combined Linux gate but are unpublished. Production session storage/startup/player/clocks/output and physical DSD remain separate. U4 signatures are frozen, while review/consumers remain pending. Outbound WebSocket implementation/dependency audit has not started."
+      "detail": "The paused/staged routing and closing-worker authority defects have reviewed fixes and scoped real-SOAP proof. Combined qualification remains pending. Generated private-route traffic is separate from actual Music Assistant/GUPnP U5. Synthetic native credential tests are released but not yet claimed passed. Production session storage/startup/player/clocks/output and physical DSD remain unqualified."
     },
     "M4": {
       "state": "planned",
@@ -48,16 +48,16 @@
   },
   "checks": [
     {
-      "title": "Reviewed session/DSD combined gate and six explicit peers pass",
-      "detail": "The reviewed Sendspin session and DSD codec integrations pass the combined Linux gate with exit 0 and source unchanged. Standard result blocks report 1,530 passes, zero failures, 11 ignored cases, and 169 groups, including child results. These are reported blocks, not a unique-test total. All six explicit Sendspin Python peer tests pass separately. The frozen 1,955-file archive SHA256 is ba0bd7a3c8cdc9366fa2becfbc78115ec9672aa6affd35c7d1fe935be1fe21e8. New Engine/Desktop products are Linux builds; they have no fresh native GUI or hardware proof."
+      "title": "Published Core/package source passes the local combined gate",
+      "detail": "The current combined Linux gate reports 1,584 passes, zero failures, 11 ignored cases, and 171 groups, including child-result blocks. Six explicit actual Sendspin Python peer tests pass separately. Counts are not an additive unique-test total. The exact 1,966-file archive SHA256 is 0f48896e200ebbfd79910e5e758bc767b31bfada083667428937e274a5f85fba."
     },
     {
-      "title": "Published software-native proof retains its limited scope",
-      "detail": "The a302 publication includes the scoped native software-only proof: 24 native actions, 52 actual CLI calls, 107 D-Bus calls, 83,968 all-zero captured bytes, and 109,975 exact GUI-export bytes with Matching inspection and clean exits. Three failed operator attempts remain retained. It proves no Mac/Wayland/HTTP/physical/acoustic path or ramp shape."
+      "title": "Packaged software-native proof keeps its older product boundary",
+      "detail": "The packaged software-native GUI proof uses older session/DSD products and archive ba0bd7, separate from the newer Core/package source. It passes 24 interactions, 52 requests including one pre-ready failure, 108 scenario D-Bus calls, and 97,375 exact preview/export bytes. All 83,968 captured software PCM bytes are zero. The 28 package files stay unchanged and 12 owned process identities are freshly absent. It proves no physical/native Mac/Wayland/HTTP path, acoustic result, ramp shape, installation, signing, or release."
     },
     {
-      "title": "d2 hosted software and actual Swift gates pass",
-      "detail": "All four d2fa9f7 push/PR software jobs now pass, including actual generated Swift owner/CLI gates in both Mac jobs. The Swift scenario reports 94 frames and 52 exact CLI comparisons across nine network, six disabled-renderer, and eight volume commands. Fixture connections/requests stay zero; output is neither consented nor opened; the owner exits 0. The exact Swift compiler version is unknown in that log. Version printing is added for the next checkpoint. Earlier c8/a302 passes keep their original source scope. Latest published head remains d2fa9f7 and PR #4 remains draft. Reviewed session/DSD integrations and their prepared public receipts/docs are not yet committed or published. Root is preparing the next checkpoint; the new combined gate does not establish hosted CI for that future commit."
+      "title": "Published CI stays three pass/one fail; new combined check has no result",
+      "detail": "Root’s combined renderer/runtime gate is queued or running under the shared lock, with product builds, six session-peer tests, and three Network peer groups included. No result is reported yet. Root source stays frozen; the dashboard does not copy into that checkout. Published HEAD remains 486, whose hosted result stays three passes and the known proxy-test failure. Its reviewed proxy fix is still unpublished."
     },
     {
       "title": "Actual volume FFI and real HTTP range cases pass",
@@ -65,7 +65,11 @@
     },
     {
       "title": "Reviewed DSD software is integrated; physical routes remain open",
-      "detail": "Reviewed typed stereo DSF/uncompressed DFF to DoP software for DSD64/128 is integrated and passes the combined Linux gate. Its earlier 458 Core/media and 15 codec/container checks retain their scoped proof. No Engine/native/physical DSD route is wired or qualified. PLAY-07 and SAFE-04 remain partial; AC-13 remains incomplete. Physical DSD qualification is still required."
+      "detail": "Reviewed typed stereo DSF/uncompressed DFF to DoP software for DSD64/128 is published and passes its scoped combined Linux gates. Its earlier 458 Core/media and 15 codec/container checks retain their scoped proof. No Engine/native/physical DSD route is wired or qualified. PLAY-07 and SAFE-04 remain partial; AC-13 remains incomplete. Physical DSD qualification is still required."
+    },
+    {
+      "title": "Reviewed renderer/runtime and Engine fixes are imported",
+      "detail": "The final roleless Sendspin driver passes targeted independent review with 208 focused passes and 18 actual pinned-peer scenarios. Root imports its sixteen files. An explicit lock merge preserves only the codec serde edge; dependency inventory and notices regenerate successfully. The reviewed thirteen-path Network renderer unit is also imported. These imports await the new combined gate and publication; they do not establish production startup, player, clock, or output qualification. Independent Engine review found paused-source A/staged-source B Play routing was wrong. A real SOAP RED exposes that defect; the correction then exposes lost Core waiting authority while A closes. The narrow eight-path unit fixes both while blocking new execution until the old worker joins. Sixty Core tests and three actual SOAP child scenarios pass, with strict Clippy/format checks. Targeted independent review clears all eight owned paths and thirteen borrowed Network paths; Root imports the corrected unit. No joint U5 acceptance follows."
     }
   ],
   "verified": [
@@ -731,65 +735,93 @@
     },
     {
       "title": "Reviewed session/DSD combined source qualifies locally",
-      "detail": "The reviewed Sendspin session and DSD codec integrations pass the combined Linux gate with exit 0 and source unchanged. Standard result blocks report 1,530 passes, zero failures, 11 ignored cases, and 169 groups, including child results. These are reported blocks, not a unique-test total. All six explicit Sendspin Python peer tests pass separately. The frozen 1,955-file archive SHA256 is ba0bd7a3c8cdc9366fa2becfbc78115ec9672aa6affd35c7d1fe935be1fe21e8. New Engine/Desktop products are Linux builds; they have no fresh native GUI or hardware proof. Latest published head remains d2fa9f7 and PR #4 remains draft. Reviewed session/DSD integrations and their prepared public receipts/docs are not yet committed or published. Root is preparing the next checkpoint; the new combined gate does not establish hosted CI for that future commit."
+      "detail": "The reviewed Sendspin session and DSD codec integrations pass the combined Linux gate with exit 0 and source unchanged. Standard result blocks report 1,530 passes, zero failures, 11 ignored cases, and 169 groups, including child results. These are reported blocks, not a unique-test total. All six explicit Sendspin Python peer tests pass separately. The frozen 1,955-file archive SHA256 is ba0bd7a3c8cdc9366fa2becfbc78115ec9672aa6affd35c7d1fe935be1fe21e8. New Engine/Desktop products are Linux builds; they have no fresh native GUI or hardware proof. That earlier session/DSD source was subsequently published at 371. Its products and proof remain separate from the newer Core/package source and current hosted CI."
     },
     {
       "title": "Actual hosted Swift gates pass on both d2 Mac jobs",
       "detail": "All four d2fa9f7 push/PR software jobs now pass, including actual generated Swift owner/CLI gates in both Mac jobs. The Swift scenario reports 94 frames and 52 exact CLI comparisons across nine network, six disabled-renderer, and eight volume commands. Fixture connections/requests stay zero; output is neither consented nor opened; the owner exits 0. The exact Swift compiler version is unknown in that log. Version printing is added for the next checkpoint. Earlier c8/a302 passes keep their original source scope."
+    },
+    {
+      "title": "Reviewed Core authority and package construction are published",
+      "detail": "Published draft PR #4 head is 486760081d49a4bcd7500f13400a50369a6ded42. Core callback/graph authority and package construction/verification are published after clear independent reviews. Core exact graph replay’s review finding is fixed. Root verifies publication and a clean checkout. All four earlier 371 software jobs pass under their own source scope. The current combined Linux gate reports 1,584 passes, zero failures, 11 ignored cases, and 171 groups, including child-result blocks. Six explicit actual Sendspin Python peer tests pass separately. Counts are not an additive unique-test total. The exact 1,966-file archive SHA256 is 0f48896e200ebbfd79910e5e758bc767b31bfada083667428937e274a5f85fba. Its hosted jobs subsequently finish three pass/one fail; the reviewed local proxy fix has not yet passed a replacement combined gate."
+    },
+    {
+      "title": "Packaged GUI accepts exact software data with retained startup refusal",
+      "detail": "The packaged software-native GUI proof uses older session/DSD products and archive ba0bd7, separate from the newer Core/package source. It passes 24 interactions, 52 requests including one pre-ready failure, 108 scenario D-Bus calls, and 97,375 exact preview/export bytes. All 83,968 captured software PCM bytes are zero. The 28 package files stay unchanged and 12 owned process identities are freshly absent. It proves no physical/native Mac/Wayland/HTTP path, acoustic result, ramp shape, installation, signing, or release."
+    },
+    {
+      "title": "Actual disconnect proxy failure reproduced and corrected under clear review",
+      "detail": "486 hosted CI finishes with three passes and one failure. Push Mac, PR Linux, and PR Mac pass. Push Linux fails in the real-disconnect test proxy during intentional owner restart. Root reproduces the proxy panic and fixes the test proxy without changing the application. Independent review is clear; all 27 workflow tests and 239 reported Desktop tests pass locally. A new combined gate is pending. The failed hosted job remains failed; no unchanged CI rerun or later qualification is asserted."
+    },
+    {
+      "title": "Corrected advertised event routes pass independent Network review",
+      "detail": "The corrected thirteen-path Network renderer unit is imported after clear independent review and 93 local passes. Real advertised plural /events routes are tested. The later corrected Engine unit is now imported after its own targeted review; joint U5 and combined qualification remain pending."
+    },
+    {
+      "title": "Roleless transport and credential document receive clear review",
+      "detail": "Roleless driver freeze 03 clears its two targeted review findings with 208 focused passes and eighteen actual pinned-peer scenarios. Root now imports its sixteen paths with explicit lock reconciliation and regenerated inventory/notices. The earlier credential document retains 119 portable passes and clear review. Native store/helper implementation is a separate synthetic-only unit with no claimed native pass."
+    },
+    {
+      "title": "Paused/staged source and closing-worker authority fixes clear review",
+      "detail": "Independent Engine review found paused-source A/staged-source B Play routing was wrong. A real SOAP RED exposes that defect; the correction then exposes lost Core waiting authority while A closes. The narrow eight-path unit fixes both while blocking new execution until the old worker joins. Sixty Core tests and three actual SOAP child scenarios pass, with strict Clippy/format checks. Targeted independent review clears all eight owned paths and thirteen borrowed Network paths; Root imports the corrected unit. No joint U5 acceptance follows."
+    },
+    {
+      "title": "Roleless import preserves explicit dependency reconciliation",
+      "detail": "The final roleless Sendspin driver passes targeted independent review with 208 focused passes and 18 actual pinned-peer scenarios. Root imports its sixteen files. An explicit lock merge preserves only the codec serde edge; dependency inventory and notices regenerate successfully. The reviewed thirteen-path Network renderer unit is also imported. These imports await the new combined gate and publication; they do not establish production startup, player, clock, or output qualification."
     }
   ],
   "active": [
     {
-      "title": "Publish the completed reviewed session/DSD checkpoint",
-      "detail": "Latest published head remains d2fa9f7 and PR #4 remains draft. Reviewed session/DSD integrations and their prepared public receipts/docs are not yet committed or published. Root is preparing the next checkpoint; the new combined gate does not establish hosted CI for that future commit. The reviewed Sendspin session and DSD codec integrations pass the combined Linux gate with exit 0 and source unchanged. Standard result blocks report 1,530 passes, zero failures, 11 ignored cases, and 169 groups, including child results. These are reported blocks, not a unique-test total. All six explicit Sendspin Python peer tests pass separately. The frozen 1,955-file archive SHA256 is ba0bd7a3c8cdc9366fa2becfbc78115ec9672aa6affd35c7d1fe935be1fe21e8. New Engine/Desktop products are Linux builds; they have no fresh native GUI or hardware proof."
+      "title": "Complete the frozen renderer/runtime combined gate",
+      "detail": "Root’s combined renderer/runtime gate is queued or running under the shared lock, with product builds, six session-peer tests, and three Network peer groups included. No result is reported yet. Root source stays frozen; the dashboard does not copy into that checkout. Published HEAD remains 486, whose hosted result stays three passes and the known proxy-test failure. Its reviewed proxy fix is still unpublished."
     },
     {
-      "title": "Finish U4 signature verification and independent review",
-      "detail": "U4 Core public graph/callback/subscription signatures are frozen. Final Debug-redaction verification is queued; independent review and consumers remain pending. A signature freeze is not an enabled renderer or interoperability qualification."
+      "title": "Prepare real controller qualification after scoped transport probes",
+      "detail": "The private GUPnP image imports successfully and image-only metadata passes eight real binary/dependency checks and bootstrap syntax; its container stops cleanly. No actual Music Assistant, GUPnP controller, or Earph service is started. The default Music Assistant socket fails without a multicast /32 route. The exact private /32 route plus generated traffic succeeds, and all four generated peers stop cleanly. The original wrapper exits 1 because of a duplicate log and remains retained; a separate read-only recovery receipt records the traffic result. Actual controller U5 remains pending. A separate public-API Engine fixture is being prepared for ALSA file/null capture only; final Root compilation is pending."
     },
     {
-      "title": "Qualify the packaging implementation",
-      "detail": "Packaging implementation is active with 14 focused cases passing after meaningful REDs. Final harness checks, strict lint, real frozen-product E2E, and independent review remain pending. No package installation, signing, or release is qualified. Earlier pinned MPL source retention remains a separate research result."
+      "title": "Qualify the synthetic native credential helper",
+      "detail": "Native credential-store implementation starts in isolation with a strict document, native OS-store boundary, and owned helper. The initial lock delta adds no new dependency packages. Pure checks have started. The exact private D-Bus/gnome-keyring operator is reviewed and released only for a synthetic private environment; no native-test pass is claimed yet. No workstation credential store, native Mac, permission, SSH, or hardware access is performed."
     },
     {
-      "title": "Keep the next session transport inside its prepared boundary",
-      "detail": "Both independent session and DSD reviews are clear. The session unit resolves the stale queued-finalize and quiet-period timeout findings with reviewed regressions. Its new integrated source passes the combined and six explicit peer tests. Production secret storage, startup/player integration, clocks, and output remain separate unfinished work. The next roleless outbound WebSocket driver has completed read-only preparation; implementation and dependency audit have not started."
+      "title": "Keep imported fixes separate from joint U5 acceptance",
+      "detail": "The final roleless Sendspin driver passes targeted independent review with 208 focused passes and 18 actual pinned-peer scenarios. Root imports its sixteen files. An explicit lock merge preserves only the codec serde edge; dependency inventory and notices regenerate successfully. The reviewed thirteen-path Network renderer unit is also imported. These imports await the new combined gate and publication; they do not establish production startup, player, clock, or output qualification. Independent Engine review found paused-source A/staged-source B Play routing was wrong. A real SOAP RED exposes that defect; the correction then exposes lost Core waiting authority while A closes. The narrow eight-path unit fixes both while blocking new execution until the old worker joins. Sixty Core tests and three actual SOAP child scenarios pass, with strict Clippy/format checks. Targeted independent review clears all eight owned paths and thirteen borrowed Network paths; Root imports the corrected unit. No joint U5 acceptance follows."
     }
   ],
   "pending": [
     {
-      "title": "Session/DSD publication and new-commit CI remain pending",
-      "detail": "Latest published head remains d2fa9f7 and PR #4 remains draft. Reviewed session/DSD integrations and their prepared public receipts/docs are not yet committed or published. Root is preparing the next checkpoint; the new combined gate does not establish hosted CI for that future commit."
+      "title": "New combined qualification and publication are pending",
+      "detail": "Root’s combined renderer/runtime gate is queued or running under the shared lock, with product builds, six session-peer tests, and three Network peer groups included. No result is reported yet. Root source stays frozen; the dashboard does not copy into that checkout. Published HEAD remains 486, whose hosted result stays three passes and the known proxy-test failure. Its reviewed proxy fix is still unpublished."
     },
     {
-      "title": "Callback consumers, packaging, and production output remain unfinished",
-      "detail": "U4 Core public graph/callback/subscription signatures are frozen. Final Debug-redaction verification is queued; independent review and consumers remain pending. A signature freeze is not an enabled renderer or interoperability qualification. Packaging implementation is active with 14 focused cases passing after meaningful REDs. Final harness checks, strict lint, real frozen-product E2E, and independent review remain pending. No package installation, signing, or release is qualified. Earlier pinned MPL source retention remains a separate research result. Both independent session and DSD reviews are clear. The session unit resolves the stale queued-finalize and quiet-period timeout findings with reviewed regressions. Its new integrated source passes the combined and six explicit peer tests. Production secret storage, startup/player integration, clocks, and output remain separate unfinished work. The next roleless outbound WebSocket driver has completed read-only preparation; implementation and dependency audit have not started. Reviewed typed stereo DSF/uncompressed DFF to DoP software for DSD64/128 is integrated and passes the combined Linux gate. Its earlier 458 Core/media and 15 codec/container checks retain their scoped proof. No Engine/native/physical DSD route is wired or qualified. PLAY-07 and SAFE-04 remain partial; AC-13 remains incomplete. Physical DSD qualification is still required."
+      "title": "Actual controllers and native credential acceptance remain pending",
+      "detail": "The private GUPnP image imports successfully and image-only metadata passes eight real binary/dependency checks and bootstrap syntax; its container stops cleanly. No actual Music Assistant, GUPnP controller, or Earph service is started. The default Music Assistant socket fails without a multicast /32 route. The exact private /32 route plus generated traffic succeeds, and all four generated peers stop cleanly. The original wrapper exits 1 because of a duplicate log and remains retained; a separate read-only recovery receipt records the traffic result. Actual controller U5 remains pending. A separate public-API Engine fixture is being prepared for ALSA file/null capture only; final Root compilation is pending. Native credential-store implementation starts in isolation with a strict document, native OS-store boundary, and owned helper. The initial lock delta adds no new dependency packages. Pure checks have started. The exact private D-Bus/gnome-keyring operator is reviewed and released only for a synthetic private environment; no native-test pass is claimed yet. No workstation credential store, native Mac, permission, SSH, or hardware access is performed."
     },
     {
       "title": "Native, platform, and browser qualification remain open",
-      "detail": "Earlier software/native proofs do not qualify physical routes, native clocks, current Mac GUI/legacy ABI, protocol interop, DSD device carriage, or release. Mac SSH remains blocked; no repeated question or access change occurs. Packaging implementation is active but its final qualification remains pending. Playwright is absent; fresh API equality and seven Node checks are separate from browser/visual verification."
+      "detail": "Earlier software/native proofs do not qualify physical routes, native clocks, current Mac GUI/legacy ABI, protocol interop, DSD device carriage, or release. Direct Mac SSH remains unavailable; no retry, repeat question, or access change occurs. Package construction/verification is published, but installation/signing/release remain open. Playwright is absent; fresh API equality and seven Node checks are separate from browser/visual verification."
     }
   ],
   "activity": [
     {
-      "title": "Combined session/DSD check joins exit 0",
-      "detail": "The reviewed Sendspin session and DSD codec integrations pass the combined Linux gate with exit 0 and source unchanged. Standard result blocks report 1,530 passes, zero failures, 11 ignored cases, and 169 groups, including child results. These are reported blocks, not a unique-test total. All six explicit Sendspin Python peer tests pass separately. The frozen 1,955-file archive SHA256 is ba0bd7a3c8cdc9366fa2becfbc78115ec9672aa6affd35c7d1fe935be1fe21e8. New Engine/Desktop products are Linux builds; they have no fresh native GUI or hardware proof."
+      "title": "New combined gate runs or waits under the shared lock",
+      "detail": "Root’s combined renderer/runtime gate is queued or running under the shared lock, with product builds, six session-peer tests, and three Network peer groups included. No result is reported yet. Root source stays frozen; the dashboard does not copy into that checkout. Published HEAD remains 486, whose hosted result stays three passes and the known proxy-test failure. Its reviewed proxy fix is still unpublished."
     },
     {
-      "title": "All four d2 jobs pass, including actual Swift",
-      "detail": "All four d2fa9f7 push/PR software jobs now pass, including actual generated Swift owner/CLI gates in both Mac jobs. The Swift scenario reports 94 frames and 52 exact CLI comparisons across nine network, six disabled-renderer, and eight volume commands. Fixture connections/requests stay zero; output is neither consented nor opened; the owner exits 0. The exact Swift compiler version is unknown in that log. Version printing is added for the next checkpoint. Earlier c8/a302 passes keep their original source scope."
+      "title": "Reviewed roleless and Network units import",
+      "detail": "The final roleless Sendspin driver passes targeted independent review with 208 focused passes and 18 actual pinned-peer scenarios. Root imports its sixteen files. An explicit lock merge preserves only the codec serde edge; dependency inventory and notices regenerate successfully. The reviewed thirteen-path Network renderer unit is also imported. These imports await the new combined gate and publication; they do not establish production startup, player, clock, or output qualification."
     },
     {
-      "title": "Both session and DSD independent reviews clear",
-      "detail": "Both independent session and DSD reviews are clear. The session unit resolves the stale queued-finalize and quiet-period timeout findings with reviewed regressions. Its new integrated source passes the combined and six explicit peer tests. Production secret storage, startup/player integration, clocks, and output remain separate unfinished work. The next roleless outbound WebSocket driver has completed read-only preparation; implementation and dependency audit have not started. Reviewed typed stereo DSF/uncompressed DFF to DoP software for DSD64/128 is integrated and passes the combined Linux gate. Its earlier 458 Core/media and 15 codec/container checks retain their scoped proof. No Engine/native/physical DSD route is wired or qualified. PLAY-07 and SAFE-04 remain partial; AC-13 remains incomplete. Physical DSD qualification is still required."
+      "title": "Real SOAP regression drives two bounded Engine/Core corrections",
+      "detail": "Independent Engine review found paused-source A/staged-source B Play routing was wrong. A real SOAP RED exposes that defect; the correction then exposes lost Core waiting authority while A closes. The narrow eight-path unit fixes both while blocking new execution until the old worker joins. Sixty Core tests and three actual SOAP child scenarios pass, with strict Clippy/format checks. Targeted independent review clears all eight owned paths and thirteen borrowed Network paths; Root imports the corrected unit. No joint U5 acceptance follows."
     },
     {
-      "title": "U4 signatures freeze; review and consumers remain pending",
-      "detail": "U4 Core public graph/callback/subscription signatures are frozen. Final Debug-redaction verification is queued; independent review and consumers remain pending. A signature freeze is not an enabled renderer or interoperability qualification."
+      "title": "Generated private multicast route succeeds without actual controllers",
+      "detail": "The private GUPnP image imports successfully and image-only metadata passes eight real binary/dependency checks and bootstrap syntax; its container stops cleanly. No actual Music Assistant, GUPnP controller, or Earph service is started. The default Music Assistant socket fails without a multicast /32 route. The exact private /32 route plus generated traffic succeeds, and all four generated peers stop cleanly. The original wrapper exits 1 because of a duplicate log and remains retained; a separate read-only recovery receipt records the traffic result. Actual controller U5 remains pending. A separate public-API Engine fixture is being prepared for ALSA file/null capture only; final Root compilation is pending."
     },
     {
-      "title": "Packaging has 14 focused passes; final qualification pending",
-      "detail": "Packaging implementation is active with 14 focused cases passing after meaningful REDs. Final harness checks, strict lint, real frozen-product E2E, and independent review remain pending. No package installation, signing, or release is qualified. Earlier pinned MPL source retention remains a separate research result."
+      "title": "Synthetic native credential operator is released, not yet qualified",
+      "detail": "Native credential-store implementation starts in isolation with a strict document, native OS-store boundary, and owned helper. The initial lock delta adds no new dependency packages. Pure checks have started. The exact private D-Bus/gnome-keyring operator is reviewed and released only for a synthetic private environment; no native-test pass is claimed yet. No workstation credential store, native Mac, permission, SSH, or hardware access is performed."
     }
   ]
 }

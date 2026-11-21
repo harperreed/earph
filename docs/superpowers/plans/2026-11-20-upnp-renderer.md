@@ -101,6 +101,10 @@ It pins authored graph intent, owns separate callback grants, and retains respon
 The shared writer enforces the encoded event cap before renderer staging commits.
 U4a is integrated, independently reviewed, and qualified by the [Linux receipt](../../evidence/network/upnp-core-linux-20261120.json).
 The review fixed exact accepted graph replay after preparation state changes, while preserving live authority checks.
-U4b must implement the actual adapter ledger, response-FIN completion, bounded sender, and callback permit.
-U4c must implement fresh measured graph preparation through the existing owner loop and common output worker.
+U4b implements the actual adapter ledger, response-FIN completion, bounded sender, and callback permit.
+U4c implements fresh measured graph preparation through the existing owner loop and common output worker.
+Both units passed their scoped software checks and independent review.
+The replacement regression also corrected Core's waiting-authority lifetime without relaxing execution readiness.
+The [combined Linux receipt](../../evidence/network/renderer-execution-linux-20261121.json) qualifies the merged software boundary.
+Joint U5 remains pending.
 Production startup remains disabled through those units and joint U5 qualification.

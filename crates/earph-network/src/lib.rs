@@ -4,4 +4,5 @@ mod policy;
 pub use policy::*;
 mod fetch;
 pub use fetch::*;
+pub mod sendspin;
 pub mod upnp;

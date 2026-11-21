@@ -133,7 +133,7 @@ impl Session {
             .renderer
             .continuation
             .as_ref()
-            .is_some_and(|b| !self.renderer_graph_binding_valid(b, now_ns))
+            .is_some_and(|b| !self.renderer_graph_authority_valid(b, now_ns))
         {
             self.renderer.continuation = None;
             self.invalidate_graph_work(EngineError::new(
@@ -723,6 +723,9 @@ impl Session {
         binding: &RendererGraphBinding,
         now_ns: u64,
     ) -> bool {
+        self.network.closing.is_none() && self.renderer_graph_authority_valid(binding, now_ns)
+    }
+    fn renderer_graph_authority_valid(&self, binding: &RendererGraphBinding, now_ns: u64) -> bool {
         self.renderer.enabled
             && !self.state.shutdown_requested
             && self.state.owner_id.as_ref() == Some(&binding.owner_id)
@@ -746,7 +749,6 @@ impl Session {
             && self.network.active.as_ref().is_some_and(|source| {
                 source.binding == binding.source && source.source_epochs == binding.source_epochs
             })
-            && self.network.closing.is_none()
             && self.network_authority_valid(&binding.source, now_ns)
     }
     pub fn submit_renderer_graph_with_effects(

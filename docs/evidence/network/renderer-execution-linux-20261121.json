@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "source": {
+    "baseline_commit": "486760081d49a4bcd7500f13400a50369a6ded42",
+    "source_dirty": true,
+    "qualified_archive_sha256": "d3c186401b9b4438bf1f496e8c1b7cdad33c3f081646c4ef736d27a9123bc45a",
+    "qualified_source_files": 1994,
+    "source_unchanged_during_checks": true,
+    "publication_note": "Derived receipts and progress notes are added after this source archive."
+  },
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "measurement_boundary": "Software contracts; physical output unqualified"
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "reported_results": {
+      "passed": 1660,
+      "failed": 0,
+      "ignored": 14,
+      "groups": 180
+    },
+    "log_sha256": "6f4c892edd8ecba16243449a274ecf5bec4fe7356df03de2b7245a50141b1a2c",
+    "product_build_exit": 0,
+    "count_note": "Reported blocks include child results and are not a unique-test total. Ignored peer suites ran explicitly afterward."
+  },
+  "integrated_peers": {
+    "session": {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "groups": 17,
+      "exit": 0,
+      "log_sha256": "f1709514c43b9f035c0c4af0abf8f27289d5da6f1f8e7c3abcd71026835b886e"
+    },
+    "outbound_network": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "groups": 1,
+      "actual_scenarios": 18,
+      "exit": 0,
+      "log_sha256": "807fdd3b47af1eb38a852341c1f3c81586836563df8b7e6cf1a0568674cd5962"
+    }
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "36ac0a5eb091a24da197efeab2ff6676890f152e90221df2cba7da8ac5b2d28d"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "72d7ad7ececede9d4da24ec0e004f4e80b4b45106d19116f87002bfa1b830bdf"
+    }
+  ],
+  "requirement_status": "partial",
+  "scope": "Renderer Network events and explicit Engine execution through the shared Core owner and playback worker",
+  "source_files": [
+    {
+      "path": "crates/earph-core/src/session_renderer.rs",
+      "sha256": "e1ba72eec5cf6fefd606d5fcd70d79274b66c891b9635fd19aa83b64ef48738e"
+    },
+    {
+      "path": "crates/earph-core/tests/renderer_control.rs",
+      "sha256": "c60ba39067bf4de0b28687ee828664ea02081c529110076b55d689afaa79686e"
+    },
+    {
+      "path": "crates/earph-engine/src/host.rs",
+      "sha256": "7e60669cbd9072c46c14d536a7e62ee99aa4679a78ceafc327ded502b104b2ad"
+    },
+    {
+      "path": "crates/earph-engine/src/host_renderer_tests.rs",
+      "sha256": "b6fb242f3643309446bdedadfd440d0195f8d945dc69fbf9f7ff038dc0b8a2e2"
+    },
+    {
+      "path": "crates/earph-engine/src/lib.rs",
+      "sha256": "a8ed457c7c1923955f2a7ef3de518a2daf38b13314c87cebcf7dee71f8b09754"
+    },
+    {
+      "path": "crates/earph-engine/src/renderer.rs",
+      "sha256": "9142c5b1ca961b476e989bef08160a0a2a0109044d89962d47d06ee5fa48dfb6"
+    },
+    {
+      "path": "crates/earph-engine/tests/renderer_owner.rs",
+      "sha256": "624eac3c10351be826e943c5963ffa46226d43035eaa96c4e1e80bb114c729f7"
+    },
+    {
+      "path": "crates/earph-network/src/policy.rs",
+      "sha256": "56711ddd446190f791260f4259ac93b1f811e9e77ea9a89c2e4daf7c4636feff"
+    },
+    {
+      "path": "crates/earph-network/src/upnp/budget.rs",
+      "sha256": "6467790fb5451fe4ec4f536db7b99424b8a734892c5752299ee2bb9005bfaab3"
+    },
+    {
+      "path": "crates/earph-network/src/upnp/description.rs",
+      "sha256": "f8e969300ed0f9b0d3bcb6686071001468677ca67a229a14c2eb9e871fb5a341"
+    },
+    {
+      "path": "crates/earph-network/src/upnp/events.rs",
+      "sha256": "eb4a8e40c39d1d0fcb5339bb504c45ef08f14f6f23e020b5ad0bd7ced3df3b14"
+    },
+    {
+      "path": "crates/earph-network/src/upnp/http.rs",
+      "sha256": "557cd3f6a51268306184e4d0a10ca6be263ecea99e7f63821cd1205577dbfee2"
+    },
+    {
+      "path": "crates/earph-network/src/upnp/mod.rs",
+      "sha256": "8038f1c163b62e7edde553faa2b78de2bca7500ccf89c075c2ddf3ef4cafd172"
+    },
+    {
+      "path": "crates/earph-network/src/upnp/response.rs",
+      "sha256": "7685e65b5254b47a2bb8566be7f0cb9a2f0f89872f095596bea69af87d0b8921"
+    },
+    {
+      "path": "crates/earph-network/tests/support/upnp_events.rs",
+      "sha256": "3917ea0671ba294dacc2e56eb121b7ccd18bc49d69e25cf235cfe1b57e580f6c"
+    },
+    {
+      "path": "crates/earph-network/tests/upnp_description.rs",
+      "sha256": "ce3303e32ce24a61461e03c56fc73182d12705899993576d9645f837040de10f"
+    },
+    {
+      "path": "crates/earph-network/tests/upnp_event_delivery.rs",
+      "sha256": "ab48136077101dcea14d18a8dfdf832f2ef9a8f0106edec87db80efa7e5f3456"
+    },
+    {
+      "path": "crates/earph-network/tests/upnp_event_headers.rs",
+      "sha256": "3d86a28cf6c316e5edc4d4b78bd54bce629c3c8a5f729b4e9bf0fcf37df22442"
+    },
+    {
+      "path": "crates/earph-network/tests/upnp_event_wire.rs",
+      "sha256": "a8a9c816cfb09ce1a806e35075489a0038d44ce4c8196b9a252f2e292f6cf3d3"
+    },
+    {
+      "path": "docs/upnp-network-execution.md",
+      "sha256": "33842aa1b99b2dbe4f70ba5de4e99db5e19ca08fbc663106bfd7d1e3eae827b4"
+    },
+    {
+      "path": "docs/upnp-owner-execution.md",
+      "sha256": "013b1e1d04183a412c16d5eeff630335469d6589586b60925be05a34ceaa1579"
+    }
+  ],
+  "units": {
+    "network_patch_sha256": "1b078cab9f8840007acabfb4387278739c25a3807f6420e9c70c4dc563c01567",
+    "owner_core_patch_sha256": "875bc6911621f7f02550a2b0ff48a537c80d7d9ea043d3feacf8407b550b6aae",
+    "network_reported_passes": 93,
+    "corrected_core_tests": 60,
+    "corrected_actual_owner_children": 3
+  },
+  "independent_reviews": {
+    "network": {
+      "status": "complete",
+      "material_findings": 0,
+      "report_sha256": "c1aa2856bc1e4fe68a1961ad55621dfa30169a3d016b31adf741eebd91ec4b42"
+    },
+    "owner": {
+      "status": "complete",
+      "material_findings": 0,
+      "report_sha256": "98b9e310e7af59cc97f0352b96daba885bf0746f0deda69725d1e7dadde5b19b"
+    }
+  },
+  "verified_behavior": [
+    "SOAP and events share Core projection and actual controller authority.",
+    "Initial NOTIFY waits for actual subscription response TCP write shutdown.",
+    "Adapter event leases and four joined senders share the eight-MiB ledger.",
+    "Paused Play resumes only matching staged media; replacement uses takeover policy.",
+    "Waiting replacement authority survives outgoing retirement; execution stays blocked until exact join.",
+    "Fresh measured graph preparation and native acknowledgement remain muted until explicit Unmute."
+  ],
+  "limits": [
+    "Default CLI renderer startup remains disabled.",
+    "Named Music Assistant and independent-controller U5 interoperability remain unqualified.",
+    "The exceptional fatal-exit surface-retention limit has no in-process recovery API.",
+    "Current Mac discovery, physical output, LAN behavior and release remain separate gates."
+  ]
+}

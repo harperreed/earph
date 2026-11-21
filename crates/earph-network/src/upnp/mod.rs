@@ -23,6 +23,10 @@ impl Service {
         }
     }
 
+    pub(super) fn event_path(self) -> String {
+        format!("/upnp/{}/events", self.slug())
+    }
+
     pub const fn namespace(self) -> &'static str {
         match self {
             Self::AvTransport => "urn:schemas-upnp-org:service:AVTransport:1",
@@ -81,3 +85,9 @@ mod ssdp;
 pub use ssdp::{
     Advertisement, SSDP_GROUP, Search, SearchError, SsdpEndpoint, SsdpScheduler, parse_search,
 };
+
+mod budget;
+pub use budget::EventLease;
+mod events;
+pub use events::{CallbackAttempt, CallbackPermit, DeliveryCompletion};
+pub use http::{IncomingRequest, PendingSubscription, SubscriptionResponseCompletion};

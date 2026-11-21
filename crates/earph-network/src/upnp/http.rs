@@ -1,13 +1,17 @@
 // ABOUTME: Serves bounded one-request HTTP connections on one explicitly selected IPv4 address.
 // ABOUTME: Delivers typed owner tickets through bounded queues without claiming owner execution.
+use super::budget::{Active, BASE_RESERVATION, Budget, Lease};
 use super::{
     Service, SoapError, SoapRequest, UpnpFault, decode_soap, device_description, encode_fault,
     encode_response, service_description,
 };
+use crate::PolicyError;
 use bytes::Bytes;
+use earph_core::renderer_events::*;
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, Response, body::Incoming, server::conn::http1, service::service_fn};
 use hyper_util::rt::{TokioIo, TokioTimer};
+use std::sync::Mutex;
 use std::{
     convert::Infallible,
     fmt, io,
@@ -25,9 +29,7 @@ use tokio::{io::AsyncWriteExt, net::TcpStream, sync::oneshot, task::JoinSet};
 pub const MAX_HEADERS_BYTES: usize = 32768;
 pub const MAX_HEADERS: usize = 64;
 pub const MAX_SOAP_BYTES: usize = 262144;
-pub const ADAPTER_MEMORY_BYTES: usize = 8 * 1024 * 1024;
-const BASE_RESERVATION: usize = 256 * 1024;
-const REQUEST_RESERVATION: usize = (ADAPTER_MEMORY_BYTES - BASE_RESERVATION) / 4;
+pub use super::budget::ADAPTER_MEMORY_BYTES;
 const READ_DEADLINE: Duration = Duration::from_secs(5);
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
 
@@ -56,33 +58,6 @@ impl DeviceIdentity {
 impl fmt::Debug for DeviceIdentity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeviceIdentity").finish_non_exhaustive()
-    }
-}
-
-struct Budget {
-    reserved: AtomicUsize,
-    active: AtomicUsize,
-    ordinary: AtomicUsize,
-    queued: AtomicUsize,
-}
-struct Lease(Arc<Budget>);
-impl Drop for Lease {
-    fn drop(&mut self) {
-        self.0
-            .reserved
-            .fetch_sub(REQUEST_RESERVATION, Ordering::AcqRel);
-    }
-}
-struct Active(Arc<Budget>);
-impl Drop for Active {
-    fn drop(&mut self) {
-        self.0.active.fetch_sub(1, Ordering::AcqRel);
-    }
-}
-struct Ordinary(Arc<Budget>);
-impl Drop for Ordinary {
-    fn drop(&mut self) {
-        self.0.ordinary.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -147,7 +122,13 @@ pub struct HttpSurface {
     stop: Arc<AtomicBool>,
     general: Receiver<PendingAction>,
     lifecycle: Receiver<PendingAction>,
+    subscriptions: Receiver<PendingSubscription>,
+    subscription_lifecycle: Receiver<PendingSubscription>,
+    completions: Receiver<SubscriptionResponseCompletion>,
+    joined: bool,
+    service_error: Option<io::ErrorKind>,
     budget: Arc<Budget>,
+    events: super::events::EventHandle,
     discovery: SyncSender<super::SsdpEndpoint>,
     discovery_attached: AtomicBool,
     thread: Option<thread::JoinHandle<io::Result<()>>>,
@@ -171,15 +152,11 @@ impl HttpSurface {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let (stop, budget) = (
-            Arc::new(AtomicBool::new(false)),
-            Arc::new(Budget {
-                reserved: AtomicUsize::new(BASE_RESERVATION),
-                active: AtomicUsize::new(0),
-                ordinary: AtomicUsize::new(0),
-                queued: AtomicUsize::new(0),
-            }),
-        );
+        let (stop, budget) = (Arc::new(AtomicBool::new(false)), Budget::new());
+        let (subscriptions_tx, subscriptions) = mpsc::sync_channel(4);
+        let (subscription_lifecycle_tx, subscription_lifecycle) = mpsc::sync_channel(2);
+        let (completions_tx, completions) = mpsc::sync_channel(16);
+        let completion_credits = Arc::new(AtomicUsize::new(0));
         let (general_tx, general) = mpsc::sync_channel(14);
         let (lifecycle_tx, lifecycle) = mpsc::sync_channel(2);
         let (discovery_tx, discovery_rx) = mpsc::sync_channel::<super::SsdpEndpoint>(1);
@@ -191,6 +168,10 @@ impl HttpSurface {
             budget: budget.clone(),
             general: general_tx,
             lifecycle: lifecycle_tx,
+            subscriptions: subscriptions_tx,
+            subscription_lifecycle: subscription_lifecycle_tx,
+            completions: completions_tx,
+            completion_credits,
         });
         let mut shared =
             Arc::try_unwrap(shared).map_err(|_| io::Error::other("description ownership"))?;
@@ -205,25 +186,32 @@ impl HttpSurface {
         }
         let shared = Arc::new(shared);
         let thread_shared = shared.clone();
+        let (events, mut event_runtime) =
+            super::events::EventHandle::new(stop.clone(), budget.clone());
         let thread=thread::Builder::new().name("earph-upnp-wire".into()).spawn(move||runtime.block_on(async move{
             let listener=tokio::net::TcpListener::from_std(listener)?;let mut connections=JoinSet::new();let mut discovery=None;let mut failure=None;
             while !thread_shared.stop.load(Ordering::Acquire){
+                event_runtime.poll();
                 if let Ok(endpoint)=discovery_rx.try_recv(){discovery=Some(endpoint);}
                 if let Some(endpoint)=discovery.as_mut() && let Err(error)=endpoint.poll(){failure=Some(error);break;}
                 while connections.try_join_next().is_some(){}
                 match tokio::time::timeout(Duration::from_millis(20),listener.accept()).await{
                     Ok(Ok((mut stream,peer)))=>{
-                        let reserved=thread_shared.budget.reserved.fetch_update(Ordering::AcqRel,Ordering::Acquire,|n|n.checked_add(REQUEST_RESERVATION).filter(|v|*v<=ADAPTER_MEMORY_BYTES));
-                        if reserved.is_err(){let _=tokio::time::timeout(Duration::from_millis(100),stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")).await;continue;}
+                        let reserved=thread_shared.budget.request();
+                        if reserved.is_none(){let _=tokio::time::timeout(Duration::from_millis(100),stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")).await;continue;}
                         thread_shared.budget.active.fetch_add(1,Ordering::AcqRel);
-                        let shared=thread_shared.clone();let lease=Arc::new(Lease(shared.budget.clone()));let active=Active(shared.budget.clone());
+                        let shared=thread_shared.clone();let lease=reserved.expect("admitted request lease");let active=Active(shared.budget.clone());
                         connections.spawn(async move{
                             let _active=active;
+                            let deadline=Instant::now()+Duration::from_secs(15);
+                            let completion=Arc::new(ResponseCell::new(shared.completions.clone()));
+                            let guard=ResponseGuard(completion.clone());
                             if let Err(status)=header_gate(&stream).await{let _=tokio::time::timeout(Duration::from_secs(1),stream.write_all(format!("HTTP/1.1 {status} Rejected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes())).await;return;}
                             let std::net::IpAddr::V4(peer)=peer.ip()else{return;};
-                            let service=service_fn(move|request|serve(request,shared.clone(),peer,lease.clone()));
+                            let service=service_fn(move|request|serve(request,shared.clone(),peer,lease.clone(),deadline,completion.clone()));
                             let mut builder=http1::Builder::new();builder.keep_alive(false).max_headers(MAX_HEADERS).max_buf_size(MAX_HEADERS_BYTES).timer(TokioTimer::new()).header_read_timeout(READ_DEADLINE);
-                            let _=tokio::time::timeout(Duration::from_secs(15),builder.serve_connection(TokioIo::new(stream),service)).await;
+                            let result=tokio::time::timeout_at(deadline.into(),builder.serve_connection(TokioIo::new(stream),service)).await;
+                            guard.0.finish(matches!(result,Ok(Ok(()))));
                         });
                     }
                     Ok(Err(error))=>{failure=Some(error);break;},
@@ -232,6 +220,7 @@ impl HttpSurface {
             }
             thread_shared.stop.store(true,Ordering::Release);
             connections.abort_all();while connections.join_next().await.is_some(){}
+            event_runtime.shutdown().await;
             if let Some(endpoint)=discovery && let Err(error)=endpoint.shutdown(){failure.get_or_insert(error);}
             match failure{Some(error)=>Err(error),None=>Ok(())}
         }))?;
@@ -240,7 +229,13 @@ impl HttpSurface {
             stop,
             general,
             lifecycle,
+            subscriptions,
+            subscription_lifecycle,
+            completions,
+            joined: false,
+            service_error: None,
             budget,
+            events,
             discovery: discovery_tx,
             discovery_attached: AtomicBool::new(false),
             thread: Some(thread),
@@ -279,19 +274,70 @@ impl HttpSurface {
             }
         }
     }
+    pub fn try_recv_incoming(&self) -> Option<IncomingRequest> {
+        while let Ok(action) = self.lifecycle.try_recv() {
+            self.budget.queued.fetch_sub(1, Ordering::AcqRel);
+            if action.is_live() {
+                return Some(IncomingRequest::Action(action));
+            }
+        }
+        while let Ok(subscription) = self.subscription_lifecycle.try_recv() {
+            self.budget.queued.fetch_sub(1, Ordering::AcqRel);
+            if subscription.is_live() {
+                return Some(IncomingRequest::Subscription(subscription));
+            }
+        }
+        while let Ok(subscription) = self.subscriptions.try_recv() {
+            self.budget.queued.fetch_sub(1, Ordering::AcqRel);
+            if subscription.is_live() {
+                return Some(IncomingRequest::Subscription(subscription));
+            }
+        }
+        self.try_recv().map(IncomingRequest::Action)
+    }
+    pub fn try_recv_response_completion(&self) -> Option<SubscriptionResponseCompletion> {
+        self.completions.try_recv().ok()
+    }
+    pub fn start_delivery(
+        &self,
+        delivery: Arc<RendererDelivery>,
+        now_ns: u64,
+    ) -> Result<(), PolicyError> {
+        self.events.start(delivery, now_ns)
+    }
+    pub fn try_recv_callback_attempt(&self) -> Option<super::CallbackAttempt> {
+        self.events.attempt()
+    }
+    pub fn try_recv_delivery_completion(&self) -> Option<super::DeliveryCompletion> {
+        self.events.completion()
+    }
+    pub fn cancel_delivery(&self, binding: &RendererSubscriptionBinding, delivery_id: u64) -> bool {
+        self.events.cancel(binding, delivery_id)
+    }
+    pub fn request_shutdown(&self) {
+        self.stop.store(true, Ordering::Release);
+    }
+    pub fn poll_shutdown(&mut self) -> Option<SurfaceStats> {
+        if self.thread.as_ref().is_some_and(|t| !t.is_finished()) {
+            return None;
+        }
+        self.stop_and_join();
+        Some(self.stats())
+    }
     pub fn stats(&self) -> SurfaceStats {
         SurfaceStats {
-            reserved_bytes: self.budget.reserved.load(Ordering::Acquire),
+            reserved_bytes: self.budget.reserved(),
             active: self.budget.active.load(Ordering::Acquire),
             queued: self.budget.queued.load(Ordering::Acquire),
-            joined: false,
-            service_error: None,
+            joined: self.joined,
+            service_error: self.service_error,
         }
     }
     fn stop_and_join(&mut self) -> (bool, Option<io::ErrorKind>) {
         self.stop.store(true, Ordering::Release);
         let result = match self.thread.take().map(|thread| thread.join()) {
-            None | Some(Ok(Ok(()))) => (true, None),
+            None => (self.joined, self.service_error),
+            Some(Ok(Ok(()))) => (true, None),
             Some(Ok(Err(error))) => (true, Some(error.kind())),
             Some(Err(_)) => (false, Some(io::ErrorKind::Other)),
         };
@@ -299,6 +345,16 @@ impl HttpSurface {
             .lifecycle
             .try_recv()
             .or_else(|_| self.general.try_recv())
+            .is_ok()
+        {
+            self.budget.queued.fetch_sub(1, Ordering::AcqRel);
+        }
+        self.joined = result.0;
+        self.service_error = result.1;
+        while self
+            .subscription_lifecycle
+            .try_recv()
+            .or_else(|_| self.subscriptions.try_recv())
             .is_ok()
         {
             self.budget.queued.fetch_sub(1, Ordering::AcqRel);
@@ -327,6 +383,10 @@ struct Shared {
     budget: Arc<Budget>,
     general: SyncSender<PendingAction>,
     lifecycle: SyncSender<PendingAction>,
+    subscriptions: SyncSender<PendingSubscription>,
+    subscription_lifecycle: SyncSender<PendingSubscription>,
+    completions: SyncSender<SubscriptionResponseCompletion>,
+    completion_credits: Arc<AtomicUsize>,
 }
 fn valid_host(value: &str) -> bool {
     let name_char = |b: u8| b.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=".contains(&b);
@@ -463,7 +523,20 @@ async fn serve(
     shared: Arc<Shared>,
     peer: Ipv4Addr,
     lease: Arc<Lease>,
+    connection_deadline: Instant,
+    completion: Arc<ResponseCell>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
+    if matches!(request.method().as_str(), "SUBSCRIBE" | "UNSUBSCRIBE") {
+        return Ok(serve_subscription(
+            request,
+            shared,
+            peer,
+            lease,
+            connection_deadline,
+            completion,
+        )
+        .await);
+    }
     let result = async {
         if request.uri().scheme().is_some() || request.uri().query().is_some() {
             return (404, Vec::new());
@@ -547,22 +620,9 @@ async fn serve(
         }
         drop(body);
         let lifecycle = matches!(parsed.name(), "Stop");
-        let ordinary = if lifecycle {
-            None
-        } else {
-            if shared
-                .budget
-                .ordinary
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                    (n < 3).then_some(n + 1)
-                })
-                .is_err()
-            {
-                return (503, Vec::new());
-            }
-            Some(Ordinary(shared.budget.clone()))
-        };
-        let _ordinary = ordinary;
+        if !lifecycle && !lease.admit_ordinary() {
+            return (503, Vec::new());
+        }
         let Ok(id) =
             NEXT_REQUEST.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
         else {
@@ -597,4 +657,385 @@ async fn serve(
     }
     .await;
     Ok(response(&shared, result.0, Bytes::from(result.1)))
+}
+
+pub enum IncomingRequest {
+    Action(PendingAction),
+    Subscription(PendingSubscription),
+}
+struct CompletionCredit(Arc<AtomicUsize>);
+impl Drop for CompletionCredit {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+pub struct SubscriptionResponseCompletion {
+    pub binding: RendererSubscriptionBinding,
+    pub success: bool,
+    _credit: CompletionCredit,
+}
+struct ResponseState {
+    binding: Option<RendererSubscriptionBinding>,
+    finished: Option<bool>,
+    handed: Option<bool>,
+    credit: Option<CompletionCredit>,
+}
+struct ResponseCell {
+    state: Mutex<ResponseState>,
+    sender: SyncSender<SubscriptionResponseCompletion>,
+}
+impl ResponseCell {
+    fn new(sender: SyncSender<SubscriptionResponseCompletion>) -> Self {
+        Self {
+            state: Mutex::new(ResponseState {
+                binding: None,
+                finished: None,
+                handed: None,
+                credit: None,
+            }),
+            sender,
+        }
+    }
+    fn emit(&self, s: &mut ResponseState) {
+        let success = match (s.handed, s.finished) {
+            (Some(false), _) => false,
+            (Some(true), Some(finished)) => finished,
+            _ => return,
+        };
+        if let (Some(binding), Some(credit)) = (s.binding.take(), s.credit.take()) {
+            let _ = self.sender.try_send(SubscriptionResponseCompletion {
+                binding,
+                success,
+                _credit: credit,
+            });
+        }
+    }
+    fn bind(&self, binding: RendererSubscriptionBinding) {
+        self.state.lock().unwrap().binding = Some(binding);
+    }
+    fn handoff(&self, success: bool) {
+        let mut s = self.state.lock().unwrap();
+        s.handed = Some(success);
+        self.emit(&mut s);
+    }
+    fn finish(&self, success: bool) {
+        let mut s = self.state.lock().unwrap();
+        if s.finished.is_none() {
+            s.finished = Some(success);
+        }
+        self.emit(&mut s);
+    }
+}
+struct ResponseGuard(Arc<ResponseCell>);
+impl Drop for ResponseGuard {
+    fn drop(&mut self) {
+        self.0.finish(false);
+    }
+}
+struct SubscriptionReply {
+    status: u16,
+    info: Option<(String, u32)>,
+}
+pub struct PendingSubscription {
+    action: RendererSubscriptionAction,
+    service: RendererService,
+    id: u64,
+    peer: Ipv4Addr,
+    deadline: Instant,
+    ticket_deadline: Instant,
+    reply: Option<oneshot::Sender<SubscriptionReply>>,
+    stopped: Arc<AtomicBool>,
+    lease: Arc<Lease>,
+    completion: Arc<ResponseCell>,
+}
+impl fmt::Debug for PendingSubscription {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PendingSubscription")
+            .field("id", &self.id)
+            .field("service", &self.service)
+            .finish_non_exhaustive()
+    }
+}
+impl PendingSubscription {
+    pub fn action(&self) -> &RendererSubscriptionAction {
+        &self.action
+    }
+    pub fn service(&self) -> RendererService {
+        self.service
+    }
+    pub fn request_id(&self) -> u64 {
+        self.id
+    }
+    pub fn peer(&self) -> Ipv4Addr {
+        self.peer
+    }
+    pub fn response_deadline(&self) -> Instant {
+        self.deadline
+    }
+    pub fn is_live(&self) -> bool {
+        !self.stopped.load(Ordering::Acquire)
+            && Instant::now() < self.ticket_deadline
+            && self.reply.as_ref().is_some_and(|r| !r.is_closed())
+    }
+    pub fn reserve_lease(&self) -> Result<Arc<super::EventLease>, PolicyError> {
+        if !self.is_live() || !matches!(self.action, RendererSubscriptionAction::Subscribe { .. }) {
+            return Err(PolicyError::InvalidBinding);
+        }
+        self.lease.budget.reserve_event(self.service)
+    }
+    pub fn respond(mut self, result: Result<Option<&RendererSubscriptionInfo>, u16>) -> bool {
+        let initial = matches!(self.action, RendererSubscriptionAction::Subscribe { .. });
+        if initial && let Ok(Some(info)) = &result {
+            self.completion.bind(info.binding.clone());
+        }
+        let live = self.is_live();
+        let reply = match result {
+            Ok(info) => SubscriptionReply {
+                status: 200,
+                info: info.map(|i| (i.binding.sid.clone(), i.timeout_seconds)),
+            },
+            Err(status) => SubscriptionReply {
+                status: if matches!(status, 400 | 412 | 500 | 503) {
+                    status
+                } else {
+                    500
+                },
+                info: None,
+            },
+        };
+        let sent = live && self.reply.take().is_some_and(|tx| tx.send(reply).is_ok());
+        if initial {
+            self.completion.handoff(sent);
+        }
+        sent
+    }
+}
+fn parse_subscription(
+    request: &Request<Incoming>,
+    service: RendererService,
+) -> Result<RendererSubscriptionAction, u16> {
+    let headers = request.headers();
+    for name in ["callback", "nt", "sid", "timeout"] {
+        if headers.get_all(name).iter().count() > 1 {
+            return Err(400);
+        }
+    }
+    if headers.contains_key("transfer-encoding")
+        || headers
+            .get("content-length")
+            .is_some_and(|v| v.as_bytes() != b"0")
+    {
+        return Err(400);
+    }
+    let text = |name| -> Result<Option<&str>, u16> {
+        headers
+            .get(name)
+            .map(|v| v.to_str().map_err(|_| 400u16))
+            .transpose()
+    };
+    let (sid, callback, nt, timeout) = (
+        text("sid")?,
+        text("callback")?,
+        text("nt")?,
+        text("timeout")?,
+    );
+    if request.method().as_str() == "UNSUBSCRIBE" {
+        if callback.is_some() || nt.is_some() || timeout.is_some() {
+            return Err(400);
+        }
+        return Ok(RendererSubscriptionAction::Unsubscribe {
+            sid: subscription_sid(sid)?.into(),
+        });
+    }
+    if sid.is_some() && (callback.is_some() || nt.is_some()) {
+        return Err(400);
+    }
+    let timeout_seconds = match timeout {
+        None | Some("Second-infinite") => 1800,
+        Some(t) => t
+            .strip_prefix("Second-")
+            .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|n| n.parse::<u32>().ok())
+            .filter(|n| *n > 0)
+            .ok_or(400u16)?
+            .min(1800),
+    };
+    if sid.is_some() {
+        return Ok(RendererSubscriptionAction::Renew {
+            sid: subscription_sid(sid)?.into(),
+            timeout_seconds,
+        });
+    }
+    if nt != Some("upnp:event") {
+        return Err(412);
+    }
+    let mut rest = callback.ok_or(412u16)?.trim();
+    let mut callbacks = Vec::with_capacity(8);
+    while !rest.is_empty() {
+        let r = rest.strip_prefix('<').ok_or(412u16)?;
+        let end = r.find('>').ok_or(412u16)?;
+        let url = &r[..end];
+        if callbacks.len() == 8 || url.len() > 8192 {
+            return Err(412);
+        }
+        let checked = crate::CheckedUrl::new(url).map_err(|_| 412u16)?;
+        if checked.origin().scheme != "http" || callback_origin(url).is_err() {
+            return Err(412);
+        }
+        callbacks.push(url.to_owned());
+        rest = r[end + 1..].trim_start_matches([' ', '\t']);
+    }
+    if callbacks.is_empty() {
+        return Err(412);
+    }
+    callbacks.shrink_to_fit();
+    Ok(RendererSubscriptionAction::Subscribe {
+        service,
+        callbacks,
+        timeout_seconds,
+    })
+}
+fn subscription_sid(sid: Option<&str>) -> Result<&str, u16> {
+    sid.filter(|s| {
+        s.starts_with("uuid:") && s.len() <= 128 && s.bytes().all(|b| (33..127).contains(&b))
+    })
+    .ok_or(412)
+}
+async fn serve_subscription(
+    request: Request<Incoming>,
+    shared: Arc<Shared>,
+    peer: Ipv4Addr,
+    lease: Arc<Lease>,
+    deadline: Instant,
+    completion: Arc<ResponseCell>,
+) -> Response<Full<Bytes>> {
+    let service = Service::ALL
+        .into_iter()
+        .find(|s| request.uri().path() == s.event_path());
+    let Some(service) = service else {
+        return response(&shared, 404, Bytes::new());
+    };
+    if request.uri().scheme().is_some() || request.uri().query().is_some() {
+        return response(&shared, 404, Bytes::new());
+    }
+    let service = match service {
+        Service::AvTransport => RendererService::AvTransport,
+        Service::RenderingControl => RendererService::RenderingControl,
+        Service::ConnectionManager => RendererService::ConnectionManager,
+    };
+    let action = match parse_subscription(&request, service) {
+        Ok(a) => a,
+        Err(status) => return response(&shared, status, Bytes::new()),
+    };
+    let lifecycle = matches!(action, RendererSubscriptionAction::Unsubscribe { .. });
+    if !lifecycle && !lease.admit_ordinary() {
+        return response(&shared, 503, Bytes::new());
+    }
+    if matches!(action, RendererSubscriptionAction::Subscribe { .. }) {
+        if shared
+            .completion_credits
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < 16).then_some(n + 1)
+            })
+            .is_err()
+        {
+            return response(&shared, 503, Bytes::new());
+        }
+        completion.state.lock().unwrap().credit =
+            Some(CompletionCredit(shared.completion_credits.clone()));
+    }
+    let Ok(id) =
+        NEXT_REQUEST.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
+    else {
+        return response(&shared, 503, Bytes::new());
+    };
+    let (tx, rx) = oneshot::channel();
+    let ticket_deadline = deadline.min(Instant::now() + READ_DEADLINE);
+    let pending = PendingSubscription {
+        action,
+        service,
+        id,
+        peer,
+        deadline,
+        ticket_deadline,
+        reply: Some(tx),
+        stopped: shared.stop.clone(),
+        lease,
+        completion,
+    };
+    shared.budget.queued.fetch_add(1, Ordering::AcqRel);
+    if (if lifecycle {
+        &shared.subscription_lifecycle
+    } else {
+        &shared.subscriptions
+    })
+    .try_send(pending)
+    .is_err()
+    {
+        shared.budget.queued.fetch_sub(1, Ordering::AcqRel);
+        return response(&shared, 503, Bytes::new());
+    }
+    let reply = match tokio::time::timeout_at(ticket_deadline.into(), rx).await {
+        Ok(Ok(r)) => r,
+        _ => return response(&shared, 500, Bytes::new()),
+    };
+    let mut response = response(&shared, reply.status, Bytes::new());
+    if let Some((sid, timeout)) = reply.info {
+        let Ok(value) = hyper::header::HeaderValue::from_str(&sid) else {
+            return self::response(&shared, 500, Bytes::new());
+        };
+        response.headers_mut().insert("sid", value);
+        response.headers_mut().insert(
+            "timeout",
+            hyper::header::HeaderValue::from_str(&format!("Second-{timeout}"))
+                .expect("bounded timeout"),
+        );
+    }
+    response
+}
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    fn binding() -> RendererSubscriptionBinding {
+        use earph_core::ids::*;
+        RendererSubscriptionBinding {
+            owner_id: OwnerId::new("completion-owner").unwrap(),
+            renderer_epoch: 1,
+            sid: "uuid:completion".into(),
+            generation: 1,
+            controller_id: RendererControllerId::new("controller").unwrap(),
+            controller_generation: 1,
+            callback_generation: 1,
+        }
+    }
+    #[test]
+    fn response_handoff_waits_for_transport_shutdown_and_reports_failure_after_late_binding() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let credit = Arc::new(AtomicUsize::new(1));
+        let cell = ResponseCell::new(tx);
+        cell.state.lock().unwrap().credit = Some(CompletionCredit(credit.clone()));
+        cell.bind(binding());
+        cell.handoff(true);
+        assert!(
+            rx.try_recv().is_err(),
+            "handing bytes to Hyper must not acknowledge a subscription"
+        );
+        cell.finish(true);
+        let result = rx.try_recv().unwrap();
+        assert!(result.success);
+        assert_eq!(result.binding, binding());
+        cell.finish(false);
+        assert!(rx.try_recv().is_err());
+        drop(result);
+        assert_eq!(credit.load(Ordering::Acquire), 0);
+        let (tx, rx) = mpsc::sync_channel(16);
+        let credit = Arc::new(AtomicUsize::new(1));
+        let cell = ResponseCell::new(tx);
+        cell.state.lock().unwrap().credit = Some(CompletionCredit(credit.clone()));
+        cell.finish(false);
+        cell.bind(binding());
+        cell.handoff(false);
+        assert!(!rx.try_recv().unwrap().success);
+        assert_eq!(credit.load(Ordering::Acquire), 0);
+    }
 }

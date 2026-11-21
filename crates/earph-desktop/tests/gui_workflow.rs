@@ -346,6 +346,20 @@ fn close_during_a_real_held_query_returns_before_transport_cleanup() {
 }
 
 #[test]
+fn proxy_retains_real_upstream_disconnect_and_joins_without_panicking() {
+    let mut owner = Owner::start();
+    let proxy = proxy::Proxy::drop_first_state(owner.runtime.clone());
+    let runtime = proxy.runtime.clone();
+    owner.stop();
+    let client = earph_desktop::OwnerClient::attach(runtime.to_str().unwrap().into()).unwrap();
+    assert!(client.request(&query(Command::State)).is_err());
+    assert_eq!(proxy.frames.lock().unwrap().len(), 1);
+    drop(proxy);
+    let failure = std::fs::read_to_string(runtime.join("upstream-error-1.txt")).unwrap();
+    assert!(failure.contains("DeviceUnavailable"), "{failure}");
+}
+
+#[test]
 fn restarted_owner_blocks_old_uncertain_mutation_without_retargeting() {
     let mut owner = Owner::start();
     let runtime = owner.runtime.clone();

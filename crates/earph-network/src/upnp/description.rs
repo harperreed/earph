@@ -36,7 +36,8 @@ pub fn device_description(udn: &str, friendly_name: &str) -> Result<String, Soap
             .nth(1)
             .expect("static service namespace");
         let path = service.slug();
-        write!(xml, "<service><serviceType>{}</serviceType><serviceId>urn:upnp-org:serviceId:{id}</serviceId><SCPDURL>/upnp/{path}/scpd.xml</SCPDURL><controlURL>/upnp/{path}/control</controlURL><eventSubURL>/upnp/{path}/events</eventSubURL></service>", service.namespace()).unwrap();
+        let event_path = service.event_path();
+        write!(xml, "<service><serviceType>{}</serviceType><serviceId>urn:upnp-org:serviceId:{id}</serviceId><SCPDURL>/upnp/{path}/scpd.xml</SCPDURL><controlURL>/upnp/{path}/control</controlURL><eventSubURL>{event_path}</eventSubURL></service>", service.namespace()).unwrap();
     }
     xml.push_str("</serviceList></device></root>");
     Ok(xml)

@@ -152,7 +152,17 @@ impl Proxy {
                                     })
                                     .unwrap();
                             }
-                            let mut reply = earph_engine::request(&owner, &bytes).unwrap();
+                            let mut reply = match earph_engine::request(&owner, &bytes) {
+                                Ok(reply) => reply,
+                                Err(error) => {
+                                    fs::write(
+                                        retained.join(format!("upstream-error-{index}.txt")),
+                                        error.to_string(),
+                                    )
+                                    .unwrap();
+                                    return;
+                                }
+                            };
                             fs::write(retained.join(format!("reply-{index}.json")), &reply)
                                 .unwrap();
                             if method == "queue.get"

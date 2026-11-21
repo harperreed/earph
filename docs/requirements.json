@@ -326,7 +326,8 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "evidence/network/upnp-core-linux-20261120.json"
+        "evidence/network/upnp-core-linux-20261120.json",
+        "evidence/network/renderer-execution-linux-20261121.json"
       ]
     },
     {
@@ -346,7 +347,8 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "evidence/sendspin/session-linux-20261120.json"
+        "evidence/sendspin/session-linux-20261120.json",
+        "evidence/sendspin/runtime-linux-20261121.json"
       ]
     },
     {

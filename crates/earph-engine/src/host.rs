@@ -11,6 +11,7 @@ use earph_core::{
     control::{Command, CommandEnvelope, ReceiptStatus, SourceKind},
     graph_control::{GraphActivationAck, GraphServiceObservation},
     ids::{Epochs, RequestId},
+    renderer::{RendererAction, RendererGraphBinding},
     session::{EngineEvent, EngineEventKind, Session},
 };
 use std::{
@@ -18,7 +19,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::AtomicBool,
+        atomic::{AtomicBool, Ordering},
         mpsc::{RecvTimeoutError, TryRecvError},
     },
     time::{Duration, Instant},
@@ -34,6 +35,7 @@ pub(crate) fn serve(
     directory: PathBuf,
     token: String,
     device_helper: Option<crate::DeviceDiscoveryHelper>,
+    mut renderer: Option<crate::renderer::RendererRuntime>,
 ) -> Result<(), EngineError> {
     let server = ipc::Server::spawn(listener)?;
     let mut graphs = GraphJobs::spawn(directory.clone())?;
@@ -47,6 +49,9 @@ pub(crate) fn serve(
     let mut network_retirement = None;
     loop {
         session.expire_network_authority(monotonic(&clock))?;
+        if let Some(renderer) = renderer.as_mut() {
+            renderer.poll(&mut session, monotonic(&clock))?;
+        }
         synchronize_network(
             &session,
             &mut worker,
@@ -162,6 +167,9 @@ pub(crate) fn serve(
                 && resources.resident_bytes == 0
                 && resources.pending_retirements == 0
                 && !resources.preparing_or_candidate
+                && renderer
+                    .as_ref()
+                    .is_none_or(|renderer| renderer.is_idle(&session))
             {
                 return Ok(());
             }
@@ -181,203 +189,114 @@ pub(crate) fn serve(
         }
         graphs.poll(&mut session, monotonic(&clock))?;
         artifacts.poll(&mut session, monotonic(&clock), &directory, &token)?;
-        match server.requests.recv_timeout(Duration::from_millis(1)) {
-            Ok(pending) => {
-                let command = pending.command;
-                let before = session.snapshot();
-                let actual_check = worker
-                    .view
-                    .lock()
-                    .map_err(|_| IO)?
-                    .validate_edit(&command.payload);
-                let needs_worker = action_required(&command.payload, before.source);
-                let safety = safety_control(&command.payload);
-                // This actor is the sole command producer. Replacement queues retirement before start.
-                let replacing_network = before.source == Some(SourceKind::HttpFlac)
-                    && matches!(
-                        command.payload,
-                        Command::NetworkStartHttpFlac { .. }
-                            | Command::Start {
-                                source: SourceKind::LocalFile,
-                                ..
+        if let Some(renderer) = renderer.as_mut()
+            && let Some((command, binding)) =
+                renderer.next_graph_command(&session, monotonic(&clock))
+        {
+            let executed = OwnerControl {
+                session: &mut session,
+                worker: &mut worker,
+                graphs: &mut graphs,
+                artifacts: &mut artifacts,
+                devices: &mut devices,
+                directory: &directory,
+                token: &token,
+                clock: &clock,
+                live_binding: &live_binding,
+                network_retirement: &mut network_retirement,
+            }
+            .execute(command, Ingress::Graph(binding))?;
+            if let Some(error) = executed.persistence_error {
+                return Err(error);
+            }
+        }
+        if let Some(renderer) = renderer.as_mut()
+            && let Some(pending) = renderer.try_recv()
+        {
+            match pending {
+                earph_network::upnp::IncomingRequest::Action(pending) => {
+                    match renderer.admit(&mut session, &pending, monotonic(&clock)) {
+                        Ok(crate::renderer::Admission::Read(values)) => {
+                            let values: Vec<_> =
+                                values.iter().map(|(k, v)| (*k, v.as_str())).collect();
+                            pending.respond(Ok(&values));
+                        }
+                        Ok(crate::renderer::Admission::Command(command)) => {
+                            let peer = pending.peer().into();
+                            let executed = OwnerControl {
+                                session: &mut session,
+                                worker: &mut worker,
+                                graphs: &mut graphs,
+                                artifacts: &mut artifacts,
+                                devices: &mut devices,
+                                directory: &directory,
+                                token: &token,
+                                clock: &clock,
+                                live_binding: &live_binding,
+                                network_retirement: &mut network_retirement,
                             }
-                    );
-                let capacity = !needs_worker
-                    || worker.has_capacity_for(safety, 1 + usize::from(replacing_network));
-                let view = worker.view.clone();
-                let mut persistence_error = None;
-                let mut dispatched_early = false;
-                let mut admission_failure = None;
-                let submitted_ns = monotonic(&clock);
-                let mut receipt = session.submit_with_network_effects(
-                    command.clone(),
-                    submitted_ns,
-                    directory::paths,
-                    |candidate, command| {
-                        crate::network_source::validate(candidate, command, &clock)
-                    },
-                    |staged| {
-                        actual_check?;
-                        if matches!(
-                            command.payload,
-                            Command::DevicesList { .. } | Command::DevicesInspect { .. }
-                        ) {
-                            return devices.submit(staged);
-                        }
-                        if command.payload.is_profile_save()
-                            || command.payload.starts_diagnostic_work()
-                        {
-                            return artifacts.submit(staged, monotonic(&clock));
-                        }
-                        if command.payload.prepares_graph() {
-                            return graphs.submit(staged, &worker);
-                        }
-                        if matches!(command.payload, Command::Stop | Command::OwnerShutdown)
-                            || before.source == Some(SourceKind::HttpFlac)
-                                && matches!(command.payload, Command::NetworkGrantsRevoke { .. })
-                        {
-                            worker.cancel_active();
-                        }
-                        if !capacity {
-                            if safety {
-                                worker.cancel_active();
-                                admission_failure = Some(ErrorCode::SourceBusy);
-                            }
-                            return Err(EngineError::new(
-                                ErrorCode::SourceBusy,
-                                "playback control queue is full",
-                            ));
-                        }
-                        if command.payload.activates_graph() {
-                            graphs.validate_activation(staged)?;
-                        }
-                        if matches!(
-                            before.source,
-                            Some(SourceKind::LocalFile | SourceKind::HttpFlac)
-                        ) {
-                            let settings = Settings {
-                                snapshot: staged.snapshot(),
-                                playing: staged.wants_playback(),
-                            };
-                            let safety_action = match command.payload {
-                                Command::Pause => Some(Action::Pause(settings)),
-                                Command::Mute { muted: true }
-                                | Command::VolumeSilence
-                                | Command::VolumeFactoryDefaults
-                                | Command::VolumeCaps { .. } => Some(Action::Settings(settings)),
-                                _ => None,
-                            };
-                            if let Some(action) = safety_action {
-                                if let Err(error) = worker.send(action) {
-                                    admission_failure = Some(error.code);
-                                    return Err(error);
-                                }
-                                dispatched_early = true;
+                            .execute(*command, Ingress::Peer(peer))?;
+                            renderer.poll(&mut session, monotonic(&clock))?;
+                            let result = crate::renderer::receipt_result(
+                                &executed.receipt,
+                                pending.request().service,
+                            );
+                            pending.respond(result.map(|()| &[][..]));
+                            if let Some(error) = executed.persistence_error {
+                                return Err(error);
                             }
                         }
+                        Err(fault) => {
+                            pending.respond(Err(fault));
+                        }
+                    }
+                }
+                earph_network::upnp::IncomingRequest::Subscription(pending) => {
+                    let mut persistence_error = None;
+                    renderer.subscription(&mut session, pending, monotonic(&clock), |staged| {
                         let bytes = serde_json::to_vec(&staged.checkpoint()).map_err(|_| IO)?;
-                        let mut gate = None;
-                        let persisted = runtime::checkpoint_transaction(
+                        runtime::checkpoint_transaction(
                             &directory,
                             &format!("{token}-{}", staged.snapshot().revision),
                             &bytes,
-                            || {
-                                let acquired = view.lock().map_err(|_| IO)?;
-                                acquired.validate_edit(&command.payload)?;
-                                gate = Some(acquired);
-                                Ok(())
-                            },
-                        );
-                        if let Err(error) = persisted {
+                            || Ok(()),
+                        )
+                        .map_err(|error| {
                             if let runtime::CheckpointError::Storage(error) = error {
                                 persistence_error = Some(error);
                             }
-                            return Err(error.error());
-                        }
-                        let mut gate = gate.ok_or(IO)?;
-                        if matches!(
-                            command.payload,
-                            Command::Start {
-                                source: SourceKind::LocalFile,
-                                ..
-                            }
-                        ) {
-                            gate.active = staged.snapshot().active_entry_id;
-                            gate.reserved = staged.snapshot().reserved_next_entry_id;
-                            gate.epochs = Some(staged.snapshot().epochs);
-                        }
-                        if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
-                            gate.active = None;
-                            gate.reserved = None;
-                        }
-                        gate.publish(staged.queue_snapshot());
-                        Ok(())
-                    },
-                );
-                cancel_rejected_safety(&mut session, &worker, &command, &receipt);
-                if let Some(code) = admission_failure {
-                    // Cancellation protects output even when safety traffic filled the reserve.
-                    // Report failure until an explicit control restores a usable stream.
-                    advance(
-                        &mut session,
-                        EngineEventKind::LocalFailed { code },
-                        None,
-                        &clock,
-                    );
-                }
-                let after = session.snapshot();
-                synchronize_network(
-                    &session,
-                    &mut worker,
-                    &live_binding,
-                    &mut network_retirement,
-                )?;
-                if matches!(
-                    receipt.status,
-                    ReceiptStatus::Applied | ReceiptStatus::Accepted
-                ) && after.revision != before.revision
-                    && !dispatched_early
-                    && let Err(error) = if command.payload.activates_graph() {
-                        graphs.activate(&mut worker, &session)
-                    } else {
-                        dispatch_with_network(
-                            &command,
-                            &mut worker,
-                            &session,
-                            &live_binding,
-                            &clock,
-                        )
-                    }
-                {
-                    if command.payload.activates_graph() {
-                        session.fail_graph_activation(&command.request_id, error);
-                        worker.cancel_active();
-                        receipt = session.submit_graph(command.clone(), monotonic(&clock));
-                    } else {
-                        advance(
-                            &mut session,
-                            EngineEventKind::LocalFailed { code: error.code },
-                            None,
-                            &clock,
-                        );
+                            error.error()
+                        })
+                    });
+                    renderer.poll(&mut session, monotonic(&clock))?;
+                    if let Some(error) = persistence_error {
+                        return Err(error);
                     }
                 }
-                let _ = pending.reply.try_send(receipt);
-                if let Some(error) = persistence_error {
+            }
+        }
+        match server.requests.recv_timeout(Duration::from_millis(1)) {
+            Ok(pending) => {
+                let command = pending.command;
+                let executed = OwnerControl {
+                    session: &mut session,
+                    worker: &mut worker,
+                    graphs: &mut graphs,
+                    artifacts: &mut artifacts,
+                    devices: &mut devices,
+                    directory: &directory,
+                    token: &token,
+                    clock: &clock,
+                    live_binding: &live_binding,
+                    network_retirement: &mut network_retirement,
+                }
+                .execute(command, Ingress::Local)?;
+                if let Some(renderer) = renderer.as_mut() {
+                    renderer.poll(&mut session, monotonic(&clock))?;
+                }
+                let _ = pending.reply.try_send(executed.receipt);
+                if let Some(error) = executed.persistence_error {
                     return Err(error);
-                }
-                if session.shutdown_requested() && session.closing_network_source().is_none() {
-                    devices.cancel();
-                    artifacts.cancel(&mut session);
-                    let resources = graphs.service.resources();
-                    if devices.is_idle()
-                        && artifacts.is_idle()
-                        && resources.resident_bytes == 0
-                        && resources.pending_retirements == 0
-                        && !resources.preparing_or_candidate
-                    {
-                        return Ok(());
-                    }
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -385,7 +304,246 @@ pub(crate) fn serve(
         }
     }
 }
+enum Ingress {
+    Local,
+    Peer(std::net::IpAddr),
+    Graph(Arc<RendererGraphBinding>),
+}
+struct OwnerExecution {
+    receipt: earph_core::control::Receipt,
+    persistence_error: Option<EngineError>,
+}
+struct OwnerControl<'a> {
+    session: &'a mut Session,
+    worker: &'a mut Worker,
+    graphs: &'a mut GraphJobs,
+    artifacts: &'a mut crate::profiles::ArtifactJobs,
+    devices: &'a mut crate::devices::DeviceJobs,
+    directory: &'a std::path::Path,
+    token: &'a str,
+    clock: &'a Instant,
+    live_binding: &'a crate::network_source::LiveBinding,
+    network_retirement: &'a mut Option<earph_core::network_source::NetworkSourceBinding>,
+}
+impl OwnerControl<'_> {
+    fn execute(
+        &mut self,
+        command: CommandEnvelope,
+        ingress: Ingress,
+    ) -> Result<OwnerExecution, EngineError> {
+        let session = &mut *self.session;
+        let worker = &mut *self.worker;
+        let graphs = &mut *self.graphs;
+        let artifacts = &mut *self.artifacts;
+        let devices = &mut *self.devices;
+        let directory = self.directory;
+        let token = self.token;
+        let clock = self.clock;
+        let live_binding = self.live_binding;
+        let network_retirement = &mut *self.network_retirement;
+        let before = session.snapshot();
+        let actual_check = worker
+            .view
+            .lock()
+            .map_err(|_| IO)?
+            .validate_edit(&command.payload);
+        let needs_worker = action_required(&command.payload, before.source);
+        let safety = safety_control(&command.payload);
+        // This actor is the sole command producer. Replacement queues retirement before start.
+        let replacing_network = before.source == Some(SourceKind::HttpFlac)
+            && matches!(
+                command.payload,
+                Command::NetworkStartHttpFlac { .. }
+                    | Command::RendererRequest {
+                        action: RendererAction::Play { .. },
+                        ..
+                    }
+                    | Command::Start {
+                        source: SourceKind::LocalFile,
+                        ..
+                    }
+            );
+        let capacity =
+            !needs_worker || worker.has_capacity_for(safety, 1 + usize::from(replacing_network));
+        let view = worker.view.clone();
+        let mut persistence_error = None;
+        let mut dispatched_early = false;
+        let mut admission_failure = None;
+        let submitted_ns = monotonic(clock);
+        let commit = |staged: &Session| {
+            actual_check?;
+            if matches!(
+                command.payload,
+                Command::DevicesList { .. } | Command::DevicesInspect { .. }
+            ) {
+                return devices.submit(staged);
+            }
+            if command.payload.is_profile_save() || command.payload.starts_diagnostic_work() {
+                return artifacts.submit(staged, monotonic(clock));
+            }
+            if command.payload.prepares_graph() {
+                return graphs.submit(staged, worker);
+            }
+            if matches!(
+                command.payload,
+                Command::Stop
+                    | Command::OwnerShutdown
+                    | Command::RendererRequest {
+                        action: RendererAction::Stop { binding: Some(_) },
+                        ..
+                    }
+            ) || before.source == Some(SourceKind::HttpFlac)
+                && matches!(command.payload, Command::NetworkGrantsRevoke { .. })
+            {
+                worker.cancel_active();
+            }
+            if !capacity {
+                if safety {
+                    worker.cancel_active();
+                    admission_failure = Some(ErrorCode::SourceBusy);
+                }
+                return Err(EngineError::new(
+                    ErrorCode::SourceBusy,
+                    "playback control queue is full",
+                ));
+            }
+            if command.payload.activates_graph() {
+                graphs.validate_activation(staged)?;
+            }
+            if matches!(
+                before.source,
+                Some(SourceKind::LocalFile | SourceKind::HttpFlac)
+            ) {
+                let settings = Settings {
+                    snapshot: staged.snapshot(),
+                    playing: staged.wants_playback(),
+                };
+                let safety_action = match command.payload {
+                    Command::Pause => Some(Action::Pause(settings)),
+                    Command::Mute { muted: true }
+                    | Command::VolumeSilence
+                    | Command::VolumeFactoryDefaults
+                    | Command::VolumeCaps { .. } => Some(Action::Settings(settings)),
+                    Command::RendererRequest { ref action, .. } => match action {
+                        RendererAction::Pause { .. } => Some(Action::Pause(settings)),
+                        RendererAction::Stop { .. } => None,
+                        action if action.is_safety() => Some(Action::Settings(settings)),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(action) = safety_action {
+                    if let Err(error) = worker.send(action) {
+                        admission_failure = Some(error.code);
+                        return Err(error);
+                    }
+                    dispatched_early = true;
+                }
+            }
+            let bytes = serde_json::to_vec(&staged.checkpoint()).map_err(|_| IO)?;
+            let mut gate = None;
+            let persisted = runtime::checkpoint_transaction(
+                directory,
+                &format!("{token}-{}", staged.snapshot().revision),
+                &bytes,
+                || {
+                    let acquired = view.lock().map_err(|_| IO)?;
+                    acquired.validate_edit(&command.payload)?;
+                    gate = Some(acquired);
+                    Ok(())
+                },
+            );
+            if let Err(error) = persisted {
+                if let runtime::CheckpointError::Storage(error) = error {
+                    persistence_error = Some(error);
+                }
+                return Err(error.error());
+            }
+            let mut gate = gate.ok_or(IO)?;
+            if matches!(
+                command.payload,
+                Command::Start {
+                    source: SourceKind::LocalFile,
+                    ..
+                }
+            ) {
+                gate.active = staged.snapshot().active_entry_id;
+                gate.reserved = staged.snapshot().reserved_next_entry_id;
+                gate.epochs = Some(staged.snapshot().epochs);
+            }
+            if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
+                gate.active = None;
+                gate.reserved = None;
+            }
+            gate.publish(staged.queue_snapshot());
+            Ok(())
+        };
+        let mut receipt = match ingress {
+            Ingress::Local => session.submit_with_network_effects(
+                command.clone(),
+                submitted_ns,
+                directory::paths,
+                |s, c| crate::network_source::validate(s, c, clock),
+                commit,
+            ),
+            Ingress::Peer(peer) => session.submit_renderer_with_network_effects(
+                command.clone(),
+                peer,
+                submitted_ns,
+                |s, c| crate::network_source::validate(s, c, clock),
+                commit,
+            ),
+            Ingress::Graph(binding) => session.submit_renderer_graph_with_effects(
+                command.clone(),
+                binding,
+                submitted_ns,
+                commit,
+            ),
+        };
+        cancel_rejected_safety(session, worker, &command, &receipt);
+        if let Some(code) = admission_failure {
+            // Cancellation protects output even when safety traffic filled the reserve.
+            // Report failure until an explicit control restores a usable stream.
+            advance(session, EngineEventKind::LocalFailed { code }, None, clock);
+        }
+        let after = session.snapshot();
+        synchronize_network(session, worker, live_binding, network_retirement)?;
+        if matches!(
+            receipt.status,
+            ReceiptStatus::Applied | ReceiptStatus::Accepted
+        ) && after.revision != before.revision
+            && !dispatched_early
+            && let Err(error) = if command.payload.activates_graph() {
+                graphs.activate(worker, session)
+            } else {
+                dispatch_with_network(&command, worker, session, live_binding, clock)
+            }
+        {
+            if command.payload.activates_graph() {
+                session.fail_graph_activation(&command.request_id, error);
+                worker.cancel_active();
+                receipt = session.submit_graph(command.clone(), monotonic(clock));
+            } else {
+                advance(
+                    session,
+                    EngineEventKind::LocalFailed { code: error.code },
+                    None,
+                    clock,
+                );
+            }
+        }
+
+        Ok(OwnerExecution {
+            receipt,
+            persistence_error,
+        })
+    }
+}
+
 fn safety_control(command: &Command) -> bool {
+    if let Command::RendererRequest { action, .. } = command {
+        return action.is_safety();
+    }
     matches!(
         command,
         Command::Stop
@@ -467,6 +625,14 @@ fn cancel_rejected_safety(
     session.fail_graph_activation(&activation.request_id, error);
 }
 fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
+    if let Command::RendererRequest { action, .. } = command {
+        return match action {
+            RendererAction::StageUri { .. } => false,
+            RendererAction::Play { .. } => true,
+            RendererAction::Stop { binding } => binding.is_some(),
+            _ => source == Some(SourceKind::HttpFlac),
+        };
+    }
     if matches!(command, Command::NetworkStartHttpFlac { .. }) {
         return true;
     }
@@ -599,7 +765,14 @@ fn dispatch_with_network(
         snapshot: session.snapshot(),
         playing: session.wants_playback(),
     };
-    if matches!(command.payload, Command::NetworkStartHttpFlac { .. }) {
+    if matches!(
+        command.payload,
+        Command::NetworkStartHttpFlac { .. }
+            | Command::RendererRequest {
+                action: RendererAction::Play { .. },
+                ..
+            }
+    ) {
         // Revocation precedes fallible permit construction after a successful commit.
         worker.cancel_active();
         let context = session.network_source().ok_or(IO)?;
@@ -618,6 +791,19 @@ fn dispatch_with_network(
     {
         return match command.payload {
             Command::Pause => worker.send(Action::Pause(settings)),
+            Command::RendererRequest {
+                action: RendererAction::Pause { .. },
+                ..
+            } => worker.send(Action::Pause(settings)),
+            Command::RendererRequest {
+                action:
+                    RendererAction::Resume { .. }
+                    | RendererAction::SetMute { .. }
+                    | RendererAction::SetVolume { .. }
+                    | RendererAction::SetVolumeDb { .. }
+                    | RendererAction::FactoryDefaults { .. },
+                ..
+            } => worker.send(Action::Settings(settings)),
             Command::Resume
             | Command::Mute { .. }
             | Command::VolumeSet { .. }
@@ -825,18 +1011,34 @@ fn monotonic(clock: &Instant) -> u64 {
 struct GraphJobs {
     service: GraphService,
     job: Option<(RequestId, GraphCancellation)>,
+    pending: Option<PendingGraph>,
     ready: Option<PreparedPipeline>,
+}
+struct PendingGraph {
+    request: earph_core::graph_control::GraphJobRequest,
+    snapshot: earph_core::session::SessionSnapshot,
+    source_cancel: Arc<AtomicBool>,
 }
 impl GraphJobs {
     fn spawn(asset_store: PathBuf) -> Result<Self, EngineError> {
         Ok(Self {
             service: GraphService::spawn(Some(asset_store))?,
             job: None,
+            pending: None,
             ready: None,
         })
     }
     fn poll(&mut self, session: &mut Session, now_ns: u64) -> Result<(), EngineError> {
         session.expire_graph_work(now_ns);
+        if self.pending.as_ref().is_some_and(|pending| {
+            session.graph_job().is_none_or(|job| {
+                job.request_id != pending.request.request_id
+                    || job.binding != pending.request.binding
+                    || job.renderer_application != pending.request.renderer_application
+            })
+        }) {
+            self.pending = None;
+        }
         if self
             .job
             .as_ref()
@@ -890,6 +1092,41 @@ impl GraphJobs {
                 }
             }
         }
+        if let Some(pending) = self.pending.take() {
+            let state = session.snapshot();
+            let binding = &pending.request.binding;
+            let current = state.owner_id.as_ref() == Some(&binding.owner_id)
+                && state.session_id.as_ref() == Some(&binding.session_id)
+                && state.epochs == binding.epochs
+                && state.device_epoch == binding.device_epoch
+                && state.revision == binding.expected_revision
+                && !pending.source_cancel.load(Ordering::Acquire)
+                && pending
+                    .request
+                    .renderer_application
+                    .as_ref()
+                    .is_none_or(|renderer| session.renderer_graph_binding_valid(renderer, now_ns));
+            let submitted = if current {
+                self.start(&pending)
+            } else {
+                Err(EngineError::new(
+                    ErrorCode::StaleSession,
+                    "queued graph authority changed",
+                ))
+            };
+            match submitted {
+                Ok(cancel) => self.job = Some((pending.request.request_id, cancel)),
+                Err(error) if error.code == ErrorCode::SourceBusy => self.pending = Some(pending),
+                Err(error) => {
+                    let _ = session.complete_graph_preparation(
+                        &pending.request.request_id,
+                        &pending.request.binding,
+                        now_ns,
+                        Err(error.into()),
+                    );
+                }
+            }
+        }
         let observed = self.service.resources();
         session.observe_graph_resources(
             GraphServiceObservation {
@@ -901,13 +1138,31 @@ impl GraphJobs {
         )
     }
     fn submit(&mut self, session: &Session, worker: &Worker) -> Result<(), EngineError> {
-        let job = session.graph_job().ok_or(IO)?;
-        let id = job.request_id.clone();
-        let cancel = self
-            .service
-            .submit(job, session.snapshot(), worker.source_cancellation()?)?;
-        self.job = Some((id, cancel));
-        Ok(())
+        let pending = PendingGraph {
+            request: session.graph_job().ok_or(IO)?,
+            snapshot: session.snapshot(),
+            source_cancel: worker.source_cancellation()?,
+        };
+        match self.start(&pending) {
+            Ok(cancel) => {
+                self.job = Some((pending.request.request_id, cancel));
+                self.pending = None;
+                Ok(())
+            }
+            Err(error) if error.code == ErrorCode::SourceBusy => {
+                // Core adopts replacement before poll retires its displaced candidate.
+                self.pending = Some(pending);
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+    fn start(&mut self, pending: &PendingGraph) -> Result<GraphCancellation, EngineError> {
+        self.service.submit(
+            pending.request.clone(),
+            pending.snapshot.clone(),
+            pending.source_cancel.clone(),
+        )
     }
     fn validate_activation(&self, session: &Session) -> Result<(), EngineError> {
         let activation = session.graph_activation().ok_or(IO)?;

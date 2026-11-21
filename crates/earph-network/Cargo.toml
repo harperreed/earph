@@ -8,6 +8,10 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+earph-sendspin = { path = "../earph-sendspin" }
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
+futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
+serde_json.workspace = true
 earph-core = { path = "../earph-core" }
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
 tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "time", "sync", "io-util"] }
@@ -21,3 +25,5 @@ socket2 = { version = "=0.6.5", default-features = false, features = ["all"] }
 
 [dev-dependencies]
 rustls = { version = "=0.23.46", default-features = false, features = ["std", "aws_lc_rs"] }
+snow = { version = "=0.10.0", default-features = false, features = ["use-curve25519", "use-chacha20poly1305", "use-sha2", "use-getrandom"] }
+base64 = "=0.23.1"

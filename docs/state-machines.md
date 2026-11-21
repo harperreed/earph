@@ -366,7 +366,13 @@ A failed join retains closing ownership and its reservation until exact completi
 SOAP getters and event encoding share one projection.
 The writer checks both XML layers before staging commits.
 The [Core receipt](evidence/network/upnp-core-linux-20261120.json) covers these software contracts.
-The concrete sender, adapter budget, Engine bridge, and joint controller tests remain separate gates.
+The [Network adapter](upnp-network-execution.md) owns concrete event leases and bounded, joined NOTIFY senders.
+The [Engine bridge](upnp-owner-execution.md) serializes requests through the existing owner and shared playback worker.
+A paused Play resumes only when the staged and active media identities match.
+A replacement keeps its live graph authority while the outgoing source retires.
+Graph execution waits for that source's exact retirement acknowledgement.
+Stop, revocation, and expiry still invalidate waiting authority.
+Joint controller tests remain a separate qualification gate.
 Production renderer startup remains disabled.
 
 ## Sendspin session and pairing writes
@@ -381,8 +387,31 @@ The session's first-send clock remains with that reducer.
 Bounded queues and generation checks reject stale work without duplicating the reducer's state in adapters.
 Cancellation stops new work; acknowledged durable writes still require their actual completion.
 See [Sendspin sessions](sendspin-session.md) for the verified library contract and its recovery limits.
-Production credentials, WebSocket integration, player roles, clocks, and playback remain unfinished.
+Production credentials, player roles, clocks, and playback remain unfinished.
 Protocol admission grants no source or output authority.
+
+## Outbound Sendspin transport
+
+The [outbound driver](sendspin-runtime.md) owns one explicit roleless connection and one unsplit WebSocket.
+Producer admission reserves aggregate credits before parsing; pending and dequeued work retain those credits until transfer.
+Consumer event leases hold their credits until release.
+Cancellation ends new work before closing the socket.
+A pending write becomes uncertain before a bounded peer Close reply can drain the same socket.
+That drain cannot acknowledge the uncertain write or resend it through another connection.
+An acknowledged durable commit survives socket closure and remains owned until its exact completion.
+A retirement timeout retains the thread handle; a later retirement joins the same owner.
+Uncertain storage blocks replacement until explicit caller recovery.
+Application startup, OS storage, player roles, clock discipline, and output remain separate work.
+
+## Committed credential restoration
+
+[`CommittedCredentials`](../crates/earph-sendspin/src/credentials.rs) owns permanent identity, permanent pairing PSK, and one `RecordCatalog`.
+Restoration checks the byte budget, strict document shape, version, and catalog invariants before returning credentials.
+It preserves superseded records and checked use order, including counter exhaustion.
+Every field must exist; an absent last-playback server uses explicit `null`.
+Invalid input returns a fixed error without generating identity or repairing state.
+The encoded wrapper redacts Debug and exposes plaintext only through its explicit secret-byte API.
+The [credential contract](sendspin-credentials.md) defines this boundary without selecting an OS store or granting runtime authority.
 
 ## Typed DSD software transport
 

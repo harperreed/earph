@@ -17,11 +17,15 @@ pub enum UpnpFault {
     SeekModeNotSupported,
     IllegalSeekTarget,
     InvalidConnection,
+    ActionNotAuthorized,
+    TransitionNotAvailable,
 }
 impl UpnpFault {
     pub const fn code(self) -> u16 {
         match self {
             Self::InvalidAction => 401,
+            Self::ActionNotAuthorized => 606,
+            Self::TransitionNotAvailable => 701,
             Self::InvalidArguments => 402,
             Self::ActionFailed => 501,
             Self::InvalidInstance(Service::AvTransport) => 718,
@@ -35,6 +39,8 @@ impl UpnpFault {
     pub const fn description(self) -> &'static str {
         match self {
             Self::InvalidAction => "Invalid Action",
+            Self::ActionNotAuthorized => "Action not authorized",
+            Self::TransitionNotAvailable => "Transition not available",
             Self::InvalidArguments => "Invalid Args",
             Self::ActionFailed => "Action Failed",
             Self::InvalidInstance(_) => "Invalid InstanceID",
@@ -70,6 +76,15 @@ fn scalar(variable: &str, value: &str) -> bool {
     }
 }
 impl SoapRequest {
+    /// Shares the service action table with the owner projection bridge.
+    pub fn output_fields(&self) -> &'static [(&'static str, &'static str)] {
+        self.service
+            .actions()
+            .iter()
+            .find(|action| action.name == self.name)
+            .map_or(&[], |action| action.output)
+    }
+
     /// Validate typed input before passing the request to an owner bridge.
     pub fn validate_arguments(&self) -> Result<(), UpnpFault> {
         let spec = self

@@ -1095,6 +1095,90 @@ fn renderer_takeover(media_lifetime: u64) -> (Session, CommandEnvelope) {
 }
 
 #[test]
+fn waiting_renderer_graph_authority_survives_only_exact_outgoing_retirement() {
+    let (mut s, _) = renderer_takeover(60000);
+    let binding = s.renderer_graph_continuation().unwrap();
+    let outgoing = retirement_ack(&s);
+    assert_ne!(outgoing.binding, binding.source);
+    assert!(!s.renderer_graph_binding_valid(&binding, 0));
+    s.expire_network_authority(1).unwrap();
+    assert_eq!(s.renderer_graph_continuation().as_ref(), Some(&binding));
+    let prepare = renderer_prepare(&s, "waiting-prepare");
+    assert_eq!(
+        s.submit_renderer_graph_with_effects(prepare, binding.clone(), 1, |_| {
+            panic!("waiting source must not prepare a graph")
+        })
+        .status,
+        ReceiptStatus::Rejected
+    );
+    let commit = command(
+        &s,
+        "waiting-commit",
+        json!({"method":"graph.commit","token":"not-prepared","graph_hash":"c".repeat(64)}),
+    );
+    assert_eq!(
+        s.submit_renderer_graph_with_effects(commit, binding.clone(), 1, |_| {
+            panic!("waiting source must not commit a graph")
+        })
+        .status,
+        ReceiptStatus::Rejected
+    );
+    let mut stale = outgoing.clone();
+    stale.binding.source_generation += 1;
+    assert!(s.complete_network_retirement(stale, 2).is_err());
+    assert_eq!(s.renderer_graph_continuation().as_ref(), Some(&binding));
+    assert!(!s.renderer_graph_binding_valid(&binding, 2));
+    s.complete_network_retirement(outgoing, 3).unwrap();
+    assert_eq!(s.renderer_graph_continuation().as_ref(), Some(&binding));
+    assert!(s.renderer_graph_binding_valid(&binding, 3));
+    measured_renderer_ready(&mut s, 4);
+    let prepare = renderer_prepare(&s, "joined-prepare");
+    assert_eq!(
+        s.submit_renderer_graph_with_effects(prepare, binding, 4, |_| Ok(()))
+            .status,
+        ReceiptStatus::Accepted
+    );
+    assert!(s.snapshot().muted);
+}
+
+#[test]
+fn waiting_renderer_graph_authority_still_invalidates_on_stop_revoke_and_expiry() {
+    for fence in ["stop", "revoke", "controller-expiry", "media-expiry"] {
+        let (mut s, _) = renderer_takeover(if fence == "media-expiry" { 1 } else { 60000 });
+        let binding = s.renderer_graph_continuation().unwrap();
+        s.expire_network_authority(1).unwrap();
+        assert_eq!(s.renderer_graph_continuation().as_ref(), Some(&binding));
+        match fence {
+            "stop" => {
+                assert_eq!(
+                    renderer_request(
+                        &mut s,
+                        "waiting-stop",
+                        "controller-b",
+                        json!({"operation":"stop","binding":binding.source}),
+                        2
+                    )
+                    .status,
+                    ReceiptStatus::Accepted
+                );
+            }
+            "revoke" => {
+                assert_eq!(submit_at(&mut s, "waiting-revoke", json!({"method":"renderer.grants.revoke","expected_generation":1,"controller_id":"controller-b"}), 2).status, ReceiptStatus::Accepted);
+            }
+            "controller-expiry" => s.expire_network_authority(1_000_000_000).unwrap(),
+            "media-expiry" => s.expire_network_authority(1_000_000).unwrap(),
+            _ => unreachable!(),
+        }
+        assert!(s.renderer_graph_continuation().is_none(), "{fence}");
+        assert!(!s.renderer_graph_binding_valid(&binding, 2));
+        assert!(s.snapshot().muted);
+        assert!(s.graph_job().is_none());
+        assert!(s.graph_activation().is_none());
+        assert!(s.graph_inspection().prepared.is_none());
+    }
+}
+
+#[test]
 fn origin_revoke_and_replace_preserve_deferred_renderer_ownership() {
     for replace in [false, true] {
         let (mut s, _) = renderer_takeover(60000);

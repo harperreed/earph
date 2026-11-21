@@ -171,3 +171,104 @@ fn downloaded_action_and_state_tables_form_consistent_soap_requests() {
         }
     }
 }
+
+#[test]
+fn advertised_event_subscription_urls_reach_typed_listener_for_every_service() {
+    use earph_core::renderer_events::RendererService;
+    use earph_network::upnp::{DeviceIdentity, HttpSurface, IncomingRequest};
+    use std::{
+        io::{Read, Write},
+        net::{Ipv4Addr, SocketAddrV4, TcpStream},
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+    let surface = HttpSurface::bind(
+        SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
+        DeviceIdentity::new(
+            "uuid:01234567-89ab-cdef-0123-456789abcdef",
+            "Description fixture",
+            "Fixture/1 UPnP/1.0 Earph/1",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut socket = TcpStream::connect(surface.local_addr()).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    socket
+        .write_all(b"GET /upnp/device.xml HTTP/1.1\r\nHost: fixture\r\n\r\n")
+        .unwrap();
+    let mut wire = String::new();
+    socket.read_to_string(&mut wire).unwrap();
+    assert!(wire.starts_with("HTTP/1.1 200"));
+    let description = parse(wire.split_once("\r\n\r\n").unwrap().1);
+    let mut failures = Vec::new();
+    let services = &description.child("device").child("serviceList").children;
+    assert_eq!(services.len(), 3);
+    for service in services {
+        let event_url = &service.child("eventSubURL").text;
+        let namespace = &service.child("serviceType").text;
+        let mut socket = TcpStream::connect(surface.local_addr()).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        write!(socket, "SUBSCRIBE {event_url} HTTP/1.1\r\nHost: fixture\r\nCALLBACK: <http://callback.test:80/notify>\r\nNT: upnp:event\r\nContent-Length: 0\r\n\r\n").unwrap();
+        let (tx, rx) = mpsc::sync_channel(1);
+        let reader = std::thread::spawn(move || {
+            let mut response = String::new();
+            socket.read_to_string(&mut response).unwrap();
+            tx.send(response).unwrap();
+        });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let response = loop {
+            if let Some(IncomingRequest::Subscription(pending)) = surface.try_recv_incoming() {
+                let actual_namespace = match pending.service() {
+                    RendererService::AvTransport => Service::AvTransport.namespace(),
+                    RendererService::RenderingControl => Service::RenderingControl.namespace(),
+                    RendererService::ConnectionManager => Service::ConnectionManager.namespace(),
+                };
+                assert_eq!(actual_namespace, namespace);
+                assert!(pending.respond(Err(412)));
+                break rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            }
+            if let Ok(response) = rx.try_recv() {
+                break response;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "advertised URL {event_url} produced no ticket or response"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        };
+        reader.join().unwrap();
+        if !response.starts_with("HTTP/1.1 412") {
+            failures.push(format!("{event_url}: {}", response.lines().next().unwrap()));
+        }
+    }
+    let singular = services[0]
+        .child("eventSubURL")
+        .text
+        .strip_suffix('s')
+        .unwrap();
+    let mut socket = TcpStream::connect(surface.local_addr()).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    write!(
+        socket,
+        "SUBSCRIBE {singular} HTTP/1.1\r\nHost: fixture\r\nNT: invalid\r\nContent-Length: 0\r\n\r\n"
+    )
+    .unwrap();
+    let mut response = String::new();
+    socket.read_to_string(&mut response).unwrap();
+    assert!(
+        response.starts_with("HTTP/1.1 404"),
+        "the singular event path must remain unavailable"
+    );
+    assert!(surface.shutdown().joined);
+    assert!(
+        failures.is_empty(),
+        "advertised event URLs bypassed typed subscription ingress: {failures:?}"
+    );
+}

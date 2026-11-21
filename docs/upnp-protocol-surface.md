@@ -1,10 +1,11 @@
 # Bounded UPnP protocol surface
 
-`earph-network::upnp` supplies the U3 wire layer.
-It does not enable a renderer in Engine or grant playback authority.
+`earph-network::upnp` supplies the wire layer and bounded event transport.
+It grants no playback authority.
 No existing owner, CLI, or desktop startup opens its listeners.
 Core ownership and shared gain are qualified foundations.
-U4 execution/events and U5 interoperability remain required gates.
+The [Engine bridge](upnp-owner-execution.md) requires explicit library configuration.
+Joint U5 interoperability remains a required gate.
 
 The shared action table defines SOAP admission, ordered responses, and device/SCPD descriptions.
 The surface declares MediaRenderer:1, AVTransport:1, RenderingControl:1, and ConnectionManager:1 under UDA1.0.
@@ -14,7 +15,7 @@ AVTransport and RenderingControl return their distinct invalid-instance faults, 
 The nonseekable contract supplies Seek fault 710 and Next/Previous fault 711 after owner state validation.
 Core supplies volume conversion, presets, and source ownership separately.
 The wire descriptions and scalar validation share Core's volume limits.
-The execution bridge and connection-state projection remain required.
+The [shared projection](upnp-core-contract.md) supplies getters and complete event snapshots.
 
 `DeviceIdentity::new` validates the stable UDN, friendly name, and public SERVER header.
 The caller supplies truthful OS/version, UPnP/1.0, and product/version metadata.
@@ -92,12 +93,12 @@ Use a verified address/index pair and address-specific membership, then test act
 See [Darwin's membership handler](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/netinet/in_mcast.c#L2128).
 This API is a proposal, not an implemented Mac capability or a waived acceptance requirement.
 
-GENA endpoints have no subscription authority in this unit and return unsupported status.
-U4 must implement real subscription/callback ownership before enabling advertisement.
+GENA endpoints use Core subscription and callback authority through the explicit Engine bridge.
+The [event adapter](upnp-network-execution.md) defines shared reservations, response FIN, sender cancellation, and joined completion.
 Linux loopback tests exercise raw fragmented, chunked, oversized, ambiguous, slow, and canceled requests.
 They also exercise real UDP discovery against the actual HTTP description listener.
 They do not advertise onto a real LAN or establish controller interoperability.
-Actual Music Assistant/GUPnP, Mac discovery, events, source ownership, gain behavior, and output remain required later gates.
+Actual Music Assistant/GUPnP, Mac discovery, and physical output remain separate qualification gates.
 
 The [Linux wire receipt](evidence/network/upnp-wire-linux-20261120.json) binds the frozen source and actual check results.
 

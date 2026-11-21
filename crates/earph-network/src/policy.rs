@@ -351,7 +351,7 @@ impl FetchPermit {
     }
 }
 
-fn permitted_address(address: IpAddr) -> bool {
+pub(crate) fn permitted_address(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(ip) => {
             let [a, b, c, _] = ip.octets();

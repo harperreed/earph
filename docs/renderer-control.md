@@ -48,7 +48,7 @@ Volume spans 0..30700; VolumeDB spans -32767..0 in 1/256 dB units.
 Volume zero and minimum VolumeDB select exact software zero.
 Finite readbacks derive from the shared Core grid, with quieter ties.
 Wire quantization never rewrites an arbitrary local finite setting.
-Descriptions, SOAP admission, responses, and the later event bridge use these same limits.
+Descriptions, SOAP admission, responses, and the event bridge use these same limits.
 
 Local `volume.silence` selects zero without changing mute or the retained finite dB value.
 The required `software_gain_zero` snapshot field distinguishes this setting from finite attenuation.
@@ -83,7 +83,8 @@ The combined Linux canonical check also passed.
 See the [qualification receipt](evidence/network/renderer-ownership-linux-20261120.json) for exact source bindings and limits.
 
 These tests do not establish the internal deferred-start branch or cancellation after B unmutes.
-The production bridge, callback ownership, and controller interoperability remain required before enabling renderer ingress.
+The [explicit Engine bridge](upnp-owner-execution.md) adds real HTTP execution and separate callback ownership.
+Controller interoperability remains required before enabling default renderer ingress.
 
 See [HTTP owner playback](owner-http-playback.md) for the underlying source and output contract.
 See the [Sendspin crate](../crates/earph-sendspin/README.md) for its separate protocol boundary.

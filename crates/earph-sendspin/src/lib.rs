@@ -2,6 +2,7 @@
 // ABOUTME: Grants no connection, playback, pairing, clock, or native output authority.
 use std::fmt;
 
+pub mod credentials;
 pub mod message;
 pub mod noise;
 pub mod pairing;
