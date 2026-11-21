@@ -87,15 +87,26 @@ parameters!(
     snd_pcm_info_malloc,
     snd_pcm_info_free
 );
+parameters!(
+    Status,
+    sys::snd_pcm_status_t,
+    snd_pcm_status_malloc,
+    snd_pcm_status_free
+);
 
 pub(crate) struct Pcm {
     pointer: *mut sys::snd_pcm_t,
+    status: Status,
+    software: Software,
     // Keep the owned native stream on its owner thread; no concurrent native calls are allowed.
     _owner: PhantomData<Rc<()>>,
 }
 impl Pcm {
     pub(crate) fn open(request: &OpenRequest) -> Result<Self, AlsaError> {
         request.validate()?;
+        // Allocate before opening so every partial failure frees both containers automatically.
+        let status = Status::new()?;
+        let software = Software::new()?;
         let device = CString::new(request.device.as_bytes())
             .map_err(|_| AlsaError::new(ErrorCode::AssetInvalid, "invalid ALSA endpoint"))?;
         let mut pointer = ptr::null_mut();
@@ -127,6 +138,8 @@ impl Pcm {
         }
         let pcm = Self {
             pointer,
+            status,
+            software,
             _owner: PhantomData,
         };
         if request.route == Route::DirectHardware && pcm.kind() != sys::SND_PCM_TYPE_HW {
@@ -371,6 +384,46 @@ impl Pcm {
                 "ALSA reported negative delay; output stopped",
             )
         })
+    }
+    pub(crate) fn timing_status(
+        &self,
+    ) -> Result<(crate::output::NativePcmState, i64, Option<u32>, Option<u32>), AlsaError> {
+        use crate::output::NativePcmState;
+        // SAFETY: The sole PCM owner also owns these reusable native containers.
+        unsafe {
+            let mut mode = 0;
+            let mut kind = 0;
+            let current = sys::snd_pcm_sw_params_current(self.pointer, self.software.0);
+            let timestamp_mode = (current >= 0
+                && sys::snd_pcm_sw_params_get_tstamp_mode(self.software.0, &mut mode) >= 0)
+                .then_some(mode);
+            let timestamp_type = (current >= 0
+                && sys::snd_pcm_sw_params_get_tstamp_type(self.software.0, &mut kind) >= 0)
+                .then_some(kind);
+            check(
+                sys::snd_pcm_status(self.pointer, self.status.0),
+                ErrorCode::OutputFault,
+                "cannot observe ALSA status",
+            )?;
+            let state = match sys::snd_pcm_status_get_state(self.status.0) {
+                sys::SND_PCM_STATE_OPEN => NativePcmState::Open,
+                sys::SND_PCM_STATE_SETUP => NativePcmState::Setup,
+                sys::SND_PCM_STATE_PREPARED => NativePcmState::Prepared,
+                sys::SND_PCM_STATE_RUNNING => NativePcmState::Running,
+                sys::SND_PCM_STATE_XRUN => NativePcmState::Xrun,
+                sys::SND_PCM_STATE_DRAINING => NativePcmState::Draining,
+                sys::SND_PCM_STATE_PAUSED => NativePcmState::Paused,
+                sys::SND_PCM_STATE_SUSPENDED => NativePcmState::Suspended,
+                sys::SND_PCM_STATE_DISCONNECTED => NativePcmState::Disconnected,
+                other => NativePcmState::Unknown(other),
+            };
+            Ok((
+                state,
+                sys::snd_pcm_status_get_delay(self.status.0) as i64,
+                timestamp_mode,
+                timestamp_type,
+            ))
+        }
     }
     pub(crate) fn stop(&self) -> Result<(), AlsaError> {
         // SAFETY: The stream is live. Drop stops immediately and never drains or emits queued samples.

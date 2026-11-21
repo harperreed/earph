@@ -575,19 +575,23 @@ impl Registration {
         Ok(())
     }
     pub(in crate::playback) fn restart_cursor_frames(&self) -> Result<Option<u64>, CoreAudioError> {
+        Ok(self.fresh_queue_read()?.restart)
+    }
+    fn fresh_queue_read(&self) -> Result<FreshQueueRead, CoreAudioError> {
         self.check()?;
         if !self.started {
-            return Ok(Some(0));
+            return Ok(FreshQueueRead::pending(Some(0)));
         }
         if self.context().drain.complete() {
-            return Ok(self
-                .schedule
-                .borrow_mut()
-                .drain_frontier(&self.context().drain, self.readiness.ready.get())
-                .expect("completed drain owns its frontier"));
+            return Ok(FreshQueueRead::pending(
+                self.schedule
+                    .borrow_mut()
+                    .drain_frontier(&self.context().drain, self.readiness.ready.get())
+                    .expect("completed drain owns its frontier"),
+            ));
         }
         if let Some(frozen) = self.readiness.frozen_prefix.get() {
-            return Ok(Some(frozen));
+            return Ok(FreshQueueRead::pending(Some(frozen)));
         }
         let elapsed = self
             .requested_at
@@ -601,7 +605,7 @@ impl Registration {
             .borrow_mut()
             .drain_frontier(&self.context().drain, self.readiness.ready.get())
         {
-            return Ok(frontier);
+            return Ok(FreshQueueRead::pending(frontier));
         }
         if !self.paused
             && !self
@@ -613,7 +617,10 @@ impl Registration {
                 )
                 .map_err(|failure| self.readiness_error(failure))?
         {
-            return Ok(None);
+            return Ok(FreshQueueRead {
+                running_before: Some(queue_running(running)),
+                ..FreshQueueRead::pending(None)
+            });
         }
         self.clock.begin_read();
         // SAFETY: AudioTimeStamp contains only numeric fields, including zero-valid timestamp flags.
@@ -627,6 +634,12 @@ impl Registration {
                 &mut timestamp,
                 &mut discontinuity,
             )
+        };
+        let read = ClockRead {
+            sample_bits: timestamp.mSampleTime.to_bits(),
+            flags: timestamp.mFlags.0,
+            discontinuity: discontinuity != 0,
+            enqueued: self.schedule.borrow().enqueued,
         };
         if status == 0 {
             self.clock.record_read(
@@ -646,7 +659,10 @@ impl Registration {
             )
             .map_err(|failure| self.readiness_error(failure))?
         {
-            return Ok(None);
+            return Ok(FreshQueueRead {
+                running_before: Some(queue_running(running)),
+                ..FreshQueueRead::pending(None)
+            });
         }
         let sample = timestamp
             .mFlags
@@ -657,11 +673,15 @@ impl Registration {
             .pre_origin_pending(sample, discontinuity != 0, elapsed, !self.paused)
             .map_err(|failure| self.readiness_error(failure))?
         {
-            return Ok(None);
+            return Ok(FreshQueueRead {
+                clock: Some(read),
+                running_before: Some(queue_running(running)),
+                ..FreshQueueRead::pending(None)
+            });
         }
         let frame = self
             .clock
-            .observe(sample, discontinuity != 0)
+            .validate_read(read)
             .map_err(|failure| self.readiness_error(failure))?;
         let frame = frame
             .map(|queue_frame| {
@@ -671,9 +691,62 @@ impl Registration {
             })
             .transpose()
             .map_err(|failure| self.readiness_error(failure))?;
-        self.readiness
+        let restart = self
+            .readiness
             .sample(frame, elapsed, !self.paused)
-            .map_err(|failure| self.readiness_error(failure))
+            .map_err(|failure| self.readiness_error(failure))?;
+        Ok(FreshQueueRead {
+            restart,
+            clock: Some(read),
+            running_before: Some(queue_running(running)),
+        })
+    }
+    pub(in crate::playback) fn timing_observation(
+        &self,
+        spans: &mut [NativeEnqueueSpan],
+        mut observation: TimingObservation,
+    ) -> Result<TimingObservation, CoreAudioError> {
+        if spans.len() < self.schedule.borrow().len {
+            return Err(error(
+                ErrorCode::ResourceBudgetExceeded,
+                "timing span destination is too small",
+            ));
+        }
+        let fresh = self.fresh_queue_read()?;
+        let running_after = if fresh.clock.is_some() {
+            Some(queue_running(
+                self.property(aq::kAudioQueueProperty_IsRunning, 0_u32)?,
+            ))
+        } else {
+            None
+        };
+        let schedule = self.schedule.borrow();
+        observation.initialized_spans = schedule.copy_spans(spans)?;
+        observation.enqueued_frames = Some(schedule.enqueued);
+        observation.restart_prefix = fresh.restart;
+        observation.running_before = fresh.running_before;
+        observation.running_after = running_after;
+        observation.availability = if self.context().drain.bits.load(Ordering::Acquire) & 2 != 0 {
+            TimingAvailability::Draining
+        } else if self.paused {
+            TimingAvailability::Paused
+        } else if !self.started {
+            TimingAvailability::Prepared
+        } else {
+            TimingAvailability::Priming
+        };
+        if let Some(read) = fresh.clock {
+            observation.flags = Some(read.flags);
+            observation.discontinuity = Some(read.discontinuity);
+            if fresh.restart.is_some()
+                && fresh.running_before == Some(true)
+                && running_after == Some(true)
+            {
+                observation.queue_sample = Some(f64::from_bits(read.sample_bits));
+                observation.availability = TimingAvailability::Available;
+            }
+        }
+        Ok(observation)
     }
     fn readiness_error(&self, failure: CoreAudioError) -> CoreAudioError {
         self.fail(

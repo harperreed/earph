@@ -277,6 +277,7 @@ pub struct GuiController {
     pending: Option<(RequestId, Task)>,
     waiting_edit: Option<Task>,
     safety: Vec<RequestId>,
+    stop_preflights: Vec<(RequestId, Arc<StateView>)>,
     operation_cursor: usize,
     discovery: Option<Arc<DeviceQueryResultView>>,
     inspection: Option<Arc<DeviceQueryResultView>>,
@@ -327,6 +328,7 @@ impl GuiController {
             pending: None,
             waiting_edit: None,
             safety: Vec::new(),
+            stop_preflights: Vec::new(),
             operation_cursor: 0,
             discovery: None,
             inspection: None,
@@ -1252,7 +1254,8 @@ impl GuiController {
         self.client.is_some()
     }
     pub fn busy(&self) -> bool {
-        self.local_work.is_some()
+        !self.stop_preflights.is_empty()
+            || self.local_work.is_some()
             || self.pending.is_some()
             || self.waiting_edit.is_some()
             || self.cleanup.is_some()
@@ -1906,17 +1909,77 @@ impl GuiController {
     }
     fn safety_command(&mut self, command: Command) -> Result<(), String> {
         self.cancel_unsent();
-        if self.safety.len() == 2 {
+        if self.safety.len() + self.stop_preflights.len() == 2 {
             return Err("Safety requests are pending".into());
         }
-        let state = self
-            .state()
-            .ok_or("Observe an owner before sending safety commands")?;
+        let state = Arc::new(
+            self.state()
+                .ok_or("Observe an owner before sending safety commands")?
+                .clone(),
+        );
+        if matches!(command, Command::Stop) && state.session_id.is_some() {
+            let request = Request::safety_state(request_id()?, &state)
+                .map_err(|error| format!("{error:?}"))?;
+            let id = self.submit(request)?;
+            self.stop_preflights.push((id, state));
+            return Ok(());
+        }
         let request =
-            Request::mutation(request_id()?, state, command).map_err(|e| format!("{e:?}"))?;
+            Request::mutation(request_id()?, &state, command).map_err(|e| format!("{e:?}"))?;
         let id = self.submit(request)?;
         self.safety.push(id);
         Ok(())
+    }
+    fn complete_stop_preflights(&mut self) {
+        let completed: Vec<_> = self
+            .stop_preflights
+            .iter()
+            .filter(|(id, _)| {
+                self.outcome(id).is_some_and(|(p, _)| {
+                    !matches!(p, Presentation::Queued | Presentation::Accepted)
+                })
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in completed {
+            let index = self
+                .stop_preflights
+                .iter()
+                .position(|(saved, _)| saved == &id)
+                .unwrap();
+            let (_, captured) = self.stop_preflights.remove(index);
+            let result = (|| {
+                let Some((Presentation::Applied, Some(Ok(Reply::Receipt(receipt))))) =
+                    self.outcome(&id)
+                else {
+                    return Err(
+                        "Stop could not read current Engine state; inspect its retained receipt"
+                            .into(),
+                    );
+                };
+                let Some(ResultView::State(state)) = &receipt.result else {
+                    return Err("Stop received no current Engine state".into());
+                };
+                if state.owner_id != captured.owner_id
+                    || state.session_id != captured.session_id
+                    || state.epochs.session != captured.epochs.session
+                {
+                    return Err(
+                        "Stop target changed; review the current session before stopping it".into(),
+                    );
+                }
+                let request = Request::mutation(request_id()?, state, Command::Stop)
+                    .map_err(|error| format!("{error:?}"))?;
+                let stop_id = self.submit(request)?;
+                self.safety.push(stop_id);
+                self.client.as_mut().unwrap().retire_observation(&id);
+                Ok(())
+            })();
+            if let Err(error) = result {
+                self.error = Some(error);
+                self.refresh = true;
+            }
+        }
     }
     fn capture_reconciliation(&mut self, id: RequestId) -> Result<(), String> {
         let record = self
@@ -1960,7 +2023,7 @@ impl GuiController {
                     && !is_transport_operation(&record.request.envelope().payload)
             })
             && !self.safety.contains(id);
-        if restore_safety && self.safety.len() == 2 {
+        if restore_safety && self.safety.len() + self.stop_preflights.len() == 2 {
             return Err(
                 "Safety requests are pending; reconcile after a tracking slot retires".into(),
             );
@@ -1989,6 +2052,7 @@ impl GuiController {
         self.connected = false;
         self.queue_stale = true;
         self.safety.clear();
+        self.stop_preflights.clear();
         self.discovery = None;
         self.inspection = None;
         self.profiles = ProfileViews::default();
@@ -2168,6 +2232,7 @@ impl GuiController {
                 self.next_poll = now + Duration::from_millis(500);
             }
         }
+        self.complete_stop_preflights();
         let completed_safety: Vec<_> = self
             .safety
             .iter()
@@ -2178,6 +2243,27 @@ impl GuiController {
             .cloned()
             .collect();
         for id in completed_safety {
+            if let Some((presentation, reply)) = self.outcome(&id)
+                && presentation != Presentation::Applied
+            {
+                let label = if self.model().record(&id).is_some_and(|record| {
+                    matches!(record.request.envelope().payload, Command::Stop)
+                }) {
+                    "Stop"
+                } else {
+                    "Mute"
+                };
+                let detail = match reply {
+                    Some(Ok(Reply::Receipt(receipt))) => {
+                        receipt.error.as_ref().map(|error| error.message.as_str())
+                    }
+                    _ => None,
+                };
+                self.error = Some(format!(
+                    "{label} {presentation:?}: {}",
+                    detail.unwrap_or("inspect its retained receipt")
+                ));
+            }
             self.safety.retain(|saved| saved != &id);
             self.refresh = true;
         }

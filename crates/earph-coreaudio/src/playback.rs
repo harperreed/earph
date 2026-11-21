@@ -74,6 +74,46 @@ pub enum WriteProgress {
     Accepted { frames: usize },
     WouldBlock,
 }
+
+/// Exact outstanding accepted-to-queue placement, independent of buffer acquisition.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct NativeEnqueueSpan {
+    pub epochs: Epochs,
+    pub accepted_start: u64,
+    pub accepted_end: u64,
+    pub queue_start: f64,
+    pub queue_end_whole: u64,
+    pub queue_end_fraction: f64,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimingAvailability {
+    Available,
+    Prepared,
+    Priming,
+    Paused,
+    Draining,
+    Stopped,
+    Unsupported,
+}
+#[derive(Debug, Clone, Copy)]
+pub struct TimingObservation {
+    pub epochs: Epochs,
+    pub state: OutputState,
+    pub accepted_frames: u64,
+    pub client_rate_hz: u32,
+    pub availability: TimingAvailability,
+    pub queue_sample: Option<f64>,
+    pub flags: Option<u32>,
+    pub discontinuity: Option<bool>,
+    pub running_before: Option<bool>,
+    pub running_after: Option<bool>,
+    pub enqueued_frames: Option<u64>,
+    pub restart_prefix: Option<u64>,
+    pub initialized_spans: usize,
+    /// No native-to-port accuracy bound has been qualified.
+    pub native_accuracy_ns: Option<u64>,
+    pub native_update_age_ns: Option<u64>,
+}
 #[derive(Debug, Clone, Serialize)]
 pub struct OutputReport {
     pub requested: OutputRequest,
@@ -794,6 +834,46 @@ impl CoreAudioOutput {
             fault_detail,
         }
         .with_queue_diagnostics(clock)
+    }
+    /// Collects fresh timing facts without pumping or allocating span storage.
+    pub fn timing_observation(
+        &mut self,
+        spans: &mut [NativeEnqueueSpan],
+    ) -> Result<TimingObservation, CoreAudioError> {
+        let state = self.state();
+        if state == OutputState::Failed {
+            return Err(error(ErrorCode::OutputFault, "output has failed"));
+        }
+        let observation = TimingObservation {
+            epochs: self.producer.epochs,
+            state,
+            accepted_frames: self.producer.submitted,
+            client_rate_hz: self.producer.request.format.sample_rate_hz(),
+            availability: if matches!(state, OutputState::Closed | OutputState::Stopped) {
+                TimingAvailability::Stopped
+            } else {
+                TimingAvailability::Unsupported
+            },
+            queue_sample: None,
+            flags: None,
+            discontinuity: None,
+            running_before: None,
+            running_after: None,
+            enqueued_frames: None,
+            restart_prefix: None,
+            initialized_spans: 0,
+            native_accuracy_ns: None,
+            native_update_age_ns: None,
+        };
+        if matches!(state, OutputState::Closed | OutputState::Stopped) {
+            return Ok(observation);
+        }
+        #[cfg(target_os = "macos")]
+        if let Driver::System(queue) = &self.native {
+            return queue.timing_observation(spans, observation);
+        }
+        let _ = spans;
+        Ok(observation)
     }
     pub fn callback_timing(&self) -> CallbackTiming {
         #[cfg(target_os = "macos")]

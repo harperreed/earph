@@ -111,6 +111,37 @@ fn audio_storage_reports_the_live_packed_scratch_without_heap_work() {
 }
 
 #[test]
+fn fresh_native_timing_is_pending_before_write_and_retains_acceptance_after_stop() {
+    let request = request(PcmRepresentation::Signed24);
+    let epochs = Epochs::default();
+    let mut output = AlsaOutput::open(request.clone(), epochs).unwrap();
+    let before = output.timing_observation().unwrap();
+    assert_eq!(before.pcm_state, NativePcmState::Prepared);
+    assert_eq!(before.availability, TimingAvailability::Pending);
+    assert_eq!(before.accepted_frames, 0);
+    let data = block(&request, 64, 0, epochs);
+    assert_eq!(
+        output
+            .write(&data, 0, 64, SignalPermission::Granted)
+            .unwrap(),
+        WriteProgress::Accepted { frames: 64 }
+    );
+    let (observed, allocations) = allocations::tracked(|| output.timing_observation().unwrap());
+    assert_eq!(allocations, allocations::AllocationCounts::default());
+    assert_eq!(observed.pcm_state, NativePcmState::Running);
+    assert_eq!(observed.availability, TimingAvailability::Available);
+    assert_eq!(observed.accepted_frames, 64);
+    assert_eq!(observed.signed_delay_frames, 0);
+    assert_eq!(observed.native_accuracy_ns, None);
+    assert_eq!(observed.native_update_age_ns, None);
+    assert_eq!(observed.timestamp_mode, before.timestamp_mode);
+    assert_eq!(observed.timestamp_type, before.timestamp_type);
+    output.stop().unwrap();
+    assert!(output.timing_observation().is_err());
+    assert_eq!(output.submitted_frames(), 64);
+}
+
+#[test]
 fn signal_denial_and_stale_or_invalid_blocks_never_submit_frames() {
     let request = request(PcmRepresentation::Signed24);
     let epochs = Epochs {

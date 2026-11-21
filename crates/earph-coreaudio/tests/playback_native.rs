@@ -61,6 +61,14 @@ fn denied_start_queue_cancel_close_and_reopen_never_emit_or_change_settings() {
             ErrorCode::SafetyPolicyBlocked
         );
         assert_eq!(output.state(), OutputState::Prepared);
+        let mut timing_spans = vec![NativeEnqueueSpan::default(); input.ring_frames as usize];
+        let timing = output.timing_observation(&mut timing_spans).unwrap();
+        assert_eq!(timing.state, OutputState::Prepared);
+        assert_eq!(timing.availability, TimingAvailability::Prepared);
+        assert_eq!(timing.accepted_frames, 0);
+        assert_eq!(timing.queue_sample, None);
+        assert_eq!(timing.native_accuracy_ns, None);
+        assert_eq!(timing.initialized_spans, 0);
         assert_eq!(output.scheduled_output_complete().unwrap(), None);
         let mut block = PcmBlock::prepare(
             input.format,
@@ -79,6 +87,11 @@ fn denied_start_queue_cancel_close_and_reopen_never_emit_or_change_settings() {
             }
         );
         let progress = output.progress();
+        let timing = output.timing_observation(&mut timing_spans).unwrap();
+        assert_eq!(timing.accepted_frames, u64::from(input.buffer_frames));
+        assert_eq!(timing.availability, TimingAvailability::Prepared);
+        assert_eq!(timing.queue_sample, None);
+        assert!(timing.initialized_spans <= timing_spans.len());
         assert_eq!(progress.submitted_frames, u64::from(input.buffer_frames));
         assert_eq!(progress.callback_delivered_frames, 0);
         assert!(progress.queue_acquired_frames.is_some());

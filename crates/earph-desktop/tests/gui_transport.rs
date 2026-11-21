@@ -2,6 +2,8 @@
 // ABOUTME: Verifies Accepted muted operations never block observation or independent safety actions.
 #![cfg(target_os = "linux")]
 mod common;
+#[path = "gui_receipt_fixture/mod.rs"]
+mod receipt_fixture;
 use common::process::ProcessOwner;
 use common::*;
 use earph_core::{
@@ -264,14 +266,84 @@ fn muted_start_and_resume_keep_exact_receipts_while_pause_seek_and_safety_remain
     until(&mut gui, |g| {
         g.state().unwrap().muted && g.state().unwrap().revision > before_mute && !g.busy()
     });
-    gui.handle(UiIntent::Stop);
-    until(&mut gui, |g| {
-        !g.busy()
-            && g.receipts().any(|r| {
-                matches!(r.request.envelope().payload, Command::Stop)
-                    && r.presentation == Presentation::Applied
-            })
+    let held = receipt_fixture::ReceiptTransport::observation(proxy.runtime.clone());
+    gui.handle(UiIntent::Disconnect);
+    until(&mut gui, |g| !g.busy());
+    gui.handle(UiIntent::Attach {
+        runtime: held.runtime.to_str().unwrap().into(),
     });
+    until(&mut gui, |g| g.connected() && !g.busy());
+    held.hold_next_state();
+    gui.handle(UiIntent::Refresh);
+    until(&mut gui, |_| held.state_held());
+    let held_state_id = gui
+        .receipts()
+        .find(|record| {
+            matches!(record.request.envelope().payload, Command::State)
+                && record.request.lane() == earph_desktop::Lane::Ordinary
+                && record.in_flight
+        })
+        .expect("The held ordinary observation must retain its request")
+        .request
+        .envelope()
+        .request_id
+        .clone();
+    let external =
+        earph_desktop::OwnerClient::attach(owner.runtime.to_str().unwrap().into()).unwrap();
+    let observed = gui.state().unwrap().clone();
+    let changed = external
+        .request(
+            &earph_desktop::Request::mutation(
+                earph_core::ids::RequestId::new(unique()).unwrap(),
+                &observed,
+                Command::VolumeSet {
+                    millidecibels: -30000,
+                    ramp_frames: 64,
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(
+        matches!(changed, earph_desktop::Reply::Receipt(r) if r.status == earph_desktop::ReplyStatus::Applied)
+    );
+    assert_eq!(gui.state().unwrap().revision, observed.revision);
+    gui.handle(UiIntent::Stop);
+    gui.handle(UiIntent::Stop);
+    let safety_reads: Vec<_> = gui
+        .receipts()
+        .filter(|record| {
+            matches!(record.request.envelope().payload, Command::State)
+                && record.request.lane() == earph_desktop::Lane::Safety
+        })
+        .map(|record| record.request.envelope().request_id.clone())
+        .collect();
+    assert_eq!(
+        safety_reads.len(),
+        2,
+        "Each Stop must own its safety observation"
+    );
+    assert_ne!(safety_reads[0], safety_reads[1]);
+    gui.handle(UiIntent::Mute);
+    assert!(gui.error().is_some_and(|error| error.contains("Safety")));
+    until(&mut gui, |g| {
+        g.receipts().any(|r| {
+            matches!(r.request.envelope().payload, Command::Stop)
+                && r.presentation == Presentation::Applied
+        })
+    });
+    assert!(
+        held.state_held(),
+        "Stop must bypass the held ordinary observation"
+    );
+    assert!(
+        gui.receipts().any(
+            |record| record.request.envelope().request_id == held_state_id && record.in_flight
+        ),
+        "Stop must settle while the actual ordinary observation remains in flight"
+    );
+    held.release_state();
+    until(&mut gui, |g| !g.busy());
     if let Some(start) = gui
         .receipts()
         .find(|r| r.request.envelope().request_id == id)

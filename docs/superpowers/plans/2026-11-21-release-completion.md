@@ -20,7 +20,10 @@ Preserve all earlier builds, worktrees, evidence, user files, and unsaved window
 The Play fix is published in `2c6ab56`; its evidence and usage notes are published in `4d8f6d5`.
 The full repository check and six native Mac control checks pass for their recorded source snapshots.
 The selected local track submitted all frames and closed output without an Engine error.
-Hearing remains unconfirmed.
+Doctor Biz later confirmed audible local PCM playback from the installed Orbit app.
+He reported that Stop did nothing; a fresh fenced owner command stopped playback and confirmed output closure.
+The controller fix passes independent review and the full Linux check; its Mac build and installation remain pending.
+See the [Stop evidence](../../evidence/local-playback/controller-stop-20261121.json).
 
 The same unsigned Mac development app now occupies the user's `Applications/Earph.app` path.
 All 27 bundle files match the verified source package.
@@ -67,7 +70,8 @@ Its independent review cleared both findings after focused fixes and failing-bas
 See the [scoped evidence](../../evidence/network/sendspin-player-timeline-20261121.json).
 Operational Network admission and Engine scheduling remain the next Sendspin work.
 DSD Engine implementation continues in its separate worktree from `4d8f6d5`.
-Native output timing adapters passed source review; Mac compilation remains pending.
+Native output timing adapters passed source review and the full Linux check; Mac compilation remains pending.
+See the [timing evidence](../../evidence/local-playback/native-timing-observations-20261121.json).
 UPnP's independent SDK passed its native API probe; current-owner controller qualification remains pending.
 Root continues release integration while the dashboard records verified milestones.
 Git commits and scoped evidence record completed work; this document defines the continuing execution boundary.

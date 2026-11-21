@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "scope": "Backend-local fresh timing observations; no Engine scheduler or port-readiness authority.",
+  "source_parent": "c39f04911315c54ad0d673e0702be7c5c11ca833",
+  "source_files": [
+    {
+      "file": "crates/earph-alsa/src/lib.rs",
+      "sha256": "3ff6b8b6b4e6d13df13c75599639a1ed8116740092661a4e26f6eca41222f128"
+    },
+    {
+      "file": "crates/earph-alsa/src/native.rs",
+      "sha256": "6d2ffc86852cbdb12cfde4496f7e5951ed3961e740bcfda1cfcbb62d1f4750a1"
+    },
+    {
+      "file": "crates/earph-alsa/src/output.rs",
+      "sha256": "c468e0e075201e1ac447b28144fdcc4a31806966b492ecb044621f7aec35f1be"
+    },
+    {
+      "file": "crates/earph-alsa/tests/alsa.rs",
+      "sha256": "595755b1d08f0c94fc05b34437de7c02f2ee75fc64f3d6d3cb87c688da7c271b"
+    },
+    {
+      "file": "crates/earph-coreaudio/src/playback.rs",
+      "sha256": "93e1d6938491f397552934b266deb890fc9623878d71cc83e0f9844b6e3f80b2"
+    },
+    {
+      "file": "crates/earph-coreaudio/src/playback/system.rs",
+      "sha256": "bab8f70b7b81463f829e6be0ddbcbffb3afcfc9f7c6403fe9c7cbd51c26c4b0e"
+    },
+    {
+      "file": "crates/earph-coreaudio/src/playback/system/native.rs",
+      "sha256": "7f4eb0b1ff46250a52f47a80b6426e52eb2eb4e60ea9405dd7de506a15a4e192"
+    },
+    {
+      "file": "crates/earph-coreaudio/src/playback/system/tests.rs",
+      "sha256": "d2f3ba0603db4aa6ff19b9b6feceba4f7365123505d6546dbeb1445bd870644a"
+    },
+    {
+      "file": "crates/earph-coreaudio/src/playback/tests.rs",
+      "sha256": "caba16f54bbded2f3e1f6f0328117355fd7ae553ac047f6d2cc1498047fa6f85"
+    },
+    {
+      "file": "crates/earph-coreaudio/tests/playback_native.rs",
+      "sha256": "ff4bb87e525e3b0daf24bc604de1886b9defa0621dde67f05bcdd837012dda43"
+    }
+  ],
+  "behavior": {
+    "alsa": "One coherent native PCM status and signed delay read; current timestamp settings are observed without changes.",
+    "core_audio": "Fresh queue-clock facts and complete bounded accepted-to-queue span prefix; no pumping or callback allocation.",
+    "progress_json": "Existing meanings preserved.",
+    "native_accuracy": null,
+    "native_update_age": null
+  },
+  "verification": {
+    "independent_source_review_sha256": "cd78c44f99ae3962bc4f2ff9cc9f4ae879861e1c2b58698b3258a75db9f97191",
+    "linux_affected_packages": {
+      "exit": 0,
+      "passed": 105,
+      "failed": 0,
+      "ignored": 2,
+      "log_sha256": "ac0605f551ab6f34397eb8ad3d3accd4393d89ec7b46f36c2d71e04ad99364ed"
+    },
+    "canonical": {
+      "exit": 0,
+      "log_sha256": "823ab92cf73c50d74b7241c41636defd2b73aecd2c43050dbee0075ae80220ea"
+    }
+  },
+  "limits": [
+    "Mac SDK compile and native timing qualification remain pending.",
+    "Unknown native accuracy and update age remain unknown.",
+    "No DAC timestamp, acoustic alignment, Sendspin readiness, or native DSD qualification follows.",
+    "Earlier source-worker suite lost its numeric process exit; the separate Root run recorded exit0 and its own exact log."
+  ]
+}

@@ -49,6 +49,29 @@ fn append(gui: &mut GuiController, path: &str) {
 }
 
 #[test]
+fn rejected_stop_exposes_the_owner_error_in_the_controller() {
+    let owner = Owner::start();
+    let mut gui = attached(&owner.runtime);
+    gui.handle(UiIntent::Stop);
+    until(&mut gui, |g| {
+        g.receipts().any(|r| {
+            matches!(r.request.envelope().payload, Command::Stop)
+                && r.presentation == Presentation::Rejected
+                && !r.in_flight
+        })
+    });
+    assert!(
+        gui.error().is_some_and(|error| error.contains("Stop")),
+        "The rejected Stop silently disappeared: {:?}",
+        gui.error()
+    );
+    assert!(owner.state().muted);
+    assert!(owner.state().session_id.is_none());
+    gui.handle(UiIntent::CloseController);
+    until(&mut gui, |g| g.ready_to_close());
+}
+
+#[test]
 fn successful_background_polls_preserve_user_action_receipts() {
     let owner = Owner::start();
     let mut gui = attached(&owner.runtime);

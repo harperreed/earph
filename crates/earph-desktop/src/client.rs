@@ -117,6 +117,12 @@ impl Request {
         }
         Self::targeted(id, state, state.session_id.clone(), payload)
     }
+    /// Reads current state on the independent safety lane before fencing a Stop.
+    pub(crate) fn safety_state(id: RequestId, state: &StateView) -> Result<Self, RequestError> {
+        let mut request = Self::targeted(id, state, state.session_id.clone(), Command::State)?;
+        request.lane = Lane::Safety;
+        Ok(request)
+    }
     /// Captures current owner fences with the caller's new session ID.
     /// Reconciliation retains this exact envelope without changing the observed State.
     pub fn start(

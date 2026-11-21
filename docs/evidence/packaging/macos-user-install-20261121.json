@@ -31,5 +31,25 @@
     "Same-user delivery on the named Mac only; no full AC-50 installation, upgrade, rollback, or uninstall claim.",
     "Unsigned development build; package verification does not authenticate provenance.",
     "No new audio or hearing confirmation occurred during delivery."
-  ]
+  ],
+  "post_delivery_listen": {
+    "date": "2026-11-21",
+    "source": "Doctor Biz explicitly confirmed audible playback from the installed app.",
+    "audible_local_pcm_confirmed": true,
+    "desktop_sha256": "4e1b91e94f04eb1fa7af0788e509a6ef4184458b35150c0cdc79cbf8694083ad",
+    "engine_sha256": "f406a0f847a068fbf48653ac59b7100d92f6dee4ddff8a6d51229f44a1b172fc",
+    "stop_button_report": "Doctor Biz reported the button did nothing.",
+    "direct_owner_stop": {
+      "method": "sessions.stop",
+      "initial_status": "accepted",
+      "final_transport": "idle",
+      "final_muted": true,
+      "engine_error": null,
+      "close_confirmed": true,
+      "accepted_frames": 3809344,
+      "private_receipt_sha256": "15f016083b68cb4417903fe7f5cc54577afcdddef88f1f2a2a18e970960074bb"
+    },
+    "controller_fix": "Independent review, focused tests, strict Clippy, and full Linux check pass. Mac build and installation remain pending.",
+    "limits": "One reported local PCM listen on Orbit. No independent-clock, pitch, DAC-preservation, Sendspin, DSD, or other-route qualification."
+  }
 }

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-21T14:51:02.806Z",
-  "headline": "Native app delivered to Applications; the whole Earph build continues.",
-  "focus": "Continue the whole Earph build · Prepare bounded Sendspin PCM and DSD Engine work · Keep hearing and release gates open",
-  "summary": "The exact qualified native app is copied into Doctor Biz’s Applications folder, opened, and revealed in Finder. Fresh bundle hashes, package verification, and plist checks pass. The delivery operator exits 0. Existing Engine and GUI processes remain unchanged. This is an unsigned development app; delivery starts no audio and grants no new permissions. The earlier selected-file run retains its own evidence: Playing with advancing frames and nonzero software PCM, then Idle/muted with all selected-file frames accepted/submitted and output closure confirmed. One SDK Start occurs, with no Engine error or repeated mutation. Hearing and acoustic presentation remain unconfirmed. Root continues implementation beyond these milestones. Separate bounded Sendspin PCM player and DSD Engine contracts are being prepared; those units have no new integration or playback qualification yet. PR #4 remains draft. Signing, acoustic/DAC preservation, broader interoperability, physical DSD, and whole-release acceptance remain open.",
+  "updated_at": "2026-11-21T16:23:55.802Z",
+  "headline": "Doctor Biz confirms local PCM audio; the deployed Stop bug is under correction.",
+  "focus": "Fix and verify Stop ownership · Resume Mac delivery when Orbit reconnects · Continue the whole Earph build",
+  "summary": "Doctor Biz confirms “Yes, audio plays” from the installed native app on Orbit. This confirms hearing for that local PCM path only; it does not qualify synchronization, DSD, DAC preservation, or other routes. Doctor Biz then reports that the Stop button does nothing. Root sends one fresh fenced Stop to the deployed owner. The request is accepted, and fresh State confirms Idle, muted, no error, and output closure. The GUI Stop bug is reproduced against a real isolated owner: stale revisions can refuse Stop, and failed safety outcomes can remain silent. An initial correction passes 44 focused tests. Independent review then finds a P1 State-request coalescing and ownership edge. Deterministic overlap and two-Stop regressions are being added before correction. The installed GUI has not been updated; the fix is not yet qualified or delivered. Orbit is currently offline in the device-status readback, and strict SSH times out. Mac build and deployment wait for connectivity; Linux work continues. No access or permission change is made. The reviewed native adapter now has a fresh Linux suite with 105 passes, zero failures, two ignores, and actual exit 0. This separately resolves the earlier missing numeric-exit evidence. Its Mac noStart compile gate has not run. The reviewed pure Sendspin timeline retains its integrated Linux proof. Operational Sendspin, DSD Engine work, controller interoperability, signing, and first-release acceptance remain in progress.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -31,15 +31,15 @@
     },
     "M1": {
       "state": "active",
-      "detail": "The qualified live upgrade, one selected-item Start/Unmute, Playing progress, nonzero software PCM, and natural EOF all verify. Final state is Idle/muted/error-free with confirmed close. Hearing/acoustic confirmation remains pending; submission and output closure is not assumed physical acceptance. The qualified development app is now delivered to Applications and opened; whole-project work continues."
+      "detail": "Doctor Biz confirms “Yes, audio plays” from the installed native app on Orbit. This confirms hearing for that local PCM path only; it does not qualify synchronization, DSD, DAC preservation, or other routes. Doctor Biz then reports that the Stop button does nothing. Root sends one fresh fenced Stop to the deployed owner. The request is accepted, and fresh State confirms Idle, muted, no error, and output closure. The GUI Stop bug is reproduced against a real isolated owner: stale revisions can refuse Stop, and failed safety outcomes can remain silent. The GUI correction and broader playback qualification remain open."
     },
     "M2": {
       "state": "active",
-      "detail": "Verified code/default/package gates are followed by an executed owner-fenced handover and full-track submission and output closure. All file frames reach matching submitted/accepted/source-position counts with one SDK Start and no Engine error. Whole release, acoustic/DAC preservation, and broader interoperability remain open."
+      "detail": "The native development app is delivered and Doctor Biz confirms local PCM audio. The deployed Stop bug remains open; first release is in progress. Signing, wider interoperability, and physical preservation remain unqualified."
     },
     "M3": {
       "state": "active",
-      "detail": "Actual live conversion/submission and EOF are observed from source/client44.1kHz to device48kHz, with nonzero software PCM mid-track. This does not qualify heard sound, physical DAC preservation, every output/path, or the whole release. No mutation retry follows the observer-only revision false alarm."
+      "detail": "The reviewed pure player timeline retains 59 focused passes and integrated scripts/check proof under its original source scope. Doctor Biz confirms hearing for the installed Orbit local PCM path. Operational Sendspin, physical synchronization, DSD, and other routes remain unqualified."
     },
     "M4": {
       "state": "planned",
@@ -136,8 +136,8 @@
       "detail": "Both same-profile reload and stale file-batch receipt defects have genuine Mac REDs, frozen corrections, targeted independent clearance, and actual runtime GREENs inside the final six-check candidate."
     },
     {
-      "title": "Integrated Linux scripts/check passes; remaining qualification stays active",
-      "detail": "The final current-source Linux canonical run is active. The prior integrated source has eleven nested gates independently verified exit 0 with source unchanged: 1,742 reported passes, zero failures, 22 ignores, and 192 groups, including child results rather than unique totals, plus actual clock peers and native-credential gates. Its outer controller unexpectedly ends 143 with a missing outer receipt. Nested logs/source hashes verify, operations are absent, and the lock is free; no outer exit-0 claim is made. The final current-source run remains the handoff gate."
+      "title": "Integrated pure player timeline passes full Linux checks",
+      "detail": "The pure Sendspin player timeline is imported into Root after 59 focused tests pass and independent re-review clears both findings. The integrated full scripts/check exits 0, with all 2,078 source hashes verified. It reports 1,802 passes, zero failures, 22 ignores, and 194 groups, including nested results rather than unique-test totals. This is pure timeline proof; operational Sendspin playback, native output, and physical synchronization remain unqualified."
     },
     {
       "title": "All six current Mac checks pass with both real regressions GREEN",
@@ -153,7 +153,7 @@
     },
     {
       "title": "Sealed round-seven controlled silent lifecycle passes with unchanged inputs",
-      "detail": "Earlier source-seven silent lifecycle and matched timing evidence retain their source boundary. FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance. A later qualified live upgrade and full-track submission and output closure now pass, with nonzero software PCM, natural EOF, matching frame totals, one SDK Start, and confirmed close. Hearing remains pending. The exact qualified app is subsequently copied to a fresh user Applications destination, opened, and revealed, with matching bundle hashes and successful verification. This delivery performs no audio Start and remains unsigned development scope."
+      "detail": "Earlier source-seven silent lifecycle and matched timing evidence retain their source boundary. FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance. A later qualified live upgrade and full-track submission and output closure now pass, with nonzero software PCM, natural EOF, matching frame totals, one SDK Start, and confirmed close. Hearing remains pending. The exact qualified app is subsequently copied to a fresh user Applications destination, opened, and revealed, with matching bundle hashes and successful verification. This delivery performs no audio Start and remains unsigned development scope. Doctor Biz later confirms hearing on the installed Orbit local PCM path. A separate deployed GUI Stop bug remains under correction; one direct fenced Stop safely confirms Idle/muted/output closure. This does not widen the earlier silent-test or acoustic scope."
     }
   ],
   "verified": [
@@ -1008,48 +1008,48 @@
   ],
   "active": [
     {
-      "title": "Continue the whole Earph build after native app delivery",
-      "detail": "The exact qualified native app is copied into Doctor Biz’s Applications folder, opened, and revealed in Finder. Fresh bundle hashes, package verification, and plist checks pass. The delivery operator exits 0. Existing Engine and GUI processes remain unchanged. This is an unsigned development app; delivery starts no audio and grants no new permissions. Root keeps implementing the remaining specification; app delivery does not finish the whole job."
+      "title": "Correct and verify Stop before updating the installed GUI",
+      "detail": "Doctor Biz then reports that the Stop button does nothing. Root sends one fresh fenced Stop to the deployed owner. The request is accepted, and fresh State confirms Idle, muted, no error, and output closure. The GUI Stop bug is reproduced against a real isolated owner: stale revisions can refuse Stop, and failed safety outcomes can remain silent. An initial correction passes 44 focused tests. Independent review then finds a P1 State-request coalescing and ownership edge. Deterministic overlap and two-Stop regressions are being added before correction. The installed GUI has not been updated; the fix is not yet qualified or delivered."
     },
     {
-      "title": "Prepare bounded Sendspin PCM player and DSD Engine units",
-      "detail": "Separate implementation contracts are being prepared. Existing clock, codec, and typed-submission evidence keeps its original scope. No new player integration, DSD Engine wiring, physical carriage, or listening result is claimed."
+      "title": "Resume Mac build and delivery after connectivity returns",
+      "detail": "Orbit is currently offline in the device-status readback, and strict SSH times out. Mac build and deployment wait for connectivity; Linux work continues. No access or permission change is made. The reviewed native adapter now has a fresh Linux suite with 105 passes, zero failures, two ignores, and actual exit 0. This separately resolves the earlier missing numeric-exit evidence. Its Mac noStart compile gate has not run."
     },
     {
-      "title": "Preserve playback proof and complete remaining release gates",
-      "detail": "The earlier selected-file run retains its own evidence: Playing with advancing frames and nonzero software PCM, then Idle/muted with all selected-file frames accepted/submitted and output closure confirmed. One SDK Start occurs, with no Engine error or repeated mutation. Hearing and acoustic presentation remain unconfirmed. Signing, wider platform and protocol coverage, and whole-release qualification remain open."
+      "title": "Continue Sendspin, DSD, and whole-project work",
+      "detail": "The pure Sendspin timeline has 59 focused passes, clear independent re-review, and passing integrated scripts/check under its original source scope. Operational Sendspin playback, physical synchronization, DSD Engine integration, actual controller scenarios, signing, and release remain open."
     }
   ],
   "pending": [
     {
-      "title": "Hearing and acoustic confirmation remain unknown",
-      "detail": "The earlier selected-file run retains its own evidence: Playing with advancing frames and nonzero software PCM, then Idle/muted with all selected-file frames accepted/submitted and output closure confirmed. One SDK Start occurs, with no Engine error or repeated mutation. Hearing and acoustic presentation remain unconfirmed."
+      "title": "The installed Stop button remains unfixed",
+      "detail": "An initial correction passes 44 focused tests. Independent review then finds a P1 State-request coalescing and ownership edge. Deterministic overlap and two-Stop regressions are being added before correction. The installed GUI has not been updated; the fix is not yet qualified or delivered. Root’s one direct fenced Stop safely reaches Idle/muted with confirmed closure; it does not prove the GUI correction."
     },
     {
-      "title": "Physical preservation, interoperability, and whole release remain open",
-      "detail": "App delivery and scoped software/native proofs do not qualify DAC preservation, every output, complete protocol interoperability, physical DSD, signing, or release."
+      "title": "Orbit connectivity blocks Mac verification and delivery",
+      "detail": "Orbit is currently offline in the device-status readback, and strict SSH times out. Mac build and deployment wait for connectivity; Linux work continues. No access or permission change is made. No Mac noStart compilation or new GUI deployment is claimed."
     },
     {
-      "title": "Native, platform, and browser qualification remain open",
-      "detail": "Earlier software/native proofs do not qualify physical routes, native clocks, further native playback/legacy ABI, protocol interop, DSD device carriage, or release. Strict configured SSH to the chosen Mac works; the native package has been built and launched without access changes. The qualified development app is now delivered to the user Applications folder and opened. Signing and release remain open. Playwright is absent; fresh API equality and seven Node checks are separate from browser/visual verification."
+      "title": "Hearing confirmation is scoped to one local PCM path",
+      "detail": "Doctor Biz confirms “Yes, audio plays” from the installed native app on Orbit. This confirms hearing for that local PCM path only; it does not qualify synchronization, DSD, DAC preservation, or other routes. First release remains in progress. Browser tools remain unavailable; API-byte verification and Node checks are separate from visual testing."
     }
   ],
   "activity": [
     {
-      "title": "Qualified native app delivered and opened",
-      "detail": "The exact qualified native app is copied into Doctor Biz’s Applications folder, opened, and revealed in Finder. Fresh bundle hashes, package verification, and plist checks pass. The delivery operator exits 0. Existing Engine and GUI processes remain unchanged. This is an unsigned development app; delivery starts no audio and grants no new permissions."
+      "title": "Doctor Biz confirms audio on the installed Orbit app",
+      "detail": "Doctor Biz confirms “Yes, audio plays” from the installed native app on Orbit. This confirms hearing for that local PCM path only; it does not qualify synchronization, DSD, DAC preservation, or other routes."
     },
     {
-      "title": "One Start/Unmute yields Playing and nonzero software PCM",
-      "detail": "Fresh read-only observations confirm Playing and advancing submitted frames, with 44.1 kHz source/client against the 48 kHz device, one SDK Start, and no Engine error. Nonzero software input/output PCM is independently observed mid-track. This is software/native-entry evidence, not confirmed acoustics or heard sound."
+      "title": "One direct Stop reaches Idle with output closed",
+      "detail": "Doctor Biz then reports that the Stop button does nothing. Root sends one fresh fenced Stop to the deployed owner. The request is accepted, and fresh State confirms Idle, muted, no error, and output closure. The GUI Stop bug is reproduced against a real isolated owner: stale revisions can refuse Stop, and failed safety outcomes can remain silent."
     },
     {
-      "title": "Full-track submission and output closure independently verified",
-      "detail": "Final independent read-only observations confirm Idle after all selected-file frames: Idle, muted, no error, session cleared, and submitted/accepted/source-position counts equal all selected-file frames. SDK Start count stays one, close is confirmed, and no counter overflow occurs. The full-track submission and output closure passes without further mutations or repeats."
+      "title": "Independent review blocks the initial GUI Stop correction",
+      "detail": "An initial correction passes 44 focused tests. Independent review then finds a P1 State-request coalescing and ownership edge. Deterministic overlap and two-Stop regressions are being added before correction. The installed GUI has not been updated; the fix is not yet qualified or delivered."
     },
     {
-      "title": "Whole-project implementation continues",
-      "detail": "Root continues the remaining Earph build. Bounded Sendspin PCM player and DSD Engine contracts are being prepared. Existing full-track submission/output-closure proof remains valid under its original scope; hearing and whole release remain open."
+      "title": "Linux work continues while Orbit is offline",
+      "detail": "Orbit is currently offline in the device-status readback, and strict SSH times out. Mac build and deployment wait for connectivity; Linux work continues. No access or permission change is made. The reviewed native adapter now has a fresh Linux suite with 105 passes, zero failures, two ignores, and actual exit 0. This separately resolves the earlier missing numeric-exit evidence. Its Mac noStart compile gate has not run."
     }
   ]
 }

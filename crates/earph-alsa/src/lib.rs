@@ -14,4 +14,4 @@ mod output;
 #[cfg(target_os = "linux")]
 pub use native::{devices, library_version};
 #[cfg(target_os = "linux")]
-pub use output::{AlsaOutput, DopOutput};
+pub use output::{AlsaOutput, DopOutput, NativePcmState, TimingAvailability, TimingObservation};

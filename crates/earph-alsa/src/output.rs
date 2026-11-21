@@ -8,6 +8,82 @@ use earph_core::{
     ids::Epochs,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativePcmState {
+    Open,
+    Setup,
+    Prepared,
+    Running,
+    Xrun,
+    Draining,
+    Paused,
+    Suspended,
+    Disconnected,
+    Unknown(u32),
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimingAvailability {
+    Available,
+    Pending,
+    InvalidDelay,
+    Unavailable,
+}
+#[derive(Debug, Clone, Copy)]
+pub struct TimingObservation {
+    pub epochs: Epochs,
+    pub state: OutputState,
+    pub accepted_frames: u64,
+    pub client_rate_hz: u32,
+    pub pcm_state: NativePcmState,
+    pub signed_delay_frames: i64,
+    pub availability: TimingAvailability,
+    pub timestamp_mode: Option<u32>,
+    pub timestamp_type: Option<u32>,
+    pub native_accuracy_ns: Option<u64>,
+    pub native_update_age_ns: Option<u64>,
+}
+fn timing_availability(state: NativePcmState, delay: i64, accepted: u64) -> TimingAvailability {
+    match state {
+        NativePcmState::Running | NativePcmState::Draining => {
+            if u64::try_from(delay).is_ok_and(|delay| delay <= accepted) {
+                TimingAvailability::Available
+            } else {
+                TimingAvailability::InvalidDelay
+            }
+        }
+        NativePcmState::Prepared | NativePcmState::Paused => TimingAvailability::Pending,
+        _ => TimingAvailability::Unavailable,
+    }
+}
+
+#[cfg(test)]
+mod timing_tests {
+    use super::*;
+    #[test]
+    fn signed_delay_and_native_state_control_timing_availability() {
+        assert_eq!(
+            timing_availability(NativePcmState::Prepared, 0, 0),
+            TimingAvailability::Pending
+        );
+        assert_eq!(
+            timing_availability(NativePcmState::Running, 0, 64),
+            TimingAvailability::Available
+        );
+        assert_eq!(
+            timing_availability(NativePcmState::Running, -1, 64),
+            TimingAvailability::InvalidDelay
+        );
+        assert_eq!(
+            timing_availability(NativePcmState::Draining, 65, 64),
+            TimingAvailability::InvalidDelay
+        );
+        assert_eq!(
+            timing_availability(NativePcmState::Xrun, -32, 64),
+            TimingAvailability::Unavailable
+        );
+    }
+}
+
 pub struct AlsaOutput {
     pcm: Option<native::Pcm>,
     report: OpenReport,
@@ -66,6 +142,32 @@ impl AlsaOutput {
     }
     pub fn submitted_frames(&self) -> u64 {
         self.submitted_frames
+    }
+    /// Reads one coherent native state/delay snapshot without changing stream settings.
+    pub fn timing_observation(&mut self) -> Result<TimingObservation, AlsaError> {
+        let pcm = self.pcm.as_ref().ok_or(AlsaError::new(
+            ErrorCode::OutputFault,
+            "output has no active backend clock",
+        ))?;
+        let (pcm_state, signed_delay_frames, timestamp_mode, timestamp_type) =
+            pcm.timing_status()?;
+        Ok(TimingObservation {
+            epochs: self.epochs,
+            state: self.state,
+            accepted_frames: self.submitted_frames,
+            client_rate_hz: self.report.requested.format.sample_rate_hz(),
+            pcm_state,
+            signed_delay_frames,
+            availability: timing_availability(
+                pcm_state,
+                signed_delay_frames,
+                self.submitted_frames,
+            ),
+            timestamp_mode,
+            timestamp_type,
+            native_accuracy_ns: None,
+            native_update_age_ns: None,
+        })
     }
     /// Actual Rust-owned audio capacity, excluding metadata, allocator overhead, and ALSA storage.
     pub fn audio_storage_bytes(&self) -> Result<u64, AlsaError> {

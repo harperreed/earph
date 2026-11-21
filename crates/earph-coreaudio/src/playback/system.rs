@@ -5,7 +5,7 @@ use std::{cell::Cell, sync::atomic::AtomicU32};
 
 #[derive(Clone, Copy)]
 struct ScheduledSpan {
-    payload_end: u64,
+    placement: NativeEnqueueSpan,
     queue_end: u64,
 }
 struct Schedule {
@@ -19,6 +19,20 @@ struct Schedule {
     returned: Option<QueueScheduleDiagnostic>,
 }
 impl Schedule {
+    fn copy_spans(&self, destination: &mut [NativeEnqueueSpan]) -> Result<usize, CoreAudioError> {
+        if destination.len() < self.len {
+            return Err(error(
+                ErrorCode::ResourceBudgetExceeded,
+                "timing span destination is too small",
+            ));
+        }
+        for (offset, target) in destination.iter_mut().take(self.len).enumerate() {
+            *target = self.spans[(self.head + offset) % self.spans.len()]
+                .expect("live schedule entries remain until retirement")
+                .placement;
+        }
+        Ok(self.len)
+    }
     fn new(capacity: u32, epochs: Epochs) -> Self {
         Self {
             // Each outstanding span contains at least one frame within the unchanged enqueue window.
@@ -109,7 +123,14 @@ impl Schedule {
         }
         let tail = (self.head + self.len) % self.spans.len();
         self.spans[tail] = Some(ScheduledSpan {
-            payload_end,
+            placement: NativeEnqueueSpan {
+                epochs,
+                accepted_start: start,
+                accepted_end: payload_end,
+                queue_start: sample,
+                queue_end_whole: end_whole,
+                queue_end_fraction: fraction,
+            },
             queue_end,
         });
         self.len += 1;
@@ -129,7 +150,7 @@ impl Schedule {
             if queue_frame < span.queue_end {
                 break;
             }
-            self.retired = span.payload_end;
+            self.retired = span.placement.accepted_end;
             self.spans[self.head] = None;
             self.head = (self.head + 1) % self.spans.len();
             self.len -= 1;
@@ -276,11 +297,34 @@ struct ClockRead {
     discontinuity: bool,
     enqueued: u64,
 }
+#[cfg(target_os = "macos")]
+struct FreshQueueRead {
+    restart: Option<u64>,
+    clock: Option<ClockRead>,
+    running_before: Option<bool>,
+}
+#[cfg(target_os = "macos")]
+impl FreshQueueRead {
+    fn pending(restart: Option<u64>) -> Self {
+        Self {
+            restart,
+            clock: None,
+            running_before: None,
+        }
+    }
+}
 struct Clock {
     raw_last: Cell<Option<f64>>,
     read: Cell<Option<ClockRead>>,
 }
 impl Clock {
+    fn validate_read(&self, read: ClockRead) -> Result<Option<u64>, CoreAudioError> {
+        self.read.set(Some(read));
+        self.observe(
+            (read.flags & 1 != 0).then_some(f64::from_bits(read.sample_bits)),
+            read.discontinuity,
+        )
+    }
     fn begin_read(&self) {
         self.read.set(None);
     }

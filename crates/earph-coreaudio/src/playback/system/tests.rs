@@ -3,6 +3,72 @@
 use super::super::tests::{block, producer};
 use super::*;
 #[test]
+fn timing_spans_preserve_fractional_gaps_and_refuse_truncated_reads() {
+    let epochs = Epochs::default();
+    let mut schedule = Schedule::new(16, epochs);
+    schedule.append(epochs, 0, 4, 10.25, 1).unwrap();
+    schedule.append(epochs, 4, 4, 30.75, 1).unwrap();
+    let mut short = [NativeEnqueueSpan::default(); 1];
+    assert!(schedule.copy_spans(&mut short).is_err());
+    assert_eq!(schedule.retired, 0);
+    let mut spans = [NativeEnqueueSpan::default(); 2];
+    assert_eq!(schedule.copy_spans(&mut spans).unwrap(), 2);
+    assert_eq!((spans[0].accepted_start, spans[0].accepted_end), (0, 4));
+    assert_eq!(spans[0].queue_start, 10.25);
+    assert_eq!(
+        (spans[0].queue_end_whole, spans[0].queue_end_fraction),
+        (14, 0.25)
+    );
+    assert_eq!(spans[1].queue_start, 30.75);
+    assert_eq!(spans[1].epochs, epochs);
+    assert_eq!(schedule.retire(epochs, 30).unwrap(), 4);
+    assert_eq!(schedule.copy_spans(&mut spans).unwrap(), 1);
+    assert_eq!(spans[0].accepted_start, 4);
+}
+#[test]
+fn fresh_clock_validation_never_reuses_an_earlier_diagnostic() {
+    let clock = Clock::new();
+    clock.record_read(42.25, 1, false, 4);
+    assert_eq!(clock.observe(Some(42.25), false).unwrap(), Some(42));
+    assert!(
+        clock
+            .validate_read(ClockRead {
+                sample_bits: 41.5_f64.to_bits(),
+                flags: 1,
+                discontinuity: false,
+                enqueued: 4
+            })
+            .is_err()
+    );
+    assert_eq!(
+        clock
+            .validate_read(ClockRead {
+                sample_bits: 43.5_f64.to_bits(),
+                flags: 1,
+                discontinuity: false,
+                enqueued: 4
+            })
+            .unwrap(),
+        Some(43)
+    );
+    assert_eq!(
+        clock.diagnostics(QueueDiagnostics::default()).sample_finite,
+        Some(43.5)
+    );
+    assert_eq!(
+        clock
+            .validate_read(ClockRead {
+                sample_bits: 999.0_f64.to_bits(),
+                flags: 0,
+                discontinuity: false,
+                enqueued: 4
+            })
+            .unwrap(),
+        None
+    );
+    assert_eq!(clock.raw_last.get(), Some(43.5));
+}
+#[test]
 fn partial_slots_reuse_only_after_acquisition_and_do_not_advance_restart_clock() {
     let slots = Slots::new(5, 2, FAULT_SIGNALS.reserve().unwrap());
     assert_eq!(&*slots.capacities, &[2, 2, 1]);
@@ -109,7 +175,13 @@ fn accepted_native_enqueue_keeps_its_count_when_returned_schedule_faults() {
         assert_eq!(schedule.enqueued, 2);
         assert_eq!(schedule.retired, 0);
         assert_eq!(schedule.len, 1);
-        assert_eq!(schedule.spans[schedule.head].unwrap().payload_end, 1);
+        assert_eq!(
+            schedule.spans[schedule.head]
+                .unwrap()
+                .placement
+                .accepted_end,
+            1
+        );
         let returned = schedule.returned.unwrap();
         assert_eq!(returned.sample_time_bits, Some(sample.to_bits()));
         assert_eq!(returned.flags, flags);

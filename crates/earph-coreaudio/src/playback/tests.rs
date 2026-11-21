@@ -28,6 +28,12 @@ fn audio_storage_reports_the_actual_ring_once_without_heap_work() {
             state: OutputState::Prepared,
         };
         let callback_owner = output.producer.ring.clone();
+        let (timing, timing_counts) =
+            allocations::tracked(|| output.timing_observation(&mut []).unwrap());
+        assert_eq!(timing_counts, allocations::AllocationCounts::default());
+        assert_eq!(timing.availability, TimingAvailability::Unsupported);
+        assert_eq!(timing.queue_sample, None);
+        assert_eq!(timing.native_accuracy_ns, None);
         let (bytes, counts) = allocations::tracked(|| output.audio_storage_bytes().unwrap());
         assert_eq!(bytes, expected);
         assert_eq!(counts, allocations::AllocationCounts::default());

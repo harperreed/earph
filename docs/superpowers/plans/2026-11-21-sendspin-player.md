@@ -381,7 +381,9 @@ Run unit and integration checks for Sendspin, Network, Core, and Engine paths to
 Run the real pinned Python producer gate with the existing exact-source verifier.
 Run `scripts/check`, which includes format, strict Clippy, workspace tests, catalog checks, and dependency checks.
 Run applicable platform checks on each changed native adapter.
-Root serializes full suites and native owner qualification, as gotchas.md requires.
+Root serializes full suites, shared provider checks, physical output, and timing qualification.
+Isolated controller regressions may run alongside independent credential checks using separate processes, sockets, files, and file/null outputs.
+That exception grants no physical output, shared settings, performance measurement, or native clock accuracy claim.
 Run one independent main-model review of the actual shared-contract/concurrency diff and its test evidence.
 Resolve material findings before integration.
 

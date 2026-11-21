@@ -203,9 +203,11 @@ impl DesktopClient {
         if self.model.record(&request.envelope().request_id).is_some() {
             return Err(SubmitError::DuplicateIdentity);
         }
-        if matches!(request.envelope().payload, Command::State)
+        if request.lane() == Lane::Ordinary
+            && matches!(request.envelope().payload, Command::State)
             && let Some(existing) = self.model.records.iter().find(|entry| {
                 entry.in_flight
+                    && entry.request.lane() == Lane::Ordinary
                     && entry.request.envelope().zone_id == request.envelope().zone_id
                     && matches!(entry.request.envelope().payload, Command::State)
             })
