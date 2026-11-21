@@ -4,6 +4,7 @@
 use core_foundation::base::TCFType;
 use earph_credentials::{CredentialStore, NativeConfig, StoreError};
 use earph_sendspin::{credentials::CommittedCredentials, pairing::RecordCatalog};
+use security_framework::item::{ItemClass, ItemSearchOptions, Limit, Reference, SearchResult};
 use security_framework::os::macos::keychain::{CreateOptions, SecKeychain};
 use security_framework_sys::base::SecKeychainRef;
 use std::{
@@ -92,9 +93,20 @@ fn isolated_keychain() {
             == document(61).encode_secret().unwrap().as_secret_bytes()
     );
     println!("earph-keychain-stage=readback-confirmed");
-    let (_, mut item) = keychain
-        .find_generic_password("org.earph.credentials", "sendspin-committed-v1")
+    // Retrieve only the reference; the helper owns secret readback above.
+    let mut items = ItemSearchOptions::new()
+        .keychains(std::slice::from_ref(&keychain))
+        .class(ItemClass::generic_password())
+        .service("org.earph.credentials")
+        .account("sendspin-committed-v1")
+        .limit(Limit::Max(2))
+        .load_refs(true)
+        .search()
         .unwrap();
+    assert_eq!(items.len(), 1);
+    let SearchResult::Ref(Reference::KeychainItem(mut item)) = items.pop().unwrap() else {
+        panic!("expected one native keychain item reference");
+    };
     println!("earph-keychain-stage=native-item-opened");
     item.set_password(&[1, 2, 3]).unwrap();
     println!("earph-keychain-stage=corrupt-written");
