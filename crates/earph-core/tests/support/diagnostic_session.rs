@@ -121,7 +121,9 @@ pub fn preparing(endpoint: &str, device_identity: Option<ProfileObjectHash>) -> 
         .advance(EngineEvent {
             epochs: session.snapshot().epochs,
             monotonic_ns: 1,
-            kind: EngineEventKind::LocalPrepared { observation },
+            kind: EngineEventKind::LocalPrepared {
+                observation: observation.into(),
+            },
         })
         .unwrap();
     assert_eq!(session.snapshot().transport, TransportState::Paused);
@@ -175,7 +177,7 @@ pub fn activate(session: &mut Session, preview: Arc<GraphPreview>) -> Receipt {
                 epochs: session.snapshot().epochs,
                 graph_hash: preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: session.snapshot().playback.unwrap(),
+                observation: session.snapshot().observation.pcm().cloned().unwrap(),
                 source_total_frames: 48000,
             },
             5,

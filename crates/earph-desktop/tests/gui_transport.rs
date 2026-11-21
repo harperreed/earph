@@ -2,6 +2,9 @@
 // ABOUTME: Verifies Accepted muted operations never block observation or independent safety actions.
 #![cfg(target_os = "linux")]
 mod common;
+#[allow(dead_code)]
+#[path = "../../earph-media/tests/support/dsd.rs"]
+mod dsd_containers;
 #[path = "gui_receipt_fixture/mod.rs"]
 mod receipt_fixture;
 use common::process::ProcessOwner;
@@ -51,6 +54,118 @@ fn edit(gui: &mut GuiController, command: Command) {
         command,
     });
     assert!(gui.error().is_none(), "{:?}", gui.error());
+}
+
+#[test]
+fn muted_dsd_source_projects_bits_and_accepts_a_typed_seek_to_software_eof() {
+    let artifacts = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/desktop-dsd-transport")
+        .join(unique());
+    fs::create_dir_all(&artifacts).unwrap();
+    let config = artifacts.join("alsa.conf");
+    let capture = artifacts.join("capture.dop");
+    fs::write(&config,format!("pcm.null {{ type null }}\npcm.capture {{ type file slave.pcm null file \"{}\" format raw }}\n",capture.display())).unwrap();
+    let source = artifacts.join("source.data");
+    let bytes = dsd_containers::dsf(&[0x69, 0x96, 0xa5, 0x5a], 1, 2_822_400, b"");
+    fs::write(&source, &bytes).unwrap();
+    let mut owner = ProcessOwner::with_configuration(Some(&config));
+    let mut gui = GuiController::new();
+    gui.handle(UiIntent::Attach {
+        runtime: owner.runtime.to_str().unwrap().into(),
+    });
+    until(&mut gui, |g| {
+        g.connected() && g.control_edit_available() && !g.busy()
+    });
+    edit(
+        &mut gui,
+        Command::OutputSelect {
+            output: OutputConfiguration {
+                backend: OutputBackend::Alsa,
+                route: OutputRoute::System,
+                endpoint: "capture".into(),
+                device_id: DeviceId::new("dsd-capture").unwrap(),
+                profile_id: ProfileId::new("dsd-profile").unwrap(),
+                period_frames: 31,
+                buffer_frames: 124,
+                volume_mode: VolumeMode::Fixed,
+                fidelity: FidelityPolicy::StrictPreservation,
+            },
+        },
+    );
+    edit(
+        &mut gui,
+        Command::VolumeSet {
+            millidecibels: 0,
+            ramp_frames: 0,
+        },
+    );
+    edit(
+        &mut gui,
+        Command::OutputConsent {
+            device_id: DeviceId::new("dsd-capture").unwrap(),
+            profile_id: ProfileId::new("dsd-profile").unwrap(),
+        },
+    );
+    edit(
+        &mut gui,
+        Command::FixedArm {
+            device_id: DeviceId::new("dsd-capture").unwrap(),
+            profile_id: ProfileId::new("dsd-profile").unwrap(),
+        },
+    );
+    until(&mut gui, |g| g.queue_edit_available() && !g.busy());
+    gui.handle(UiIntent::QueueEdit {
+        basis: Arc::new(gui.state().unwrap().clone()),
+        command: Command::QueueAppend {
+            path: source.to_str().unwrap().into(),
+        },
+    });
+    until(&mut gui, |g| {
+        g.queue_edit_available() && !g.busy() && g.queue().is_some_and(|q| q.total == 1)
+    });
+    let selected = gui.queue().unwrap().entries[0].id.clone();
+    gui.handle(UiIntent::QueueEdit {
+        basis: Arc::new(gui.state().unwrap().clone()),
+        command: Command::QueueSelect {
+            id: Some(selected.clone()),
+        },
+    });
+    until(&mut gui, |g| {
+        g.queue_edit_available()
+            && !g.busy()
+            && g.queue().unwrap().selected.as_ref() == Some(&selected)
+    });
+    gui.handle(UiIntent::StartLocal {
+        basis: Arc::new(gui.state().unwrap().clone()),
+        takeover: false,
+    });
+    until(&mut gui, |g| {
+        g.state().is_some_and(|s| s.dsd_playback.is_some())
+    });
+    let prepared = gui.state().unwrap();
+    let dsd = prepared.dsd_playback.as_ref().unwrap();
+    assert_eq!(dsd.source_position_bits, 0);
+    assert_eq!(dsd.total_source_bits, 16);
+    assert_eq!(dsd.source_format.bit_rate_hz(), 2_822_400);
+    assert!(prepared.playback.is_none());
+    assert!(prepared.network_playback.is_none());
+    assert!(prepared.muted);
+    assert!(gui.seek_bounds().is_none());
+    edit(&mut gui, Command::SeekDsd { position_bits: 16 });
+    until(&mut gui, |g| {
+        g.state()
+            .is_some_and(|s| s.transport == earph_desktop::TransportView::Idle)
+    });
+    let ended = gui.state().unwrap();
+    assert_eq!(ended.decoded_position_frames, 0);
+    assert!(ended.audible_position_frames.is_none());
+    assert_eq!(
+        ended.dsd_playback.as_ref().unwrap().completion_basis,
+        Some(earph_core::dop::DsdCompletionBasis::SourceSubmitted)
+    );
+    assert!(!capture.exists());
+    assert_eq!(fs::read(&source).unwrap(), bytes);
+    owner.stop().unwrap();
 }
 #[test]
 #[cfg(target_os = "linux")]

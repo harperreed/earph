@@ -173,7 +173,7 @@ fn fixed_profile_checkpoint_restores_intent_at_lower_gain_without_runtime_author
     assert_eq!(restored.snapshot().software_gain_db, -40.0);
     assert!(restored.snapshot().muted && !restored.snapshot().output_consented);
     assert!(restored.graph_inspection().prepared.is_none());
-    assert!(restored.snapshot().playback.is_none());
+    assert!(restored.snapshot().observation.pcm().cloned().is_none());
     assert!(
         restored
             .snapshot()

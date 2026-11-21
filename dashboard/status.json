@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-21T17:10:31.048Z",
-  "headline": "Stop fix published and Linux checks pass; Orbit deployment remains pending.",
-  "focus": "Finish Mac build and Stop delivery · Integrate reviewed transport work · Continue DSD and first-release qualification",
-  "summary": "The Stop correction and reviewed native timing adapter sources are pushed in ef87602. Full Linux scripts/check exits 0 with all 2,079 source hashes verified: 1,807 reported passes, zero failures, 22 ignores, and 194 groups. Counts include nested results, not unique tests. The Stop correction is not installed on Orbit. Orbit was last observed offline; Mac build and delivery remain pending. The existing installed GUI must not be treated as corrected. Doctor Biz’s hearing confirmation covers the selected local PCM path only. The final twelve-file Sendspin player transport correction passes 49 Network unit cases, 27 wire cases, and the credential/provider/native-transport batch. Focused independent re-review is clear. Root integration remains pending; this is not operational Sendspin qualification. Root is correcting a Mac CI linker deployment-target mismatch. The strict warning gate remains enabled. No passing current Mac build or Stop deployment is claimed. The DSD reviewer’s P2 ownership correction remains active and incomplete. First release and the whole Earph build continue; operational Sendspin, physical DSD, synchronization, and broader interoperability remain open.",
+  "updated_at": "2026-11-21T17:56:36.142Z",
+  "headline": "Transport checkpoint published; DSD review clears before its combined check.",
+  "focus": "Complete current Mac CI gates · Qualify integrated DSD software · Finish controller and output-clock integration",
+  "summary": "Typed Sendspin transport and the shared Mac deployment target are published in 6318d6a with normal hooks and clean local/remote readbacks. Full Linux scripts/check exits 0 with all 2,088 source hashes verified. The same-source hosted Linux job succeeds. The hosted Mac keychain gate and workspace build/Clippy/CoreDSP step succeed. Generated Swift is still running; the native UI/build-target step is pending. The deployment-target correction has no final Mac pass yet. Orbit was last observed offline, and its installed GUI still lacks the Stop correction. The final DSD software unit clears independent review after direct-close, cancel-before-dequeue, and acknowledgement-role corrections. Its scoped Engine suite has 309 passes and one ignore; strict Clippy, build, and formatting pass. Root integrates 48 files with preserved backups and reviewed desktop merges retaining Stop. The 2,093-file source is frozen for a combined check after the controller smoke test. This DSD unit is not published or combined-qualified. Public DSD Unmute stays blocked; Core Audio DSD remains unsupported. Output-clock integration and the controller smoke test remain in progress. Doctor Biz’s audible confirmation retains its selected local PCM scope; that playback was stopped. Operational Sendspin, physical synchronization, DSD carriage, broad interoperability, signing, and first release remain open.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -39,7 +39,7 @@
     },
     "M3": {
       "state": "active",
-      "detail": "The reviewed pure player timeline retains 59 focused passes and integrated scripts/check proof under its original source scope. Doctor Biz confirms hearing for the installed Orbit local PCM path. Operational Sendspin, physical synchronization, DSD, and other routes remain unqualified."
+      "detail": "The typed transport checkpoint is published and Linux-qualified. Output-clock validator and projection checks pass, but operational wiring, scheduler, latency, correction, and history compaction remain open. DSD software is reviewed and integrated but awaits combined qualification. No operational Sendspin, physical synchronization, DSD device carriage, or whole-release acceptance is added."
     },
     "M4": {
       "state": "planned",
@@ -64,8 +64,8 @@
       "detail": "The actual generated Kotlin volume gate passes with exit 0: 94 frames, 43 consumers, 52 exact CLI comparisons, 172 guards, and 48 guarded JVMs. It covers nine network, six renderer, and eight volume commands with zero TCP/HTTP, no audio, and an unopened, unconsented fixture output. The owner exits 0 and is freshly absent. The gate preserves its 489 source inputs and HEAD. Six products are frozen after the gate; only two runtime hashes are checked through the scenario. This is not a six-product before/after claim. Reviewed U2/pairing is now published in c8 with its separate completed combined check. The current native workflow has its own software-only scope."
     },
     {
-      "title": "Reviewed DSD software is integrated; physical routes remain open",
-      "detail": "Reviewed typed stereo DSF/uncompressed DFF to DoP software for DSD64/128 is published and passes its scoped combined Linux gates. Its earlier 458 Core/media and 15 codec/container checks retain their scoped proof. No Engine/native/physical DSD route is wired or qualified. PLAY-07 and SAFE-04 remain partial; AC-13 remains incomplete. Physical DSD qualification is still required."
+      "title": "Reviewed DSD software integrates before combined qualification",
+      "detail": "The final DSD software unit clears independent review after direct-close, cancel-before-dequeue, and acknowledgement-role corrections. Its scoped Engine suite has 309 passes and one ignore; strict Clippy, build, and formatting pass. Root integrates 48 files with preserved backups and reviewed desktop merges retaining Stop. The 2,093-file source is frozen for a combined check after the controller smoke test. This DSD unit is not published or combined-qualified. Public DSD Unmute stays blocked; Core Audio DSD remains unsupported."
     },
     {
       "title": "Reviewed renderer/runtime and Engine fixes are imported",
@@ -136,8 +136,8 @@
       "detail": "Both same-profile reload and stale file-batch receipt defects have genuine Mac REDs, frozen corrections, targeted independent clearance, and actual runtime GREENs inside the final six-check candidate."
     },
     {
-      "title": "Published Stop and timing sources pass full Linux checks",
-      "detail": "The Stop correction and reviewed native timing adapter sources are pushed in ef87602. Full Linux scripts/check exits 0 with all 2,079 source hashes verified: 1,807 reported passes, zero failures, 22 ignores, and 194 groups. Counts include nested results, not unique tests. The installed Orbit GUI and current Mac build remain outside this qualification."
+      "title": "Published typed transport passes full and hosted Linux checks",
+      "detail": "Typed Sendspin transport and the shared Mac deployment target are published in 6318d6a with normal hooks and clean local/remote readbacks. Full Linux scripts/check exits 0 with all 2,088 source hashes verified. The same-source hosted Linux job succeeds. The hosted Mac keychain gate and workspace build/Clippy/CoreDSP step succeed. Generated Swift is still running; the native UI/build-target step is pending. The deployment-target correction has no final Mac pass yet. Orbit was last observed offline, and its installed GUI still lacks the Stop correction."
     },
     {
       "title": "All six current Mac checks pass with both real regressions GREEN",
@@ -1008,48 +1008,48 @@
   ],
   "active": [
     {
-      "title": "Build and deliver the published Stop correction on Mac",
-      "detail": "The Stop correction and reviewed native timing adapter sources are pushed in ef87602. Full Linux scripts/check exits 0 with all 2,079 source hashes verified: 1,807 reported passes, zero failures, 22 ignores, and 194 groups. Counts include nested results, not unique tests. The Stop correction is not installed on Orbit. Orbit was last observed offline; Mac build and delivery remain pending. The existing installed GUI must not be treated as corrected. Doctor Biz’s hearing confirmation covers the selected local PCM path only. Root is correcting a Mac CI linker deployment-target mismatch. The strict warning gate remains enabled. No passing current Mac build or Stop deployment is claimed."
+      "title": "Complete Mac CI and deliver Stop when Orbit reconnects",
+      "detail": "The hosted Mac keychain gate and workspace build/Clippy/CoreDSP step succeed. Generated Swift is still running; the native UI/build-target step is pending. The deployment-target correction has no final Mac pass yet. Orbit was last observed offline, and its installed GUI still lacks the Stop correction. No new Orbit deployment or audio Start is claimed."
     },
     {
-      "title": "Integrate the reviewed Sendspin player transport correction",
-      "detail": "The final twelve-file Sendspin player transport correction passes 49 Network unit cases, 27 wire cases, and the credential/provider/native-transport batch. Focused independent re-review is clear. Root integration remains pending; this is not operational Sendspin qualification."
+      "title": "Qualify the integrated DSD software unit",
+      "detail": "The final DSD software unit clears independent review after direct-close, cancel-before-dequeue, and acknowledgement-role corrections. Its scoped Engine suite has 309 passes and one ignore; strict Clippy, build, and formatting pass. Root integrates 48 files with preserved backups and reviewed desktop merges retaining Stop. The 2,093-file source is frozen for a combined check after the controller smoke test. This DSD unit is not published or combined-qualified. Public DSD Unmute stays blocked; Core Audio DSD remains unsupported."
     },
     {
-      "title": "Finish the DSD ownership correction and release work",
-      "detail": "The independent reviewer’s P2 ownership correction is active and not yet complete. DSD Engine integration, physical carriage, protocol interoperability, signing, and whole-release acceptance remain open."
+      "title": "Finish output-clock and controller integration",
+      "detail": "Output-clock validation has 11 focused passes, including a real ALSA null producer/consumer with 64 zero frames. Pure projection has 12 passes; both pass strict Clippy and formatting. Actual output-timing and native-identity integration is underway. Scheduler, latency, correction, and projection history compaction remain pending; these parts are not operationally wired. Interim controller fixtures build with verified provenance, and two exact loader binaries resolve native dependencies. A missing-ALSA image and a later empty-address-range preflight rejection remain retained. Schema-correct narrow guards are being prepared. No owner/controller runtime, GetMute scenario, audio, or AC-15 acceptance is claimed."
     }
   ],
   "pending": [
     {
-      "title": "The installed Orbit GUI still needs the Stop update",
-      "detail": "The Stop correction is not installed on Orbit. Orbit was last observed offline; Mac build and delivery remain pending. The existing installed GUI must not be treated as corrected. Doctor Biz’s hearing confirmation covers the selected local PCM path only. Root’s earlier one direct fenced Stop safely reached Idle/muted with confirmed output closure; it did not update or qualify the GUI."
+      "title": "Current Mac target verification and Orbit Stop update remain pending",
+      "detail": "The hosted Mac keychain gate and workspace build/Clippy/CoreDSP step succeed. Generated Swift is still running; the native UI/build-target step is pending. The deployment-target correction has no final Mac pass yet. Orbit was last observed offline, and its installed GUI still lacks the Stop correction."
     },
     {
-      "title": "Mac build, warnings, and deployment remain gated",
-      "detail": "Root is correcting a Mac CI linker deployment-target mismatch. The strict warning gate remains enabled. No passing current Mac build or Stop deployment is claimed. Orbit was last observed offline. No new Mac native timing, noStart, or deployment pass is inferred from Linux checks."
+      "title": "DSD operational and physical gates remain closed",
+      "detail": "The reviewed software unit awaits its combined Root check and publication. Public DSD Unmute is blocked and Core Audio DSD is unsupported. No physical DSD result is inferred."
     },
     {
-      "title": "First release remains in progress",
-      "detail": "Hearing is confirmed only for the selected Orbit local PCM path. Reviewed transport source, pure player timing, and software DSD evidence do not qualify operational Sendspin, synchronization, physical DSD, every output, signing, or release."
+      "title": "Operational Sendspin, controller interoperability, and release remain open",
+      "detail": "Pure validator/projection and loader metadata do not qualify operational playback, physical synchronization, the actual controller matrix, or release. Hearing remains confirmed only for the selected Orbit local PCM path. Browser tools remain unavailable."
     }
   ],
   "activity": [
     {
-      "title": "Stop and native timing source checkpoint is pushed",
-      "detail": "The Stop correction and reviewed native timing adapter sources are pushed in ef87602. Full Linux scripts/check exits 0 with all 2,079 source hashes verified: 1,807 reported passes, zero failures, 22 ignores, and 194 groups. Counts include nested results, not unique tests."
+      "title": "Typed transport and deployment-target source checkpoint published",
+      "detail": "Typed Sendspin transport and the shared Mac deployment target are published in 6318d6a with normal hooks and clean local/remote readbacks. Full Linux scripts/check exits 0 with all 2,088 source hashes verified. The same-source hosted Linux job succeeds."
     },
     {
-      "title": "Orbit deployment stays separate from published source",
-      "detail": "The Stop correction is not installed on Orbit. Orbit was last observed offline; Mac build and delivery remain pending. The existing installed GUI must not be treated as corrected. Doctor Biz’s hearing confirmation covers the selected local PCM path only."
+      "title": "Hosted Mac gates remain partly in progress",
+      "detail": "The hosted Mac keychain gate and workspace build/Clippy/CoreDSP step succeed. Generated Swift is still running; the native UI/build-target step is pending. The deployment-target correction has no final Mac pass yet. Orbit was last observed offline, and its installed GUI still lacks the Stop correction."
     },
     {
-      "title": "Transport correction clears focused review before integration",
-      "detail": "The final twelve-file Sendspin player transport correction passes 49 Network unit cases, 27 wire cases, and the credential/provider/native-transport batch. Focused independent re-review is clear. Root integration remains pending; this is not operational Sendspin qualification."
+      "title": "DSD review clears and Root integrates the frozen software unit",
+      "detail": "The final DSD software unit clears independent review after direct-close, cancel-before-dequeue, and acknowledgement-role corrections. Its scoped Engine suite has 309 passes and one ignore; strict Clippy, build, and formatting pass. Root integrates 48 files with preserved backups and reviewed desktop merges retaining Stop. The 2,093-file source is frozen for a combined check after the controller smoke test. This DSD unit is not published or combined-qualified. Public DSD Unmute stays blocked; Core Audio DSD remains unsupported."
     },
     {
-      "title": "Mac linker and DSD ownership work continue",
-      "detail": "Root is correcting a Mac CI linker deployment-target mismatch. The strict warning gate remains enabled. No passing current Mac build or Stop deployment is claimed. The DSD P2 ownership correction remains active; no final DSD or release claim is made."
+      "title": "Clock integration and controller preparation continue",
+      "detail": "Output-clock validation has 11 focused passes, including a real ALSA null producer/consumer with 64 zero frames. Pure projection has 12 passes; both pass strict Clippy and formatting. Actual output-timing and native-identity integration is underway. Scheduler, latency, correction, and projection history compaction remain pending; these parts are not operationally wired. Interim controller fixtures build with verified provenance, and two exact loader binaries resolve native dependencies. A missing-ALSA image and a later empty-address-range preflight rejection remain retained. Schema-correct narrow guards are being prepared. No owner/controller runtime, GetMute scenario, audio, or AC-15 acceptance is claimed."
     }
   ]
 }

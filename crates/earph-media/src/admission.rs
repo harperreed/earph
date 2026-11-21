@@ -16,6 +16,14 @@ pub fn open(path: &Path) -> Result<File, EngineError> {
     Ok(file)
 }
 
+/// Classifies only container magic. The selected reader must admit its own reopened file.
+pub fn is_dsd(path: &Path) -> Result<bool, EngineError> {
+    let mut file = open_regular(path)?;
+    let mut magic = [0; 4];
+    file.read_exact(&mut magic).map_err(|_| INVALID)?;
+    Ok(matches!(&magic, b"DSD " | b"FRM8"))
+}
+
 pub(crate) fn open_regular(path: &Path) -> Result<File, EngineError> {
     if !std::fs::metadata(path).map_err(|_| INVALID)?.is_file() {
         return Err(INVALID);

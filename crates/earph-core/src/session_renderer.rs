@@ -794,7 +794,7 @@ impl Session {
     ) -> Result<(), EngineError> {
         match &command.payload {
             Command::GraphPrepare { .. } => {
-                if self.state.network_playback.as_ref().is_none_or(|p| {
+                if self.state.observation.network().is_none_or(|p| {
                     p.binding != binding.source
                         || p.lifecycle != crate::network_source::NetworkLifecycle::Ready
                 }) {

@@ -546,8 +546,8 @@ fn prepare(
             return Err(STALE.into());
         }
         if snapshot
-            .playback
-            .as_ref()
+            .observation
+            .pcm()
             .and_then(|p| p.backend.as_ref())
             .is_none()
         {
@@ -561,8 +561,8 @@ fn prepare(
             o.volume_mode != application.volume_mode || o.fidelity != application.fidelity
         }) || application.device_identity_sha256
             != snapshot
-                .playback
-                .as_ref()
+                .observation
+                .pcm()
                 .and_then(|p| p.backend.as_ref())
                 .and_then(|b| {
                     (b.backend == earph_core::control::OutputBackend::CoreAudio)
@@ -1135,10 +1135,10 @@ fn playback_facts(
     snapshot: &SessionSnapshot,
 ) -> Result<(PcmFormat, Option<earph_core::session::BackendObservation>), GraphDiagnostic> {
     if snapshot.source == Some(earph_core::control::SourceKind::HttpFlac) {
-        let playback = snapshot.network_playback.as_ref().ok_or(STALE)?;
+        let playback = snapshot.observation.network().ok_or(STALE)?;
         Ok((playback.format, playback.backend.clone()))
     } else {
-        let playback = snapshot.playback.as_ref().ok_or(STALE)?;
+        let playback = snapshot.observation.pcm().ok_or(STALE)?;
         Ok((playback.format, playback.backend.clone()))
     }
 }
@@ -1290,8 +1290,8 @@ fn activation_hash(
     }
     // Storage affects admission, while these existing facts define route identity.
     let backend_identity = snapshot
-        .playback
-        .as_ref()
+        .observation
+        .pcm()
         .and_then(|p| p.backend.as_ref())
         .map(|b| BackendIdentity {
             backend: &b.backend,

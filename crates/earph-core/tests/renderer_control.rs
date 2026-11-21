@@ -2289,7 +2289,7 @@ fn renderer_prepare(s: &Session, id: &str) -> CommandEnvelope {
 fn renderer_preview(s: &Session) -> std::sync::Arc<earph_core::graph_control::GraphPreview> {
     use earph_core::{audio::*, graph::PreservationDecision, graph_control::*};
     let job = s.graph_job().unwrap();
-    let native = s.snapshot().network_playback.unwrap().format;
+    let native = s.snapshot().observation.network().cloned().unwrap().format;
     let float = PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Float64).unwrap();
     std::sync::Arc::new(GraphPreview {
         diagnostic_nodes: None,

@@ -1,6 +1,9 @@
 // ABOUTME: Tests reservation, fault, and pause behavior through real private IPC.
 // ABOUTME: Uses isolated child processes with generated media and ALSA file-to-null routes.
 #![cfg(target_os = "linux")]
+#[allow(dead_code)]
+#[path = "../../earph-media/tests/support/dsd.rs"]
+mod dsd_containers;
 mod support;
 use earph_core::{control::*, ids::*};
 use earph_engine::{EngineOwner, request};
@@ -193,6 +196,88 @@ fn host(
         profile_id: ProfileId::new("native-profile").unwrap(),
     });
     (controller, join)
+}
+
+#[test]
+fn generated_dsf_prepares_as_dsd_without_qualifying_or_writing_the_endpoint() {
+    if isolated(
+        "generated_dsf_prepares_as_dsd_without_qualifying_or_writing_the_endpoint",
+        None,
+    ) {
+        return;
+    }
+    let directory = artifacts();
+    let source = directory.join("typed-source.data");
+    fs::write(
+        &source,
+        dsd_containers::dsf(&[0xa5, 0x5a, 0x69, 0x96], 1, 2_822_400, b""),
+    )
+    .unwrap();
+    let (c, join) = host("capture");
+    c.append(&source);
+    c.start();
+    let state = c.wait(|s| s["transport"] == "buffering" || s["transport"] == "failed");
+    let queue = c.queue();
+    let unmute = c.send(Command::Mute { muted: false });
+    assert_eq!(unmute["receipt"]["status"], "rejected", "{unmute}");
+    assert_eq!(unmute["receipt"]["error"]["code"], "SAFETY_POLICY_BLOCKED");
+    let seek = c.send(
+        serde_json::from_value(json!({"method":"transport.seek_dsd","position_bits":16})).unwrap(),
+    );
+    assert_eq!(seek["receipt"]["status"], "accepted", "{seek}");
+    let ended = c.wait(|s| s["transport"] == "idle" || s["transport"] == "failed");
+    let shutdown = c.send(Command::OwnerShutdown);
+    join.join().unwrap().unwrap();
+    assert_eq!(shutdown["receipt"]["status"], "applied", "{shutdown}");
+    assert_eq!(state["transport"], "buffering", "{state}; queue={queue}");
+    assert!(state["playback"].is_null(), "{state}");
+    assert_eq!(
+        state["dsd_playback"]["source_format"]["bit_rate_hz"],
+        2_822_400
+    );
+    assert_eq!(state["dsd_playback"]["qualification"], "unverified");
+    assert_eq!(
+        queue["entries"][0]["status"]["state"], "dsd_ready",
+        "{queue}"
+    );
+    assert_eq!(
+        ended["dsd_playback"]["completion_basis"], "source_submitted",
+        "{ended}"
+    );
+    assert!(
+        fs::read(directory.join("capture.pcm"))
+            .unwrap_or_default()
+            .is_empty()
+    );
+}
+
+#[test]
+fn muted_dsd_shutdown_accepts_retirement_before_the_owner_exits() {
+    if isolated(
+        "muted_dsd_shutdown_accepts_retirement_before_the_owner_exits",
+        None,
+    ) {
+        return;
+    }
+    let directory = artifacts();
+    let source = directory.join("source.dff");
+    fs::write(
+        &source,
+        dsd_containers::dff(&[0x69, 0x96, 0xa5, 0x5a], 2_822_400),
+    )
+    .unwrap();
+    let (c, join) = host("capture");
+    c.append(&source);
+    c.start();
+    c.wait(|state| state["dsd_playback"].is_object());
+    let reply = c.send(Command::OwnerShutdown);
+    join.join().unwrap().unwrap();
+    assert_eq!(reply["receipt"]["status"], "accepted", "{reply}");
+    assert!(
+        fs::read(directory.join("capture.pcm"))
+            .unwrap_or_default()
+            .is_empty()
+    );
 }
 
 #[test]

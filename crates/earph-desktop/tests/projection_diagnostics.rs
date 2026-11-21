@@ -75,7 +75,7 @@ fn active_contract_reply() -> Vec<u8> {
     let mut session = diagnostic_session::preparing("/private/decoder-route", None);
     let job = session.graph_job().unwrap();
     let snapshot = session.snapshot();
-    let source = snapshot.playback.as_ref().unwrap().format;
+    let source = snapshot.observation.pcm().unwrap().format;
     let processing =
         PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Float64).unwrap();
     // This is a Core preparation-contract input, not compiler or native qualification.
@@ -83,7 +83,7 @@ fn active_contract_reply() -> Vec<u8> {
     let preview = Arc::new(GraphPreview {
         diagnostic_nodes: None,
         profile_application: None,
-        backend: snapshot.playback.as_ref().unwrap().backend.clone(),
+        backend: snapshot.observation.pcm().unwrap().backend.clone(),
         graph_hash: "a".repeat(64),
         kernel_hash: "b".repeat(64),
         implementation_version: "controlled Core contract".into(),

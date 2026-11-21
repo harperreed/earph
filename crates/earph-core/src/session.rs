@@ -134,9 +134,179 @@ pub struct SessionSnapshot {
     pub gain_ramp_frames: u32,
     pub active_entry_id: Option<QueueEntryId>,
     pub reserved_next_entry_id: Option<QueueEntryId>,
-    pub playback: Option<PlaybackObservation>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_playback: Option<crate::network_source::NetworkPlaybackObservation>,
+    #[serde(flatten)]
+    pub observation: PlaybackState,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LocalPlaybackObservation {
+    Pcm(Box<PlaybackObservation>),
+    Dsd(Box<crate::dop::DsdPlaybackObservation>),
+}
+impl From<PlaybackObservation> for LocalPlaybackObservation {
+    fn from(value: PlaybackObservation) -> Self {
+        Self::Pcm(Box::new(value))
+    }
+}
+impl From<crate::dop::DsdPlaybackObservation> for LocalPlaybackObservation {
+    fn from(value: crate::dop::DsdPlaybackObservation) -> Self {
+        Self::Dsd(Box::new(value))
+    }
+}
+impl LocalPlaybackObservation {
+    pub fn pcm(&self) -> Option<&PlaybackObservation> {
+        match self {
+            Self::Pcm(value) => Some(value),
+            Self::Dsd(_) => None,
+        }
+    }
+    pub fn entry_id(&self) -> &QueueEntryId {
+        match self {
+            Self::Pcm(value) => &value.source_entry_id,
+            Self::Dsd(value) => &value.source_entry_id,
+        }
+    }
+    pub fn decoded_pcm_frames(&self) -> u64 {
+        self.pcm().map_or(0, |value| value.source_position_frames)
+    }
+    pub fn audible_pcm_frames(&self) -> Option<u64> {
+        self.pcm()
+            .and_then(|value| value.audible_source_position_frames)
+    }
+    fn validate(&self, epochs: Epochs) -> Result<(), EngineError> {
+        match self {
+            Self::Pcm(_) => Ok(()),
+            Self::Dsd(value) => {
+                if value.source_epochs.session != epochs.session
+                    || value.source_epochs.stream > epochs.stream
+                    || value.output.as_ref().is_some_and(|output| {
+                        output.output_epochs != epochs
+                            || output.output_epochs != value.source_epochs
+                    })
+                {
+                    return Err(STALE);
+                }
+                value.validate()
+            }
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub enum CurrentPlaybackObservation {
+    Local(LocalPlaybackObservation),
+    Network(Box<crate::network_source::NetworkPlaybackObservation>),
+}
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PlaybackState(pub Option<CurrentPlaybackObservation>);
+impl From<LocalPlaybackObservation> for PlaybackState {
+    fn from(value: LocalPlaybackObservation) -> Self {
+        Self(Some(CurrentPlaybackObservation::Local(value)))
+    }
+}
+impl From<PlaybackObservation> for PlaybackState {
+    fn from(value: PlaybackObservation) -> Self {
+        LocalPlaybackObservation::from(value).into()
+    }
+}
+impl From<crate::network_source::NetworkPlaybackObservation> for PlaybackState {
+    fn from(value: crate::network_source::NetworkPlaybackObservation) -> Self {
+        Self(Some(CurrentPlaybackObservation::Network(Box::new(value))))
+    }
+}
+impl PlaybackState {
+    pub fn local(&self) -> Option<&LocalPlaybackObservation> {
+        match &self.0 {
+            Some(CurrentPlaybackObservation::Local(value)) => Some(value),
+            _ => None,
+        }
+    }
+    pub fn pcm(&self) -> Option<&PlaybackObservation> {
+        self.local().and_then(LocalPlaybackObservation::pcm)
+    }
+    pub fn pcm_mut(&mut self) -> Option<&mut PlaybackObservation> {
+        match &mut self.0 {
+            Some(CurrentPlaybackObservation::Local(LocalPlaybackObservation::Pcm(value))) => {
+                Some(value)
+            }
+            _ => None,
+        }
+    }
+    pub fn dsd(&self) -> Option<&crate::dop::DsdPlaybackObservation> {
+        match self.local() {
+            Some(LocalPlaybackObservation::Dsd(value)) => Some(value),
+            _ => None,
+        }
+    }
+    pub fn network(&self) -> Option<&crate::network_source::NetworkPlaybackObservation> {
+        match &self.0 {
+            Some(CurrentPlaybackObservation::Network(value)) => Some(value),
+            _ => None,
+        }
+    }
+    pub fn network_mut(
+        &mut self,
+    ) -> Option<&mut crate::network_source::NetworkPlaybackObservation> {
+        match &mut self.0 {
+            Some(CurrentPlaybackObservation::Network(value)) => Some(value),
+            _ => None,
+        }
+    }
+}
+impl Serialize for PlaybackState {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("playback", &self.pcm())?;
+        if let Some(value) = self.network() {
+            map.serialize_entry("network_playback", value)?;
+        }
+        if let Some(value) = self.dsd() {
+            map.serialize_entry("dsd_playback", value)?;
+        }
+        map.end()
+    }
+}
+impl SessionSnapshot {
+    pub fn sample_domain(&self) -> SampleDomain {
+        if self.source == Some(SourceKind::LocalFile) && self.observation.dsd().is_some() {
+            SampleDomain::Dsd
+        } else {
+            SampleDomain::Pcm
+        }
+    }
+    /// Validates software passthrough only. This grants no endpoint submission authority.
+    pub fn validate_dsd_passthrough(&self) -> Result<(), EngineError> {
+        let blocked = EngineError::new(
+            ErrorCode::FidelityPolicyConflict,
+            "DSD requires armed fixed zero-dB passthrough without a graph or ramp",
+        );
+        let output = self.output.as_ref().ok_or(blocked)?;
+        if output.volume_mode != VolumeMode::Fixed
+            || self.software_gain_db != 0.0
+            || self.software_gain_zero
+            || self.gain_ramp_frames != 0
+            || self.configured_profile.is_some()
+        {
+            return Err(blocked);
+        }
+        if !self.output_consented {
+            return Err(EngineError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "DSD requires current output consent",
+            ));
+        }
+        self.volume_policy.validate_unmute(
+            &OutputContext {
+                device_id: output.device_id.clone(),
+                profile_id: output.profile_id.clone(),
+            },
+            output.volume_mode,
+            SampleDomain::Dsd,
+            output.fidelity,
+            self.software_gain_db,
+            None,
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -292,23 +462,23 @@ pub struct EngineEvent {
 #[derive(Debug, Clone)]
 pub enum EngineEventKind {
     LocalPrepared {
-        observation: PlaybackObservation,
+        observation: LocalPlaybackObservation,
     },
     LocalProgress {
-        observation: PlaybackObservation,
+        observation: LocalPlaybackObservation,
     },
     LocalReserved {
         active: QueueEntryId,
         next: Option<QueueEntryId>,
     },
     LocalPaused {
-        observation: PlaybackObservation,
+        observation: LocalPlaybackObservation,
     },
     LocalStopped {
-        observation: Option<PlaybackObservation>,
+        observation: Option<LocalPlaybackObservation>,
     },
     LocalCompleted {
-        observation: PlaybackObservation,
+        observation: LocalPlaybackObservation,
     },
     LocalFailed {
         code: ErrorCode,
@@ -375,6 +545,12 @@ pub struct SessionCheckpoint {
 }
 
 #[derive(Clone)]
+struct LocalSourceAdmission {
+    epochs: Epochs,
+    entry_id: QueueEntryId,
+    domain: SampleDomain,
+}
+#[derive(Clone)]
 pub struct Session {
     state: SessionSnapshot,
     limits: ControlLimits,
@@ -385,6 +561,7 @@ pub struct Session {
     queue: LocalQueue,
     local_playback_enabled: bool,
     local_boundary: Option<LocalBoundary>,
+    local_admission: Option<LocalSourceAdmission>,
     graph: GraphControl,
     profiles: ProfileControl,
     devices: DeviceControl,
@@ -428,8 +605,7 @@ impl Session {
                 gain_ramp_frames: 0,
                 active_entry_id: None,
                 reserved_next_entry_id: None,
-                playback: None,
-                network_playback: None,
+                observation: PlaybackState::default(),
             },
             receipts: VecDeque::with_capacity(limits.receipts),
             transport_record: None,
@@ -439,6 +615,7 @@ impl Session {
             queue: LocalQueue::default(),
             local_playback_enabled: false,
             local_boundary: None,
+            local_admission: None,
             graph: GraphControl::default(),
             profiles: ProfileControl::default(),
             devices: DeviceControl::default(),
@@ -466,7 +643,7 @@ impl Session {
             && self.local_boundary == Some(LocalBoundary::Stop)
             && self.state.operation.as_ref() == Some(&record.0.request_id)
             && record.1.status == ReceiptStatus::Accepted
-            && matches!(record.0.payload, Command::Stop))
+            && matches!(record.0.payload, Command::Stop | Command::OwnerShutdown))
         .then_some(&record.0.request_id)
     }
     pub fn restore_owner(
@@ -564,8 +741,26 @@ impl Session {
     pub fn shutdown_requested(&self) -> bool {
         self.state.shutdown_requested
     }
+    pub fn has_pcm_processing(&self) -> bool {
+        self.graph.configured.is_some() || self.graph.active.is_some()
+    }
+    fn current_sample_domain(&self) -> Option<SampleDomain> {
+        if self.state.source != Some(SourceKind::LocalFile) {
+            return Some(SampleDomain::Pcm);
+        }
+        if self.state.observation.local().is_some() {
+            return Some(self.state.sample_domain());
+        }
+        self.local_admission
+            .as_ref()
+            .filter(|admission| {
+                admission.epochs == self.state.epochs
+                    && Some(&admission.entry_id) == self.state.active_entry_id.as_ref()
+            })
+            .map(|admission| admission.domain)
+    }
     fn measured_playback_facts(&self) -> Option<MeasuredPlaybackFacts<'_>> {
-        if let Some(p) = &self.state.network_playback {
+        if let Some(p) = self.state.observation.network() {
             Some(MeasuredPlaybackFacts {
                 format: p.format,
                 modified: p.modified,
@@ -576,7 +771,7 @@ impl Session {
                 processing: p.processing.as_ref(),
             })
         } else {
-            self.state.playback.as_ref().map(|p| MeasuredPlaybackFacts {
+            self.state.observation.pcm().map(|p| MeasuredPlaybackFacts {
                 format: p.format,
                 modified: p.modified,
                 input_peak: p.input_peak,
@@ -1251,6 +1446,22 @@ impl Session {
         if self.state.source == Some(SourceKind::HttpFlac) {
             self.validate_network_control(&command.payload, now_ns)?;
         }
+        if self.current_sample_domain() == Some(SampleDomain::Dsd)
+            && (command.payload.prepares_graph()
+                || command.payload.activates_graph()
+                || matches!(
+                    command.payload,
+                    Command::ProfilesPrepare { .. }
+                        | Command::ProfilesApply { .. }
+                        | Command::ProfilesBind { .. }
+                        | Command::VolumeSilence
+                ))
+        {
+            return Err(EngineError::new(
+                ErrorCode::FidelityPolicyConflict,
+                "DSD cannot apply PCM processing or profiles",
+            ));
+        }
         self.validate_graph_control(&command.payload)?;
         if matches!(command.payload, Command::Stop | Command::OwnerShutdown)
             && self.network.closing.is_some()
@@ -1287,6 +1498,7 @@ impl Session {
                     | Command::Start { .. }
                     | Command::Resume
                     | Command::Seek { .. }
+                    | Command::SeekDsd { .. }
             )
         {
             return Err(EngineError::new(
@@ -1295,9 +1507,16 @@ impl Session {
             ));
         }
         if command.payload.prepares_graph() || command.payload.activates_graph() {
+            if self.state.sample_domain() == SampleDomain::Dsd {
+                return Err(EngineError::new(
+                    ErrorCode::FidelityPolicyConflict,
+                    "DSD cannot apply a PCM graph",
+                ));
+            }
             return self.apply_graph_command(command, now_ns);
         }
         self.validate_live_queue_edit(&command.payload)?;
+        let dsd_source = self.current_sample_domain() == Some(SampleDomain::Dsd);
         let mut next = self.state.clone();
         next.revision = increment(next.revision)?;
         next.event_sequence = self.next_session_event_sequence(matches!(
@@ -1329,7 +1548,7 @@ impl Session {
                 Self::validate_software_zero(&next)?;
                 next.configured_profile = None;
                 next.volume_policy = next.local_volume_policy.clone();
-                next.playback = None;
+                next.observation = Default::default();
                 next.audible_position_frames = None;
                 next.decoded_position_frames = 0;
                 next.output_consented = false;
@@ -1410,6 +1629,9 @@ impl Session {
                     active.validate_headroom(gain, next.volume_policy.software_cap_db())?;
                 }
                 next.gain_ramp_frames = *ramp_frames;
+                if self.current_sample_domain() == Some(SampleDomain::Dsd) {
+                    next.validate_dsd_passthrough()?;
+                }
                 if !next.muted {
                     Self::validate_local_unmute(&next)?;
                 }
@@ -1471,7 +1693,7 @@ impl Session {
                 next.transport = TransportState::Paused;
                 next.epochs = next.epochs.next_stream()?;
                 cancel_previous = true;
-                if next.source == Some(SourceKind::HttpFlac) {
+                if next.source == Some(SourceKind::HttpFlac) || dsd_source {
                     ReceiptStatus::Accepted
                 } else {
                     ReceiptStatus::Applied
@@ -1522,7 +1744,7 @@ impl Session {
                         .position(|entry| Some(&entry.id) == next.active_entry_id.as_ref())
                         .and_then(|index| self.queue.entries().get(index + 1))
                         .map(|entry| entry.id.clone());
-                    next.playback = None;
+                    next.observation = Default::default();
                 } else if self.state.owner_id.is_some() {
                     return Err(STATE);
                 }
@@ -1585,7 +1807,7 @@ impl Session {
             {
                 next.transport = TransportState::Paused;
                 intent = PlaybackIntent::Paused;
-                if next.playback.is_some() || next.network_playback.is_some() {
+                if next.observation.0.is_some() {
                     next.epochs = next.epochs.next_stream()?;
                     cancel_previous = true;
                     ReceiptStatus::Accepted
@@ -1599,17 +1821,19 @@ impl Session {
                 ReceiptStatus::Applied
             }
             Command::Resume if next.transport == TransportState::Paused => {
-                next.transport =
-                    if next.source == Some(SourceKind::LocalFile) && next.playback.is_none() {
-                        TransportState::Preparing
-                    } else {
-                        TransportState::Buffering
-                    };
+                next.transport = if next.source == Some(SourceKind::LocalFile)
+                    && next.observation.local().is_none()
+                {
+                    TransportState::Preparing
+                } else {
+                    TransportState::Buffering
+                };
                 intent = PlaybackIntent::Playing;
                 ReceiptStatus::Accepted
             }
             Command::Seek { position_frames }
                 if next.seekable
+                    && self.current_sample_domain() == Some(SampleDomain::Pcm)
                     && matches!(
                         next.transport,
                         TransportState::Playing
@@ -1647,8 +1871,53 @@ impl Session {
                 cancel_previous = true;
                 ReceiptStatus::Accepted
             }
+            Command::SeekDsd { position_bits }
+                if next.seekable
+                    && next.source == Some(SourceKind::LocalFile)
+                    && matches!(
+                        next.transport,
+                        TransportState::Playing
+                            | TransportState::Paused
+                            | TransportState::Buffering
+                    ) =>
+            {
+                let observation = next.observation.dsd().ok_or(STATE)?;
+                if !position_bits.is_multiple_of(16)
+                    || *position_bits > observation.total_source_bits
+                {
+                    return Err(EngineError::new(
+                        ErrorCode::AssetInvalid,
+                        "DSD seek must align to sixteen source bits within the entry",
+                    ));
+                }
+                next.epochs = next.epochs.next_stream()?;
+                next.transport = if matches!(intent, PlaybackIntent::Paused) {
+                    TransportState::Paused
+                } else {
+                    TransportState::Buffering
+                };
+                next.audible_position_frames = None;
+                next.decoded_position_frames = 0;
+                cancel_previous = true;
+                ReceiptStatus::Accepted
+            }
             Command::Mute { muted } => {
                 if !muted && self.local_playback_enabled {
+                    match self.current_sample_domain() {
+                        None => {
+                            return Err(EngineError::new(
+                                ErrorCode::SafetyPolicyBlocked,
+                                "wait for local source-domain admission before unmuting",
+                            ));
+                        }
+                        Some(SampleDomain::Dsd) => {
+                            return Err(EngineError::new(
+                                ErrorCode::SafetyPolicyBlocked,
+                                "DSD endpoint qualification is unavailable",
+                            ));
+                        }
+                        Some(SampleDomain::Pcm) => {}
+                    }
                     if next.source == Some(SourceKind::HttpFlac) && self.graph.active.is_none() {
                         return Err(EngineError::new(
                             ErrorCode::SafetyPolicyBlocked,
@@ -1686,7 +1955,7 @@ impl Session {
                 | Command::OwnerShutdown
                 | Command::OutputSelect { .. }
         );
-        if self.graph.active.is_some()
+        if (self.graph.active.is_some() || next.sample_domain() == SampleDomain::Dsd)
             && next.muted
             && !self.state.muted
             && next.epochs == self.state.epochs
@@ -1697,6 +1966,7 @@ impl Session {
             next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
         if clear_active {
             self.local_boundary = None;
+            self.local_admission = None;
         }
         if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
             if let Some(owner) = self.renderer.active.as_mut().filter(|o| {
@@ -1723,7 +1993,7 @@ impl Session {
             )
         {
             self.close_network_at(self.state.epochs, None)?;
-            if let Some(p) = &mut next.network_playback {
+            if let Some(p) = next.observation.network_mut() {
                 p.lifecycle = if next.error.is_some() {
                     crate::network_source::NetworkLifecycle::Failed
                 } else {
@@ -1735,7 +2005,7 @@ impl Session {
             command.payload,
             Command::Start { .. } | Command::OutputSelect { .. }
         ) {
-            next.network_playback = None;
+            next.observation = Default::default();
         }
         self.state = next;
         self.cancel_profile_work();
@@ -1765,8 +2035,9 @@ impl Session {
             self.state.operation = Some(command.request_id.clone());
             self.local_boundary = match &command.payload {
                 Command::Pause => Some(LocalBoundary::Pause),
-                Command::Seek { .. } => Some(LocalBoundary::Seek),
+                Command::Seek { .. } | Command::SeekDsd { .. } => Some(LocalBoundary::Seek),
                 Command::Stop => Some(LocalBoundary::Stop),
+                Command::OwnerShutdown if dsd_source => Some(LocalBoundary::Stop),
                 _ => None,
             };
         }
@@ -1796,11 +2067,19 @@ impl Session {
                 profile_id: output.profile_id.clone(),
             },
             output.volume_mode,
-            SampleDomain::Pcm,
+            state.sample_domain(),
             output.fidelity,
             state.software_gain_db,
             None,
-        )
+        )?;
+        if state.sample_domain() == SampleDomain::Dsd {
+            state.validate_dsd_passthrough()?;
+            return Err(EngineError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "DSD endpoint qualification is unavailable",
+            ));
+        }
+        Ok(())
     }
     pub(super) fn validate_software_zero(state: &SessionSnapshot) -> Result<(), EngineError> {
         if !state.software_gain_zero {
@@ -1812,7 +2091,7 @@ impl Session {
         ))?;
         state.volume_policy.validate_software_zero(
             output.volume_mode,
-            SampleDomain::Pcm,
+            state.sample_domain(),
             output.fidelity,
         )
     }
@@ -1836,7 +2115,7 @@ impl Session {
             VolumeMode::Software => {
                 state.volume_policy.validate_software_zero(
                     output.volume_mode,
-                    SampleDomain::Pcm,
+                    state.sample_domain(),
                     output.fidelity,
                 )?;
                 (-40.0_f64).min(state.volume_policy.software_cap_db())
@@ -1844,7 +2123,7 @@ impl Session {
             VolumeMode::Fixed => {
                 state.volume_policy.validate_gain_constraints(
                     output.volume_mode,
-                    SampleDomain::Pcm,
+                    state.sample_domain(),
                     output.fidelity,
                     state.software_gain_db,
                     None,
@@ -1930,6 +2209,20 @@ impl Session {
         }
         let sequence = self.next_session_event_sequence(false)?;
         self.queue.update_status(id, status)?;
+        if self.state.source == Some(SourceKind::LocalFile)
+            && self.state.active_entry_id.as_ref() == Some(id)
+        {
+            let domain = match status {
+                crate::queue::PreparationStatus::Ready { .. } => Some(SampleDomain::Pcm),
+                crate::queue::PreparationStatus::DsdReady { .. } => Some(SampleDomain::Dsd),
+                _ => None,
+            };
+            self.local_admission = domain.map(|domain| LocalSourceAdmission {
+                epochs,
+                entry_id: id.clone(),
+                domain,
+            });
+        }
         self.state.event_sequence = sequence;
         self.clear_deferred_graph_readiness(id);
         Ok(())
@@ -1940,6 +2233,16 @@ impl Session {
         }
         if event.epochs != self.state.epochs {
             return Err(STALE);
+        }
+        match &event.kind {
+            EngineEventKind::LocalPrepared { observation }
+            | EngineEventKind::LocalProgress { observation }
+            | EngineEventKind::LocalPaused { observation }
+            | EngineEventKind::LocalCompleted { observation }
+            | EngineEventKind::LocalStopped {
+                observation: Some(observation),
+            } => observation.validate(event.epochs)?,
+            _ => {}
         }
         if event.monotonic_ns < self.state.monotonic_ns {
             return Err(EngineError::new(
@@ -2030,9 +2333,9 @@ impl Session {
                     positioning.then_some(ended),
                     None,
                 ));
-                next.decoded_position_frames = observation.source_position_frames;
-                next.audible_position_frames = observation.audible_source_position_frames;
-                next.playback = Some(observation);
+                next.decoded_position_frames = observation.decoded_pcm_frames();
+                next.audible_position_frames = observation.audible_pcm_frames();
+                next.observation = (observation).into();
                 next.transport = TransportState::Idle;
                 next.muted = true;
                 next.session_id = None;
@@ -2045,9 +2348,9 @@ impl Session {
             EngineEventKind::LocalPrepared { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
             {
-                next.audible_position_frames = observation.audible_source_position_frames;
-                next.decoded_position_frames = observation.source_position_frames;
-                next.playback = Some(observation);
+                next.audible_position_frames = observation.audible_pcm_frames();
+                next.decoded_position_frames = observation.decoded_pcm_frames();
+                next.observation = (observation).into();
                 next.transport = if self.wants_playback() {
                     TransportState::Buffering
                 } else {
@@ -2060,9 +2363,9 @@ impl Session {
             EngineEventKind::LocalProgress { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
             {
-                next.decoded_position_frames = observation.source_position_frames;
-                next.audible_position_frames = observation.audible_source_position_frames;
-                next.playback = Some(observation);
+                next.decoded_position_frames = observation.decoded_pcm_frames();
+                next.audible_position_frames = observation.audible_pcm_frames();
+                next.observation = (observation).into();
             }
             EngineEventKind::LocalReserved {
                 active,
@@ -2074,10 +2377,10 @@ impl Session {
             EngineEventKind::LocalPaused { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
             {
-                next.active_entry_id = Some(observation.source_entry_id.clone());
-                next.audible_position_frames = observation.audible_source_position_frames;
-                next.decoded_position_frames = observation.source_position_frames;
-                next.playback = Some(observation);
+                next.active_entry_id = Some(observation.entry_id().clone());
+                next.audible_position_frames = observation.audible_pcm_frames();
+                next.decoded_position_frames = observation.decoded_pcm_frames();
+                next.observation = (observation).into();
                 next.transport = if self.wants_playback() {
                     TransportState::Buffering
                 } else {
@@ -2093,8 +2396,8 @@ impl Session {
                     "source stopped",
                 ));
                 if let Some(observation) = observation {
-                    next.decoded_position_frames = observation.source_position_frames;
-                    next.playback = Some(observation);
+                    next.decoded_position_frames = observation.decoded_pcm_frames();
+                    next.observation = (observation).into();
                 }
                 next.audible_position_frames = None;
                 next.transport = TransportState::Idle;
@@ -2112,7 +2415,7 @@ impl Session {
                 graph_completion_error = Some(error);
                 next.device_epoch = next_counter(next.device_epoch)?;
                 next.audible_position_frames = None;
-                if let Some(playback) = &mut next.playback {
+                if let Some(playback) = next.observation.pcm_mut() {
                     playback.consumed_frames = None;
                     playback.backend_delay_frames = None;
                     playback.audible_entry_id = None;
@@ -2291,6 +2594,7 @@ impl Session {
         if clear_active {
             self.graph.active = None;
             self.local_boundary = None;
+            self.local_admission = None;
         }
         if let Some((status, error, activation)) = completion {
             self.finish_pending(status, error, activation);

@@ -199,7 +199,7 @@ fn exact_descriptor_access_and_start_fences_preserve_authority() {
     );
     let state = s.snapshot();
     assert_eq!(state.source, Some(SourceKind::HttpFlac));
-    assert!(state.playback.is_none());
+    assert!(state.observation.pcm().cloned().is_none());
     assert!(state.active_entry_id.is_none());
     assert!(!state.seekable);
 }
@@ -438,7 +438,7 @@ fn startup_pause_keeps_readiness_preparing_until_measured_observation() {
     let pause = command(&s, "startup-pause", json!({"method":"sessions.pause"}));
     assert_eq!(s.submit_graph(pause, 21).status, ReceiptStatus::Applied);
     assert_eq!(s.snapshot().transport, TransportState::Paused);
-    assert!(s.snapshot().network_playback.is_none());
+    assert!(s.snapshot().observation.network().cloned().is_none());
     assert_eq!(
         s.network_snapshot().lifecycle,
         Some(NetworkLifecycle::Preparing)
@@ -462,7 +462,7 @@ fn startup_pause_keeps_readiness_preparing_until_measured_observation() {
         s.network_snapshot().lifecycle,
         Some(NetworkLifecycle::Paused)
     );
-    let measured = s.snapshot().network_playback.unwrap();
+    let measured = s.snapshot().observation.network().cloned().unwrap();
     assert_eq!(measured.binding, source.binding);
     assert_eq!(measured.source_epochs, source.source_epochs);
     assert_eq!(measured.submitted_frames, 0);
@@ -483,7 +483,7 @@ fn measured_readiness_preserves_unknown_duration_and_never_updates_the_queue() {
     );
     s.advance_network(e).unwrap();
     assert_eq!(s.queue_snapshot(), q);
-    assert_eq!(s.snapshot().network_playback, Some(p));
+    assert_eq!(s.snapshot().observation.network().cloned(), Some(p));
     let state = serde_json::to_value(s.snapshot()).unwrap();
     assert!(state["network_playback"]["total_frames"].is_null());
     assert!(state["playback"].is_null());
@@ -652,7 +652,7 @@ fn prepare_graph_at(s: &mut Session, id: &str, now: u64) -> GraphPrepared {
     );
     assert_eq!(s.submit_graph(c, now).status, ReceiptStatus::Accepted);
     let job = s.graph_job().unwrap();
-    let source = s.snapshot().network_playback.unwrap().format;
+    let source = s.snapshot().observation.network().cloned().unwrap().format;
     let preview = Arc::new(GraphPreview {
         diagnostic_nodes: None,
         profile_application: None,
@@ -732,7 +732,7 @@ fn explicit_stream_graph_activation_uses_network_ack_and_preserves_local_queue()
     );
     s.complete_network_graph_activation(ack, 44, |candidate| {
         assert_eq!(candidate.queue_snapshot(), before);
-        assert_eq!(candidate.snapshot().network_playback, Some(p));
+        assert_eq!(candidate.snapshot().observation.network().cloned(), Some(p));
         Ok(())
     })
     .unwrap();
@@ -1462,7 +1462,7 @@ fn pending_network_replacement() -> (Session, NetworkGraphActivationAck) {
         s.submit_graph(commit.clone(), 52).status,
         ReceiptStatus::Accepted
     );
-    let previous = s.snapshot().network_playback.unwrap();
+    let previous = s.snapshot().observation.network().cloned().unwrap();
     let mut next = observation(&s);
     next.graph_epoch += 1;
     next.source_position_frames = 64;
@@ -1587,7 +1587,7 @@ fn retained_network_boundary_survives_pause_progress_and_zero_discard_graph_chan
         .unwrap();
     let c = command(&s, "boundary-pause", json!({"method":"sessions.pause"}));
     assert_eq!(s.submit_graph(c, 54).status, ReceiptStatus::Accepted);
-    let mut p = s.snapshot().network_playback.unwrap();
+    let mut p = s.snapshot().observation.network().cloned().unwrap();
     p.output_epochs = s.snapshot().epochs;
     p.lifecycle = NetworkLifecycle::Paused;
     let paused = event(
@@ -1608,7 +1608,12 @@ fn retained_network_boundary_survives_pause_progress_and_zero_discard_graph_chan
     );
     s.advance_network(progress).unwrap();
     assert_eq!(
-        s.snapshot().network_playback.unwrap().replacement_boundary,
+        s.snapshot()
+            .observation
+            .network()
+            .cloned()
+            .unwrap()
+            .replacement_boundary,
         Some(original.clone())
     );
     assert!(original.output_epochs.stream < s.snapshot().epochs.stream);
@@ -1648,7 +1653,12 @@ fn retained_network_boundary_survives_pause_progress_and_zero_discard_graph_chan
     )
     .unwrap();
     assert_eq!(
-        s.snapshot().network_playback.unwrap().replacement_boundary,
+        s.snapshot()
+            .observation
+            .network()
+            .cloned()
+            .unwrap()
+            .replacement_boundary,
         Some(original)
     );
 }

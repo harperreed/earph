@@ -1610,6 +1610,7 @@ impl GuiController {
                         | Command::Pause
                         | Command::Resume
                         | Command::Seek { .. }
+                        | Command::SeekDsd { .. }
                         | Command::Mute { muted: false }
                 ) {
                     return Err(
@@ -1632,6 +1633,16 @@ impl GuiController {
                                 .into(),
                         );
                     }
+                }
+                if let Command::SeekDsd { position_bits } = command
+                    && (!basis.seekable
+                        || !position_bits.is_multiple_of(16)
+                        || basis
+                            .dsd_playback
+                            .as_ref()
+                            .is_none_or(|dsd| position_bits > dsd.total_source_bits))
+                {
+                    return Err("Observe a DSD source and choose sixteen-bit alignment within its bit bounds first".into());
                 }
                 self.capture(basis, command)
             }

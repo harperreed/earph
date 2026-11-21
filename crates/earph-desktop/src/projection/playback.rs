@@ -5,6 +5,67 @@ use earph_core::{audio::PcmFormat, control::OutputBackend, ids::*, profiles::Pro
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DsdOutputObservationView {
+    pub output_epochs: Epochs,
+    pub submitted_carrier_frames: u64,
+    #[serde(deserialize_with = "nullable")]
+    pub estimated_consumed_carrier_frames: Option<u64>,
+    #[serde(deserialize_with = "nullable")]
+    pub backend_delay_carrier_frames: Option<u64>,
+    pub consumption_basis: String,
+    pub backend: BackendObservationView,
+}
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DsdPlaybackObservationView {
+    pub source_format: earph_core::dop::DsdSourceFormat,
+    pub total_source_bits: u64,
+    pub source_entry_id: QueueEntryId,
+    pub source_position_bits: u64,
+    pub decoded_position_bits: u64,
+    pub source_epochs: Epochs,
+    pub carrier_format: earph_core::dop::DopCarrierFormat,
+    #[serde(deserialize_with = "nullable")]
+    pub output: Option<DsdOutputObservationView>,
+    #[serde(deserialize_with = "nullable")]
+    pub last_boundary: Option<earph_core::dop::DsdOutputBoundary>,
+    pub qualification: earph_core::dop::DsdQualification,
+    #[serde(default, deserialize_with = "present")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completion_basis: Option<earph_core::dop::DsdCompletionBasis>,
+}
+impl DsdPlaybackObservationView {
+    pub(crate) fn valid(&self) -> bool {
+        self.carrier_format == earph_core::dop::DopCarrierFormat::from_source(self.source_format)
+            && self.total_source_bits > 0
+            && self.total_source_bits.is_multiple_of(16)
+            && self.source_position_bits.is_multiple_of(16)
+            && self.source_position_bits <= self.decoded_position_bits
+            && self.decoded_position_bits <= self.total_source_bits
+            && (self.completion_basis.is_none()
+                || self.output.is_none() && self.source_position_bits == self.total_source_bits)
+            && self.last_boundary.as_ref().is_none_or(|boundary| {
+                boundary.source_position_bits.is_multiple_of(16)
+                    && boundary.submitted_carrier_frames.checked_mul(16).is_some()
+            })
+            && self.output.as_ref().is_none_or(|output| {
+                output.submitted_carrier_frames.checked_mul(16).is_some()
+                    && output
+                        .estimated_consumed_carrier_frames
+                        .is_none_or(|n| n <= output.submitted_carrier_frames)
+                    && output.backend.client_format.sample_rate_hz
+                        == f64::from(self.carrier_format.carrier_rate_hz())
+                    && output.backend.client_format.channels == 2
+                    && output.backend.client_format.bytes_per_frame == 6
+                    && output.backend.client_format.representation
+                        == ObservedSampleRepresentationView::Signed24
+                    && output.backend.preservation == PreservationStateView::Unverified
+            })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ObservedSampleRepresentationView {

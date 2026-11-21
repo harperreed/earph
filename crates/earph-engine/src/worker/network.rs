@@ -216,11 +216,15 @@ pub(super) fn preparation_failed(
     )
 }
 pub(super) fn retire_owned(
-    playback: &mut Option<Playback>,
+    playback: &mut Option<ActiveSource>,
     preparation: &mut Option<NetworkPreparation>,
     closing: &NetworkClosingSource,
 ) -> Result<NetworkRetirementAck, EngineError> {
-    let ack = if let Some(current) = playback.as_mut().filter(|p| p.is_network()) {
+    let ack = if let Some(current) = playback
+        .as_mut()
+        .and_then(ActiveSource::pcm_mut)
+        .filter(|p| p.is_network())
+    {
         current.retire_network(closing)?
     } else {
         if let Some(preparing) = preparation {
@@ -238,7 +242,11 @@ pub(super) fn retire_owned(
             observation: None,
         }
     };
-    if playback.as_ref().is_some_and(|p| p.is_network()) {
+    if playback
+        .as_ref()
+        .and_then(ActiveSource::pcm)
+        .is_some_and(|p| p.is_network())
+    {
         *playback = None;
     }
     *preparation = None;
@@ -558,6 +566,7 @@ mod tests {
         worker
             .send(Action::StartNetwork {
                 settings: Settings {
+                    pcm_processing: false,
                     snapshot,
                     playing: true,
                 },

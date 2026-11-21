@@ -25,8 +25,8 @@ impl Session {
         let output = self.state.output.as_ref().ok_or(unavailable)?;
         let backend = self
             .state
-            .playback
-            .as_ref()
+            .observation
+            .pcm()
             .and_then(|p| p.backend.as_ref())
             .ok_or(unavailable)?;
         if backend.backend != output.backend {
@@ -35,7 +35,7 @@ impl Session {
         Ok(backend)
     }
     pub(super) fn profile_native_identity(&self) -> Option<ProfileObjectHash> {
-        let backend = self.state.playback.as_ref()?.backend.as_ref()?;
+        let backend = self.state.observation.pcm()?.backend.as_ref()?;
         (backend.backend == OutputBackend::CoreAudio
             && self.state.output.as_ref()?.backend == backend.backend)
             .then_some(backend.device_identity_sha256)

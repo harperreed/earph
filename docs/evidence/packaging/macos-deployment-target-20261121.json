@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "date": "2026-11-21",
-  "scope": "Shared compiler deployment target; actual Mac build remains pending.",
+  "scope": "Shared compiler deployment target, verified by a successful hosted native Mac build.",
   "source_parent": "ef8760281e4486f1facf7d3be3be47b8faa918c3",
   "source_files": [
     {
@@ -41,7 +41,33 @@
       "log_sha256": "da2a58bec55187a441c42a7a41ae4ccbbd338c383bc46c1b43e79d9570d1ecad",
       "source_files_verified": 2088
     },
-    "native_mac_build": null
+    "native_mac_build": {
+      "run_id": 44930920948,
+      "job_id": 136927128597,
+      "result": "success",
+      "head_commit": "6318d6a6c6176021432483f7554e1d3fe5e6e73f",
+      "checkout_commit": "4bebb322a2ca247621190b9ed704f7c4a70c40be",
+      "checkout_tree": "344186d135ab243d8c6c3ada09f6c8e88bbe6d29",
+      "source_tree_matches": true,
+      "log_sha256": "7bf7f1c7e651e476d9c2740c7a726766e41fe9de9211525d4b8926bf0dbd77ac",
+      "observed_host": {
+        "darwin": "25.6.0",
+        "architecture": "arm64",
+        "product_version": "26.7.2",
+        "build_version": "25G332"
+      },
+      "checks": [
+        "Swift native compile and strict link warning gate",
+        "Native controls",
+        "Presentation",
+        "Controller lifecycle",
+        "View presentation",
+        "Actual owner integration",
+        "Batch regressions"
+      ],
+      "physical_output": false,
+      "package_binary_hashes_retained": false
+    }
   },
   "limits": [
     "Linux tests execute real Bash export and validation behavior.",

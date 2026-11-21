@@ -21,7 +21,7 @@ fn state_reply(total_frames: Option<u64>) -> Vec<u8> {
         stream: 5,
     };
     let format = PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed24).unwrap();
-    state.network_playback = Some(NetworkPlaybackObservation {
+    state.observation = (NetworkPlaybackObservation {
         binding: NetworkSourceBinding {
             owner_id: state.owner_id.clone().unwrap(),
             session_id: state.session_id.clone().unwrap(),
@@ -54,7 +54,8 @@ fn state_reply(total_frames: Option<u64>) -> Vec<u8> {
         output_activity: None,
         processing: None,
         replacement_boundary: None,
-    });
+    })
+    .into();
     let receipt = owner.submit(CommandEnvelope {
         schema_version: 1,
         request_id: RequestId::new("state").unwrap(),

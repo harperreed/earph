@@ -534,8 +534,8 @@ impl Session {
         };
         let measured = active.and_then(|owner| {
             self.state
-                .network_playback
-                .as_ref()
+                .observation
+                .network()
                 .filter(|p| p.binding == owner.binding)
         });
         let duration_seconds = measured.and_then(|p| {

@@ -193,8 +193,8 @@ impl Session {
     }
     fn current_source_format(&self) -> Option<PcmFormat> {
         match self.state.source {
-            Some(SourceKind::LocalFile) => self.state.playback.as_ref().map(|p| p.format),
-            Some(SourceKind::HttpFlac) => self.state.network_playback.as_ref().map(|p| p.format),
+            Some(SourceKind::LocalFile) => self.state.observation.pcm().map(|p| p.format),
+            Some(SourceKind::HttpFlac) => self.state.observation.network().map(|p| p.format),
             _ => None,
         }
     }
@@ -391,7 +391,10 @@ impl Session {
                     | Command::ProfilesApply { .. }
             ))
             || (self.local_boundary == Some(LocalBoundary::Stop)
-                && matches!(command, Command::Pause | Command::Seek { .. }))
+                && matches!(
+                    command,
+                    Command::Pause | Command::Seek { .. } | Command::SeekDsd { .. }
+                ))
         {
             return Err(EngineError::new(
                 ErrorCode::SourceBusy,
@@ -647,7 +650,7 @@ impl Session {
                 return Err(STALE.into());
             }
             if preview.profile_application.is_some()
-                && preview.backend != self.state.playback.as_ref().and_then(|p| p.backend.clone())
+                && preview.backend != self.state.observation.pcm().and_then(|p| p.backend.clone())
             {
                 return Err(STALE.into());
             }
@@ -820,7 +823,7 @@ impl Session {
             return Err(STALE);
         }
         ack.observation.validate()?;
-        let previous = self.state.network_playback.as_ref();
+        let previous = self.state.observation.network();
         let retained = previous.and_then(|p| p.replacement_boundary.as_ref());
         match (ack.observation.replacement_boundary.as_ref(), retained) {
             (None, Some(_)) => return Err(crate::network_source::INVALID),
@@ -993,14 +996,14 @@ impl Session {
                     .map(|entry| entry.id.clone());
                 staged.state.decoded_position_frames = observation.source_position_frames;
                 staged.state.audible_position_frames = observation.audible_source_position_frames;
-                staged.state.playback = Some(observation);
+                staged.state.observation = (observation).into();
             }
             InstalledSourceObservation::Network(observation) => {
                 staged.state.active_entry_id = None;
                 staged.state.reserved_next_entry_id = None;
                 staged.state.decoded_position_frames = observation.source_position_frames;
                 staged.state.audible_position_frames = observation.audible_source_position_frames;
-                staged.state.network_playback = Some(observation);
+                staged.state.observation = (observation).into();
             }
         }
         if staged.state.configured_profile.is_some()
@@ -1192,7 +1195,7 @@ mod tests {
         s.playback_intent = PlaybackIntent::Paused;
         let format =
             PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
-        s.state.playback = Some(PlaybackObservation {
+        s.state.observation = (PlaybackObservation {
             output_activity: None,
             processing: None,
             format,
@@ -1208,7 +1211,8 @@ mod tests {
             output_peak: None,
             modified: false,
             backend: None,
-        });
+        })
+        .into();
         s
     }
     fn command(s: &Session, id: &str, payload: Command) -> CommandEnvelope {
@@ -1266,13 +1270,13 @@ mod tests {
     }
     fn preview(s: &Session, bound: f64) -> Arc<GraphPreview> {
         let job = s.graph_job().unwrap();
-        let native = s.state.playback.as_ref().unwrap().format;
+        let native = s.state.observation.pcm().unwrap().format;
         let float =
             PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Float64).unwrap();
         Arc::new(GraphPreview {
             diagnostic_nodes: None,
             profile_application: job.profile_application,
-            backend: s.state.playback.as_ref().and_then(|p| p.backend.clone()),
+            backend: s.state.observation.pcm().and_then(|p| p.backend.clone()),
             graph_hash: "a".repeat(64),
             kernel_hash: "b".repeat(64),
             implementation_version: "test-contract".into(),
@@ -1317,8 +1321,8 @@ mod tests {
     }
     fn profile_fixture() -> Session {
         let mut s = fixture();
-        let format = s.state.playback.as_ref().unwrap().format;
-        s.state.playback.as_mut().unwrap().backend = Some(BackendObservation {
+        let format = s.state.observation.pcm().unwrap().format;
+        s.state.observation.pcm_mut().unwrap().backend = Some(BackendObservation {
             backend: OutputBackend::Alsa,
             device_identity_sha256: None,
             audio_storage_bytes: 256,
@@ -1431,7 +1435,7 @@ mod tests {
     #[test]
     fn profile_preparation_requires_observed_backend_facts() {
         let mut s = profile_fixture();
-        s.state.playback.as_mut().unwrap().backend = None;
+        s.state.observation.pcm_mut().unwrap().backend = None;
         let c = profile_prepare(&s, "missing-backend");
         assert_eq!(
             s.submit_graph(c, 3).error.unwrap().code,
@@ -1462,7 +1466,7 @@ mod tests {
             epochs: s.state.epochs,
             graph_hash: p.preview.graph_hash.clone(),
             activation_frame: 64,
-            observation: s.state.playback.clone().unwrap(),
+            observation: s.state.observation.pcm().cloned().unwrap(),
             source_total_frames: 48000,
         }
     }
@@ -1895,7 +1899,7 @@ mod tests {
             .update_status(
                 &entry,
                 crate::queue::PreparationStatus::Ready {
-                    format: s.state.playback.as_ref().unwrap().format,
+                    format: s.state.observation.pcm().unwrap().format,
                     total_frames: 1000,
                 },
             )
@@ -1935,7 +1939,7 @@ mod tests {
                 .update_status(
                     &entry,
                     crate::queue::PreparationStatus::Ready {
-                        format: s.state.playback.as_ref().unwrap().format,
+                        format: s.state.observation.pcm().unwrap().format,
                         total_frames: 1000,
                     },
                 )
@@ -1959,7 +1963,7 @@ mod tests {
                 epochs: s.state.epochs,
                 monotonic_ns: 4,
                 kind: EngineEventKind::LocalPaused {
-                    observation: s.state.playback.as_ref().unwrap().clone(),
+                    observation: (s.state.observation.pcm().unwrap().clone()).into(),
                 },
             })
             .unwrap();
@@ -1974,7 +1978,7 @@ mod tests {
         let p = ready(&mut s, "prepare", 1.0);
         let c = commit(&s, "commit", &p);
         s.submit_graph(c.clone(), 21);
-        let mut observation = s.state.playback.clone().unwrap();
+        let mut observation = s.state.observation.pcm().cloned().unwrap();
         observation.source_position_frames = 1000;
         observation.submitted_frames = 1000;
         let epochs = s.state.epochs;
@@ -1983,7 +1987,7 @@ mod tests {
             epochs,
             monotonic_ns: 22,
             kind: EngineEventKind::LocalCompleted {
-                observation: observation.clone(),
+                observation: (observation.clone()).into(),
             },
         })
         .unwrap();
@@ -1991,7 +1995,7 @@ mod tests {
         assert!(s.state.muted && s.state.output_consented);
         assert!(s.state.session_id.is_none() && s.graph_activation().is_none());
         assert!(!s.graph_inspection().recovery_required);
-        assert_eq!(s.state.playback.as_ref(), Some(&observation));
+        assert_eq!(s.state.observation.pcm(), Some(&observation));
         assert_eq!(s.state.error, None);
         let events = s.events_since(cursor).events;
         assert_eq!(events.len(), 1);
@@ -2007,7 +2011,9 @@ mod tests {
             s.advance(EngineEvent {
                 epochs,
                 monotonic_ns: 24,
-                kind: EngineEventKind::LocalCompleted { observation },
+                kind: EngineEventKind::LocalCompleted {
+                    observation: observation.into()
+                },
             })
             .is_err()
         );
@@ -2028,7 +2034,7 @@ mod tests {
                 .update_status(
                     &entry,
                     crate::queue::PreparationStatus::Ready {
-                        format: s.state.playback.as_ref().unwrap().format,
+                        format: s.state.observation.pcm().unwrap().format,
                         total_frames: 1000,
                     },
                 )
@@ -2039,7 +2045,7 @@ mod tests {
                 epochs: s.state.epochs,
                 monotonic_ns: 2,
                 kind: EngineEventKind::LocalCompleted {
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: (s.state.observation.pcm().cloned().unwrap()).into(),
                 },
             })
             .unwrap();
@@ -2068,7 +2074,7 @@ mod tests {
                 epochs: s.state.epochs,
                 monotonic_ns: 1,
                 kind: EngineEventKind::LocalCompleted {
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: (s.state.observation.pcm().cloned().unwrap()).into(),
                 },
             })
             .unwrap();
@@ -2103,7 +2109,7 @@ mod tests {
                 epochs: s.state.epochs,
                 monotonic_ns: 22,
                 kind: EngineEventKind::LocalCompleted {
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: (s.state.observation.pcm().cloned().unwrap()).into(),
                 },
             })
             .unwrap();
@@ -2137,14 +2143,16 @@ mod tests {
                     "stream" => s.state.epochs.stream = u64::MAX - 1,
                     _ => unreachable!(),
                 }
-                let observation = s.state.playback.clone().unwrap();
+                let observation = s.state.observation.pcm().cloned().unwrap();
                 let kind = match terminal {
-                    "complete" => EngineEventKind::LocalCompleted { observation },
+                    "complete" => EngineEventKind::LocalCompleted {
+                        observation: observation.into(),
+                    },
                     "failure" => EngineEventKind::LocalFailed {
                         code: ErrorCode::OutputFault,
                     },
                     "stopped" => EngineEventKind::LocalStopped {
-                        observation: Some(observation),
+                        observation: Some(observation.into()),
                     },
                     _ => unreachable!(),
                 };
@@ -2227,7 +2235,7 @@ mod tests {
             epochs: s.state.epochs,
             monotonic_ns: 23,
             kind: EngineEventKind::LocalCompleted {
-                observation: s.state.playback.clone().unwrap(),
+                observation: (s.state.observation.pcm().cloned().unwrap()).into(),
             },
         })
         .unwrap();
@@ -2313,7 +2321,7 @@ mod tests {
                             epochs: s.state.epochs,
                             monotonic_ns: 22,
                             kind: EngineEventKind::LocalProgress {
-                                observation: s.state.playback.as_ref().unwrap().clone(),
+                                observation: (s.state.observation.pcm().unwrap().clone()).into(),
                             }
                         })
                         .is_err()
@@ -2339,7 +2347,7 @@ mod tests {
                         s.state.epochs,
                         &entry,
                         crate::queue::PreparationStatus::Ready {
-                            format: s.state.playback.as_ref().unwrap().format,
+                            format: s.state.observation.pcm().unwrap().format,
                             total_frames: 48000,
                         },
                     )
@@ -2370,7 +2378,7 @@ mod tests {
             epochs: s.state.epochs,
             monotonic_ns: 22,
             kind: EngineEventKind::LocalStopped {
-                observation: s.state.playback.clone(),
+                observation: (s.state.observation.pcm().cloned()).map(Into::into),
             },
         })
         .unwrap();
@@ -2425,7 +2433,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.as_ref().unwrap().clone()
+                    observation: s.state.observation.pcm().unwrap().clone()
                 },
                 23,
                 |_| panic!("exhausted counters cannot persist activation")
@@ -2539,7 +2547,7 @@ mod tests {
                     epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.as_ref().unwrap().clone()
+                    observation: s.state.observation.pcm().unwrap().clone()
                 },
                 24,
                 |_| Ok(())
@@ -2553,7 +2561,7 @@ mod tests {
                 epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 37,
-                observation: s.state.playback.as_ref().unwrap().clone(),
+                observation: s.state.observation.pcm().unwrap().clone(),
             },
             25,
             |_| Ok(()),
@@ -2573,7 +2581,7 @@ mod tests {
                     epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.as_ref().unwrap().clone()
+                    observation: s.state.observation.pcm().unwrap().clone()
                 },
                 27,
                 |_| Ok(())
@@ -2597,7 +2605,7 @@ mod tests {
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: s.state.playback.as_ref().unwrap().clone(),
+                observation: s.state.observation.pcm().unwrap().clone(),
             },
             22,
             |_| Ok(()),
@@ -2644,7 +2652,7 @@ mod tests {
                 epochs: s.state.epochs,
                 graph_hash: prepared.preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: s.state.playback.as_ref().unwrap().clone(),
+                observation: s.state.observation.pcm().unwrap().clone(),
             },
             22,
             |_| Ok(()),
@@ -2717,7 +2725,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: s.state.observation.pcm().cloned().unwrap(),
                 },
                 22,
                 |_| Ok(()),
@@ -2742,7 +2750,7 @@ mod tests {
         s.state.seekable = true;
         let first = s.state.active_entry_id.clone().unwrap();
         let last = s.queue.append("final.wav").unwrap();
-        let format = s.state.playback.as_ref().unwrap().format;
+        let format = s.state.observation.pcm().unwrap().format;
         for (entry, total_frames) in [(&first, 48000), (&last, 12000)] {
             s.queue
                 .update_status(
@@ -2758,7 +2766,7 @@ mod tests {
         let p = ready(&mut s, "prepare-final-join", 1.0);
         let c = commit(&s, "commit-final-join", &p);
         s.submit_graph(c.clone(), 21);
-        let mut observation = s.state.playback.clone().unwrap();
+        let mut observation = s.state.observation.pcm().cloned().unwrap();
         observation.source_entry_id = last.clone();
         observation.source_position_frames = 37;
         s.complete_graph_activation(
@@ -2795,7 +2803,7 @@ mod tests {
         let p = ready(&mut s, "prepare", 1.0);
         let c = commit(&s, "commit", &p);
         s.submit_graph(c.clone(), 21);
-        let mut observation = s.state.playback.as_ref().unwrap().clone();
+        let mut observation = s.state.observation.pcm().unwrap().clone();
         observation.output_activity = Some(OutputActivity {
             scope: OutputActivityScope::OutputInstanceAcrossNativeReopens,
             measurement_boundary: OutputActivityBoundary::CoreAudioSdkEntryCalls,
@@ -2835,7 +2843,7 @@ mod tests {
             },
             22,
             |staged| {
-                assert_eq!(staged.state.playback.as_ref(), Some(&observation));
+                assert_eq!(staged.state.observation.pcm(), Some(&observation));
                 assert_eq!(staged.state.decoded_position_frames, 37);
                 assert_eq!(staged.state.audible_position_frames, Some(31));
                 assert_eq!(
@@ -2846,7 +2854,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(s.state.playback.as_ref(), Some(&observation));
+        assert_eq!(s.state.observation.pcm(), Some(&observation));
         let wire = serde_json::to_value(s.snapshot()).unwrap();
         assert_eq!(
             wire["playback"]["output_activity"]["accepted_frames"].as_u64(),
@@ -2859,7 +2867,7 @@ mod tests {
             serde_json::from_slice(&serde_json::to_vec(&s.checkpoint()).unwrap()).unwrap(),
         )
         .unwrap();
-        assert!(restored.snapshot().playback.is_none());
+        assert!(restored.snapshot().observation.pcm().is_none());
         assert!(restored.snapshot().muted);
         assert!(!restored.snapshot().output_consented);
     }
@@ -2877,7 +2885,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.as_ref().unwrap().clone()
+                    observation: s.state.observation.pcm().unwrap().clone()
                 },
                 22,
                 |_| Err(EngineError::new(
@@ -2939,7 +2947,7 @@ mod tests {
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: s.state.playback.as_ref().unwrap().clone(),
+                observation: s.state.observation.pcm().unwrap().clone(),
             },
             22,
             |_| Ok(()),
@@ -3022,7 +3030,7 @@ mod tests {
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: s.state.playback.as_ref().unwrap().clone(),
+                observation: s.state.observation.pcm().unwrap().clone(),
             },
             22,
             |_| Ok(()),
@@ -3089,7 +3097,7 @@ mod tests {
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: s.state.playback.as_ref().unwrap().clone(),
+                observation: s.state.observation.pcm().unwrap().clone(),
             },
             23,
             |_| Ok(()),
@@ -3185,7 +3193,7 @@ mod tests {
         ] {
             let mut s = fixture();
             s.state.seekable = true;
-            let value = s.state.playback.clone().unwrap();
+            let value = s.state.observation.pcm().cloned().unwrap();
             s.queue
                 .update_status(
                     &value.source_entry_id,
@@ -3209,10 +3217,14 @@ mod tests {
             assert_eq!(rejected.error.unwrap().code, ErrorCode::AssetInvalid);
             let kind = match payload {
                 Command::Stop => EngineEventKind::LocalStopped {
-                    observation: Some(value),
+                    observation: Some(value.into()),
                 },
-                Command::Start { .. } => EngineEventKind::LocalCompleted { observation: value },
-                _ => EngineEventKind::LocalPaused { observation: value },
+                Command::Start { .. } => EngineEventKind::LocalCompleted {
+                    observation: (value).into(),
+                },
+                _ => EngineEventKind::LocalPaused {
+                    observation: (value).into(),
+                },
             };
             s.advance(EngineEvent {
                 epochs: s.state.epochs,
@@ -3246,7 +3258,10 @@ mod tests {
         })
         .unwrap();
         assert_eq!(s.state.active_entry_id, old.active_entry_id);
-        assert_eq!(s.state.playback, old.playback);
+        assert_eq!(
+            s.state.observation.pcm().cloned(),
+            old.observation.pcm().cloned()
+        );
     }
     #[test]
     fn activation_restores_readiness_when_the_open_final_tracks_old_ready_was_dropped() {
@@ -3260,7 +3275,7 @@ mod tests {
             s.submit_graph(c.clone(), 21).status,
             ReceiptStatus::Accepted
         );
-        let mut value = s.state.playback.clone().unwrap();
+        let mut value = s.state.observation.pcm().cloned().unwrap();
         value.source_entry_id = last.clone();
         value.source_position_frames = 37;
         assert_eq!(
@@ -3321,7 +3336,7 @@ mod tests {
             );
             let before = s.queue_snapshot();
             let snapshot = s.snapshot();
-            let format = s.state.playback.as_ref().unwrap().format;
+            let format = s.state.observation.pcm().unwrap().format;
             for (id, total_frames) in [(&current, 48000), (&next, 12000)] {
                 s.set_queue_preparation(
                     s.state.epochs,
@@ -3342,7 +3357,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: s.state.observation.pcm().cloned().unwrap(),
                 },
                 22,
                 |staged| {
@@ -3400,7 +3415,7 @@ mod tests {
             s.submit_graph(c.clone(), 21).status,
             ReceiptStatus::Accepted
         );
-        let format = s.state.playback.as_ref().unwrap().format;
+        let format = s.state.observation.pcm().unwrap().format;
         for index in 0..300 {
             let id = s.queue.append(format!("queued-{index}.wav")).unwrap();
             s.set_queue_preparation(
@@ -3422,7 +3437,7 @@ mod tests {
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: s.state.playback.clone().unwrap(),
+                observation: s.state.observation.pcm().cloned().unwrap(),
             },
             22,
             |_| Ok(()),
@@ -3454,7 +3469,7 @@ mod tests {
                 s.submit_graph(c.clone(), 21).status,
                 ReceiptStatus::Accepted
             );
-            let format = s.state.playback.as_ref().unwrap().format;
+            let format = s.state.observation.pcm().unwrap().format;
             let before = s.queue_snapshot();
             s.set_queue_preparation(
                 s.state.epochs,
@@ -3476,7 +3491,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: s.state.observation.pcm().cloned().unwrap(),
                 },
                 22,
                 |staged| {
@@ -3501,7 +3516,7 @@ mod tests {
                 ReceiptStatus::Accepted
             );
             let status = PreparationStatus::Ready {
-                format: s.state.playback.as_ref().unwrap().format,
+                format: s.state.observation.pcm().unwrap().format,
                 total_frames: 12000,
             };
             s.set_queue_preparation(s.state.epochs, &next, status)
@@ -3543,7 +3558,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: s.state.observation.pcm().cloned().unwrap(),
                 },
                 22,
                 |_| Ok(()),
@@ -3581,7 +3596,7 @@ mod tests {
             epochs: s.state.epochs,
             monotonic_ns: 4,
             kind: EngineEventKind::LocalPaused {
-                observation: s.state.playback.clone().unwrap(),
+                observation: (s.state.observation.pcm().cloned().unwrap()).into(),
             },
         })
         .unwrap();
@@ -3639,7 +3654,7 @@ mod tests {
                 ReceiptStatus::Accepted
             );
             let queue = s.queue_snapshot();
-            let mut observation = s.state.playback.clone().unwrap();
+            let mut observation = s.state.observation.pcm().cloned().unwrap();
             match invalid {
                 "frames" => observation.source_position_frames = 1001,
                 "format" => {

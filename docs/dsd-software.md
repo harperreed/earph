@@ -3,7 +3,9 @@
 Earph provides a bounded software reader and transport codec for stereo DSD64 and DSD128.
 This library unit supports DSF and uncompressed DFF.
 The Linux `DopOutput` library submits typed carrier bytes to ALSA.
-Engine playback and device transitions require later integration and qualification.
+Engine admits these files through its existing worker owner and publishes typed DSD observations.
+Public DSD writes remain refused because endpoint qualification is unavailable.
+Core Audio remains unsupported for typed DSD output.
 
 ## Reader contract
 
@@ -85,7 +87,51 @@ Coverage includes both rates, bit orders, fragmented reads, seeks, malformed fil
 The typed native tests use child-local ALSA configs with explicit file-to-null sinks.
 The Engine library E2E follows `DsdFile` through `DopPacker` and `DopOutput` into actual ALSA capture.
 An independent parser checks retained capture bytes, channel order, source suffixes, and marker continuity.
-These tests do not start Engine playback or change its PCM-only observations.
+Private worker tests exercise the same reader, packer, pending block, and native output owner.
+Their test-owned file/null authority cannot be constructed by public owner controls.
+Real owner tests verify muted DSD admission without submitting carrier bytes.
+These are separate software proofs; they do not establish public owner write E2E or physical carriage.
+
+## Engine ownership and observations
+
+The worker holds one active source variant for PCM/HTTP or DSD.
+The DSD variant owns its reader, packer, pending carrier block, and optional typed output.
+It checks reader sequence and source-bit position before packing.
+It keeps one pending block until its complete suffix is accepted.
+Queue preflight rejects mixed domains and changed DSD rates before opening output.
+Compatible entries share one packer and native stream, preserving marker phase and sequence.
+
+Session stores one canonical observation for local PCM, local DSD, or HTTP FLAC.
+Its public PCM and network documents retain their existing fields and nullability.
+DSD adds `dsd_playback`, while `playback` stays null and `network_playback` stays absent.
+Legacy decoded PCM frames remain zero; audible PCM position remains unavailable.
+`DsdReady` means complete source admission, without endpoint qualification or native readiness.
+Restore resets this status to Unprepared and discards runtime authority.
+
+`transport.seek_dsd` accepts `position_bits` per channel, aligned to sixteen bits within the active entry.
+The existing frame seek rejects DSD, and bit seek rejects PCM and HTTP FLAC.
+Pause, mute, and seek close the native output before discarding unaccepted suffixes.
+Reopen starts from the accepted source frontier with fresh epochs, marker `0x05`, and sequence zero.
+This cursor can discard downstream buffered data and establishes no acoustic restart position.
+The previous close boundary retains its old output epochs and accepted carrier count.
+Software EOF reports `completion_basis: source_submitted`; it makes no native drain claim.
+An aligned seek to exact EOF can complete while muted without opening output.
+
+DSD refuses PCM graphs, profiles, software volume, exact zero, nonzero gain, and ramps.
+Only explicitly armed fixed zero-dB passthrough passes software policy.
+That policy still grants no endpoint submission authority.
+Unknown local domains cannot unmute before source admission.
+Admitted PCM keeps its existing volume policy.
+Admission before an observation binds the current epochs and active entry.
+Readiness retained from a previous Start cannot authorize Unmute or frame seek.
+DSD owner shutdown remains Accepted until the matching source close settles its receipt.
+Late seeks and Stop reuse the retained completion token instead of dropping the closed source frontier.
+
+Failed takeover keeps the old source's accepted prefix and close error in one bounded retirement record.
+Cancellation before the replacement request dequeues uses the same record.
+The host adopts that immutable record before sending its distinct retirement acknowledgement.
+Current-source acknowledgements cannot release historical evidence, even when their token values match.
+A failed diagnostic write retains evidence through host lifetime, without durable storage across owner exit.
 
 Cursor unit tests cover zero and partial progress without claiming native short-write or `EAGAIN` evidence.
 File-to-null may accept every offered span; caller-selected small spans do not establish native short writes.
@@ -97,3 +143,5 @@ AC-13 requires actual qualified routes on both launch operating systems.
 
 The [Linux codec receipt](evidence/dsd/software-linux-20261120.json) binds the earlier reader, codec, file pipeline and combined check.
 That receipt predates the typed ALSA boundary and does not qualify it or a physical endpoint.
+The [Engine software receipt](evidence/dsd/engine-software-linux-20261121.json) records typed owner admission and private worker captures.
+It retains the intermittent service IPC failures and the unchanged passing repeat.

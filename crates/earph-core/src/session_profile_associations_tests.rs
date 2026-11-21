@@ -11,7 +11,7 @@ fn association_fixture() -> Session {
         .output
         .backend = OutputBackend::CoreAudio;
     s.restore_profile_records(records).unwrap();
-    let backend = s.state.playback.as_mut().unwrap().backend.as_mut().unwrap();
+    let backend = s.state.observation.pcm_mut().unwrap().backend.as_mut().unwrap();
     backend.backend = OutputBackend::CoreAudio;
     backend.device_identity_sha256 = Some(association_identity(1));
     s
@@ -152,10 +152,10 @@ fn two_bound_setups_require_manual_choice_and_selector_updates_invalidate_only_t
     s.advance(EngineEvent {
         epochs: s.state.epochs,
         monotonic_ns: s.state.monotonic_ns + 1,
-        kind: EngineEventKind::LocalStopped { observation: None },
+        kind: EngineEventKind::LocalStopped { observation: None},
     })
     .unwrap();
-    assert!(s.state.playback.as_ref().unwrap().backend.is_some());
+    assert!(s.state.observation.pcm().unwrap().backend.is_some());
     let q = association_resolve(&s, "resolve-after-real-stop");
     let r = serde_json::to_value(s.submit(q)).unwrap();
     assert_eq!(r["result"]["value"]["reason"], "no_verified_match");
@@ -242,15 +242,14 @@ fn observed_association_refuses_stale_or_missing_backend_and_failed_storage() {
             "session" => c.session_id = None,
             "identity" => {
                 s.state
-                    .playback
-                    .as_mut()
+                    .observation.pcm_mut()
                     .unwrap()
                     .backend
                     .as_mut()
                     .unwrap()
                     .device_identity_sha256 = None
             }
-            "backend" => s.state.playback.as_mut().unwrap().backend = None,
+            "backend" => s.state.observation.pcm_mut().unwrap().backend = None,
             "stopped" => s.state.source = None,
             "transition" => s.local_boundary = Some(LocalBoundary::Stop),
             _ => unreachable!(),
@@ -275,8 +274,7 @@ fn observed_association_bounds_restored_catalog_and_retained_capacity() {
     let mut s = association_fixture();
     for n in 1..=64 {
         s.state
-            .playback
-            .as_mut()
+            .observation.pcm_mut()
             .unwrap()
             .backend
             .as_mut()
@@ -286,8 +284,7 @@ fn observed_association_bounds_restored_catalog_and_retained_capacity() {
         assert_eq!(s.submit(c).status, ReceiptStatus::Applied);
     }
     s.state
-        .playback
-        .as_mut()
+        .observation.pcm_mut()
         .unwrap()
         .backend
         .as_mut()
@@ -341,8 +338,7 @@ fn profile_apply_rejects_changed_or_missing_identity_after_preparation() {
         let mut s = association_fixture();
         let p = profile_ready(&mut s);
         s.state
-            .playback
-            .as_mut()
+            .observation.pcm_mut()
             .unwrap()
             .backend
             .as_mut()

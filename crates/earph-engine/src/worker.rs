@@ -15,11 +15,16 @@ use earph_core::{
     ids::{Epochs, OwnerId, QueueEntryId, RequestId, SessionId},
     queue::{PreparationStatus, QueueEntry},
     session::{
-        BackendObservation, PlaybackObservation, PlaybackProcessingObservation, PreservationState,
-        SessionSnapshot, StreamingReplacementBoundary, StreamingRuntimeObservation, TransportState,
+        BackendObservation, LocalPlaybackObservation, PlaybackObservation,
+        PlaybackProcessingObservation, PreservationState, SessionSnapshot,
+        StreamingReplacementBoundary, StreamingRuntimeObservation, TransportState,
     },
 };
 use earph_media::LocalFile;
+mod dsd;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "worker/dsd_tests.rs"]
+mod dsd_tests;
 mod network;
 use network::{HttpSource, NetworkPreparation, Reader};
 use std::{
@@ -50,6 +55,7 @@ const INVALID_STREAM_COUNT: EngineError = EngineError::new(
 pub(crate) struct Settings {
     pub snapshot: SessionSnapshot,
     pub playing: bool,
+    pub pcm_processing: bool,
 }
 #[derive(Clone)]
 pub(crate) struct StopRequest {
@@ -109,8 +115,13 @@ pub(crate) enum Action {
         settings: Settings,
         position: u64,
     },
+    SeekDsd {
+        settings: Settings,
+        position_bits: u64,
+    },
     Stop(StopRequest),
     AcknowledgeSourceTerminal(SourceTerminalToken),
+    AcknowledgeDsdRetirement(SourceTerminalToken),
     Shutdown,
 }
 impl Action {
@@ -143,7 +154,7 @@ pub(crate) enum Event {
     },
     Ready {
         epochs: Epochs,
-        observation: PlaybackObservation,
+        observation: LocalPlaybackObservation,
     },
     Started {
         epochs: Epochs,
@@ -155,35 +166,36 @@ pub(crate) enum Event {
     },
     Paused {
         epochs: Epochs,
-        observation: PlaybackObservation,
+        observation: LocalPlaybackObservation,
     },
     Stopped {
         epochs: Epochs,
-        observation: Option<PlaybackObservation>,
+        observation: Option<LocalPlaybackObservation>,
     },
     End {
         epochs: Epochs,
     },
-    Drained {
+    Completed {
         epochs: Epochs,
         token: SourceTerminalToken,
-        observation: PlaybackObservation,
+        observation: LocalPlaybackObservation,
     },
     Failed {
         epochs: Epochs,
         token: Option<SourceTerminalToken>,
         error: EngineError,
-        observation: Option<PlaybackObservation>,
+        observation: Option<LocalPlaybackObservation>,
     },
+    DsdRetirementFailed(Arc<DsdRetirementFailure>),
     StopFailed {
         request: Box<StopRequest>,
         token: SourceTerminalToken,
         error: EngineError,
-        observation: Option<PlaybackObservation>,
+        observation: Option<LocalPlaybackObservation>,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct SourceTerminalToken {
     pub(crate) owner_id: Option<OwnerId>,
     pub(crate) session_id: SessionId,
@@ -210,7 +222,7 @@ pub(crate) struct Worker {
     cancel: Option<Arc<AtomicBool>>,
     join: Option<JoinHandle<()>>,
     pub view: Arc<Mutex<PlanView>>,
-    pub progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
+    pub progress: Arc<Mutex<Option<(Epochs, LocalPlaybackObservation)>>>,
 }
 impl Worker {
     pub fn spawn() -> Self {
@@ -261,7 +273,11 @@ impl Worker {
             self.retiring.store(true, Ordering::Release);
         }
         let safety = action.is_safety();
-        let reserved = safety || matches!(action, Action::AcknowledgeSourceTerminal(_));
+        let reserved = safety
+            || matches!(
+                action,
+                Action::AcknowledgeSourceTerminal(_) | Action::AcknowledgeDsdRetirement(_)
+            );
         if self.queued.load(Ordering::Acquire)
             >= if reserved {
                 COMMANDS
@@ -451,9 +467,36 @@ struct Playback {
     input_peak: Option<f64>,
     output_peak: Option<f64>,
     modified: bool,
-    progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
+    progress: Arc<Mutex<Option<(Epochs, LocalPlaybackObservation)>>>,
     // This last field retires the exact reservation after the output and source resources.
     reservation: QueueReservation,
+}
+enum ActiveSource {
+    Pcm(Box<Playback>),
+    Dsd(Box<dsd::DsdPlayback>),
+}
+impl ActiveSource {
+    fn pcm(&self) -> Option<&Playback> {
+        match self {
+            Self::Pcm(value) => Some(value),
+            Self::Dsd(_) => None,
+        }
+    }
+    fn pcm_mut(&mut self) -> Option<&mut Playback> {
+        match self {
+            Self::Pcm(value) => Some(value),
+            Self::Dsd(_) => None,
+        }
+    }
+    fn is_dsd(&self) -> bool {
+        matches!(self, Self::Dsd(_))
+    }
+    fn stop(&mut self) -> Result<(), EngineError> {
+        match self {
+            Self::Pcm(value) => value.output.stop(),
+            Self::Dsd(value) => value.close(earph_core::dop::DsdCloseReason::Stop),
+        }
+    }
 }
 impl Playback {
     fn prepare(
@@ -461,7 +504,7 @@ impl Playback {
         entries: Vec<QueueEntry>,
         cancel: Arc<AtomicBool>,
         view: Arc<Mutex<PlanView>>,
-        progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
+        progress: Arc<Mutex<Option<(Epochs, LocalPlaybackObservation)>>>,
         events: &SyncSender<Event>,
     ) -> Result<Self, EngineError> {
         let profile_bytes = settings.snapshot.profile_storage_bytes;
@@ -524,7 +567,7 @@ impl Playback {
         current: &mut Option<Track>,
         cancel: Arc<AtomicBool>,
         view: Arc<Mutex<PlanView>>,
-        progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
+        progress: Arc<Mutex<Option<(Epochs, LocalPlaybackObservation)>>>,
         events: &SyncSender<Event>,
         base: u64,
     ) -> Result<Self, EngineError> {
@@ -631,7 +674,7 @@ impl Playback {
             events,
             Event::Ready {
                 epochs,
-                observation,
+                observation: observation.into(),
             },
         )?;
         playback.set_gain()?;
@@ -1142,7 +1185,7 @@ impl Playback {
                         events,
                         Event::Paused {
                             epochs: self.epochs(),
-                            observation,
+                            observation: observation.into(),
                         },
                     )?;
                 }
@@ -1229,7 +1272,7 @@ impl Playback {
             events,
             Event::Paused {
                 epochs: self.epochs(),
-                observation,
+                observation: observation.into(),
             },
         )
     }
@@ -1381,7 +1424,7 @@ impl Playback {
                 }
                 let observation = self.observe()?;
                 if let Ok(mut latest) = self.progress.try_lock() {
-                    *latest = Some((self.epochs(), observation));
+                    *latest = Some((self.epochs(), observation.into()));
                 }
             }
             None => self.output.wait()?,
@@ -1394,7 +1437,7 @@ impl Playback {
         }
         let observation = self.observe()?;
         if let Ok(mut latest) = self.progress.try_lock() {
-            *latest = Some((self.epochs(), observation));
+            *latest = Some((self.epochs(), observation.into()));
         }
         Ok(())
     }
@@ -1677,14 +1720,33 @@ struct SourceTerminal {
     outcome: SourceTerminalOutcome,
 }
 enum SourceTerminalOutcome {
-    Completed(PlaybackObservation),
+    Completed(LocalPlaybackObservation),
     Failed {
         error: EngineError,
-        observation: Option<PlaybackObservation>,
+        observation: Option<LocalPlaybackObservation>,
         stop: Option<Box<StopRequest>>,
     },
 }
 impl SourceTerminal {
+    fn completed(
+        settings: &Settings,
+        observation: LocalPlaybackObservation,
+    ) -> Result<Self, EngineError> {
+        let snapshot = &settings.snapshot;
+        Ok(Self {
+            token: SourceTerminalToken {
+                owner_id: snapshot.owner_id.clone(),
+                session_id: snapshot.session_id.clone().ok_or(FAILED)?,
+                origin_epochs: snapshot.epochs,
+                graph_epoch: snapshot.graph_epoch,
+                device_epoch: snapshot.device_epoch,
+                final_entry_id: observation.entry_id().clone(),
+            },
+            control_epochs: snapshot.epochs,
+            reported_epochs: None,
+            outcome: SourceTerminalOutcome::Completed(observation),
+        })
+    }
     fn completed_from_playback(playback: &Playback) -> Result<Self, EngineError> {
         let snapshot = &playback.settings.snapshot;
         let observation = playback.observation(playback.last_counters);
@@ -1699,18 +1761,18 @@ impl SourceTerminal {
             },
             control_epochs: playback.epochs(),
             reported_epochs: None,
-            outcome: SourceTerminalOutcome::Completed(observation),
+            outcome: SourceTerminalOutcome::Completed(observation.into()),
         })
     }
     fn failed(
         settings: &Settings,
         error: EngineError,
-        observation: Option<PlaybackObservation>,
+        observation: Option<LocalPlaybackObservation>,
     ) -> Result<Self, EngineError> {
         let snapshot = &settings.snapshot;
         let entry = observation
             .as_ref()
-            .map(|value| &value.source_entry_id)
+            .map(|value| value.entry_id())
             .or(snapshot.active_entry_id.as_ref())
             .ok_or(FAILED)?;
         Ok(Self {
@@ -1755,7 +1817,7 @@ impl SourceTerminal {
             return Ok(());
         }
         let event = match &self.outcome {
-            SourceTerminalOutcome::Completed(observation) => Event::Drained {
+            SourceTerminalOutcome::Completed(observation) => Event::Completed {
                 epochs: self.control_epochs,
                 token: self.token.clone(),
                 observation: observation.clone(),
@@ -1853,11 +1915,114 @@ impl SourceTerminal {
         self.reconcile(settings, events, true)
     }
 }
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct DsdRetirementFailure {
+    pub token: SourceTerminalToken,
+    pub error: EngineError,
+    pub observation: Box<earph_core::dop::DsdPlaybackObservation>,
+}
+const DSD_RETIREMENT_PENDING: EngineError = EngineError::new(
+    ErrorCode::SourceBusy,
+    "DSD retirement evidence awaits host adoption",
+);
+impl DsdRetirementFailure {
+    pub fn validate(&self) -> Result<(), EngineError> {
+        self.observation.validate()?;
+        if self.observation.output.is_some()
+            || self.observation.source_epochs != self.token.origin_epochs
+            || self.observation.source_entry_id != self.token.final_entry_id
+            || self
+                .observation
+                .last_boundary
+                .as_ref()
+                .is_none_or(|boundary| {
+                    boundary.output_epochs != self.token.origin_epochs
+                        || boundary.source_entry_id != self.token.final_entry_id
+                        || boundary.source_position_bits != self.observation.source_position_bits
+                })
+        {
+            return Err(INVALID_STREAM_COUNT);
+        }
+        Ok(())
+    }
+}
+#[derive(Default)]
+struct DsdRetirement {
+    failure: Option<Arc<DsdRetirementFailure>>,
+    delivered: bool,
+}
+impl DsdRetirement {
+    fn capture(
+        &mut self,
+        current: &dsd::DsdPlayback,
+        error: EngineError,
+        events: &SyncSender<Event>,
+    ) -> Result<(), EngineError> {
+        if self.failure.is_some() {
+            return Err(DSD_RETIREMENT_PENDING);
+        }
+        let observation = current.failure_observation();
+        let binding =
+            SourceTerminal::failed(&current.settings, error, Some(observation.clone().into()))?;
+        self.failure = Some(Arc::new(DsdRetirementFailure {
+            token: binding.token,
+            error,
+            observation: Box::new(observation),
+        }));
+        self.delivered = false;
+        self.report(events);
+        Ok(())
+    }
+    fn report(&mut self, events: &SyncSender<Event>) {
+        if let Some(failure) = &self.failure
+            && events
+                .try_send(Event::DsdRetirementFailed(failure.clone()))
+                .is_ok()
+        {
+            self.delivered = true;
+        }
+    }
+    fn acknowledge(&mut self, token: &SourceTerminalToken) {
+        if self.delivered
+            && self
+                .failure
+                .as_ref()
+                .is_some_and(|failure| &failure.token == token)
+        {
+            self.failure = None;
+            self.delivered = false;
+        }
+    }
+}
+fn retire_for_start(
+    playback: &mut Option<ActiveSource>,
+    retirement: &mut DsdRetirement,
+    events: &SyncSender<Event>,
+    close: impl FnOnce(&mut ActiveSource) -> Result<(), EngineError>,
+) -> Result<(), EngineError> {
+    if retirement.failure.is_some() {
+        return Err(DSD_RETIREMENT_PENDING);
+    }
+    if let Some(current) = playback.as_mut()
+        && let Err(error) = close(current)
+    {
+        if let ActiveSource::Dsd(current) = current
+            && retirement.capture(current, error, events).is_err()
+        {
+            // Keep the closed owner if its binding cannot form a retirement record.
+            return Err(error);
+        }
+        *playback = None;
+        return Err(error);
+    }
+    *playback = None;
+    Ok(())
+}
 fn retain_source_failure(
     terminal: &mut Option<SourceTerminal>,
     settings: &Settings,
     error: EngineError,
-    observation: Option<PlaybackObservation>,
+    observation: Option<LocalPlaybackObservation>,
     events: &SyncSender<Event>,
 ) {
     match SourceTerminal::failed(settings, error, observation.clone()) {
@@ -1878,7 +2043,15 @@ fn retain_source_failure(
         }
     }
 }
-type StoppedSource = (Settings, PlaybackObservation, Option<EngineError>);
+fn acknowledge_source_terminal(terminal: &mut Option<SourceTerminal>, token: &SourceTerminalToken) {
+    if terminal
+        .as_ref()
+        .is_some_and(|current| &current.token == token)
+    {
+        *terminal = None;
+    }
+}
+type StoppedSource = (Settings, LocalPlaybackObservation, Option<EngineError>);
 fn playback_step_failure(
     current: &mut Playback,
     error: EngineError,
@@ -1892,28 +2065,84 @@ fn playback_step_failure(
     let _ = current.output.stop();
     current.refresh_activity(&mut observation);
     if cancelled {
-        *stopped = Some((settings.clone(), observation.clone(), Some(error)));
+        *stopped = Some((settings.clone(), observation.clone().into(), Some(error)));
     }
     clear_reservation(&current.view, current.epochs());
     clear_reservation(&current.view, settings.snapshot.epochs);
-    retain_source_failure(terminal, &settings, error, Some(observation), events);
+    retain_source_failure(terminal, &settings, error, Some(observation.into()), events);
+}
+#[derive(Default)]
+struct FailureContext<'a> {
+    before_control: Option<(Settings, PlaybackObservation)>,
+    retirement: Option<&'a mut DsdRetirement>,
 }
 fn action_failure(
-    playback: &mut Option<Playback>,
+    playback: &mut Option<ActiveSource>,
     stopped: &mut Option<StoppedSource>,
     terminal: &mut Option<SourceTerminal>,
     mut settings: Option<Settings>,
     error: EngineError,
-    before_control: Option<(Settings, PlaybackObservation)>,
+    context: FailureContext<'_>,
     events: &SyncSender<Event>,
 ) {
+    let FailureContext {
+        before_control,
+        retirement,
+    } = context;
+    if playback.as_ref().is_some_and(ActiveSource::is_dsd) {
+        if error.code == ErrorCode::StaleSession
+            && let Some(ActiveSource::Dsd(current)) = playback.as_ref()
+            && settings
+                .as_ref()
+                .is_some_and(|settings| !current.matches_settings(settings))
+        {
+            return;
+        }
+        if let Some(ActiveSource::Dsd(mut current)) = playback.take() {
+            let cancelled = current.cancel.load(Ordering::Acquire)
+                && error.code == ErrorCode::OperationCancelled;
+            let reason = if cancelled {
+                earph_core::dop::DsdCloseReason::Cancelled
+            } else {
+                earph_core::dop::DsdCloseReason::Failed
+            };
+            let close_error = current.close(reason).err();
+            let source_observation = current.failure_observation();
+            let failed_boundary = source_observation
+                .last_boundary
+                .as_ref()
+                .is_some_and(|boundary| boundary.reason == earph_core::dop::DsdCloseReason::Failed);
+            let observation = LocalPlaybackObservation::from(source_observation);
+            let context = settings.unwrap_or_else(|| current.settings.clone());
+            if cancelled && close_error.is_none() {
+                *stopped = Some((context, observation, None));
+                return;
+            }
+            let error = close_error.unwrap_or(error);
+            if failed_boundary && let Some(retirement) = retirement {
+                // Admission may cancel this source before the queued takeover is read.
+                // Retain its first close failure outside ordinary current terminal state.
+                let _ = retirement.capture(&current, error, events);
+            }
+            if current.cancel.load(Ordering::Acquire) {
+                *stopped = Some((context.clone(), observation.clone(), Some(error)));
+            }
+            retain_source_failure(terminal, &context, error, Some(observation), events);
+        }
+        return;
+    }
     if error.code == ErrorCode::OperationCancelled
-        && playback.as_ref().is_some_and(|current| {
-            current.cancel.load(Ordering::Acquire)
-                && (current.cancelled_stream_source() || before_control.is_some())
-        })
+        && playback
+            .as_ref()
+            .and_then(ActiveSource::pcm)
+            .is_some_and(|current| {
+                current.cancel.load(Ordering::Acquire)
+                    && (current.cancelled_stream_source() || before_control.is_some())
+            })
     {
-        let mut current = playback.take().expect("checked live source");
+        let Some(ActiveSource::Pcm(mut current)) = playback.take() else {
+            unreachable!("checked PCM source")
+        };
         let (context, mut observation) = if current.cancelled_control_observation().is_some() {
             (current.failure_context(None), current.failure_observation())
         } else {
@@ -1925,18 +2154,27 @@ fn action_failure(
         clear_reservation(&current.view, context.snapshot.epochs);
         clear_reservation(&current.view, current.epochs());
         if let Some(error) = close_error {
-            retain_source_failure(terminal, &context, error, Some(observation.clone()), events);
+            retain_source_failure(
+                terminal,
+                &context,
+                error,
+                Some(observation.clone().into()),
+                events,
+            );
         }
-        *stopped = Some((context, observation, close_error));
+        *stopped = Some((context, observation.into(), close_error));
         return;
     }
-    let observation = playback.take().map(|mut current| {
+    let observation = playback.take().map(|source| {
+        let ActiveSource::Pcm(mut current) = source else {
+            unreachable!("DSD failure handled above")
+        };
         let mut observation = current.failure_observation();
         let _ = current.output.stop();
         current.refresh_activity(&mut observation);
         clear_reservation(&current.view, current.epochs());
         settings = Some(current.failure_context(settings.take()));
-        observation
+        LocalPlaybackObservation::from(observation)
     });
     if let Some(settings) = settings {
         retain_source_failure(terminal, &settings, error, observation, events);
@@ -1944,20 +2182,42 @@ fn action_failure(
 }
 fn stop_source(
     request: StopRequest,
-    playback: &mut Option<Playback>,
+    playback: &mut Option<ActiveSource>,
     stopped: &mut Option<StoppedSource>,
     terminal: &mut Option<SourceTerminal>,
     view: &Mutex<PlanView>,
     events: &SyncSender<Event>,
 ) -> Result<(), EngineError> {
-    if let Some(mut current) = playback.take() {
+    if playback.as_ref().is_some_and(ActiveSource::is_dsd)
+        && let Some(ActiveSource::Dsd(mut current)) = playback.take()
+    {
+        let failure = current.close(earph_core::dop::DsdCloseReason::Stop).err();
+        *stopped = Some((
+            current.settings.clone(),
+            LocalPlaybackObservation::from(current.failure_observation()),
+            failure,
+        ));
+        drop(current);
+    }
+    if let Some(ActiveSource::Pcm(mut current)) = playback.take() {
         let mut observation = current.failure_observation();
         let context = current.failure_context(None);
         let failure = current.output.stop().err();
         current.refresh_activity(&mut observation);
         clear_reservation(view, context.snapshot.epochs);
         clear_reservation(view, current.epochs());
-        *stopped = Some((context, observation, failure));
+        *stopped = Some((context, observation.into(), failure));
+    }
+    if let Some(completed) = terminal.as_mut()
+        && matches!(
+            &completed.outcome,
+            SourceTerminalOutcome::Completed(LocalPlaybackObservation::Dsd(_))
+        )
+        && request.matches_source(&completed.token)
+        && completed.reconcile(&request.settings, events, true)?
+    {
+        *stopped = None;
+        return Ok(());
     }
     if let Some(failed) = terminal.as_mut()
         && failed.bind_stop(&request, events)?
@@ -1991,17 +2251,19 @@ fn run(
     events: SyncSender<Event>,
     queued: Arc<AtomicUsize>,
     view: Arc<Mutex<PlanView>>,
-    progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
+    progress: Arc<Mutex<Option<(Epochs, LocalPlaybackObservation)>>>,
     retiring: Arc<AtomicBool>,
 ) {
-    let mut playback: Option<Playback> = None;
+    let mut playback: Option<ActiveSource> = None;
     let mut stopped: Option<StoppedSource> = None;
     let mut terminal: Option<SourceTerminal> = None;
+    let mut dsd_retirement = DsdRetirement::default();
     let mut network_preparation: Option<NetworkPreparation> = None;
     let mut network_retirement = None;
     let mut network_terminal_reported = false;
     let mut deferred_start = None;
     loop {
+        dsd_retirement.report(&events);
         if let Some(closing) = network_retirement.as_ref() {
             match network::retire_owned(&mut playback, &mut network_preparation, closing) {
                 Ok(ack) => {
@@ -2040,6 +2302,12 @@ fn run(
                 Err(TryRecvError::Empty) => None,
                 Err(TryRecvError::Disconnected) => break,
             }
+        } else if dsd_retirement.failure.is_some() {
+            match receiver.recv_timeout(Duration::from_millis(10)) {
+                Ok(action) => Some(action),
+                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
         } else {
             match receiver.recv() {
                 Ok(action) => Some(action),
@@ -2061,6 +2329,7 @@ fn run(
                 Action::ActivateGraph { settings, .. }
                 | Action::Pause(settings)
                 | Action::Seek { settings, .. }
+                | Action::SeekDsd { settings, .. }
                 | Action::Settings(settings) => Some(settings.clone()),
                 _ => None,
             };
@@ -2072,6 +2341,7 @@ fn run(
                 );
                 playback
                     .as_ref()
+                    .and_then(ActiveSource::pcm)
                     .filter(|p| {
                         !p.is_network()
                             && (incoming_stream
@@ -2094,9 +2364,30 @@ fn run(
                     clock,
                     cancel,
                 } => {
+                    if dsd_retirement.failure.is_some() {
+                        let _ = network::preparation_failed(
+                            &settings,
+                            &context,
+                            DSD_RETIREMENT_PENDING,
+                            &events,
+                        );
+                        continue;
+                    }
                     // Native local ownership ends before any HTTP request starts.
-                    if let Some(current) = &mut playback
-                        && let Err(error) = current.output.stop()
+                    if playback.as_ref().is_some_and(ActiveSource::is_dsd)
+                        && let Err(error) = retire_for_start(
+                            &mut playback,
+                            &mut dsd_retirement,
+                            &events,
+                            ActiveSource::stop,
+                        )
+                    {
+                        // The network producer keeps its existing typed preparation outcome.
+                        let _ = network::preparation_failed(&settings, &context, error, &events);
+                        continue;
+                    }
+                    if let Some(current) = playback.as_mut()
+                        && let Err(error) = current.stop()
                     {
                         let _ = network::preparation_failed(&settings, &context, error, &events);
                         continue;
@@ -2125,28 +2416,47 @@ fn run(
                     activation,
                     pipeline,
                 } => {
+                    if playback.as_ref().is_some_and(ActiveSource::is_dsd) {
+                        drop(pipeline);
+                        let _ = emit(
+                            &events,
+                            Event::GraphFailed {
+                                epochs: activation.epochs,
+                                request_id: activation.request_id,
+                                error: EngineError::new(
+                                    ErrorCode::FidelityPolicyConflict,
+                                    "DSD cannot accept a PCM pipeline",
+                                ),
+                            },
+                        );
+                        continue;
+                    }
                     let epochs = activation.epochs;
                     let request_id = activation.request_id.clone();
                     let live = playback.is_some();
-                    let network = playback.as_ref().is_some_and(|p| p.is_network());
-                    let result = if let Some(current) = &mut playback {
-                        current.activate_graph(settings, activation, pipeline, &events)
-                    } else {
-                        drop(pipeline);
-                        match terminal
-                            .as_mut()
-                            .map(|completed| {
-                                completed.activation_terminal(&settings, &activation, &events)
-                            })
-                            .transpose()
-                        {
-                            Ok(Some(true)) => Ok(()),
-                            Ok(_) => Err(FAILED),
-                            Err(error) => Err(error),
-                        }
-                    };
+                    let network = playback
+                        .as_ref()
+                        .and_then(ActiveSource::pcm)
+                        .is_some_and(|p| p.is_network());
+                    let result =
+                        if let Some(current) = playback.as_mut().and_then(ActiveSource::pcm_mut) {
+                            current.activate_graph(settings, activation, pipeline, &events)
+                        } else {
+                            drop(pipeline);
+                            match terminal
+                                .as_mut()
+                                .map(|completed| {
+                                    completed.activation_terminal(&settings, &activation, &events)
+                                })
+                                .transpose()
+                            {
+                                Ok(Some(true)) => Ok(()),
+                                Ok(_) => Err(FAILED),
+                                Err(error) => Err(error),
+                            }
+                        };
                     if network && let Err(error) = result {
-                        if let Some(current) = &mut playback {
+                        if let Some(current) = playback.as_mut().and_then(ActiveSource::pcm_mut) {
                             let _ = emit(
                                 &events,
                                 Event::NetworkGraphFailed {
@@ -2173,12 +2483,11 @@ fn run(
                     if live { result } else { Ok(()) }
                 }
                 Action::AcknowledgeSourceTerminal(token) => {
-                    if terminal
-                        .as_ref()
-                        .is_some_and(|completed| completed.token == token)
-                    {
-                        terminal = None;
-                    }
+                    acknowledge_source_terminal(&mut terminal, &token);
+                    Ok(())
+                }
+                Action::AcknowledgeDsdRetirement(token) => {
+                    dsd_retirement.acknowledge(&token);
                     Ok(())
                 }
                 Action::Shutdown => break,
@@ -2198,7 +2507,59 @@ fn run(
                     let epochs = settings.snapshot.epochs;
                     let attempted = settings.clone();
                     stopped = None;
-                    playback = None;
+                    if let Err(error) = retire_for_start(
+                        &mut playback,
+                        &mut dsd_retirement,
+                        &events,
+                        ActiveSource::stop,
+                    ) {
+                        retain_source_failure(&mut terminal, &attempted, error, None, &events);
+                        continue;
+                    }
+                    if let Ok(mut latest) = progress.lock() {
+                        *latest = None;
+                    }
+                    if cancel.load(Ordering::Acquire) {
+                        retain_source_failure(
+                            &mut terminal,
+                            &attempted,
+                            EngineError::new(
+                                ErrorCode::OperationCancelled,
+                                "source preparation was cancelled",
+                            ),
+                            None,
+                            &events,
+                        );
+                        continue;
+                    }
+                    let dsd = entries
+                        .iter()
+                        .find(|entry| Some(&entry.id) == settings.snapshot.active_entry_id.as_ref())
+                        .map(|entry| earph_media::is_dsd(Path::new(&entry.path)))
+                        .transpose();
+                    if matches!(dsd, Ok(Some(true))) {
+                        match dsd::DsdPlayback::prepare(
+                            settings,
+                            entries,
+                            cancel,
+                            view.clone(),
+                            progress.clone(),
+                            &events,
+                        ) {
+                            Ok(value) => playback = Some(ActiveSource::Dsd(Box::new(value))),
+                            Err(error) => {
+                                clear_reservation(&view, epochs);
+                                retain_source_failure(
+                                    &mut terminal,
+                                    &attempted,
+                                    error,
+                                    None,
+                                    &events,
+                                );
+                            }
+                        }
+                        continue;
+                    }
                     match Playback::prepare(
                         settings,
                         entries,
@@ -2208,7 +2569,7 @@ fn run(
                         &events,
                     ) {
                         Ok(value) => {
-                            playback = Some(value);
+                            playback = Some(ActiveSource::Pcm(Box::new(value)));
                             Ok(())
                         }
                         Err(error) => {
@@ -2224,7 +2585,10 @@ fn run(
                     Ok(())
                 }
                 Action::Settings(settings) => {
-                    if let Some(current) = &mut playback {
+                    if let Some(ActiveSource::Dsd(current)) = playback.as_mut() {
+                        current.apply_settings(settings, &events)
+                    } else if let Some(current) = playback.as_mut().and_then(ActiveSource::pcm_mut)
+                    {
                         current.apply_settings(settings, &events)
                     } else if let Some(preparing) = &mut network_preparation {
                         preparing.settings = settings;
@@ -2236,7 +2600,10 @@ fn run(
                     }
                 }
                 Action::Pause(settings) => {
-                    if let Some(current) = &mut playback {
+                    if let Some(ActiveSource::Dsd(current)) = playback.as_mut() {
+                        current.reposition(settings, None, &events)
+                    } else if let Some(current) = playback.as_mut().and_then(ActiveSource::pcm_mut)
+                    {
                         current.reposition(settings, None, &events, true)
                     } else if let Some(preparing) = &mut network_preparation {
                         preparing.settings = settings;
@@ -2250,7 +2617,7 @@ fn run(
                     }
                 }
                 Action::Seek { settings, position } => {
-                    if let Some(current) = &mut playback {
+                    if let Some(current) = playback.as_mut().and_then(ActiveSource::pcm_mut) {
                         current.reposition(settings, Some(position), &events, true)
                     } else if let Some(completed) = terminal.as_mut() {
                         completed
@@ -2260,9 +2627,30 @@ fn run(
                         Err(ENDED)
                     }
                 }
+                Action::SeekDsd {
+                    settings,
+                    position_bits,
+                } => {
+                    if let Some(ActiveSource::Dsd(current)) = playback.as_mut() {
+                        current.reposition(settings, Some(position_bits), &events)
+                    } else if let Some(completed) = terminal.as_mut() {
+                        completed
+                            .reconcile(&settings, &events, true)
+                            .and_then(|matched| if matched { Ok(()) } else { Err(ENDED) })
+                    } else {
+                        Err(EngineError::new(
+                            ErrorCode::CapabilityUnsupported,
+                            "DSD seek requires a current DSD source",
+                        ))
+                    }
+                }
             };
             if let Err(error) = result {
-                if let Some(current) = playback.as_mut().filter(|p| p.is_network()) {
+                if let Some(current) = playback
+                    .as_mut()
+                    .and_then(ActiveSource::pcm_mut)
+                    .filter(|p| p.is_network())
+                {
                     let _ = current.output.stop();
                     let _ = current.emit_network(
                         &events,
@@ -2276,7 +2664,10 @@ fn run(
                         &mut terminal,
                         failure_settings,
                         error,
-                        before_control,
+                        FailureContext {
+                            before_control,
+                            retirement: Some(&mut dsd_retirement),
+                        },
                         &events,
                     );
                 }
@@ -2307,7 +2698,7 @@ fn run(
                         &events,
                         settings.snapshot.profile_storage_bytes,
                     ) {
-                        Ok(current) => playback = Some(current),
+                        Ok(current) => playback = Some(ActiveSource::Pcm(Box::new(current))),
                         Err(error) => {
                             if let Some(Track {
                                 file: Reader::Http(source),
@@ -2343,7 +2734,50 @@ fn run(
         if network_terminal_reported && network_preparation.is_some() {
             thread::sleep(Duration::from_millis(1));
         }
-        if let Some(current) = &mut playback {
+        if let Some(ActiveSource::Dsd(current)) = playback.as_mut() {
+            match current.step(&events) {
+                Ok(true) => {
+                    let settings = current.settings.clone();
+                    let observation = LocalPlaybackObservation::from(current.failure_observation());
+                    if current.cancel.load(Ordering::Acquire) {
+                        stopped = Some((settings, observation, None));
+                    } else {
+                        match SourceTerminal::completed(&settings, observation) {
+                            Ok(mut completed) => {
+                                let _ = completed.report(&events);
+                                terminal = Some(completed);
+                            }
+                            Err(error) => retain_source_failure(
+                                &mut terminal,
+                                &settings,
+                                error,
+                                None,
+                                &events,
+                            ),
+                        }
+                    }
+                    playback = None;
+                }
+                Ok(false) => {
+                    if current.settings.snapshot.muted || !current.settings.playing {
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                }
+                Err(error) => action_failure(
+                    &mut playback,
+                    &mut stopped,
+                    &mut terminal,
+                    None,
+                    error,
+                    FailureContext {
+                        retirement: Some(&mut dsd_retirement),
+                        ..FailureContext::default()
+                    },
+                    &events,
+                ),
+            }
+        }
+        if let Some(current) = playback.as_mut().and_then(ActiveSource::pcm_mut) {
             if current.is_network() && network_terminal_reported {
                 thread::sleep(Duration::from_millis(1));
                 continue;
@@ -2369,7 +2803,7 @@ fn run(
                     if current.cancel.load(Ordering::Acquire) {
                         stopped = Some((
                             current.failure_context(None),
-                            current.failure_observation(),
+                            current.failure_observation().into(),
                             None,
                         ));
                     } else if current.phase == RenderPhase::Finished {
@@ -2505,6 +2939,7 @@ pub(crate) mod tests {
             Session::new(ZoneId::new("main").unwrap(), ControlLimits::default()).snapshot();
         snapshot.muted = muted;
         Settings {
+            pcm_processing: false,
             snapshot,
             playing: true,
         }
@@ -2548,7 +2983,7 @@ pub(crate) mod tests {
             ErrorCode::StaleSession
         );
     }
-    fn admission() -> (Worker, Receiver<Action>) {
+    pub(super) fn admission() -> (Worker, Receiver<Action>) {
         let (sender, receiver) = mpsc::sync_channel(COMMANDS);
         let (_, events) = mpsc::sync_channel(1);
         (
@@ -2669,14 +3104,14 @@ pub(crate) mod tests {
                 .events
                 .recv_timeout(deadline.saturating_duration_since(Instant::now()))
                 .expect("native null worker did not finish");
-            if let Event::Drained {
+            if let Event::Completed {
                 epochs,
                 token,
                 observation,
             } = event
             {
                 assert_eq!(epochs, settings.snapshot.epochs);
-                break (token, observation);
+                break (token, observation.pcm().unwrap().clone());
             }
         };
         assert_eq!(observation.submitted_frames, 65 * tracks as u64);
@@ -2712,11 +3147,11 @@ pub(crate) mod tests {
                 .expect("native completion was lost")
             {
                 Event::End { .. } => {}
-                Event::Drained {
+                Event::Completed {
                     epochs,
                     observation,
                     ..
-                } => return (epochs, observation),
+                } => return (epochs, observation.pcm().unwrap().clone()),
                 _ => panic!("native completion became another transition"),
             }
         }
@@ -2807,7 +3242,7 @@ pub(crate) mod tests {
                 .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
                 .unwrap()
             {
-                Event::Drained { token, .. } => break token,
+                Event::Completed { token, .. } => break token,
                 Event::Failed { error, .. } => panic!("replacement source failed: {error:?}"),
                 _ => {}
             }
@@ -2859,7 +3294,7 @@ pub(crate) mod tests {
     ) -> (Settings, GraphActivationRequest, PreparedPipeline) {
         use earph_core::{graph::*, graph_control::*, ids::PreparedGraphId};
         let mut snapshot = settings.snapshot.clone();
-        snapshot.playback = Some(observation.clone());
+        snapshot.observation = (observation.clone()).into();
         let binding = GraphBinding {
             owner_id: snapshot.owner_id.clone().unwrap(),
             session_id: snapshot.session_id.clone().unwrap(),
@@ -3252,7 +3687,7 @@ pub(crate) mod tests {
         let mut settings = current.settings.clone();
         settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
         current.cancel.store(true, Ordering::Release);
-        let mut playback = Some(current);
+        let mut playback = Some(ActiveSource::Pcm(Box::new(current)));
         let mut stopped = None;
         let mut terminal = None;
         stop_source(
@@ -3270,7 +3705,7 @@ pub(crate) mod tests {
         let event = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(
             matches!(event, Event::Stopped { observation: Some(observation), .. }
-            if observation == before)
+            if observation == earph_core::session::LocalPlaybackObservation::from(before.clone()))
         );
         assert!(playback.is_none());
         let view = view.lock().unwrap();
@@ -3319,7 +3754,7 @@ pub(crate) mod tests {
         let event = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(
             matches!(event, Event::Failed { observation: Some(observation), error: actual, .. }
-            if observation.submitted_frames == before.submitted_frames && actual == error)
+            if observation.pcm().unwrap().clone().submitted_frames == before.submitted_frames && actual == error)
         );
         drop(current);
         let view = view.lock().unwrap();
@@ -3663,17 +4098,20 @@ pub(crate) mod tests {
                 .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
                 .unwrap()
             {
-                Event::Drained {
+                Event::Completed {
                     epochs,
                     observation,
                     ..
                 } => {
                     assert_eq!(epochs, settings.snapshot.epochs);
-                    assert_eq!(observation.submitted_frames, 257);
-                    assert_eq!(observation.source_position_frames, 257);
-                    assert!(observation.input_peak.unwrap() > 0.0);
-                    assert_eq!(observation.output_peak, Some(0.0));
-                    assert!(observation.modified);
+                    assert_eq!(observation.pcm().unwrap().clone().submitted_frames, 257);
+                    assert_eq!(
+                        observation.pcm().unwrap().clone().source_position_frames,
+                        257
+                    );
+                    assert!(observation.pcm().unwrap().clone().input_peak.unwrap() > 0.0);
+                    assert_eq!(observation.pcm().unwrap().clone().output_peak, Some(0.0));
+                    assert!(observation.pcm().unwrap().clone().modified);
                     break;
                 }
                 Event::Failed { error, .. } => panic!("zero preparation failed: {error}"),
@@ -3880,7 +4318,7 @@ pub(crate) mod tests {
             current.apply_settings(pause, &events).unwrap();
             assert_eq!(current.epochs(), source_epochs);
             receiver.try_iter().for_each(drop);
-            let mut playback = Some(current);
+            let mut playback = Some(ActiveSource::Pcm(Box::new(current)));
             let mut stopped = None;
             let mut terminal = None;
             stop_source(
@@ -3896,7 +4334,7 @@ pub(crate) mod tests {
                 Event::Stopped {
                     observation: Some(observation),
                     ..
-                } => assert_eq!(observation.submitted_frames, native),
+                } => assert_eq!(observation.pcm().unwrap().clone().submitted_frames, native),
                 _ => panic!("queued transport lost the actual stopped observation"),
             }
             assert!(playback.is_none());
@@ -3959,7 +4397,7 @@ pub(crate) mod tests {
         let mut stop = current.settings.clone();
         stop.snapshot.epochs = stop.snapshot.epochs.next_stream().unwrap();
         receiver.try_iter().for_each(drop);
-        let mut playback = Some(current);
+        let mut playback = Some(ActiveSource::Pcm(Box::new(current)));
         let mut stopped = None;
         let mut terminal = None;
         stop_source(
@@ -3978,7 +4416,10 @@ pub(crate) mod tests {
             Event::Stopped {
                 observation: Some(observation),
                 ..
-            } => assert_eq!(observation, before),
+            } => assert_eq!(
+                observation,
+                earph_core::session::LocalPlaybackObservation::from(before.clone())
+            ),
             _ => panic!("Stop lost the installed native prefix"),
         }
         assert!(playback.is_none());
@@ -4013,7 +4454,7 @@ pub(crate) mod tests {
         stop.snapshot.epochs = stop.snapshot.epochs.next_stream().unwrap();
         current.cancel.store(true, Ordering::Release);
         receiver.try_iter().for_each(drop);
-        let mut playback = Some(current);
+        let mut playback = Some(ActiveSource::Pcm(Box::new(current)));
         let mut stopped = None;
         let mut terminal = None;
         stop_source(
@@ -4032,7 +4473,10 @@ pub(crate) mod tests {
             Event::Stopped {
                 observation: Some(observation),
                 ..
-            } => assert_eq!(observation, before),
+            } => assert_eq!(
+                observation,
+                earph_core::session::LocalPlaybackObservation::from(before.clone())
+            ),
             _ => panic!("successful hold lost the pre-control native prefix"),
         }
         assert!(playback.is_none());
@@ -4080,7 +4524,10 @@ pub(crate) mod tests {
         playback_step_failure(&mut current, error, &mut stopped, &mut terminal, &events);
         let (settings, observation, failure) = stopped.unwrap();
         assert_eq!(settings.snapshot.epochs, origin);
-        assert_eq!(observation, before);
+        assert_eq!(
+            observation,
+            earph_core::session::LocalPlaybackObservation::from(before.clone())
+        );
         assert_eq!(failure, Some(error));
         assert!(terminal.is_some());
         match receiver.recv_timeout(Duration::from_secs(1)).unwrap() {
@@ -4092,7 +4539,10 @@ pub(crate) mod tests {
             } => {
                 assert_eq!(epochs, origin);
                 assert_eq!(actual, error);
-                assert_eq!(observation, before);
+                assert_eq!(
+                    observation,
+                    earph_core::session::LocalPlaybackObservation::from(before.clone())
+                );
             }
             _ => panic!("retirement lost the real held source context"),
         }
@@ -4207,7 +4657,7 @@ pub(crate) mod tests {
                     .unwrap_err()
             };
             assert_eq!(error.code, ErrorCode::OperationCancelled);
-            let mut playback = Some(current);
+            let mut playback = Some(ActiveSource::Pcm(Box::new(current)));
             let mut stopped = None;
             let mut terminal = None;
             action_failure(
@@ -4216,7 +4666,10 @@ pub(crate) mod tests {
                 &mut terminal,
                 Some(pause.clone()),
                 error,
-                before_control,
+                FailureContext {
+                    before_control,
+                    ..FailureContext::default()
+                },
                 &events,
             );
             pause.snapshot.epochs = pause.snapshot.epochs.next_stream().unwrap();
@@ -4240,9 +4693,19 @@ pub(crate) mod tests {
                     observation: Some(observation),
                     ..
                 } => {
-                    assert_eq!(observation.submitted_frames, native);
-                    assert_eq!(observation.source_position_frames, source);
-                    let streaming = observation.processing.unwrap().streaming.unwrap();
+                    assert_eq!(observation.pcm().unwrap().clone().submitted_frames, native);
+                    assert_eq!(
+                        observation.pcm().unwrap().clone().source_position_frames,
+                        source
+                    );
+                    let streaming = observation
+                        .pcm()
+                        .unwrap()
+                        .clone()
+                        .processing
+                        .unwrap()
+                        .streaming
+                        .unwrap();
                     assert_eq!(streaming.source_accepted_frames, source);
                     assert!(streaming.source_epochs.stream < stop_epochs.stream);
                 }
@@ -4349,9 +4812,15 @@ pub(crate) mod tests {
                     _ => None,
                 })
                 .unwrap();
-            assert_eq!(observation.backend.as_ref(), Some(&actual));
-            assert_eq!(observation.source_position_frames, position.unwrap_or(0));
-            assert_eq!(observation.submitted_frames, 0);
+            assert_eq!(
+                observation.pcm().unwrap().clone().backend.as_ref(),
+                Some(&actual)
+            );
+            assert_eq!(
+                observation.pcm().unwrap().clone().source_position_frames,
+                position.unwrap_or(0)
+            );
+            assert_eq!(observation.pcm().unwrap().clone().submitted_frames, 0);
             assert!(playback.settings.snapshot.muted);
         }
     }
@@ -4375,8 +4844,11 @@ pub(crate) mod tests {
                 _ => None,
             })
             .unwrap();
-        assert_eq!(observation.backend.as_ref(), Some(&actual));
-        assert_eq!(observation.submitted_frames, 0);
+        assert_eq!(
+            observation.pcm().unwrap().clone().backend.as_ref(),
+            Some(&actual)
+        );
+        assert_eq!(observation.pcm().unwrap().clone().submitted_frames, 0);
         assert!(playback.settings.snapshot.muted);
     }
     #[test]
@@ -4521,8 +4993,19 @@ pub(crate) mod tests {
             let SourceTerminalOutcome::Completed(observation) = terminal.outcome else {
                 panic!("completed source required")
             };
-            assert!(observation.output_activity.unwrap().close_confirmed);
-            assert_eq!(observation.output_activity, Some(*sample.lock().unwrap()));
+            assert!(
+                observation
+                    .pcm()
+                    .unwrap()
+                    .clone()
+                    .output_activity
+                    .unwrap()
+                    .close_confirmed
+            );
+            assert_eq!(
+                observation.pcm().unwrap().clone().output_activity,
+                Some(*sample.lock().unwrap())
+            );
         }
         #[test]
         fn terminal_paths_sample_activity_after_close_and_preserve_failures() {
@@ -4537,7 +5020,7 @@ pub(crate) mod tests {
                         EngineError::new(ErrorCode::InternalFault, "controlled source failure");
                     let mut stopped = None;
                     let mut terminal = None;
-                    let mut playback = Some(current);
+                    let mut playback = Some(ActiveSource::Pcm(Box::new(current)));
                     receiver.try_iter().for_each(drop);
                     match path {
                         "stop" => stop_source(
@@ -4553,7 +5036,7 @@ pub(crate) mod tests {
                         )
                         .unwrap(),
                         "step" => playback_step_failure(
-                            playback.as_mut().unwrap(),
+                            playback.as_mut().and_then(ActiveSource::pcm_mut).unwrap(),
                             error,
                             &mut stopped,
                             &mut terminal,
@@ -4562,11 +5045,12 @@ pub(crate) mod tests {
                         "cancel_step" => {
                             playback
                                 .as_mut()
+                                .and_then(ActiveSource::pcm_mut)
                                 .unwrap()
                                 .cancel
                                 .store(true, Ordering::Release);
                             playback_step_failure(
-                                playback.as_mut().unwrap(),
+                                playback.as_mut().and_then(ActiveSource::pcm_mut).unwrap(),
                                 error,
                                 &mut stopped,
                                 &mut terminal,
@@ -4576,6 +5060,7 @@ pub(crate) mod tests {
                         "cancel" => {
                             playback
                                 .as_mut()
+                                .and_then(ActiveSource::pcm_mut)
                                 .unwrap()
                                 .cancel
                                 .store(true, Ordering::Release);
@@ -4588,7 +5073,10 @@ pub(crate) mod tests {
                                     ErrorCode::OperationCancelled,
                                     "controlled cancellation",
                                 ),
-                                Some((settings, before.clone())),
+                                FailureContext {
+                                    before_control: Some((settings, before.clone())),
+                                    ..FailureContext::default()
+                                },
                                 &events,
                             );
                         }
@@ -4598,7 +5086,7 @@ pub(crate) mod tests {
                             &mut terminal,
                             Some(settings),
                             error,
-                            None,
+                            FailureContext::default(),
                             &events,
                         ),
                     }
@@ -4610,12 +5098,16 @@ pub(crate) mod tests {
                             _ => None,
                         }).unwrap_or_else(|| panic!("missing terminal observation: {path}, close_failure={close_failure}"))
                     };
-                    let activity = observation.output_activity.unwrap();
+                    let activity = observation.pcm().unwrap().clone().output_activity.unwrap();
                     assert_eq!(activity.close_confirmed, !close_failure, "{path}");
                     assert_eq!(activity, *sample.lock().unwrap(), "{path}");
                     let mut expected = before;
                     expected.output_activity = Some(activity);
-                    assert_eq!(observation, expected, "{path}");
+                    assert_eq!(
+                        observation,
+                        earph_core::session::LocalPlaybackObservation::from(expected.clone()),
+                        "{path}"
+                    );
                 }
             }
         }
@@ -4638,7 +5130,7 @@ pub(crate) mod tests {
             let event = receiver.try_iter().next().unwrap();
             assert!(
                 matches!(event, Event::Failed { error: actual, observation: Some(observation), .. }
-                if actual == error && observation.output_activity.unwrap().close_confirmed)
+                if actual == error && observation.pcm().unwrap().clone().output_activity.unwrap().close_confirmed)
             );
         }
     }
@@ -4768,7 +5260,7 @@ pub(crate) mod tests {
         )
         .unwrap();
         receiver.try_iter().for_each(drop);
-        let mut playback = Some(current);
+        let mut playback = Some(ActiveSource::Pcm(Box::new(current)));
         let mut stopped = None;
         let mut terminal = None;
         action_failure(
@@ -4777,12 +5269,15 @@ pub(crate) mod tests {
             &mut terminal,
             Some(pause),
             error,
-            None,
+            FailureContext::default(),
             &events,
         );
         let (settings, observation, failure) = stopped.unwrap();
         assert_eq!(settings.snapshot.epochs, origin);
-        assert_eq!(observation, before);
+        assert_eq!(
+            observation,
+            earph_core::session::LocalPlaybackObservation::from(before.clone())
+        );
         assert_eq!(failure, None);
         assert!(closed.load(Ordering::Acquire));
         assert!(terminal.is_none());
@@ -4806,7 +5301,7 @@ pub(crate) mod tests {
             .unwrap_err();
         assert_eq!(error.code, expected);
         assert_eq!(playback.installed_graph_epoch, 0);
-        let mut playback = Some(playback);
+        let mut playback = Some(ActiveSource::Pcm(Box::new(playback)));
         let mut stopped = None;
         let mut terminal = None;
         action_failure(
@@ -4815,7 +5310,7 @@ pub(crate) mod tests {
             &mut terminal,
             Some(settings.clone()),
             error,
-            None,
+            FailureContext::default(),
             &events,
         );
         assert!(playback.is_none());
@@ -4916,8 +5411,14 @@ pub(crate) mod tests {
         assert_eq!(error.code, ErrorCode::OutputFault);
         assert_ne!(playback.epochs(), pause.snapshot.epochs);
         receiver.try_iter().for_each(drop);
-        let mut terminal =
-            SourceTerminal::failed(&pause, error, Some(playback.failure_observation())).unwrap();
+        let mut terminal = SourceTerminal::failed(
+            &pause,
+            error,
+            Some(earph_core::session::LocalPlaybackObservation::from(
+                playback.failure_observation(),
+            )),
+        )
+        .unwrap();
         terminal.report(&events).unwrap();
         let mut mute = pause.clone();
         mute.snapshot.muted = true;
@@ -4957,8 +5458,14 @@ pub(crate) mod tests {
             .reposition(settings.clone(), None, &events, true)
             .unwrap_err();
         receiver.try_iter().for_each(drop);
-        let mut terminal =
-            SourceTerminal::failed(&settings, error, Some(playback.failure_observation())).unwrap();
+        let mut terminal = SourceTerminal::failed(
+            &settings,
+            error,
+            Some(earph_core::session::LocalPlaybackObservation::from(
+                playback.failure_observation(),
+            )),
+        )
+        .unwrap();
         terminal.report(&events).unwrap();
         assert!(
             terminal
@@ -5053,7 +5560,7 @@ pub(crate) mod tests {
                 .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
                 .unwrap()
             {
-                Event::Drained { .. } => break,
+                Event::Completed { .. } => break,
                 Event::Failed { error, .. } => panic!("replacement failed: {error:?}"),
                 _ => {}
             }
@@ -5088,8 +5595,14 @@ pub(crate) mod tests {
             .reposition(pause.clone(), None, &events, true)
             .unwrap_err();
         let context = playback.failure_context(Some(pause));
-        let mut terminal =
-            SourceTerminal::failed(&context, error, Some(playback.failure_observation())).unwrap();
+        let mut terminal = SourceTerminal::failed(
+            &context,
+            error,
+            Some(earph_core::session::LocalPlaybackObservation::from(
+                playback.failure_observation(),
+            )),
+        )
+        .unwrap();
         terminal.report(&events).unwrap();
         let mut saw_activation = false;
         for event in receiver.try_iter() {
@@ -5179,7 +5692,7 @@ pub(crate) mod tests {
                     assert_eq!(error.code, ErrorCode::OutputFault);
                     break token;
                 }
-                Event::Drained { .. } => panic!("full device unexpectedly completed"),
+                Event::Completed { .. } => panic!("full device unexpectedly completed"),
                 _ => {}
             }
         };
@@ -5393,7 +5906,7 @@ pub(crate) mod tests {
             settings,
         };
         let mut playback = None;
-        let mut stopped = Some((context, native_observation, Some(error)));
+        let mut stopped = Some((context, native_observation.into(), Some(error)));
         let mut terminal = None;
         let view = Mutex::new(PlanView::default());
         stop_source(
@@ -5481,14 +5994,17 @@ pub(crate) mod tests {
             })
             .unwrap();
         match worker.events.recv_timeout(Duration::from_secs(5)).unwrap() {
-            Event::Drained {
+            Event::Completed {
                 epochs: completed,
                 token: retained,
                 observation,
             } => {
                 assert_eq!(completed, epochs);
                 assert_eq!(retained, token);
-                assert_eq!(observation, final_observation);
+                assert_eq!(
+                    observation,
+                    earph_core::session::LocalPlaybackObservation::from(final_observation.clone())
+                );
             }
             _ => panic!("normal native completion became an output fault"),
         }
@@ -5556,16 +6072,30 @@ pub(crate) mod tests {
                 .code,
             ErrorCode::SourceBusy
         );
+        assert_eq!(
+            worker
+                .send(Action::AcknowledgeDsdRetirement(token.clone()))
+                .unwrap_err()
+                .code,
+            ErrorCode::SourceBusy
+        );
         assert!(!cancel.load(Ordering::Acquire));
         let actions: Vec<_> = receiver.try_iter().collect();
         assert_eq!(actions.len(), 64);
         worker.queued.store(32, Ordering::Release);
         worker
-            .send(Action::AcknowledgeSourceTerminal(token))
+            .send(Action::AcknowledgeSourceTerminal(token.clone()))
+            .unwrap();
+        worker
+            .send(Action::AcknowledgeDsdRetirement(token))
             .unwrap();
         assert!(matches!(
             receiver.try_recv(),
             Ok(Action::AcknowledgeSourceTerminal(_))
+        ));
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(Action::AcknowledgeDsdRetirement(_))
         ));
         assert!(!cancel.load(Ordering::Acquire));
     }

@@ -518,8 +518,8 @@ impl Fixture {
         assert_eq!(
             self.session
                 .snapshot()
-                .network_playback
-                .as_ref()
+                .observation
+                .network()
                 .unwrap()
                 .submitted_frames,
             0
@@ -960,7 +960,9 @@ fn run_bridge_case(case: &str, directory: &Path) {
         assert_eq!(
             f.session
                 .snapshot()
-                .network_playback
+                .observation
+                .network()
+                .cloned()
                 .unwrap()
                 .submitted_frames,
             0

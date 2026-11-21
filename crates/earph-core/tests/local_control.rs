@@ -392,6 +392,115 @@ fn start_has_playing_intent_but_requires_explicit_unmute() {
     assert_ne!(s.submit(c).status, ReceiptStatus::Rejected);
     assert!(!s.wants_playback());
 }
+
+#[test]
+fn local_unmute_waits_for_source_domain_admission() {
+    let mut s = session();
+    configure(&mut s);
+    s.submit(start(&s));
+    let before = s.snapshot();
+    assert_eq!(
+        s.submit(command(
+            &s,
+            "unknown-domain",
+            Command::Mute { muted: false }
+        ))
+        .status,
+        ReceiptStatus::Rejected
+    );
+    assert_eq!(s.snapshot(), before);
+    s.set_queue_preparation(
+        before.epochs,
+        &before.active_entry_id.unwrap(),
+        earph_core::queue::PreparationStatus::Ready {
+            format: earph_core::audio::PcmFormat::new(
+                48000,
+                earph_core::audio::ChannelLayout::Stereo,
+                earph_core::audio::PcmRepresentation::Signed24,
+            )
+            .unwrap(),
+            total_frames: 64,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        s.submit(command(&s, "admitted-pcm", Command::Mute { muted: false }))
+            .status,
+        ReceiptStatus::Applied
+    );
+}
+
+#[test]
+fn previous_pcm_readiness_cannot_unmute_an_unknown_replacement_session() {
+    let mut s = session();
+    configure(&mut s);
+    s.submit(start(&s));
+    let first = s.snapshot();
+    let id = first.active_entry_id.unwrap();
+    let status = earph_core::queue::PreparationStatus::Ready {
+        format: earph_core::audio::PcmFormat::new(
+            48000,
+            earph_core::audio::ChannelLayout::Stereo,
+            earph_core::audio::PcmRepresentation::Signed24,
+        )
+        .unwrap(),
+        total_frames: 64,
+    };
+    s.set_queue_preparation(first.epochs, &id, status).unwrap();
+    let mut replacement = start(&s);
+    replacement.request_id = RequestId::new("replacement-start").unwrap();
+    replacement.session_id = Some(SessionId::new("replacement-session").unwrap());
+    replacement.payload = Command::Start {
+        source: SourceKind::LocalFile,
+        device_id: DeviceId::new("dac").unwrap(),
+        takeover: true,
+        seekable: true,
+    };
+    assert_eq!(s.submit(replacement).status, ReceiptStatus::Accepted);
+    let before = s.snapshot();
+    assert_eq!(s.queue_snapshot().entries[0].status, status);
+    assert_eq!(
+        s.submit(command(
+            &s,
+            "unmute-old-admission",
+            Command::Mute { muted: false }
+        ))
+        .status,
+        ReceiptStatus::Rejected
+    );
+    assert_eq!(s.snapshot(), before);
+    assert_eq!(
+        s.submit(command(
+            &s,
+            "pause-replacement-before-admission",
+            Command::Pause
+        ))
+        .status,
+        ReceiptStatus::Applied
+    );
+    let paused = s.snapshot();
+    assert_eq!(
+        s.submit(command(
+            &s,
+            "seek-old-admission",
+            Command::Seek { position_frames: 0 }
+        ))
+        .status,
+        ReceiptStatus::Rejected
+    );
+    assert_eq!(s.snapshot(), paused);
+    assert!(s.set_queue_preparation(first.epochs, &id, status).is_err());
+    s.set_queue_preparation(before.epochs, &id, status).unwrap();
+    assert_eq!(
+        s.submit(command(
+            &s,
+            "unmute-current-admission",
+            Command::Mute { muted: false }
+        ))
+        .status,
+        ReceiptStatus::Applied
+    );
+}
 #[test]
 fn strict_unmute_requires_unity_without_a_ramp_and_fixed_requires_arming() {
     let mut s = session();
@@ -540,7 +649,9 @@ fn a_local_stream_can_finish_without_claiming_a_sample_activation() {
     s.advance(EngineEvent {
         epochs: state.epochs,
         monotonic_ns: 1,
-        kind: EngineEventKind::LocalPrepared { observation },
+        kind: EngineEventKind::LocalPrepared {
+            observation: observation.into(),
+        },
     })
     .unwrap();
     s.advance(EngineEvent {
@@ -594,7 +705,7 @@ fn unknown_audible_timing_is_not_replaced_with_a_software_restart_cursor() {
         epochs: state.epochs,
         monotonic_ns: 1,
         kind: EngineEventKind::LocalPrepared {
-            observation: observation.clone(),
+            observation: (observation.clone()).into(),
         },
     })
     .unwrap();
@@ -602,7 +713,9 @@ fn unknown_audible_timing_is_not_replaced_with_a_software_restart_cursor() {
     s.advance(EngineEvent {
         epochs: state.epochs,
         monotonic_ns: 2,
-        kind: EngineEventKind::LocalPaused { observation },
+        kind: EngineEventKind::LocalPaused {
+            observation: observation.into(),
+        },
     })
     .unwrap();
     assert!(serde_json::to_value(s.snapshot()).unwrap()["audible_position_frames"].is_null());
@@ -626,6 +739,21 @@ fn failed_safety_admission_invalidates_playing_without_claiming_native_closure()
     configure(&mut s);
     let request = start(&s);
     s.submit(request);
+    let state = s.snapshot();
+    s.set_queue_preparation(
+        state.epochs,
+        &state.active_entry_id.unwrap(),
+        earph_core::queue::PreparationStatus::Ready {
+            format: earph_core::audio::PcmFormat::new(
+                48000,
+                earph_core::audio::ChannelLayout::Stereo,
+                earph_core::audio::PcmRepresentation::Signed24,
+            )
+            .unwrap(),
+            total_frames: 64,
+        },
+    )
+    .unwrap();
     for (monotonic_ns, kind) in [
         (1, EngineEventKind::Prepared),
         (

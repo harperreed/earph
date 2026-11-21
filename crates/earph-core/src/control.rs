@@ -348,6 +348,8 @@ pub enum Command {
     Resume,
     #[serde(rename = "sessions.seek")]
     Seek { position_frames: u64 },
+    #[serde(rename = "transport.seek_dsd")]
+    SeekDsd { position_bits: u64 },
     #[serde(rename = "mute.set")]
     Mute { muted: bool },
     #[serde(other)]

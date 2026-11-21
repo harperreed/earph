@@ -40,6 +40,15 @@ pub(super) fn show(ui: &mut egui::Ui, controller: &mut GuiController) {
 
 fn observation(ui: &mut egui::Ui, state: &StateView) {
     ui.label(format!("Requested output: {:?}", state.output));
+    if let Some(dsd) = &state.dsd_playback {
+        ui.label(format!("DSD source format: {:?}; accepted source position: {} of {} bits per channel; decoded source position: {} bits",dsd.source_format,dsd.source_position_bits,dsd.total_source_bits,dsd.decoded_position_bits));
+        ui.label(format!(
+            "DoP carrier format: {:?}; live output: {:?}; previous closed boundary: {:?}",
+            dsd.carrier_format, dsd.output, dsd.last_boundary
+        ));
+        ui.label("Endpoint qualification: unverified. Carrier negotiation establishes no audible position or physical transition safety.");
+        return;
+    }
     ui.label(format!(
         "Configured profile intent: {:?}",
         state.configured_profile
@@ -356,7 +365,7 @@ mod tests {
             PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
         let native =
             PcmFormat::new(96000, ChannelLayout::Stereo, PcmRepresentation::Signed24).unwrap();
-        state.playback = Some(PlaybackObservation {
+        state.observation = (PlaybackObservation {
             format,
             submitted_frames: 47,
             consumed_frames: Some(31),
@@ -407,7 +416,8 @@ mod tests {
                 counter_overflow: true,
                 close_confirmed: false,
             }),
-        });
+        })
+        .into();
         let state: StateView =
             serde_json::from_value(serde_json::to_value(state).unwrap()).unwrap();
         let context = egui::Context::default();

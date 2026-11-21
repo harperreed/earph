@@ -439,8 +439,23 @@ Fragments preserve marker alternation; an incomplete final frame fails instead o
 Failure or cancellation ends the packer.
 `DopUnpacker` retains a terminal failure latch after invalid stream data.
 Create a new stream codec after a seek or failed stream.
-The [DSD software contract](dsd-software.md) keeps these typed blocks outside PCM DSP and native output.
-Engine integration and physical DSD qualification remain unfinished.
+The [DSD software contract](dsd-software.md) keeps these typed blocks outside PCM DSP.
+Engine owns PCM/HTTP or DSD through one active worker variant.
+DSD source admission publishes `DsdReady` and a mutually exclusive `dsd_playback` projection.
+Pause, mute, cancellation, and seek close the typed native owner without PCM silence or drain.
+Accepted source bits determine the software restart cursor; decoded bits and carrier frames remain separate.
+Each reopen resets native counters, marker phase, and sequence under fresh output epochs.
+The immediately preceding close boundary retains its old accepted count and source identity.
+Failed retirement owns one immutable record until the host adopts that same record.
+Queue backpressure and an occupied host slot keep the worker's record pending.
+Only a distinct matching retirement acknowledgement releases the worker's historical slot.
+Current-source acknowledgements cannot release that slot, even when their token values match.
+Failed diagnostic writes keep the host's bounded record until reporting succeeds or the host exits.
+Compatible queue joins preserve one packer and stream across entry identities.
+EOF closes and reports source-submission completion rather than native drain.
+Public unmute remains blocked until concrete endpoint-specific DSD qualification exists.
+Private file/null tests provide software transport evidence only.
+Physical DSD qualification and typed Core Audio output remain unfinished.
 
 ## Native package candidates
 

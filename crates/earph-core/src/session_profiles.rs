@@ -156,8 +156,8 @@ impl Session {
         let binding = self.authorized_profile_application_binding(&reference)?;
         if self
             .state
-            .playback
-            .as_ref()
+            .observation
+            .pcm()
             .and_then(|p| p.backend.as_ref())
             .is_none()
         {
@@ -387,7 +387,7 @@ impl Session {
             || self.graph_inspection().service.preparing_or_candidate
             || self.local_boundary.is_some()
             || (self.state.source == Some(SourceKind::LocalFile)
-                && self.state.playback.is_none()
+                && self.state.observation.pcm().cloned().is_none()
                 && self.state.operation.is_some())
         {
             return Err(BUSY);

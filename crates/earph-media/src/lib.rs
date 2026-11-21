@@ -2,6 +2,7 @@
 // ABOUTME: Preserves integer samples at the worker-to-engine boundary.
 #![forbid(unsafe_code)]
 mod admission;
+pub use admission::is_dsd;
 pub mod cli_io;
 pub mod correction_text;
 pub mod dsd;

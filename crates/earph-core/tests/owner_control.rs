@@ -55,7 +55,7 @@ fn output_activity_capabilities_distinguish_support_from_observation() {
             "measurement_boundary": "core_audio_sdk_entry_calls"
         }))
     );
-    assert!(session.snapshot().playback.is_none());
+    assert!(session.snapshot().observation.pcm().cloned().is_none());
 }
 
 #[test]

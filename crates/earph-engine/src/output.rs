@@ -43,6 +43,144 @@ pub(crate) trait Output {
     fn stop(&mut self) -> Result<(), EngineError>;
 }
 
+/// A separate typed owner with close-only controls. It has no PCM processing API.
+pub(crate) struct DsdOutput {
+    #[cfg(target_os = "linux")]
+    native: earph_alsa::DopOutput,
+}
+impl DsdOutput {
+    pub fn open(
+        config: &OutputConfiguration,
+        stream: earph_core::dop::DopStream,
+    ) -> Result<Self, EngineError> {
+        #[cfg(target_os = "linux")]
+        {
+            if config.backend != OutputBackend::Alsa {
+                return Err(DSD_UNSUPPORTED);
+            }
+            let format = PcmFormat::new(
+                stream.bit_rate_hz / 16,
+                stream.channels,
+                earph_core::audio::PcmRepresentation::Signed24,
+            )?;
+            let native = earph_alsa::DopOutput::open(
+                earph_alsa::OpenRequest {
+                    schema_version: 1,
+                    device: config.endpoint.clone(),
+                    route: match config.route {
+                        OutputRoute::System => earph_alsa::Route::System,
+                        OutputRoute::DirectHardware => earph_alsa::Route::DirectHardware,
+                    },
+                    format,
+                    period_frames: config.period_frames,
+                    buffer_frames: config.buffer_frames,
+                },
+                stream,
+            )
+            .map_err(error)?;
+            native.audio_storage_bytes().map_err(error)?;
+            if native.report().observed.format != format {
+                return Err(DSD_UNSUPPORTED);
+            }
+            Ok(Self { native })
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = (config, stream);
+            Err(DSD_UNSUPPORTED)
+        }
+    }
+    pub fn submitted(&self) -> u64 {
+        #[cfg(target_os = "linux")]
+        {
+            self.native.submitted_frames()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            0
+        }
+    }
+    pub fn observation(
+        &mut self,
+        epochs: Epochs,
+    ) -> Result<earph_core::dop::DsdOutputObservation, EngineError> {
+        #[cfg(target_os = "linux")]
+        {
+            let progress = self.native.progress().map_err(error)?;
+            let report = self.native.report();
+            let format = ObservedStreamFormat::from(report.observed.format);
+            Ok(earph_core::dop::DsdOutputObservation {
+                output_epochs: epochs,
+                submitted_carrier_frames: progress.submitted_frames,
+                estimated_consumed_carrier_frames: Some(progress.estimated_consumed_frames),
+                backend_delay_carrier_frames: Some(progress.backend_delay_frames),
+                consumption_basis: progress.measurement_boundary,
+                backend: BackendObservation {
+                    backend: OutputBackend::Alsa,
+                    device_identity_sha256: None,
+                    audio_storage_bytes: self.native.audio_storage_bytes().map_err(error)?,
+                    client_format: format.clone(),
+                    device_format: (report.requested.route == earph_alsa::Route::DirectHardware)
+                        .then_some(format),
+                    measurement_boundary: "alsa_client_negotiation",
+                    preservation: PreservationState::Unverified,
+                },
+            })
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = epochs;
+            Err(DSD_UNSUPPORTED)
+        }
+    }
+    pub fn write(
+        &mut self,
+        block: &earph_core::dop::DopBlock,
+        offset: usize,
+        frames: usize,
+    ) -> Result<Option<usize>, EngineError> {
+        #[cfg(target_os = "linux")]
+        {
+            self.native
+                .write(block, offset, frames, earph_alsa::SignalPermission::Granted)
+                .map(|progress| match progress {
+                    earph_alsa::WriteProgress::Accepted { frames } => Some(frames),
+                    earph_alsa::WriteProgress::WouldBlock => None,
+                })
+                .map_err(error)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = (block, offset, frames);
+            Err(DSD_UNSUPPORTED)
+        }
+    }
+    pub fn wait(&mut self) -> Result<(), EngineError> {
+        #[cfg(target_os = "linux")]
+        {
+            self.native.wait_ready(1).map(|_| ()).map_err(error)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Err(DSD_UNSUPPORTED)
+        }
+    }
+    pub fn stop(&mut self) -> Result<(), EngineError> {
+        #[cfg(target_os = "linux")]
+        {
+            self.native.stop().map_err(error)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Err(DSD_UNSUPPORTED)
+        }
+    }
+}
+const DSD_UNSUPPORTED: EngineError = EngineError::new(
+    ErrorCode::CapabilityUnsupported,
+    "typed DSD output is unavailable on this backend",
+);
+
 pub(crate) fn open(
     config: &OutputConfiguration,
     format: PcmFormat,

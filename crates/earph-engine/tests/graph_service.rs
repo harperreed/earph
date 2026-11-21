@@ -216,7 +216,7 @@ fn snapshot() -> SessionSnapshot {
         fidelity: FidelityPolicy::CompatibleConversion,
     });
     let format = PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
-    state.playback = Some(PlaybackObservation {
+    state.observation = (PlaybackObservation {
         output_activity: None,
         processing: None,
         format,
@@ -240,7 +240,8 @@ fn snapshot() -> SessionSnapshot {
             measurement_boundary: "native client",
             preservation: PreservationState::Unverified,
         }),
-    });
+    })
+    .into();
     state
 }
 fn active_source() -> Arc<std::sync::atomic::AtomicBool> {
@@ -547,7 +548,13 @@ fn profile_preparation_semantic_hash_binds_immutable_revision_and_caps() {
 fn profile_preparation_rejects_substituted_native_identity() {
     let mut state = snapshot();
     state.output.as_mut().unwrap().backend = earph_core::control::OutputBackend::CoreAudio;
-    let backend = state.playback.as_mut().unwrap().backend.as_mut().unwrap();
+    let backend = state
+        .observation
+        .pcm_mut()
+        .unwrap()
+        .backend
+        .as_mut()
+        .unwrap();
     backend.backend = earph_core::control::OutputBackend::CoreAudio;
     backend.device_identity_sha256 = Some("1".repeat(64).try_into().unwrap());
     let mut job = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
@@ -569,7 +576,13 @@ fn profile_semantic_hash_tracks_observed_native_identity_without_hardware_claims
         let mut state = snapshot();
         state.output.as_mut().unwrap().backend = earph_core::control::OutputBackend::CoreAudio;
         let identity = Some(format!("{n:064x}").try_into().unwrap());
-        let backend = state.playback.as_mut().unwrap().backend.as_mut().unwrap();
+        let backend = state
+            .observation
+            .pcm_mut()
+            .unwrap()
+            .backend
+            .as_mut()
+            .unwrap();
         backend.backend = earph_core::control::OutputBackend::CoreAudio;
         backend.device_identity_sha256 = identity;
         let mut job = with_profile(request(&state, serde_json::json!({"kind":"bypass"})));
@@ -749,8 +762,8 @@ fn validates_real_src_roundtrip_with_per_stage_timing_and_no_runtime_owner() {
             }
             _ => {
                 state
-                    .playback
-                    .as_mut()
+                    .observation
+                    .pcm_mut()
                     .unwrap()
                     .backend
                     .as_mut()
@@ -776,7 +789,7 @@ fn changing_activity_does_not_change_prepared_graph_identity_or_resources() {
     let mut previews = Vec::new();
     for count in [0, u64::MAX] {
         let mut state = snapshot();
-        state.playback.as_mut().unwrap().output_activity = Some(OutputActivity {
+        state.observation.pcm_mut().unwrap().output_activity = Some(OutputActivity {
             scope: OutputActivityScope::OutputInstanceAcrossNativeReopens,
             measurement_boundary: OutputActivityBoundary::CoreAudioSdkEntryCalls,
             origin_epochs: state.epochs,
@@ -803,8 +816,8 @@ fn captured_backend_storage_is_charged_without_changing_graph_identity() {
     for bytes in [0, 1 << 20] {
         let mut state = snapshot();
         state
-            .playback
-            .as_mut()
+            .observation
+            .pcm_mut()
             .unwrap()
             .backend
             .as_mut()
@@ -830,7 +843,13 @@ fn captured_backend_storage_is_charged_without_changing_graph_identity() {
 fn coreaudio_admission_reserves_the_owned_ring_overlap_during_reopen() {
     let mut state = snapshot();
     state.output.as_mut().unwrap().backend = OutputBackend::CoreAudio;
-    let backend = state.playback.as_mut().unwrap().backend.as_mut().unwrap();
+    let backend = state
+        .observation
+        .pcm_mut()
+        .unwrap()
+        .backend
+        .as_mut()
+        .unwrap();
     backend.backend = OutputBackend::CoreAudio;
     backend.audio_storage_bytes = 1024;
     let mut job = request(&state, serde_json::json!({"kind":"bypass"}));
@@ -941,7 +960,7 @@ fn resolves_corrections_and_retires_frozen_filter_storage() {
     .unwrap();
     assert_eq!(pipeline.preview().kernel_hash, hash);
     let mut input = PcmBlock::prepare(
-        state.playback.as_ref().unwrap().format,
+        state.observation.pcm().unwrap().format,
         64,
         state.epochs,
         MemoryBudget::default(),
@@ -1013,7 +1032,7 @@ fn prepares_and_renders_native_integer_audio_after_graph_and_shared_volume() {
     let mut success = completed.result.unwrap();
     assert_eq!(
         success.preview.source_format,
-        state.playback.as_ref().unwrap().format
+        state.observation.pcm().unwrap().format
     );
     assert_eq!(success.preview.channel_peak_bounds, [2.0, 2.0]);
     assert!(success.preview.required_headroom_db >= 6.020599913279624);
@@ -1029,7 +1048,7 @@ fn prepares_and_renders_native_integer_audio_after_graph_and_shared_volume() {
     assert_eq!(pipeline.binding(), &success.preview.binding);
     assert_eq!(pipeline.resources(), success.preview.resources);
     let mut input = PcmBlock::prepare(
-        state.playback.as_ref().unwrap().format,
+        state.observation.pcm().unwrap().format,
         64,
         state.epochs,
         MemoryBudget::default(),
@@ -1251,8 +1270,8 @@ fn semantic_hash_excludes_binding_and_changes_for_safety_native_evidence() {
     assert_ne!(first, hash(changed));
     let mut changed = state;
     changed
-        .playback
-        .as_mut()
+        .observation
+        .pcm_mut()
         .unwrap()
         .backend
         .as_mut()
@@ -1448,7 +1467,13 @@ fn rejects_nonfinite_conservative_bounds_and_rate_mismatch() {
 fn sdk_float32_evidence_does_not_change_integer_adapter_input() {
     let mut state = snapshot();
     state.output.as_mut().unwrap().backend = OutputBackend::CoreAudio;
-    let backend = state.playback.as_mut().unwrap().backend.as_mut().unwrap();
+    let backend = state
+        .observation
+        .pcm_mut()
+        .unwrap()
+        .backend
+        .as_mut()
+        .unwrap();
     backend.backend = OutputBackend::CoreAudio;
     backend.client_format.representation =
         earph_core::session::ObservedSampleRepresentation::Float32;
@@ -1464,11 +1489,11 @@ fn sdk_float32_evidence_does_not_change_integer_adapter_input() {
     let success = completion(&mut service).result.unwrap();
     assert_eq!(
         success.preview.native_output_format,
-        state.playback.as_ref().unwrap().format
+        state.observation.pcm().unwrap().format
     );
     assert_eq!(
         success.preview.backend,
-        state.playback.as_ref().unwrap().backend
+        state.observation.pcm().unwrap().backend
     );
     assert!(matches!(
         success.preview.transformations.last(),
@@ -1588,8 +1613,8 @@ fn repeated_cross_thread_retirement_acknowledges_every_owner() {
 fn nonfinite_backend_evidence_cannot_collapse_into_a_json_null_hash() {
     let mut state = snapshot();
     state
-        .playback
-        .as_mut()
+        .observation
+        .pcm_mut()
         .unwrap()
         .backend
         .as_mut()
@@ -1626,8 +1651,8 @@ fn same_graph_hash_survives_existing_active_storage_and_accounts_route_period() 
         .unwrap()
         .activate();
     let route = state
-        .playback
-        .as_ref()
+        .observation
+        .pcm()
         .unwrap()
         .format
         .storage_bytes(64)

@@ -105,7 +105,7 @@ pub fn ready(total_frames: Option<u64>) -> Session {
 pub fn preview(session: &Session) -> earph_core::graph_control::GraphPreview {
     use earph_core::{graph::*, graph_control::*};
     let state = session.snapshot();
-    let format = state.network_playback.as_ref().unwrap().format;
+    let format = state.observation.network().unwrap().format;
     GraphPreview {
         diagnostic_nodes: None,
         profile_application: None,
@@ -121,7 +121,7 @@ pub fn preview(session: &Session) -> earph_core::graph_control::GraphPreview {
             expected_revision: state.revision,
         },
         source_format: format,
-        native_output_format: state.network_playback.as_ref().unwrap().output_format,
+        native_output_format: state.observation.network().unwrap().output_format,
         processing_input_format: format,
         processing_output_format: format,
         quantum_frames: 64,
@@ -166,7 +166,7 @@ pub fn replacement() -> Session {
     );
     let state = session.snapshot();
     let active = session.network_source().unwrap();
-    let mut observation = state.network_playback.unwrap();
+    let mut observation = state.observation.network().cloned().unwrap();
     observation.output_epochs = state.epochs;
     observation.lifecycle = NetworkLifecycle::Paused;
     observation.source_position_frames += 6;
@@ -245,7 +245,7 @@ fn activate(
         &format!("{id}-commit"),
         json!({"method":"graph.commit","token":prepared.token,"graph_hash":prepared.preview.graph_hash}),
     );
-    let previous = session.snapshot().network_playback.unwrap();
+    let previous = session.snapshot().observation.network().cloned().unwrap();
     assert_eq!(
         session.submit_graph(request.clone(), now + 2).status,
         ReceiptStatus::Accepted

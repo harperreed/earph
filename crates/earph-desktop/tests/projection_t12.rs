@@ -311,7 +311,7 @@ fn controlled_output_activity_keeps_u64_totals_and_requires_nullable_samples() {
     };
     for sample in [Some(activity), None] {
         let mut state = session().snapshot();
-        state.playback = Some(PlaybackObservation {
+        state.observation = (PlaybackObservation {
             processing: None,
             format: PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16)
                 .unwrap(),
@@ -328,7 +328,8 @@ fn controlled_output_activity_keeps_u64_totals_and_requires_nullable_samples() {
             modified: false,
             backend: None,
             output_activity: sample,
-        });
+        })
+        .into();
         let bytes = result(QueryResult::State(Box::new(state)), ReceiptStatus::Applied);
         let decoded = decode_reply(bytes.clone()).expect("actual activity sample must decode");
         assert_eq!(decoded.bytes(), bytes);
@@ -530,7 +531,7 @@ fn controlled_playback_observations_preserve_nulls_and_omitted_processing_fields
     state.configured_profile = Some(profile().reference());
     state.local_volume_policy = VolumePolicy::new(-10.0, None).unwrap();
     state.volume_policy = VolumePolicy::new(-20.0, None).unwrap();
-    state.playback = Some(PlaybackObservation {
+    state.observation = (PlaybackObservation {
         processing: Some(PlaybackProcessingObservation {
             resident_bytes: 1024,
             audio_payload_bytes: None,
@@ -560,7 +561,8 @@ fn controlled_playback_observations_preserve_nulls_and_omitted_processing_fields
         modified: false,
         backend: Some(backend(false)),
         output_activity: None,
-    });
+    })
+    .into();
     let bytes = result(QueryResult::State(Box::new(state)), ReceiptStatus::Applied);
     decode_reply(bytes.clone())
         .expect("actual Core nullable/omitted playback contract must decode");
@@ -717,7 +719,7 @@ fn controlled_streaming_runtime_and_observed_device_format_remain_separate() {
             terminal_output_bounds: vec![0.0; 2],
         },
     }]);
-    state.playback = Some(PlaybackObservation {
+    state.observation = (PlaybackObservation {
         processing: Some(PlaybackProcessingObservation {
             resident_bytes: 1024,
             audio_payload_bytes: Some(512),
@@ -760,7 +762,8 @@ fn controlled_streaming_runtime_and_observed_device_format_remain_separate() {
         modified: true,
         backend: Some(observed),
         output_activity: None,
-    });
+    })
+    .into();
     let bytes = result(QueryResult::State(Box::new(state)), ReceiptStatus::Applied);
     let earph_desktop::Reply::Receipt(receipt) = decode_reply(bytes.clone()).unwrap() else {
         panic!("typed State");

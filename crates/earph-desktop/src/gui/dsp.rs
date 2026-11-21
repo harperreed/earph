@@ -7,6 +7,14 @@ use eframe::egui;
 
 pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
     ui.heading("DSP graph");
+    if app
+        .controller
+        .state()
+        .is_some_and(|state| state.dsd_playback.is_some())
+    {
+        ui.label("DSD uses typed fixed passthrough. PCM graphs, profiles, gain, limiting, and resampling cannot apply.");
+        return;
+    }
     if let Some(state) = app.controller.state()
         && let Some(playback) = state.playback_facts()
     {

@@ -48,6 +48,9 @@ pub(super) fn show(ui: &mut egui::Ui, controller: &mut GuiController) {
                 "HTTP FLAC is preparing; received format and total source frames are unknown.",
             );
         }
+        if let Some(dsd) = &state.dsd_playback {
+            ui.label(format!("DSD source position: {} of {} bits per channel; decoded: {} bits; carrier rate: {} frames per second; qualification: unverified",dsd.source_position_bits,dsd.total_source_bits,dsd.decoded_position_bits,dsd.carrier_format.carrier_rate_hz()));
+        }
         ui.label(format!(
             "Caps: software {:.3} dB · hardware {} · consent: {}",
             state.volume_policy.software_cap_db,

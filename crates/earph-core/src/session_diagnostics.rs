@@ -82,8 +82,8 @@ impl Session {
                     modified: playback.modified,
                     network_replacement_boundary: self
                         .state
-                        .network_playback
-                        .as_ref()
+                        .observation
+                        .network()
                         .and_then(|p| p.replacement_boundary.as_deref())
                         .map(DiagnosticNetworkReplacementBoundary::from),
                     backend: playback.backend.map(|backend| ObservedBackend {
@@ -204,7 +204,7 @@ mod tests {
         )
         .unwrap();
         // Domain input only. This does not qualify a native device or a physical observation.
-        session.state.playback = Some(PlaybackObservation {
+        session.state.observation = (PlaybackObservation {
             processing: None,
             format,
             submitted_frames: 64,
@@ -228,7 +228,8 @@ mod tests {
                 measurement_boundary: "private unrecognized boundary",
                 preservation: PreservationState::Unverified,
             }),
-        });
+        })
+        .into();
         session
     }
     fn path(session: &Session) -> Arc<SignalPathRead> {
@@ -287,8 +288,8 @@ mod tests {
         let mut session = retained_observation();
         session
             .state
-            .playback
-            .as_mut()
+            .observation
+            .pcm_mut()
             .unwrap()
             .backend
             .as_mut()
@@ -306,8 +307,8 @@ mod tests {
         let mut session = retained_observation();
         session
             .state
-            .playback
-            .as_mut()
+            .observation
+            .pcm_mut()
             .unwrap()
             .backend
             .as_mut()

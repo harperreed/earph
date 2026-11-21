@@ -57,20 +57,20 @@ impl Session {
                 Some(NetworkLifecycle::Retiring)
             } else if self.network.active.is_some() {
                 Some(match self.state.transport {
-                    _ if self.state.network_playback.is_none() => NetworkLifecycle::Preparing,
+                    _ if self.state.observation.network().is_none() => NetworkLifecycle::Preparing,
                     TransportState::Preparing => NetworkLifecycle::Preparing,
                     TransportState::Playing => NetworkLifecycle::Playing,
                     TransportState::Paused => NetworkLifecycle::Paused,
                     _ => self
                         .state
-                        .network_playback
-                        .as_ref()
+                        .observation
+                        .network()
                         .map_or(NetworkLifecycle::Preparing, |p| p.lifecycle),
                 })
             } else if self.network.closing.is_some() {
                 Some(NetworkLifecycle::Retiring)
             } else {
-                self.state.network_playback.as_ref().map(|p| p.lifecycle)
+                self.state.observation.network().map(|p| p.lifecycle)
             },
             active: self.network.active.as_ref().map(|s| s.binding.clone()),
             closing: self
@@ -112,6 +112,7 @@ impl Session {
                 | Command::ProfilesApply { .. }
                 | Command::ProfilesBind { .. }
                 | Command::Seek { .. }
+                | Command::SeekDsd { .. }
         ) {
             return Err(STATE);
         }
@@ -143,7 +144,7 @@ impl Session {
         if self.network.closing.is_some() {
             // A takeover cannot publish readiness until the outgoing worker retires.
             // Its unprepared replacement owns no native or transport resources yet.
-            if self.state.network_playback.is_some() {
+            if self.state.observation.network().is_some() {
                 return Err(EngineError::new(
                     ErrorCode::SourceBusy,
                     "network retirement still owns the worker",
@@ -178,7 +179,7 @@ impl Session {
         }) {
             self.renderer.closing = self.renderer.active.take();
         }
-        if let Some(p) = &mut self.state.network_playback {
+        if let Some(p) = self.state.observation.network_mut() {
             p.lifecycle = if reason.is_some() {
                 NetworkLifecycle::Failed
             } else {
@@ -402,8 +403,7 @@ impl Session {
                 self.state.seekable = false;
                 self.state.active_entry_id = None;
                 self.state.reserved_next_entry_id = None;
-                self.state.playback = None;
-                self.state.network_playback = None;
+                self.state.observation = Default::default();
                 self.state.audible_position_frames = None;
                 self.state.decoded_position_frames = 0;
                 self.state.error = None;
@@ -781,7 +781,7 @@ impl Session {
                 "network PCM format is unsupported",
             ));
         }
-        if let Some(prior) = &self.state.network_playback
+        if let Some(prior) = self.state.observation.network()
             && prior.binding == p.binding
             && (prior.format != p.format
                 || prior.total_frames.is_some() && prior.total_frames != p.total_frames
@@ -910,8 +910,8 @@ impl Session {
                 if observation.replacement_boundary.as_ref()
                     != self
                         .state
-                        .network_playback
-                        .as_ref()
+                        .observation
+                        .network()
                         .and_then(|p| p.replacement_boundary.as_ref())
                 {
                     return Err(crate::network_source::INVALID);
@@ -927,14 +927,14 @@ impl Session {
                 }
                 next.state.decoded_position_frames = observation.source_position_frames;
                 next.state.audible_position_frames = observation.audible_source_position_frames;
-                next.state.network_playback = Some(observation);
+                next.state.observation = (observation).into();
                 if terminal {
-                    next.state.network_playback.as_mut().ok_or(STALE)?.lifecycle =
+                    next.state.observation.network_mut().ok_or(STALE)?.lifecycle =
                         NetworkLifecycle::Completed;
                     next.state.muted = true;
                     next.state.transport = TransportState::Draining;
                     next.close_network_at(event.output_epochs, None)?;
-                    next.state.network_playback.as_mut().ok_or(STALE)?.lifecycle =
+                    next.state.observation.network_mut().ok_or(STALE)?.lifecycle =
                         NetworkLifecycle::Completed;
                     next.invalidate_graph_work(EngineError::new(
                         ErrorCode::OperationCancelled,
@@ -959,7 +959,7 @@ impl Session {
                 }
                 next.state.transport = next.playback_intent.transport();
                 let playing = next.wants_playback();
-                if let Some(p) = &mut next.state.network_playback {
+                if let Some(p) = next.state.observation.network_mut() {
                     p.lifecycle = if playing {
                         NetworkLifecycle::Playing
                     } else {
@@ -1034,9 +1034,9 @@ impl Session {
         self.network.closing_frontier = None;
         if self.network.active.is_none() && self.state.source == Some(SourceKind::HttpFlac) {
             if let Some(p) = ack.observation {
-                self.state.network_playback = Some(p);
+                self.state.observation = (p).into();
             }
-            if let Some(p) = &mut self.state.network_playback {
+            if let Some(p) = self.state.observation.network_mut() {
                 p.lifecycle = if self.state.error.is_some() {
                     NetworkLifecycle::Failed
                 } else {

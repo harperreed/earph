@@ -72,7 +72,10 @@ Typed Network admission and bounded player leases are integrated after independe
 Their paired native policy grants no source or output authority.
 See the [transport evidence](../../evidence/network/sendspin-player-transport-20261121.json).
 Engine ownership, scheduling, and actual output qualification remain the next Sendspin work.
-DSD Engine implementation continues in its separate worktree from `4d8f6d5`.
+Typed DSD software ownership is integrated after independent review and focused worker checks.
+The combined source passes the full Linux canonical check with the published Stop fix preserved.
+See the [retirement evidence](../../evidence/dsd/engine-retirement-linux-20261121.json).
+Public DSD submission and Core Audio DSD remain unavailable pending their release gates.
 Native output timing adapters passed source review and the full Linux check; Mac compilation remains pending.
 See the [timing evidence](../../evidence/local-playback/native-timing-observations-20261121.json).
 UPnP's independent SDK passed its native API probe; current-owner controller qualification remains pending.

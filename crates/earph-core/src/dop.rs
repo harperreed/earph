@@ -6,6 +6,186 @@ use crate::{
     ids::Epochs,
     safety::{FidelityPolicy, SampleDomain, VolumeMode, VolumePolicy},
 };
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "SourceFormatDocument")]
+pub struct DsdSourceFormat {
+    bit_rate_hz: u32,
+    channels: ChannelLayout,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceFormatDocument {
+    bit_rate_hz: u32,
+    channels: ChannelLayout,
+}
+impl TryFrom<SourceFormatDocument> for DsdSourceFormat {
+    type Error = EngineError;
+    fn try_from(value: SourceFormatDocument) -> Result<Self, Self::Error> {
+        Self::new(value.bit_rate_hz, value.channels)
+    }
+}
+impl DsdSourceFormat {
+    pub fn new(bit_rate_hz: u32, channels: ChannelLayout) -> Result<Self, EngineError> {
+        if !matches!(bit_rate_hz, 2_822_400 | 5_644_800) || channels != ChannelLayout::Stereo {
+            return Err(UNSUPPORTED);
+        }
+        Ok(Self {
+            bit_rate_hz,
+            channels,
+        })
+    }
+    pub fn bit_rate_hz(self) -> u32 {
+        self.bit_rate_hz
+    }
+    pub fn channels(self) -> ChannelLayout {
+        self.channels
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DopTransport {
+    Packed24Le,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "CarrierFormatDocument")]
+pub struct DopCarrierFormat {
+    carrier_rate_hz: u32,
+    channels: ChannelLayout,
+    transport: DopTransport,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CarrierFormatDocument {
+    carrier_rate_hz: u32,
+    channels: ChannelLayout,
+    transport: DopTransport,
+}
+impl TryFrom<CarrierFormatDocument> for DopCarrierFormat {
+    type Error = EngineError;
+    fn try_from(value: CarrierFormatDocument) -> Result<Self, Self::Error> {
+        let source = DsdSourceFormat::new(
+            value.carrier_rate_hz.checked_mul(16).ok_or(UNSUPPORTED)?,
+            value.channels,
+        )?;
+        let _ = value.transport;
+        Ok(Self::from_source(source))
+    }
+}
+impl DopCarrierFormat {
+    pub fn from_source(source: DsdSourceFormat) -> Self {
+        Self {
+            carrier_rate_hz: source.bit_rate_hz / 16,
+            channels: source.channels,
+            transport: DopTransport::Packed24Le,
+        }
+    }
+    pub fn carrier_rate_hz(self) -> u32 {
+        self.carrier_rate_hz
+    }
+    pub fn channels(self) -> ChannelLayout {
+        self.channels
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DsdQualification {
+    Unverified,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DsdCloseReason {
+    Pause,
+    Mute,
+    Seek,
+    Stop,
+    Cancelled,
+    Failed,
+    SourceSubmitted,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DsdCompletionBasis {
+    SourceSubmitted,
+}
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DsdOutputObservation {
+    pub output_epochs: Epochs,
+    pub submitted_carrier_frames: u64,
+    pub estimated_consumed_carrier_frames: Option<u64>,
+    pub backend_delay_carrier_frames: Option<u64>,
+    pub consumption_basis: &'static str,
+    pub backend: crate::session::BackendObservation,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DsdOutputBoundary {
+    pub output_epochs: Epochs,
+    pub submitted_carrier_frames: u64,
+    pub source_entry_id: crate::ids::QueueEntryId,
+    pub source_position_bits: u64,
+    pub reason: DsdCloseReason,
+}
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DsdPlaybackObservation {
+    pub source_format: DsdSourceFormat,
+    pub total_source_bits: u64,
+    pub source_entry_id: crate::ids::QueueEntryId,
+    pub source_position_bits: u64,
+    pub decoded_position_bits: u64,
+    pub source_epochs: Epochs,
+    pub carrier_format: DopCarrierFormat,
+    pub output: Option<DsdOutputObservation>,
+    pub last_boundary: Option<DsdOutputBoundary>,
+    pub qualification: DsdQualification,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completion_basis: Option<DsdCompletionBasis>,
+}
+impl DsdPlaybackObservation {
+    pub fn validate(&self) -> Result<(), EngineError> {
+        if self.carrier_format != DopCarrierFormat::from_source(self.source_format)
+            || self.total_source_bits == 0
+            || !self.total_source_bits.is_multiple_of(16)
+            || !self.source_position_bits.is_multiple_of(16)
+            || self.source_position_bits > self.decoded_position_bits
+            || self.decoded_position_bits > self.total_source_bits
+        {
+            return Err(INVALID);
+        }
+        if self.completion_basis.is_some()
+            && (self.output.is_some() || self.source_position_bits != self.total_source_bits)
+        {
+            return Err(INVALID);
+        }
+        if let Some(boundary) = &self.last_boundary {
+            boundary
+                .submitted_carrier_frames
+                .checked_mul(16)
+                .ok_or(INVALID)?;
+            if !boundary.source_position_bits.is_multiple_of(16) {
+                return Err(INVALID);
+            }
+        }
+        if let Some(output) = &self.output {
+            output
+                .submitted_carrier_frames
+                .checked_mul(16)
+                .ok_or(INVALID)?;
+            if output.backend.client_format.sample_rate_hz
+                != f64::from(self.carrier_format.carrier_rate_hz)
+                || output.backend.client_format.channels != 2
+                || output.backend.client_format.bytes_per_frame != 6
+                || output.backend.client_format.representation
+                    != crate::session::ObservedSampleRepresentation::Signed24
+                || output.backend.preservation != crate::session::PreservationState::Unverified
+            {
+                return Err(INVALID);
+            }
+        }
+        Ok(())
+    }
+}
 const INVALID: EngineError = EngineError::new(ErrorCode::AssetInvalid, "invalid DSD transport");
 const UNSUPPORTED: EngineError =
     EngineError::new(ErrorCode::FormatUnsupported, "unqualified DoP format");
@@ -24,11 +204,7 @@ pub struct DopStream {
 }
 impl DopStream {
     fn validate(self) -> Result<(), EngineError> {
-        if !matches!(self.bit_rate_hz, 2_822_400 | 5_644_800)
-            || self.channels != ChannelLayout::Stereo
-        {
-            return Err(UNSUPPORTED);
-        }
+        DsdSourceFormat::new(self.bit_rate_hz, self.channels)?;
         if !self.source_sample_position.is_multiple_of(16) {
             return Err(INVALID);
         }

@@ -121,6 +121,9 @@ pub struct StateView {
     pub playback: Option<PlaybackObservationView>,
     #[serde(default, deserialize_with = "present")]
     pub network_playback: Option<NetworkPlaybackObservationView>,
+    #[serde(default, deserialize_with = "present")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dsd_playback: Option<DsdPlaybackObservationView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -305,6 +308,19 @@ pub fn decode_reply(bytes: Vec<u8>) -> Result<Reply, ProjectionError> {
                             && value.revision == receipt.revision
                             && value.epochs == receipt.epochs
                             && value.network_playback.as_ref().is_none_or(|p| p.valid())
+                            && value.dsd_playback.as_ref().is_none_or(|p| p.valid())
+                            && [
+                                value.playback.is_some(),
+                                value.network_playback.is_some(),
+                                value.dsd_playback.is_some(),
+                            ]
+                            .into_iter()
+                            .filter(|present| *present)
+                            .count()
+                                <= 1
+                            && (value.dsd_playback.is_none()
+                                || value.decoded_position_frames == 0
+                                    && value.audible_position_frames.is_none())
                     }
                     ResultView::ProfileSaved(value) | ResultView::Profile(value) => {
                         value.profile.schema_version == 1 && value.graph.graph.schema_version == 1

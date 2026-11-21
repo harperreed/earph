@@ -47,6 +47,45 @@ fn actual_owner_state_keeps_unknown_observations_and_exact_reply_bytes() {
 }
 
 #[test]
+fn dsd_projection_keeps_bit_units_and_refuses_overlapping_or_invalid_facts() {
+    let mut value: Value = serde_json::from_slice(&state_reply()).unwrap();
+    let dsd = json!({"source_format":{"bit_rate_hz":2822400,"channels":"stereo"},"total_source_bits":64,"source_entry_id":"local-1","source_position_bits":16,"decoded_position_bits":48,"source_epochs":{"session":1,"stream":0},"carrier_format":{"carrier_rate_hz":176400,"channels":"stereo","transport":"packed24_le"},"output":null,"last_boundary":null,"qualification":"unverified"});
+    value["receipt"]["result"]["value"]["dsd_playback"] = dsd;
+    let projected = decode_reply(serde_json::to_vec(&value).unwrap()).expect("typed DSD state");
+    let Reply::Receipt(receipt) = projected else {
+        panic!("receipt")
+    };
+    let state = receipt.state().unwrap();
+    assert_eq!(
+        state.dsd_playback.as_ref().unwrap().source_position_bits,
+        16
+    );
+    assert!(state.playback.is_none());
+    assert!(state.network_playback.is_none());
+    for (field, replacement) in [
+        ("source_position_bits", json!(80)),
+        ("qualification", json!("qualified")),
+        (
+            "source_format",
+            json!({"bit_rate_hz":48000,"channels":"stereo"}),
+        ),
+        (
+            "carrier_format",
+            json!({"carrier_rate_hz":352800,"channels":"stereo","transport":"packed24_le"}),
+        ),
+    ] {
+        let mut invalid = value.clone();
+        invalid["receipt"]["result"]["value"]["dsd_playback"][field] = replacement;
+        assert!(
+            decode_reply(serde_json::to_vec(&invalid).unwrap()).is_err(),
+            "{field}"
+        );
+    }
+    value["receipt"]["result"]["value"]["decoded_position_frames"] = 16.into();
+    assert!(decode_reply(serde_json::to_vec(&value).unwrap()).is_err());
+}
+
+#[test]
 fn missing_consumed_fields_are_not_deserialized_as_null_or_zero() {
     let original: Value = serde_json::from_slice(&state_reply()).unwrap();
     for field in [
