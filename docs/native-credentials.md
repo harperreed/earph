@@ -101,6 +101,10 @@ That summary binds Cargo-reported helper and test paths to their SHA256 hashes.
 It reports operation exits and native test counts without credential data or private paths.
 Downloaded job logs provide durable evidence; they do not preserve the keychain files.
 
+The [hosted Mac receipt](evidence/sendspin/native-credentials-macos-20261121.json) binds two successful isolated keychain runs.
+Both runs reached corruption refusal and locked-store refusal with exact helper and test hashes.
+These runs predate the dormant Engine service bridge and timing integration.
+
 ## Dependency and API basis
 
 The adapter reuses the existing locked packages without adding package versions.
@@ -118,3 +122,7 @@ This behavior appears in GNOME's [native secret encoder](https://github.com/GNOM
 The Mac binding follows Apple's [SecKeychain header](https://github.com/apple-oss-distributions/Security/blob/main/OSX/libsecurity_keychain/lib/SecKeychain.h).
 The interaction error constant follows Apple's [SecBase header](https://github.com/apple-oss-distributions/Security/blob/main/base/SecBase.h).
 No external implementation was copied.
+
+The dormant Engine [Sendspin services bridge](sendspin-native-services.md) retains this store on a dedicated thread.
+It preserves the loaded identity envelope during whole-catalog commits.
+A recovery observation never acknowledges native completion or restores connection authority.

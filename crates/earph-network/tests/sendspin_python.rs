@@ -249,7 +249,7 @@ fn scenario(mode: &str) {
     let services = FixtureServices {
         directory: store.directory().to_owned(),
         started: started.clone(),
-        release: (closed_commit || mode == "arrival").then_some(start_rx),
+        release: (closed_commit || matches!(mode, "arrival" | "write_timeout")).then_some(start_rx),
         threads: threads.clone(),
         outcome: match mode {
             "unchanged" => Some(CommitOutcome::Unchanged),
@@ -273,7 +273,14 @@ fn scenario(mode: &str) {
         write_ms: if mode == "write_timeout" { 100 } else { 5000 },
         retire_ms: 20,
         events: if mode == "pressure" { 1 } else { 32 },
-        service_ms: if mode.ends_with("_timeout") { 40 } else { 5000 },
+        service_ms: if matches!(
+            mode,
+            "commit_timeout" | "admission_timeout" | "candidate_timeout"
+        ) {
+            40
+        } else {
+            5000
+        },
         ..DriverLimits::default()
     };
     let mut worker = SendspinWorker::default();
@@ -286,6 +293,17 @@ fn scenario(mode: &str) {
     let mut arrivals = Vec::new();
     let mut suppressed = false;
     let mut queued_during_rotation = false;
+    if mode == "write_timeout" {
+        until(|| started.load(Ordering::SeqCst));
+        assert!(observer.observation().pending_commit);
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(
+            observer.observation().terminal,
+            None,
+            "write timeout must not shorten the acknowledged storage deadline"
+        );
+        release.release();
+    }
     let preserved_arrival = if mode == "arrival" {
         assert_eq!(peer.read()["stage"], "paired");
         let sent = peer.read();

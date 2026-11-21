@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "scope": "Integrated Sendspin timing discipline and dormant native credential service bridge",
+  "source": {
+    "baseline_commit": "dbc19169b66ea89ebd93a38bab696d142c24706d",
+    "source_dirty": true,
+    "qualified_archive_sha256": "7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f",
+    "qualified_source_files": 2030,
+    "source_unchanged_during_checks": true,
+    "publication_note": "Derived receipts and progress notes follow this exact source archive."
+  },
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "native_provider": "Fresh private D-Bus and GNOME Keyring; synthetic credentials only"
+  },
+  "canonical": {
+    "exit": 0,
+    "log_sha256": "be61789970ead1dd6a1846fa1fcbf269bd00087e10f5c853faf176fb3fbf7a94",
+    "command": "scripts/check",
+    "reported_results": {
+      "passed": 1700,
+      "failed": 0,
+      "ignored": 16,
+      "groups": 188
+    },
+    "count_note": "Reported blocks include child results and are not a unique-test total."
+  },
+  "commands": {
+    "canonical": {
+      "exit": 0,
+      "log_sha256": "be61789970ead1dd6a1846fa1fcbf269bd00087e10f5c853faf176fb3fbf7a94"
+    },
+    "products_build": {
+      "exit": 0,
+      "log_sha256": "f591e097f22f91dd5c31fbbf7e587d80c0a4e0ed594f9c9012a544f38c52d926"
+    },
+    "sendspin_peer": {
+      "exit": 0,
+      "log_sha256": "54ade1b58568de23af188bb81681a2715bc7cee9bc8a9d7c7b6b93ddb5518150"
+    },
+    "sendspin_network_peer": {
+      "exit": 0,
+      "log_sha256": "6ada61652675ae96496dbcbeabc7cdb507a0454056208fc74f5ac108b93a7b38"
+    },
+    "bridge_transport": {
+      "exit": 0,
+      "log_sha256": "9f9f81fccbca6c697e59b7275ad0b0201f936847fb1237c6036ab9a909e30a28"
+    },
+    "native_build": {
+      "exit": 0,
+      "log_sha256": "1028b152f41cc249262286fd2fcbe83f269aca98a88401097f49ba501cc3c835"
+    },
+    "native_linux": {
+      "exit": 0,
+      "log_sha256": "8451ac801b226a86f8b01cf4eeda2ec774266622dd0b8a3c3f6104d784aee25f"
+    },
+    "native_directory_sync": {
+      "exit": 0,
+      "log_sha256": "377afcf62a593b0f32de096d19b19204c91e0eb291f578d362ea1cb56ff29ecb"
+    },
+    "bridge_build": {
+      "exit": 0,
+      "log_sha256": "848dc552195071fc8b70fc6ca0a84f9679743fff7f18e3221783aa13e8763472"
+    },
+    "bridge_native": {
+      "exit": 0,
+      "log_sha256": "21b5466ebb8de380097e5b6faf9e6136d52446e07f4a8063e6bc1381ec07b529"
+    }
+  },
+  "native": {
+    "native_linux": {
+      "result": "passed",
+      "receipt_sha256": "4b39898bb3d23cae2b4e5085ec1187f12f293f2bfbea7dca777696550debcf82",
+      "helper_sha256": "ae7bbb617715573327f7d886efac514df7332dc49905ea9218438484d4bdb348",
+      "test_sha256": "886c20f1415850342f0dbffcbd0ea1bd0e3d282a0a65ff9464a5de43c8691b4f",
+      "operator_sha256": "ba05beef7bc6b27e0df84acf3ee873ce3a8f145460b77dbd3f79afb70f248b1c",
+      "owned_children": [
+        {
+          "executable": "native_linux-1d0644c891070270",
+          "code": 0,
+          "signal": null
+        },
+        {
+          "executable": "gnome-keyring-daemon",
+          "code": 0,
+          "signal": null
+        },
+        {
+          "executable": "dbus-daemon",
+          "code": 0,
+          "signal": null
+        }
+      ]
+    },
+    "bridge_native": {
+      "result": "passed",
+      "receipt_sha256": "e640176f42588666d11b5099fd376be50b0ac2256d23cc5fd80747a4821e24f0",
+      "helper_sha256": "ae7bbb617715573327f7d886efac514df7332dc49905ea9218438484d4bdb348",
+      "test_sha256": "cffe3ff225937c634c1476d28681e7d3eb1187cfac7a3bb06983b819820bbe1d",
+      "operator_sha256": "00043c86d5606df18e8a9fa6cc4a6d13bc17855e3bfa2cecff2a418cff9988e7",
+      "owned_children": [
+        {
+          "executable": "sendspin_credentials_native-8594b37d15755fb0",
+          "code": 0,
+          "signal": null
+        },
+        {
+          "executable": "gnome-keyring-daemon",
+          "code": 0,
+          "signal": null
+        },
+        {
+          "executable": "dbus-daemon",
+          "code": 0,
+          "signal": null
+        }
+      ]
+    }
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "df9852e2a6ab768d7b5d13cb90ee8b9b31623eb487ea6adab9819b548c207e10"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "b5629a91b588e56ec70c194a427f7823f0403bbce56d903cdb4751d8c78ee259"
+    }
+  ],
+  "reviews": [
+    {
+      "scope": "sendspin-timing-independent-review-01",
+      "verdict": "CLEAR",
+      "sha256": "1f8770a115abc5e9a138db38c2434d04833b497112632df68c17217acde354c0"
+    },
+    {
+      "scope": "sendspin-native-services-independent-review-01",
+      "verdict": "CLEAR",
+      "sha256": "a6e4630ae31cb3efb1890e9f811c7aca98ec279d0f14b1f6329da32f06d9b14e"
+    }
+  ],
+  "timing_scope": "Caller-supplied timestamps, bounded probe bursts, drift filtering, policy expiry, and actual ID4 pipeline tests.",
+  "bridge_scope": "Preloaded native credentials, real authenticated roleless transport, durable replacement/readback, cancellation, retirement, and uncertainty ownership.",
+  "limits": [
+    "No application startup or credential provisioning.",
+    "No player role, usable-format advertisement, or audio output.",
+    "No output-clock mapping, transport timestamp precision, live resampling, or independent-clock acceptance.",
+    "No Music Assistant interoperability, physical output, macOS, installation, signing, or release claim."
+  ]
+}

@@ -8,6 +8,7 @@ pub mod noise;
 pub mod pairing;
 pub mod pairing_token;
 pub mod session;
+pub mod timing;
 
 pub const SPEC_REVISION: &str = "9d2f15ee8f172c67ce00dc0d9f6603c3b1030d9f";
 

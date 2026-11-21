@@ -1,5 +1,10 @@
 # Gotchas
 
+- Streaming Pause advances the output epoch and resets native submitted counts.
+  Compare absolute output frontiers through `processing.streaming.backend_origin_frames`, rather than directly comparing native and source counts.
+  Check rates, epochs, graph transforms, and capture boundaries before mapping source frames to output frames.
+  See the [retained MA capture](docs/evidence/network/music-assistant-track-linux-20261121.json).
+
 - Use `runtime::OwnerLock` for every `owner.lock` writer.
   A concurrent child inherits the open file description before exec closes it.
   Explicit unlock must precede close, or a retired owner can leave its replacement busy.

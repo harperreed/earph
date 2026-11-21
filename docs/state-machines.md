@@ -451,3 +451,29 @@ Use another new directory for a later attempt; inspect retained files before req
 The verifier checks the complete tree without repairing it or launching products.
 Package consistency, declared provenance, exact product qualification, and authenticated release remain separate facts.
 See [native packaging](native-packaging.md) for limits and the exact packaged Linux GUI receipt.
+
+## Sendspin native service completions
+
+[`CredentialSupervisor`](../crates/earph-engine/src/sendspin_credentials.rs) owns one thread, native store, and connection lease.
+One operation slot covers queued work and its undelivered result.
+Successful cancellable results remain fenced until their receiver consumes them.
+Admission and candidate delivery also require a current policy.
+An acknowledged commit retains its original attempt and terminal result through cancellation and retirement.
+A lost receiver preserves uncertainty instead of cancelling native work.
+Recovery observations clear neither native nor bridge uncertainty.
+Bounded retirement retains the thread and stable lock until work settles.
+Final destruction joins retained work and can wait on system randomness.
+The [service contract](sendspin-native-services.md) keeps provisioning, startup, roles, clocks, and output separate.
+The [combined Linux receipt](evidence/sendspin/runtime-timing-native-linux-20261121.json) binds actual native storage and authenticated transport.
+
+## Sendspin clock discipline
+
+[`TimeSync`](../crates/earph-sendspin/src/timing.rs) owns one binding, bounded probe burst, and numeric filter.
+Its snapshot distinguishes uninitialized, mapped, stale, numeric-fault, and retired states.
+The caller supplies monotonic microseconds and policy deadlines.
+Probe tokens distinguish an offered request from an actually emitted request.
+Only a matching, timely reply contributes to its current burst.
+Mapping results retain the clock binding and mapping revision.
+Stale, retired, and invalid numeric states cannot supply a usable mapping.
+The [timing contract](sendspin-timing.md) separates numeric mapping from live transport and output authority.
+The [combined Linux receipt](evidence/sendspin/runtime-timing-native-linux-20261121.json) binds its integrated pipeline and boundary checks.

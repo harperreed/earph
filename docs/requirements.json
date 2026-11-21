@@ -327,7 +327,8 @@
       "verification_status": "partial",
       "evidence": [
         "evidence/network/upnp-core-linux-20261120.json",
-        "evidence/network/renderer-execution-linux-20261121.json"
+        "evidence/network/renderer-execution-linux-20261121.json",
+        "evidence/network/music-assistant-track-linux-20261121.json"
       ]
     },
     {
@@ -349,7 +350,9 @@
       "evidence": [
         "evidence/sendspin/session-linux-20261120.json",
         "evidence/sendspin/runtime-linux-20261121.json",
-        "evidence/sendspin/native-credentials-linux-20261121.json"
+        "evidence/sendspin/native-credentials-linux-20261121.json",
+        "evidence/sendspin/native-credentials-macos-20261121.json",
+        "evidence/sendspin/runtime-timing-native-linux-20261121.json"
       ]
     },
     {
@@ -368,9 +371,11 @@
         "DSP-04",
         "OUT-04"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/sendspin/runtime-timing-native-linux-20261121.json"
+      ]
     },
     {
       "id": "SRC-04",

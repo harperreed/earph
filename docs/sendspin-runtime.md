@@ -139,3 +139,7 @@ Each scenario restarts a separate process to read and verify its committed catal
 Do not use it as a production persistence fallback.
 
 Production storage, full player, Music Assistant interoperability, clocks, and output remain unqualified.
+
+The dormant Engine [native services bridge](sendspin-native-services.md) connects explicit credential ownership to these services.
+It requires a definitively committed document and explicit activity admission.
+It does not start the transport or provide a player.
