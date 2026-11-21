@@ -673,6 +673,7 @@ fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
                 | Command::Stop
                 | Command::Mute { .. }
                 | Command::VolumeSet { .. }
+                | Command::VolumeSetGuarded { .. }
                 | Command::VolumeSilence
                 | Command::VolumeFactoryDefaults
                 | Command::VolumeCaps { .. }
@@ -699,6 +700,7 @@ fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
                 | Command::SeekDsd { .. }
                 | Command::Mute { .. }
                 | Command::VolumeSet { .. }
+                | Command::VolumeSetGuarded { .. }
                 | Command::VolumeSilence
                 | Command::VolumeFactoryDefaults
                 | Command::VolumeCaps { .. }
@@ -750,6 +752,7 @@ fn dispatch(
         Command::Resume
         | Command::Mute { .. }
         | Command::VolumeSet { .. }
+        | Command::VolumeSetGuarded { .. }
         | Command::VolumeSilence
         | Command::VolumeFactoryDefaults
         | Command::VolumeCaps { .. }
@@ -844,6 +847,7 @@ fn dispatch_with_network(
             Command::Resume
             | Command::Mute { .. }
             | Command::VolumeSet { .. }
+            | Command::VolumeSetGuarded { .. }
             | Command::VolumeSilence
             | Command::VolumeFactoryDefaults
             | Command::VolumeCaps { .. } => worker.send(Action::Settings(settings)),

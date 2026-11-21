@@ -24,6 +24,9 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+#[path = "workflow_playback.rs"]
+mod playback;
+use playback::{LocalPlay, PlayMutation, StopTarget};
 
 pub enum UiIntent {
     Attach {
@@ -46,6 +49,16 @@ pub enum UiIntent {
     StartLocal {
         basis: Arc<StateView>,
         takeover: bool,
+    },
+    PlayLocal {
+        basis: Arc<StateView>,
+        takeover: bool,
+        entry_id: Option<earph_core::ids::QueueEntryId>,
+    },
+    SetVolume {
+        basis: Arc<StateView>,
+        millidecibels: i32,
+        ramp_frames: u32,
     },
     Discover {
         backend: OutputBackend,
@@ -223,6 +236,11 @@ enum Task {
         command: Command,
         session: Option<SessionId>,
         draft_epoch: u64,
+        play: Option<PlayMutation>,
+    },
+    VolumePreflight {
+        basis: Arc<StateView>,
+        command: Command,
     },
     Mutation {
         draft_epoch: u64,
@@ -252,6 +270,7 @@ impl Task {
         matches!(
             self,
             Self::Preflight { .. }
+                | Self::VolumePreflight { .. }
                 | Self::Mutation { .. }
                 | Self::Discovery { .. }
                 | Self::Diagnostic { .. }
@@ -277,7 +296,8 @@ pub struct GuiController {
     pending: Option<(RequestId, Task)>,
     waiting_edit: Option<Task>,
     safety: Vec<RequestId>,
-    stop_preflights: Vec<(RequestId, Arc<StateView>)>,
+    stop_preflights: Vec<(RequestId, StopTarget)>,
+    local_play: Option<LocalPlay>,
     operation_cursor: usize,
     discovery: Option<Arc<DeviceQueryResultView>>,
     inspection: Option<Arc<DeviceQueryResultView>>,
@@ -329,6 +349,7 @@ impl GuiController {
             waiting_edit: None,
             safety: Vec::new(),
             stop_preflights: Vec::new(),
+            local_play: None,
             operation_cursor: 0,
             discovery: None,
             inspection: None,
@@ -1148,7 +1169,8 @@ impl GuiController {
         self.queue_stale
     }
     pub fn queue_edit_pending(&self) -> bool {
-        self.local_work.is_some()
+        self.local_play.is_some()
+            || self.local_work.is_some()
             || self.waiting_edit.is_some()
             || self
                 .pending
@@ -1159,6 +1181,7 @@ impl GuiController {
         match self.waiting_edit.as_ref() {
             Some(
                 Task::Preflight { command, .. }
+                | Task::VolumePreflight { command, .. }
                 | Task::Discovery { command, .. }
                 | Task::Diagnostic { command, .. }
                 | Task::ProfileBefore { command, .. },
@@ -1254,7 +1277,8 @@ impl GuiController {
         self.client.is_some()
     }
     pub fn busy(&self) -> bool {
-        !self.stop_preflights.is_empty()
+        self.local_play.is_some()
+            || !self.stop_preflights.is_empty()
             || self.local_work.is_some()
             || self.pending.is_some()
             || self.waiting_edit.is_some()
@@ -1264,6 +1288,12 @@ impl GuiController {
     }
     pub fn error(&self) -> Option<&str> {
         self.error.as_deref().or(self.observation_error.as_deref())
+    }
+    pub fn action_error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+    pub fn observation_error(&self) -> Option<&str> {
+        self.observation_error.as_deref()
     }
     pub fn observed_at(&self) -> Option<Instant> {
         self.model()
@@ -1307,7 +1337,27 @@ impl GuiController {
         if self.closing {
             return Err("Controller cleanup is in progress".into());
         }
+        if !matches!(
+            &intent,
+            UiIntent::PlayLocal { .. }
+                | UiIntent::Refresh
+                | UiIntent::Reconcile(_)
+                | UiIntent::Mute
+                | UiIntent::Stop
+        ) {
+            self.cancel_local_play();
+        }
         match intent {
+            UiIntent::PlayLocal {
+                basis,
+                takeover,
+                entry_id,
+            } => self.play_local(basis, takeover, entry_id),
+            UiIntent::SetVolume {
+                basis,
+                millidecibels,
+                ramp_frames,
+            } => self.set_volume(basis, millidecibels, ramp_frames),
             UiIntent::Attach { runtime } => self.attach(runtime),
             UiIntent::Launch {
                 runtime,
@@ -1739,6 +1789,14 @@ impl GuiController {
         }
     }
     fn capture(&mut self, basis: Arc<StateView>, command: Command) -> Result<(), String> {
+        self.capture_mutation(basis, command, None)
+    }
+    fn capture_mutation(
+        &mut self,
+        basis: Arc<StateView>,
+        command: Command,
+        play: Option<PlayMutation>,
+    ) -> Result<(), String> {
         let session = if matches!(
             command,
             Command::Start { .. } | Command::NetworkStartHttpFlac { .. }
@@ -1752,6 +1810,7 @@ impl GuiController {
             command,
             session,
             draft_epoch: self.draft_epoch,
+            play,
         };
         if self.pending.is_some() || self.ordinary_in_flight() {
             self.waiting_edit = Some(task);
@@ -1834,7 +1893,10 @@ impl GuiController {
         self.invalidate_correction();
         self.waiting_edit = None;
         if let Some((_, task)) = self.pending.as_mut()
-            && matches!(task, Task::Preflight { .. } | Task::ProfileBefore { .. })
+            && matches!(
+                task,
+                Task::Preflight { .. } | Task::VolumePreflight { .. } | Task::ProfileBefore { .. }
+            )
         {
             *task = Task::Before;
         }
@@ -1919,6 +1981,8 @@ impl GuiController {
         Ok(())
     }
     fn safety_command(&mut self, command: Command) -> Result<(), String> {
+        let play_target = self.local_play.as_ref().and_then(LocalPlay::stop_target);
+        self.cancel_local_play();
         self.cancel_unsent();
         if self.safety.len() + self.stop_preflights.len() == 2 {
             return Err("Safety requests are pending".into());
@@ -1928,11 +1992,15 @@ impl GuiController {
                 .ok_or("Observe an owner before sending safety commands")?
                 .clone(),
         );
-        if matches!(command, Command::Stop) && state.session_id.is_some() {
+        if matches!(command, Command::Stop) && (state.session_id.is_some() || play_target.is_some())
+        {
             let request = Request::safety_state(request_id()?, &state)
                 .map_err(|error| format!("{error:?}"))?;
             let id = self.submit(request)?;
-            self.stop_preflights.push((id, state));
+            self.stop_preflights.push((
+                id,
+                play_target.unwrap_or_else(|| StopTarget::observed(&state)),
+            ));
             return Ok(());
         }
         let request =
@@ -1971,10 +2039,7 @@ impl GuiController {
                 let Some(ResultView::State(state)) = &receipt.result else {
                     return Err("Stop received no current Engine state".into());
                 };
-                if state.owner_id != captured.owner_id
-                    || state.session_id != captured.session_id
-                    || state.epochs.session != captured.epochs.session
-                {
+                if !captured.matches(state) {
                     return Err(
                         "Stop target changed; review the current session before stopping it".into(),
                     );
@@ -2050,6 +2115,7 @@ impl GuiController {
         Ok(())
     }
     fn disconnect(&mut self, close: bool) {
+        self.cancel_local_play();
         self.invalidate_correction();
         self.diagnostics.clear_owner();
         self.closing |= close;
@@ -2078,6 +2144,7 @@ impl GuiController {
         }
     }
     pub fn tick(&mut self, now: Instant) {
+        self.expire_local_play(now);
         self.poll_local();
         if let Some(runtime) = self.host.poll()
             && !self.closing
@@ -2104,6 +2171,7 @@ impl GuiController {
         }
         if let Some(observed) = self.model().latest_state().map(|o| o.state.clone()) {
             if previous_owner != observed.owner_id {
+                self.cancel_local_play();
                 self.invalidate_correction();
                 self.capabilities = None;
                 self.discovery = None;
@@ -2120,7 +2188,12 @@ impl GuiController {
                 }
                 if self.waiting_edit.is_some()
                     || self.pending.as_ref().is_some_and(|(_, t)| {
-                        matches!(t, Task::Preflight { .. } | Task::ProfileBefore { .. })
+                        matches!(
+                            t,
+                            Task::Preflight { .. }
+                                | Task::VolumePreflight { .. }
+                                | Task::ProfileBefore { .. }
+                        )
                     })
                 {
                     self.cancel_unsent();
@@ -2201,6 +2274,7 @@ impl GuiController {
                 task,
                 Task::Before | Task::Capabilities | Task::Page(_) | Task::After
             );
+            let play_preflight = matches!(&task, Task::Preflight { play: Some(_), .. });
             let holds_read = matches!(task, Task::ProfileResult(_));
             if let Some(Ok(Reply::Receipt(receipt))) = &reply
                 && let Some(ResultView::GraphDiagnostic(diagnostic)) = &receipt.result
@@ -2221,7 +2295,10 @@ impl GuiController {
                             }
                         }
                         Err(e) => {
-                            self.waiting_edit = None;
+                            if play_preflight {
+                                self.cancel_local_play();
+                            }
+                            self.cancel_waiting_after_observation_error(background_observation);
                             if background_observation {
                                 self.observation_error = Some(e);
                             } else {
@@ -2233,10 +2310,24 @@ impl GuiController {
                     }
                 }
             } else {
-                self.waiting_edit = None;
-                self.error = Some(format!(
-                    "Request {presentation:?}; inspect its retained receipt"
-                ));
+                if play_preflight {
+                    self.cancel_local_play();
+                }
+                self.cancel_waiting_after_observation_error(background_observation);
+                let volume_detail = if matches!(command, Command::VolumeSetGuarded { .. }) {
+                    match &reply {
+                        Some(Ok(Reply::Receipt(receipt))) => {
+                            receipt.error.as_ref().map(|error| error.message.as_str())
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                self.error = Some(match volume_detail {
+                    Some(detail) => format!("Volume {presentation:?}: {detail}"),
+                    None => format!("Request {presentation:?}; inspect its retained receipt"),
+                });
                 if presentation == Presentation::Uncertain {
                     self.connected = false;
                 }
@@ -2280,6 +2371,7 @@ impl GuiController {
         }
         self.poll_accepted(now);
         self.observe_package_issues();
+        self.poll_local_play(now);
         if self.client.is_some()
             && self.pending.is_none()
             && self.local_work.is_none()
@@ -2362,6 +2454,18 @@ impl GuiController {
             {
                 *slot = Some(result);
             }
+        }
+    }
+    fn cancel_waiting_after_observation_error(&mut self, background_observation: bool) {
+        // Product actions perform their own fresh preflight after this failed read.
+        // A read fence failure must not silently discard that explicit intent.
+        if !background_observation
+            || !matches!(
+                self.waiting_edit.as_ref(),
+                Some(Task::VolumePreflight { .. } | Task::Preflight { play: Some(_), .. })
+            )
+        {
+            self.waiting_edit = None;
         }
     }
     fn outcome(
@@ -2572,11 +2676,28 @@ impl GuiController {
                 command,
                 session,
                 draft_epoch,
+                play,
             } => {
+                if play.is_some()
+                    && self
+                        .local_play
+                        .as_ref()
+                        .is_none_or(|intent| now >= intent.deadline())
+                {
+                    return Err("Playback preparation expired before submission".into());
+                }
                 let Some(ResultView::State(state)) = receipt.result else {
                     return Err("Edit preflight State unavailable".into());
                 };
-                if !same_context(&basis, &state) {
+                let context_matches = if play.is_some() {
+                    same_review_context(&basis, &state)
+                        && basis.output_consented == state.output_consented
+                        && basis.volume_policy == state.volume_policy
+                        && basis.local_volume_policy == state.local_volume_policy
+                } else {
+                    same_context(&basis, &state)
+                };
+                if !context_matches {
                     self.refresh = true;
                     return Err(
                         "Owner, session, or revision changed; review the draft and submit again"
@@ -2607,9 +2728,16 @@ impl GuiController {
                     None => Request::mutation(super::request_id()?, &state, command),
                 }
                 .map_err(|e| format!("{e:?}"))?;
+                let target_session = request.envelope().session_id.clone();
                 let id = self.submit(request)?;
+                if let Some(play) = play {
+                    self.local_play_submitted(play, &state, id.clone(), target_session)?;
+                }
                 self.pending = Some((id, Task::Mutation { draft_epoch }));
                 Ok(())
+            }
+            Task::VolumePreflight { basis, command } => {
+                self.complete_volume_preflight(basis, command, receipt)
             }
             Task::Mutation { draft_epoch } => {
                 if is_profile_mutation(command) {
@@ -3171,6 +3299,10 @@ fn preview_matches_state(preview: &GraphPreviewView, state: &StateView) -> bool 
 }
 
 #[cfg(test)]
+#[path = "../../tests/common/mod.rs"]
+mod test_common;
+
+#[cfg(test)]
 #[path = "../../tests/gui_diagnostics_admission/mod.rs"]
 mod diagnostic_admission_tests;
 
@@ -3410,6 +3542,7 @@ mod tests {
             command: queue.clone(),
             session: None,
             draft_epoch: 0,
+            play: None,
         });
         gui.handle(UiIntent::InvalidateCorrection);
         assert_eq!(gui.waiting_queue_edit(), Some(&queue));

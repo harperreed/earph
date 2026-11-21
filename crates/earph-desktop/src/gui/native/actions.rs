@@ -37,6 +37,16 @@ pub(super) enum NativeAction {
         basis_token: String,
         takeover: bool,
     },
+    PlayLocal {
+        basis_token: String,
+        takeover: bool,
+        entry_id: Option<earph_core::ids::QueueEntryId>,
+    },
+    SetVolume {
+        basis_token: String,
+        millidecibels: i32,
+        ramp_frames: u32,
+    },
     Discover {
         backend: OutputBackend,
         endpoint: Option<String>,
@@ -171,6 +181,24 @@ impl NativeState {
             } => UiIntent::StartLocal {
                 basis: self.basis(&basis_token, false)?.state,
                 takeover,
+            },
+            NativeAction::PlayLocal {
+                basis_token,
+                takeover,
+                entry_id,
+            } => UiIntent::PlayLocal {
+                basis: self.basis(&basis_token, false)?.state,
+                takeover,
+                entry_id,
+            },
+            NativeAction::SetVolume {
+                basis_token,
+                millidecibels,
+                ramp_frames,
+            } => UiIntent::SetVolume {
+                basis: self.basis(&basis_token, false)?.state,
+                millidecibels,
+                ramp_frames,
             },
             NativeAction::Discover { backend, endpoint } => {
                 UiIntent::Discover { backend, endpoint }

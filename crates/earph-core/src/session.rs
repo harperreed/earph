@@ -267,6 +267,34 @@ impl Serialize for PlaybackState {
     }
 }
 impl SessionSnapshot {
+    /// Capture an absolute volume gesture without granting consent or source ownership.
+    pub fn volume_observation(&self) -> Option<crate::control::VolumeObservation> {
+        let output = self.output.as_ref()?;
+        if !self.output_consented
+            || self.shutdown_requested
+            || output.volume_mode != VolumeMode::Software
+        {
+            return None;
+        }
+        // Software gestures carry serializable caps. Fixed arming remains private to the owner.
+        let mut volume_policy = self.volume_policy.clone();
+        volume_policy.disarm();
+        let mut local_volume_policy = self.local_volume_policy.clone();
+        local_volume_policy.disarm();
+        Some(crate::control::VolumeObservation {
+            source: self.source,
+            active_entry_id: self.active_entry_id.clone(),
+            epochs: self.epochs,
+            device_epoch: self.device_epoch,
+            graph_epoch: self.graph_epoch,
+            output: output.clone(),
+            output_consented: self.output_consented,
+            muted: self.muted,
+            software_gain_zero: self.software_gain_zero,
+            volume_policy,
+            local_volume_policy,
+        })
+    }
     pub fn sample_domain(&self) -> SampleDomain {
         if self.source == Some(SourceKind::LocalFile) && self.observation.dsd().is_some() {
             SampleDomain::Dsd
@@ -1375,6 +1403,7 @@ impl Session {
                 | Command::OutputSelect { .. }
                 | Command::OutputConsent { .. }
                 | Command::VolumeSet { .. }
+                | Command::VolumeSetGuarded { .. }
                 | Command::VolumeSilence
                 | Command::VolumeFactoryDefaults
                 | Command::VolumeCaps { .. }
@@ -1413,10 +1442,42 @@ impl Session {
             }
             return Ok(ReceiptStatus::Applied);
         }
+        let guarded_volume = if let Command::VolumeSetGuarded {
+            observed,
+            observed_revision,
+            ..
+        } = &command.payload
+        {
+            if command.owner_id.is_none()
+                || command.session_id != self.state.session_id
+                || command
+                    .expected_revision
+                    .is_none_or(|revision| revision > self.state.revision || *observed_revision > revision)
+                // A repeated Silence leaves the boolean unchanged. Never rebase an old zero-based gesture.
+                || observed.software_gain_zero && *observed_revision != self.state.revision
+                || self.state.volume_observation().as_ref() != Some(observed.as_ref())
+            {
+                return Err(EngineError::new(
+                    ErrorCode::StaleRevision,
+                    "volume context changed; review the current output",
+                ));
+            }
+            true
+        } else {
+            false
+        };
+        // Stop reduces output for the exact observed session even if another control advances its revision.
+        let stopping_observed_session = matches!(command.payload, Command::Stop)
+            && command.owner_id == self.state.owner_id
+            && command.session_id.is_some()
+            && command.session_id == self.state.session_id
+            && command.expected_revision.is_some();
         if !matches!(
             command.payload,
             Command::Mute { muted: true } | Command::VolumeSilence
-        ) && command.expected_revision != Some(self.state.revision)
+        ) && !stopping_observed_session
+            && !guarded_volume
+            && command.expected_revision != Some(self.state.revision)
         {
             return Err(EngineError::new(
                 ErrorCode::StaleRevision,
@@ -1612,6 +1673,11 @@ impl Session {
             Command::VolumeSet {
                 millidecibels,
                 ramp_frames,
+            }
+            | Command::VolumeSetGuarded {
+                millidecibels,
+                ramp_frames,
+                ..
             } => {
                 let gain = f64::from(*millidecibels) / 1000.0;
                 if !(-120.0..=0.0).contains(&gain)

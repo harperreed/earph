@@ -56,6 +56,11 @@ struct OwnerIntegrationTests {
             state = try wait(first) { $0.root["queue"]["entries"].array.count == 1 && $0.flag("queue_edit_available") }
             guard let entry = state.root["queue"]["entries"].array.first?["id"].string else { throw CheckFailure.message("Append must expose the real queue entry") }
             try check(state.root["receipts"].array.contains { $0["method"].string == "queue.append" && $0["presentation"].string?.lowercased() == "applied" }, "Append must retain an applied receipt")
+            _ = try first.send(actionJson: state.action("play_local", fields: ["takeover": .bool(false)]).encoded())
+            state = try wait(first) { !$0.flag("play_local_pending") && $0.root["error"] != .null }
+            try check(state.state["owner_id"] == ownerID, "Refused Play must retain the actual owner")
+            try silent(state)
+            try write(state.root, to: output.appendingPathComponent("play-without-output-refused.json"))
             _ = try first.send(actionJson: state.action("queue_edit", fields: ["command": .object(["method": .string("queue.select"), "id": .string(entry)])]).encoded())
             state = try wait(first) { $0.root["queue"]["selected"].string == entry && $0.flag("queue_edit_available") }
             try silent(state)

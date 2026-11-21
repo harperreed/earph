@@ -40,6 +40,24 @@ A lost reply or top-level owner uncertainty error can follow an applied mutation
 Reconcile only with the exact retained envelope.
 Do not repair stale targets or revisions.
 
+Stop retains the exact observed owner and non-null session.
+Core accepts that Stop when a supplied revision becomes stale within the same session.
+Changed owners or sessions remain rejected. Ordinary mutations still require the current revision.
+The controller sends Stop once and retains its receipt until output retirement completes.
+
+`volume.set_guarded` carries the facts captured by one software-volume gesture.
+Core checks its exact owner, session, source, active entry, epochs, output, caps, mute, and silence state.
+It requires output consent and a supplied revision no newer than the current revision.
+An unchanged context permits the gesture across playback revision changes.
+The command shares existing gain, ramp, headroom, and native-effect checks.
+The controller retains the original request and never retries a refused volume mutation.
+The ordinary `volume.set` command keeps its strict revision check.
+Fixed arming stays owner-local; the software observation carries only serializable caps.
+The guarded command also retains the original gesture's `observed_revision` through its later preflight.
+If exact silence was already active, that original revision must still be current.
+This prevents an older gesture from clearing a newer repeated Silence command.
+After any revision change, restoring finite volume from exact silence requires a fresh gesture.
+
 Only observed state replies update the current snapshot.
 Keep mutation receipts separate from observed owner state.
 After an owner change, preserve old records and block old-target reconciliation.

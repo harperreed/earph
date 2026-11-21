@@ -13,7 +13,9 @@ struct EarphApp: App {
         .defaultSize(width: 1040, height: 760)
         .commands {
             CommandGroup(after: .newItem) {
-                Button("Add Files…") { delegate.store.chooseFiles() }.disabled(!delegate.store.flag("queue_edit_available"))
+                Button("Open…") { delegate.store.chooseFiles() }
+                    .keyboardShortcut("o", modifiers: .command)
+                    .disabled(!delegate.store.flag("queue_edit_available"))
                 Button("Add Folder…") { delegate.store.chooseFolder() }.disabled(!delegate.store.flag("queue_edit_available"))
             }
         }
@@ -24,6 +26,9 @@ struct EarphApp: App {
 final class EarphApplicationDelegate: NSObject, NSApplicationDelegate {
     let store = ControllerStore()
     private var terminationPending = false
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        store.connectAutomatically()
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if store.flag("ready_to_close") { return .terminateNow }

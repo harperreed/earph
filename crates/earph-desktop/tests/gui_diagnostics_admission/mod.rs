@@ -1,8 +1,7 @@
 // ABOUTME: Exercises bounded GUI capture when real ordinary IPC already fills its dispatcher.
 // ABOUTME: Reuses the actual owner and held-read transport without introducing a product test mode.
+use super::test_common as common;
 use super::*;
-#[path = "../common/mod.rs"]
-mod common;
 #[path = "../gui_receipt_fixture/mod.rs"]
 mod receipt_fixture;
 use common::{Owner, unique};

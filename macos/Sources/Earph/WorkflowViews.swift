@@ -44,72 +44,78 @@ struct ConnectView: View {
 struct QueueView: View {
     @ObservedObject var store: ControllerStore
     let actions: NativeActions
-    @State private var selected: String?
     @State private var takeover = false
     @State private var seek = "0"
     var rows: [QueueRow] { actions.value("queue")["entries"].array.compactMap(QueueRow.init) }
+    var selected: String? {
+        guard !actions.flag("queue_stale") else { return nil }
+        if let intent = store.trackSelection, intent.owner == actions.snapshot?.state["owner_id"] { return intent.entryID }
+        return actions.snapshot?.state["active_entry_id"].string ?? actions.value("queue")["selected"].string
+    }
     var body: some View {
         VStack(alignment: .leading) {
             HStack {
-                Button("Add Files…") { store.chooseFiles() }.disabled(!actions.flag("queue_edit_available"))
                 Button("Add Folder…") { store.chooseFolder() }.disabled(!actions.flag("queue_edit_available"))
-                Button("Refresh Queue") { actions.send("refresh") }.disabled(!actions.flag("attached"))
                 Spacer()
                 Text("\(actions.value("queue")["total"].uint ?? 0) tracks")
             }
-            Table(rows, selection: $selected) {
-                TableColumn("Track", value: \.name)
-                TableColumn("Preparation", value: \.status)
-                TableColumn("Path", value: \.path)
-            }.frame(minHeight: 220)
-            .onChange(of: selected) { _, id in
-                guard let id, id != actions.value("queue")["selected"].string else { return }
-                actions.command("queue_edit", method: "queue.select", fields: ["id": .string(id)])
+            if rows.isEmpty {
+                ContentUnavailableView("Open some music", systemImage: "music.note",
+                                       description: Text("Choose Open to add audio files, then press Play."))
+            } else {
+                Table(rows, selection: Binding(get: { selected }, set: { id in
+                    store.selectTrack(id, owner: actions.snapshot?.state["owner_id"] ?? .null)
+                })) {
+                    TableColumn("Track", value: \.name)
+                    TableColumn("Status", value: \.status)
+                }.frame(minHeight: 220)
+                .disabled(!actions.flag("queue_edit_available"))
             }
-            .onChange(of: actions.value("queue")["selected"].string) { _, id in selected = id }
             HStack {
                 Button("Move Up") { move(-1) }.disabled(!canMove(-1))
                 Button("Move Down") { move(1) }.disabled(!canMove(1))
                 Button("Remove") {
                     if let selected { actions.command("queue_edit", method: "queue.remove", fields: ["id": .string(selected)]) }
                 }.disabled(selected == nil || !actions.flag("queue_edit_available"))
-                Button("Clear Selection") { actions.command("queue_edit", method: "queue.select", fields: ["id": .null]) }
+                Button("Clear Selection") { store.selectTrack(nil, owner: actions.snapshot?.state["owner_id"] ?? .null) }
                     .disabled(!actions.flag("queue_edit_available"))
             }
             if actions.flag("queue_stale") { Text("Waiting for a current queue observation.").foregroundStyle(.secondary) }
-            GroupBox("Playback") {
+            DisclosureGroup("Advanced Transport") {
                 VStack(alignment: .leading) {
                     HStack {
-                        Button("Play") { actions.send("start_local", fields: ["takeover": .bool(takeover)]) }
+                        Button("Prepare Engine Selection") { actions.send("start_local", fields: ["takeover": .bool(takeover)]) }
                             .disabled(!actions.flag("queue_edit_available") || actions.value("queue")["selected"] == .null)
-                        Button("Pause") { actions.command("control_edit", method: "sessions.pause") }.disabled(!actions.flag("control_edit_available"))
                         Button("Resume") { actions.command("control_edit", method: "sessions.resume") }.disabled(!actions.flag("control_edit_available"))
-                        Button("Stop") { actions.send("stop") }.disabled(!actions.flag("attached"))
+                        Button("Refresh") { actions.send("refresh") }.disabled(!actions.flag("attached"))
                     }
-                    Text("Play does not approve an output or unmute it.")
-                    DisclosureGroup("Advanced Transport") {
-                        Toggle("Allow takeover of the retained session", isOn: $takeover)
-                        HStack {
-                            TextField("Source frame", text: $seek)
-                            Button("Seek") {
-                                store.perform {
-                                    let frame = try wholeNumber(seek, name: "Source frame")
-                                    actions.command("control_edit", method: "sessions.seek", fields: ["position_frames": .uint(frame)])
-                                }
-                            }.disabled(!actions.flag("control_edit_available") || actions.value("flags")["seek_bounds"] == .null)
-                        }
-                        ExactObservation("Seek bounds", value: actions.value("flags")["seek_bounds"])
-                        ExactObservation("Playback observations", value: actions.snapshot?.state ?? .null)
+                    Text("Prepare uses the retained Engine selection shown below and leaves audio muted. Use Play for the highlighted track.")
+                    LabeledContent("Engine selection", value: rows.first { $0.id == actions.value("queue")["selected"].string }?.name ?? "None")
+                    Toggle("Allow takeover of the retained session", isOn: $takeover)
+                    HStack {
+                        TextField("Source frame", text: $seek)
+                        Button("Seek") {
+                            store.perform {
+                                let frame = try wholeNumber(seek, name: "Source frame")
+                                actions.command("control_edit", method: "sessions.seek", fields: ["position_frames": .uint(frame)])
+                            }
+                        }.disabled(!actions.flag("control_edit_available") || actions.value("flags")["seek_bounds"] == .null)
                     }
+                    ExactObservation("Seek bounds", value: actions.value("flags")["seek_bounds"])
+                    ExactObservation("Playback observations", value: actions.snapshot?.state ?? .null)
+                    ExactObservation("Queue details", value: actions.value("queue"))
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }.padding()
         .onAppear {
-            selected = actions.value("queue")["selected"].string
             takeover = store.drafts["queue"]?["takeover"].bool ?? false
             seek = store.drafts["queue"]?["seek"].string ?? "0"
         }
-        .onDisappear { store.drafts["queue"] = .object(["takeover": .bool(takeover), "seek": .string(seek)]) }
+        .onDisappear {
+            var saved = store.drafts["queue"]?.object ?? [:]
+            saved["takeover"] = .bool(takeover); saved["seek"] = .string(seek)
+            store.drafts["queue"] = .object(saved)
+        }
     }
     private func canMove(_ delta: Int) -> Bool {
         guard actions.flag("queue_edit_available"), let index = rows.firstIndex(where: { $0.id == selected }) else { return false }
@@ -125,13 +131,18 @@ struct QueueRow: Identifiable {
     let id: String
     let name: String
     let status: String
-    let path: String
     init?(_ value: JSONValue) {
         guard let id = value["id"].string, let path = value["path"].string else { return nil }
         self.id = id
-        self.path = path
         self.name = URL(fileURLWithPath: path).lastPathComponent
-        self.status = value["status"]["state"].string?.capitalized ?? "Unknown"
+        switch value["status"]["state"].string {
+        case "unprepared": self.status = "Queued"
+        case "preparing": self.status = "Opening…"
+        case "ready": self.status = "Ready"
+        case "dsd_ready": self.status = "DSD file"
+        case "failed": self.status = "Unavailable"
+        default: self.status = value["status"]["state"].string?.capitalized ?? "Unknown"
+        }
     }
 }
 
@@ -150,6 +161,7 @@ struct OutputView: View {
     @State private var ramp = "64"
     @State private var softwareCap = "-20000"
     @State private var hardwareCap = ""
+    @State private var inventoryRequested = false
     var state: JSONValue { actions.snapshot?.state ?? .null }
     var devices: [JSONValue] { actions.value("discovery")["observation"]["devices"].array }
     var body: some View {
@@ -166,15 +178,13 @@ struct OutputView: View {
                         .disabled(!actions.flag("control_edit_available"))
                 }
                 Button("Select Output") { selectOutput() }.disabled(!actions.flag("control_edit_available") || endpoint.isEmpty)
-                Text("Selected output: \(state["output"]["endpoint"].string ?? "None")")
-                Text("Consent: \(state["output_consented"].bool ? "Approved" : "Not approved") · \(state["muted"].bool ? "Muted" : "Unmuted")")
-                HStack {
-                    Button("Approve Current Output") { currentOutput("output.consent") }
-                    Button("Unmute") { actions.command("control_edit", method: "mute.set", fields: ["muted": .bool(false)]) }
-                }.disabled(!actions.flag("control_edit_available") || state["output"] == .null)
-                Button("Mute") { actions.send("mute") }.disabled(!actions.flag("attached"))
+                Text("Selected output: \(selectedDeviceName)")
+                Text(state["output_consented"].bool ? "Audio output approved." : "Approve the selected output to allow sound.")
+                Button("Approve Audio Output") { currentOutput("output.consent") }
+                    .disabled(!actions.flag("control_edit_available") || state["output"] == .null || state["output_consented"].bool)
             }
-            Section("Software Level") {
+            Section("Volume") { PlaybackVolumeControl(store: store) }
+            DisclosureGroup("Advanced Output and Safety") {
                 TextField("Level (millidecibels)", text: $level)
                 Text("−30000 means −30 dB. This draft changes no Engine setting until you choose Set Level.")
                 Button("Set Level") {
@@ -183,8 +193,6 @@ struct OutputView: View {
                     }
                 }.disabled(!actions.flag("control_edit_available"))
                 Text("Observed level: \(state["software_gain_db"].text) dB · exact zero: \(state["software_gain_zero"].bool ? "Yes" : "No")")
-            }
-            DisclosureGroup("Advanced Output and Safety") {
                 Picker("Backend", selection: $backend) { Text("Core Audio").tag("core_audio"); Text("ALSA").tag("alsa") }
                 Picker("Route", selection: $route) { Text("System").tag("system"); Text("Direct Hardware").tag("direct_hardware") }
                 TextField("Endpoint", text: $endpoint)
@@ -213,18 +221,30 @@ struct OutputView: View {
             }
         }.formStyle(.grouped)
         .onAppear {
-            guard let saved = store.drafts["output"] else { return }
-            backend = saved["backend"].string ?? backend; endpoint = saved["endpoint"].string ?? endpoint
-            route = saved["route"].string ?? route; device = saved["device"].string ?? device
-            profile = saved["profile"].string ?? profile; geometry.period = saved["period"].string ?? geometry.period
-            geometry.buffer = saved["buffer"].string ?? geometry.buffer; mode = saved["mode"].string ?? mode
-            fidelity = saved["fidelity"].string ?? fidelity; level = saved["level"].string ?? level
-            ramp = saved["ramp"].string ?? ramp; softwareCap = saved["software_cap"].string ?? softwareCap
-            hardwareCap = saved["hardware_cap"].string ?? hardwareCap
+            if let saved = store.drafts["output"] {
+                backend = saved["backend"].string ?? backend; endpoint = saved["endpoint"].string ?? endpoint
+                route = saved["route"].string ?? route; device = saved["device"].string ?? device
+                profile = saved["profile"].string ?? profile; geometry.period = saved["period"].string ?? geometry.period
+                geometry.buffer = saved["buffer"].string ?? geometry.buffer; mode = saved["mode"].string ?? mode
+                fidelity = saved["fidelity"].string ?? fidelity; level = saved["level"].string ?? level
+                ramp = saved["ramp"].string ?? ramp; softwareCap = saved["software_cap"].string ?? softwareCap
+                hardwareCap = saved["hardware_cap"].string ?? hardwareCap
+            }
+            loadDevicesIfNeeded()
         }
+        .onChange(of: actions.flag("control_edit_available")) { _, ready in if ready { loadDevicesIfNeeded() } }
+        .onChange(of: actions.snapshot?.state["owner_id"]) { _, _ in inventoryRequested = false; loadDevicesIfNeeded() }
         .onDisappear {
             store.drafts["output"] = .object(["backend": .string(backend), "endpoint": .string(endpoint), "route": .string(route), "device": .string(device), "profile": .string(profile), "period": .string(geometry.period), "buffer": .string(geometry.buffer), "mode": .string(mode), "fidelity": .string(fidelity), "level": .string(level), "ramp": .string(ramp), "software_cap": .string(softwareCap), "hardware_cap": .string(hardwareCap)])
         }
+    }
+    private var selectedDeviceName: String {
+        let selected = state["output"]["endpoint"].string
+        return devices.first { $0["endpoint"].string == selected }?["display_name"].string ?? selected ?? "None"
+    }
+    private func loadDevicesIfNeeded() {
+        guard !inventoryRequested, actions.flag("control_edit_available"), actions.value("discovery") == .null else { return }
+        inventoryRequested = actions.send("discover", fields: ["backend": .string(backend), "endpoint": .null])
     }
     private func currentOutput(_ method: String) {
         actions.command("control_edit", method: method, fields: ["device_id": state["output"]["device_id"], "profile_id": state["output"]["profile_id"]])

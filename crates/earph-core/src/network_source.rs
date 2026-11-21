@@ -93,7 +93,10 @@ impl crate::control::CommandEnvelope {
     pub(crate) fn network_capacity_bytes(&self) -> Result<usize, EngineError> {
         if !self.payload.is_network()
             && !self.payload.is_renderer()
-            && !matches!(self.payload, Command::SourceStageUri { .. })
+            && !matches!(
+                self.payload,
+                Command::SourceStageUri { .. } | Command::VolumeSetGuarded { .. }
+            )
         {
             return Ok(0);
         }
@@ -122,6 +125,22 @@ impl crate::control::CommandEnvelope {
                 + 4 * 128;
         }
         match &self.payload {
+            Command::VolumeSetGuarded { observed, .. } => {
+                bytes = bytes
+                    .checked_add(size_of::<crate::control::VolumeObservation>())
+                    .and_then(|n| n.checked_add(observed.output.endpoint.capacity()))
+                    .and_then(|n| n.checked_add(observed.output.device_id.capacity_bytes()))
+                    .and_then(|n| n.checked_add(observed.output.profile_id.capacity_bytes()))
+                    .and_then(|n| {
+                        n.checked_add(
+                            observed
+                                .active_entry_id
+                                .as_ref()
+                                .map_or(0, QueueEntryId::capacity_bytes),
+                        )
+                    })
+                    .ok_or(BUDGET)?;
+            }
             Command::SourceStageUri { uri, metadata } => {
                 crate::source::validate_storage(uri, metadata)?;
                 bytes += uri.capacity() + metadata.capacity();

@@ -15,6 +15,10 @@ struct ViewPresentationTests {
         let deadline = Date().addingTimeInterval(5)
         while store.snapshot == nil && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
         guard store.snapshot != nil else { throw ViewCheckFailure.message("No actual Rust snapshot") }
+        guard !store.flag("attached"), store.value("queue") == .null,
+              store.error == nil, store.value("error") == .null else {
+            throw ViewCheckFailure.message("The presentation fixture must contain no connected owner, queue, or private error")
+        }
         let hosting = NSHostingView(rootView: ContentView(store: store))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Earph Native Presentation Test"
@@ -32,7 +36,7 @@ struct ViewPresentationTests {
         while !closed && Date() < closeDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
         guard closed else { throw ViewCheckFailure.message("Owned view controller cleanup timed out") }
         window.orderOut(nil)
-        print("PASS actual native ContentView rendering at 1040×760; retained PNG: \(path)")
+        print("PASS owned ContentView construction and controller cleanup; diagnostic PNG: \(path)")
     }
 }
 

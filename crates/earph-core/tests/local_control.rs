@@ -61,6 +61,246 @@ fn configure(s: &mut Session) {
     s.submit(c);
 }
 
+fn observed_volume_payload(state: &SessionSnapshot) -> serde_json::Value {
+    let state = serde_json::to_value(state).unwrap();
+    let mut observed = serde_json::Map::new();
+    for field in [
+        "source",
+        "active_entry_id",
+        "epochs",
+        "device_epoch",
+        "graph_epoch",
+        "output",
+        "output_consented",
+        "muted",
+        "software_gain_zero",
+        "volume_policy",
+        "local_volume_policy",
+    ] {
+        observed.insert(field.into(), state[field].clone());
+    }
+    serde_json::json!({
+        "method":"volume.set_guarded", "observed":observed,
+        "observed_revision":state["revision"],
+        "millidecibels":-26000, "ramp_frames":64
+    })
+}
+
+#[test]
+fn observed_volume_applies_after_a_transport_only_revision_change() {
+    let mut s = session();
+    configure(&mut s);
+    assert_eq!(s.submit(start(&s)).status, ReceiptStatus::Accepted);
+    let before = s.snapshot();
+    let payload = serde_json::from_value(observed_volume_payload(&before))
+        .expect("the atomic observed-volume command must decode");
+    let guarded = command(&s, "guarded-volume", payload);
+    let strict = command(
+        &s,
+        "strict-volume",
+        Command::VolumeSet {
+            millidecibels: -26000,
+            ramp_frames: 64,
+        },
+    );
+    s.advance(EngineEvent {
+        epochs: before.epochs,
+        monotonic_ns: 1,
+        kind: EngineEventKind::Prepared,
+    })
+    .unwrap();
+    assert!(s.snapshot().revision > before.revision);
+    assert_eq!(
+        s.submit(strict).error.unwrap().code,
+        ErrorCode::StaleRevision
+    );
+    let receipt = s.submit(guarded.clone());
+    assert_eq!(receipt.status, ReceiptStatus::Applied, "{receipt:?}");
+    assert_eq!(s.snapshot().software_gain_db, -26.0);
+    assert!(s.snapshot().muted);
+    assert_eq!(s.snapshot().epochs, before.epochs);
+    let after = s.snapshot();
+    assert_eq!(s.submit(guarded), receipt);
+    assert_eq!(s.snapshot(), after);
+}
+
+#[test]
+fn observed_volume_rejects_each_changed_context_even_at_the_current_revision() {
+    let mut s = session();
+    configure(&mut s);
+    let before = s.snapshot();
+    let payload = observed_volume_payload(&before);
+    let mut output = serde_json::to_value(output()).unwrap();
+    output["endpoint"] = serde_json::json!("other-output");
+    for (index, (field, changed)) in [
+        ("source", serde_json::json!("local_file")),
+        ("active_entry_id", serde_json::json!("another-track")),
+        ("epochs", serde_json::json!({"session":9,"stream":9})),
+        ("device_epoch", serde_json::json!(before.device_epoch + 1)),
+        ("graph_epoch", serde_json::json!(before.graph_epoch + 1)),
+        ("output", output),
+        ("output_consented", serde_json::json!(false)),
+        ("muted", serde_json::json!(false)),
+        ("software_gain_zero", serde_json::json!(true)),
+        (
+            "volume_policy",
+            serde_json::json!({"software_cap_db":-1.0,"hardware_cap_db":null}),
+        ),
+        (
+            "local_volume_policy",
+            serde_json::json!({"software_cap_db":-1.0,"hardware_cap_db":null}),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut value = payload.clone();
+        value["observed"][field] = changed;
+        let request = command(
+            &s,
+            &format!("changed-{index}"),
+            serde_json::from_value(value).unwrap(),
+        );
+        assert_eq!(s.submit(request).status, ReceiptStatus::Rejected, "{field}");
+        assert_eq!(s.snapshot(), before, "{field}");
+    }
+}
+
+#[test]
+fn observed_volume_cannot_use_a_missing_or_future_revision_or_another_owner_or_session() {
+    let mut s = session();
+    configure(&mut s);
+    let before = s.snapshot();
+    for index in 0..6 {
+        let mut payload = observed_volume_payload(&before);
+        if index == 5 {
+            payload["observed_revision"] = serde_json::json!(before.revision + 1);
+        }
+        let payload = serde_json::from_value(payload).unwrap();
+        let mut request = command(&s, &format!("envelope-{index}"), payload);
+        match index {
+            0 => request.expected_revision = None,
+            1 => request.expected_revision = Some(before.revision + 1),
+            2 => request.owner_id = Some(OwnerId::new("another-owner").unwrap()),
+            3 => request.session_id = Some(SessionId::new("another-session").unwrap()),
+            4 => request.zone_id = ZoneId::new("another-zone").unwrap(),
+            5 => {}
+            _ => unreachable!(),
+        }
+        assert_eq!(s.submit(request).status, ReceiptStatus::Rejected, "{index}");
+        assert_eq!(s.snapshot(), before);
+    }
+}
+
+#[test]
+fn observed_volume_preserves_a_later_mute_and_exact_silence() {
+    for silence in [false, true] {
+        let mut s = session();
+        configure(&mut s);
+        if !silence {
+            assert_eq!(
+                s.submit(command(&s, "unmute", Command::Mute { muted: false }))
+                    .status,
+                ReceiptStatus::Applied
+            );
+        }
+        let before = s.snapshot();
+        let payload = serde_json::from_value(observed_volume_payload(&before)).unwrap();
+        let request = command(&s, "older-volume", payload);
+        let safety = if silence {
+            Command::VolumeSilence
+        } else {
+            Command::Mute { muted: true }
+        };
+        assert_eq!(
+            s.submit(command(&s, "safety", safety)).status,
+            ReceiptStatus::Applied
+        );
+        let after = s.snapshot();
+        assert_eq!(s.submit(request).status, ReceiptStatus::Rejected);
+        assert_eq!(s.snapshot(), after);
+    }
+}
+
+#[test]
+fn observed_volume_rejections_keep_their_context_inside_the_shared_storage_budget() {
+    let mut s = session();
+    configure(&mut s);
+    let before = s.snapshot();
+    let mut payload = observed_volume_payload(&before);
+    payload["observed"]["output"]["endpoint"] = serde_json::json!("x".repeat(500_000));
+    for index in 0..40 {
+        let request = command(
+            &s,
+            &format!("bounded-volume-{index}"),
+            serde_json::from_value(payload.clone()).unwrap(),
+        );
+        assert_eq!(s.submit(request).status, ReceiptStatus::Rejected);
+        let retained = s.network_snapshot().retained_bytes;
+        assert!(retained >= 500_000);
+        assert!(retained <= earph_core::network_source::MAX_NETWORK_AUTHORITY_BYTES as u64);
+        assert_eq!(s.snapshot(), before);
+    }
+}
+
+#[test]
+fn observed_software_volume_keeps_its_wire_identity_when_fixed_arming_exists() {
+    let mut s = session();
+    configure(&mut s);
+    let arm = command(
+        &s,
+        "arm",
+        Command::FixedArm {
+            device_id: DeviceId::new("dac").unwrap(),
+            profile_id: ProfileId::new("profile").unwrap(),
+        },
+    );
+    assert_eq!(s.submit(arm).status, ReceiptStatus::Applied);
+    let state = s.snapshot();
+    let payload = Command::VolumeSetGuarded {
+        observed: Box::new(state.volume_observation().unwrap()),
+        observed_revision: state.revision,
+        millidecibels: -26000,
+        ramp_frames: 64,
+    };
+    let payload = serde_json::from_slice(&serde_json::to_vec(&payload).unwrap()).unwrap();
+    let receipt = s.submit(command(&s, "wire-volume", payload));
+    assert_eq!(receipt.status, ReceiptStatus::Applied, "{receipt:?}");
+    assert_eq!(s.snapshot().software_gain_db, -26.0);
+    assert_eq!(s.snapshot().muted, state.muted);
+}
+
+#[test]
+fn an_older_zero_volume_gesture_cannot_clear_a_repeated_silence_after_preflight() {
+    let mut s = session();
+    configure(&mut s);
+    s.submit(command(&s, "first-silence", Command::VolumeSilence));
+    let before = s.snapshot();
+    assert!(before.software_gain_zero);
+    let observed = observed_volume_payload(&before);
+    assert_eq!(
+        s.submit(command(&s, "repeat-silence", Command::VolumeSilence))
+            .status,
+        ReceiptStatus::Applied
+    );
+    // The fresh preflight revision cannot replace the original gesture's observation.
+    let request = command(
+        &s,
+        "older-zero-volume",
+        serde_json::from_value(observed).unwrap(),
+    );
+    assert_eq!(s.submit(request).status, ReceiptStatus::Rejected);
+    assert!(s.snapshot().software_gain_zero);
+    assert_eq!(s.snapshot().software_gain_db, before.software_gain_db);
+    let current = s.snapshot();
+    let payload = serde_json::from_value(observed_volume_payload(&current)).unwrap();
+    assert_eq!(
+        s.submit(command(&s, "fresh-zero-volume", payload)).status,
+        ReceiptStatus::Applied
+    );
+    assert!(!s.snapshot().software_gain_zero);
+}
+
 #[test]
 fn software_silence_is_independent_of_mute_and_finite_gain() {
     let mut s = session();
@@ -327,6 +567,29 @@ fn start(s: &Session) -> CommandEnvelope {
     );
     c.session_id = Some(SessionId::new("local-session").unwrap());
     c
+}
+
+#[test]
+fn stop_rejects_changed_or_missing_owner_for_an_existing_session() {
+    let mut s = session();
+    configure(&mut s);
+    assert_eq!(s.submit(start(&s)).status, ReceiptStatus::Accepted);
+    let before = s.snapshot();
+    for owner in [Some(OwnerId::new("another-owner").unwrap()), None] {
+        let mut stop = command(
+            &s,
+            if owner.is_some() {
+                "wrong-owner"
+            } else {
+                "missing-owner"
+            },
+            Command::Stop,
+        );
+        stop.owner_id = owner;
+        stop.expected_revision = Some(0);
+        assert_eq!(s.submit(stop).error.unwrap().code, ErrorCode::StaleSession);
+        assert_eq!(s.snapshot(), before);
+    }
 }
 #[test]
 fn selecting_output_cannot_grant_signal_permission_or_unmute() {

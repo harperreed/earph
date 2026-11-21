@@ -7,7 +7,7 @@ use crate::{
     ids::*,
     profile_control::*,
     profiles::{ProfileOutputSelector, ProfileResolution},
-    safety::{FidelityPolicy, VolumeMode},
+    safety::{FidelityPolicy, VolumeMode, VolumePolicy},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -37,6 +37,25 @@ pub enum SourceKind {
     LocalFile,
     HttpFlac,
 }
+
+/// Captures the authority and safety facts behind one absolute software-volume gesture.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VolumeObservation {
+    pub source: Option<SourceKind>,
+    pub active_entry_id: Option<QueueEntryId>,
+    pub epochs: Epochs,
+    pub device_epoch: u64,
+    pub graph_epoch: u64,
+    pub output: OutputConfiguration,
+    pub output_consented: bool,
+    pub muted: bool,
+    pub software_gain_zero: bool,
+    pub volume_policy: VolumePolicy,
+    pub local_volume_policy: VolumePolicy,
+}
+// VolumePolicy admits only finite caps, so this observation's equality remains reflexive.
+impl Eq for VolumeObservation {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -316,6 +335,13 @@ pub enum Command {
     },
     #[serde(rename = "volume.set")]
     VolumeSet {
+        millidecibels: i32,
+        ramp_frames: u32,
+    },
+    #[serde(rename = "volume.set_guarded")]
+    VolumeSetGuarded {
+        observed: Box<VolumeObservation>,
+        observed_revision: u64,
         millidecibels: i32,
         ramp_frames: u32,
     },

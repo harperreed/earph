@@ -1,6 +1,7 @@
 // ABOUTME: Tests native batch admission and repeated profile loading against a real standalone Engine.
 // ABOUTME: Uses actual Store publications and native field editing without output, mocks, or global clipboard access.
 import AppKit
+import Combine
 import Darwin
 import SwiftUI
 
@@ -46,11 +47,13 @@ struct BatchIntegrationTests {
         }
         do {
             launched = true
-            try require(store.send("launch", fields: ["runtime": .string(runtime), "executable": .string(executable)]), "Launch admission failed")
+            store.connectAutomatically()
             try waitStore(store) { store.flag("queue_edit_available") && store.value("host")["kind"].string == "owned_running" }
             owner = store.snapshot?.state["owner_id"] ?? .null
             ownedPID = store.value("host")["pid"].uint
             try require(owner != .null && ownedPID != nil, "Launch must expose the real owner and PID")
+            store.connectAutomatically()
+            try require(store.snapshot?.state["owner_id"] == owner, "Automatic connection must keep an attached owner")
             try write(.object(["owner_id": owner, "pid": ownedPID.map(JSONValue.uint) ?? .null, "runtime": .string(runtime)]), to: directory.appendingPathComponent("owned-process.json"))
             try silent(store)
             if mode != "profile" { try batchRegression(store, runtime: runtime, directory: directory) }
@@ -82,12 +85,28 @@ struct BatchIntegrationTests {
         for file in [first, second, external] { try silentWAV().write(to: file, options: .withoutOverwriting) }
         store.appendFiles([first, second])
         try waitStore(store) { store.value("queue")["entries"].array.count == 2 && store.flag("queue_edit_available") }
+        let rows = store.value("queue")["entries"].array.compactMap(QueueRow.init)
+        try require(rows.count == 2 && rows.allSatisfy { $0.status == "Queued" }, "Fresh audio files must appear as queued music")
+        let owner = store.snapshot?.state["owner_id"] ?? .null
+        var selectionPublished = false
+        let selectionObservation = store.objectWillChange.sink { selectionPublished = true }
+        store.selectTrack(rows[1].id, owner: owner)
+        selectionObservation.cancel()
+        try require(selectionPublished, "Selecting another track must update the toolbar before the next Engine observation")
+        store.play(captured: store.snapshot)
+        try waitStore(store) { store.value("error") != .null && !store.flag("play_local_pending") }
+        try require(store.trackSelection?.entryID == rows[1].id && store.trackSelection?.phase == .selected,
+                    "Refused playback must preserve the selected track for retry")
+        try silent(store)
+        store.dismissError()
+        try waitStore(store) { store.value("error") == .null && store.flag("queue_edit_available") }
         try require(store.value("receipts").array.filter { $0["method"].string == "queue.append" && $0["presentation"].string == "applied" }.count == 2, "Both successful batch files need real Applied receipts")
         let staleGeneration = store.snapshot?.root["generation"]
         let retainedIDs = Set(store.value("receipts").array.compactMap { $0["request_id"].string })
         let externalController = NativeController()
         _ = try externalController.send(actionJson: action("attach", fields: ["runtime": .string(runtime)]).encoded())
         var state = try waitNative(externalController) { $0.flag("queue_edit_available") }
+        try require(state.root["queue"]["selected"] == .null, "Selecting a row must remain a draft until approved playback can proceed")
         // Keep MainActor publication blocked until the external mutations finish.
         for entry in state.root["queue"]["entries"].array {
             _ = try externalController.send(actionJson: state.action("queue_edit", fields: ["command": .object(["method": .string("queue.remove"), "id": entry["id"]])]).encoded())

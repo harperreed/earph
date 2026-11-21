@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-21T18:49:47.242Z",
-  "headline": "DSD software checkpoint published; scoped Mac and silent GetMute gates pass.",
-  "focus": "Finish output-clock and correction integration · Extend controller qualification · Deliver Stop when Orbit reconnects",
-  "summary": "The DSD typed software ownership and retained failed-retirement work is published in clean checkpoint 0d65805. Root’s full Linux scripts/check joins exit 0 with all 2,093 source hashes verified: 1,850 reported passes, zero failures, 22 ignores, and 197 groups. Counts include nested results rather than unique tests. The earlier 6318d6a hosted run now passes both Linux and Mac. The Mac checkout has the exact published tree; native Swift/linking and all six UI/owner checks pass. This validates the shared deployment target under that source scope, without physical output, installation, or new DSD compilation. One silent read-only native SDK GetMute passes on the interim ef87602 Engine fixture. Complete SDK and owner joins, stopped containers, and an empty bridge are verified. No live owner remains. This is not the controller matrix, current 0d65805 qualification, audio, or AC-15 acceptance. Output-clock, projection, and correction units continue under separate qualification. Orbit remains last observed offline; the installed app still lacks the Stop update. Doctor Biz confirms hearing only for the selected local PCM path, which was stopped. Public DSD Unmute remains blocked and Core Audio DSD is unsupported. Operational Sendspin, physical synchronization, DSD carriage, signing, and first release remain open.",
+  "updated_at": "2026-11-21T23:49:16.838Z",
+  "headline": "Guarded player passes full Linux and six exact-source Mac checks.",
+  "focus": "Publish the verified guarded player · Deliver to Orbit when online · Integrate reviewed Sendspin runtime units",
+  "summary": "The final guarded-player Mac evidence records all six native checks passing with exit 0, zero compiler diagnostics, 2,097 verified source files, and 11 fresh product hashes verified. All 19 actual-owner playback cases pass with exit 0. Independent review clears the repeated-Silence correction. These qualify scoped working sources, rather than an installed release. The fifth full Linux canonical run and product build both finish with exit 0. All 2,097 frozen source files remain unchanged. The run reports 1,884 passes, zero failures, 22 ignores, and 198 groups, including nested reports rather than unique tests. Its logs and both retained product hashes verify exactly. The earlier fourth run remains failed with exit 101 in one renderer owner callback-expiry IPC deadline case. Its exact unchanged isolated recheck passes. That earlier root cause remains unestablished. The fifth run adds only RUST_BACKTRACE=1; no deadline, product, or test changes mask the earlier failure. This qualifies the scoped working software snapshot; publication and Orbit installation remain pending. The simpler player is not installed on Orbit; the installed app remains unchanged. Root reports a fresh Tailscale check at 23:44 UTC: Orbit is offline, last seen at 21:07:52 UTC. No new delivery or hardware playback is claimed. Doctor Biz’s audible confirmation keeps its earlier selected-local-PCM scope. Doctor Biz explicitly deferred the quit/background-playback decision; current detach behavior stays unchanged. Private Core preparation passes clear independent re-review. Its combined guarded-volume/Core run exits 0 with 467 passes across 34 targets. The source actor v2 passes 18 tests and clear independent re-review after fixing the stopped-stream epoch barrier. It preserves queued events until Core commits the next output epoch. The actor is unregistered; actual owner/Host integration remains pending. Port timing stays unqualified and source payload remains inadmissible. The private correction-capacity helper passes 17 tests and clear narrow independent review. Broader render period staging remains active; that separate implementation has no completion claim. These private units do not establish operational Sendspin, physical synchronization, or release readiness. The whole first release remains OPEN. DSD physical carriage, broader controller interoperability, signing, and final release qualification remain incomplete.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -31,7 +31,7 @@
     },
     "M1": {
       "state": "active",
-      "detail": "Doctor Biz confirms audio on the installed Orbit local PCM path. The Stop correction is published and Linux-qualified, but not installed on Orbit. Mac verification, deployment, and broader playback acceptance remain open."
+      "detail": "The final guarded-player Mac evidence records all six native checks passing with exit 0, zero compiler diagnostics, 2,097 verified source files, and 11 fresh product hashes verified. All 19 actual-owner playback cases pass with exit 0. Independent review clears the repeated-Silence correction. These qualify scoped working sources, rather than an installed release. The fifth full Linux canonical run and product build both finish with exit 0. All 2,097 frozen source files remain unchanged. The run reports 1,884 passes, zero failures, 22 ignores, and 198 groups, including nested reports rather than unique tests. Its logs and both retained product hashes verify exactly. The earlier fourth run remains failed with exit 101 in one renderer owner callback-expiry IPC deadline case. Its exact unchanged isolated recheck passes. That earlier root cause remains unestablished. The fifth run adds only RUST_BACKTRACE=1; no deadline, product, or test changes mask the earlier failure. This qualifies the scoped working software snapshot; publication and Orbit installation remain pending. The simpler player is not installed on Orbit; the installed app remains unchanged. Root reports a fresh Tailscale check at 23:44 UTC: Orbit is offline, last seen at 21:07:52 UTC. No new delivery or hardware playback is claimed. Doctor Biz’s audible confirmation keeps its earlier selected-local-PCM scope. Doctor Biz explicitly deferred the quit/background-playback decision; current detach behavior stays unchanged."
     },
     "M2": {
       "state": "active",
@@ -39,7 +39,7 @@
     },
     "M3": {
       "state": "active",
-      "detail": "Published DSD software ownership passes full Linux checks, with public DSD Unmute still blocked and Core Audio DSD unsupported. Clock wrapper, projection, and correction qualification continues. Silent interim GetMute passes with clean retirement. No full controller matrix, operational Sendspin, physical synchronization, DSD device carriage, or whole-release acceptance is added."
+      "detail": "Private Core preparation passes clear independent re-review. Its combined guarded-volume/Core run exits 0 with 467 passes across 34 targets. The source actor v2 passes 18 tests and clear independent re-review after fixing the stopped-stream epoch barrier. It preserves queued events until Core commits the next output epoch. The actor is unregistered; actual owner/Host integration remains pending. Port timing stays unqualified and source payload remains inadmissible. The private correction-capacity helper passes 17 tests and clear narrow independent review. Broader render period staging remains active; that separate implementation has no completion claim. These private units do not establish operational Sendspin, physical synchronization, or release readiness. Scoped interim GetMute keeps its earlier evidence boundary; broader controller qualification remains pending."
     },
     "M4": {
       "state": "planned",
@@ -88,8 +88,8 @@
       "detail": "The local Sendspin bridge is complete and independent review is clear. Engine tests report 187 passes and one ignore. Actual pinned authenticated transport and gated-helper success/uncertainty cases pass, alongside process/compile/helper/lint/format/inventory checks. Real Linux native E2E now passes in a fresh private environment: all three children exit 0, with no production store or output. The bridge is now integrated into Root; whole-candidate qualification now passes; the current candidate’s live handover remains pending. Provisioning, startup, recovery acknowledgement, player, clocks, and output remain unfinished."
     },
     {
-      "title": "Interim native GetMute and complete retirement pass",
-      "detail": "One silent read-only native SDK GetMute passes on the interim ef87602 Engine fixture. Complete SDK and owner joins, stopped containers, and an empty bridge are verified. No live owner remains. This is not the controller matrix, current 0d65805 qualification, audio, or AC-15 acceptance."
+      "title": "Scoped interim GetMute receipt is published",
+      "detail": "The scoped native GetMute receipt is now published. It binds one silent read-only call and complete clean retirement to interim ef87602, with no live owner remaining. It does not qualify the current DSD source, a controller matrix, audio, or AC-15."
     },
     {
       "title": "Integrated timing/bridge scripts/check passes; full qualification pending",
@@ -136,12 +136,12 @@
       "detail": "Both same-profile reload and stale file-batch receipt defects have genuine Mac REDs, frozen corrections, targeted independent clearance, and actual runtime GREENs inside the final six-check candidate."
     },
     {
-      "title": "Latest published checkpoint passes full Linux canonical checks",
-      "detail": "The DSD typed software ownership and retained failed-retirement work is published in clean checkpoint 0d65805. Root’s full Linux scripts/check joins exit 0 with all 2,093 source hashes verified: 1,850 reported passes, zero failures, 22 ignores, and 197 groups. Counts include nested results rather than unique tests."
+      "title": "Interim simple-playback snapshot passes combined Linux checks",
+      "detail": "The first combined simple-playback snapshot passes full Linux scripts/check and product builds with all 2,097 source files unchanged: 1,872 reported passes, zero failures, 22 ignores, and 198 groups. Counts include nested reports, not unique tests. Six actual Mac native checks pass at deployment target 26.0 with source hashes equal before/after and no compiler diagnostics. This qualifies an interim working source based on 700ad16, not a named release or newly installed app."
     },
     {
-      "title": "All six current Mac checks pass with both real regressions GREEN",
-      "detail": "All six current native Mac checks pass, including the actual profile-reload and combined file-batch regressions. Both earlier medium-priority findings have targeted independent source clearance and genuine runtime GREENs. All seven Swift compile logs are empty and warning-free. The final arm64 app package, verification, plist, system-library linkage, and exact private modes pass. The 2,064 source files remain unchanged before and after, and all test Engine processes retire. Root’s Git source matches those Mac sources exactly."
+      "title": "Guarded player passes 19 actual-owner and six matching native checks",
+      "detail": "The final guarded-player Mac evidence records all six native checks passing with exit 0, zero compiler diagnostics, 2,097 verified source files, and 11 fresh product hashes verified. All 19 actual-owner playback cases pass with exit 0. Independent review clears the repeated-Silence correction. These qualify scoped working sources, rather than an installed release. The original observed revision remains part of the guard. Exact-zero restoration requires a fresh gesture after every intervening revision. Finite volume can commute only within its unchanged context; no guard is weakened."
     },
     {
       "title": "Doctor Biz confirms paste in the open final native app",
@@ -154,6 +154,10 @@
     {
       "title": "Sealed round-seven controlled silent lifecycle passes with unchanged inputs",
       "detail": "Earlier source-seven silent lifecycle and matched timing evidence retain their source boundary. FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance. A later qualified live upgrade and full-track submission and output closure now pass, with nonzero software PCM, natural EOF, matching frame totals, one SDK Start, and confirmed close. Hearing remains pending. The exact qualified app is subsequently copied to a fresh user Applications destination, opened, and revealed, with matching bundle hashes and successful verification. This delivery performs no audio Start and remains unsigned development scope. Doctor Biz later confirms hearing on the installed Orbit local PCM path. A separate deployed GUI Stop bug remains under correction; one direct fenced Stop safely confirms Idle/muted/output closure. This does not widen the earlier silent-test or acoustic scope."
+    },
+    {
+      "title": "Final guarded-player full Linux snapshot passes unchanged",
+      "detail": "The fifth full Linux canonical run and product build both finish with exit 0. All 2,097 frozen source files remain unchanged. The run reports 1,884 passes, zero failures, 22 ignores, and 198 groups, including nested reports rather than unique tests. Its logs and both retained product hashes verify exactly. The earlier fourth run remains failed with exit 101 in one renderer owner callback-expiry IPC deadline case. Its exact unchanged isolated recheck passes. That earlier root cause remains unestablished. The fifth run adds only RUST_BACKTRACE=1; no deadline, product, or test changes mask the earlier failure. This qualifies the scoped working software snapshot; publication and Orbit installation remain pending."
     }
   ],
   "verified": [
@@ -1008,48 +1012,44 @@
   ],
   "active": [
     {
-      "title": "Finish output-clock, projection, and correction units",
-      "detail": "The output-clock wrapper has 26 targeted passes, including the independent tracker-binding regression. A full Engine repeat on final source is running. The pure projection unit passes 20 tests and clears review but is not integrated. Correction work has more than 15 tests and actual software PCM with bounded multi-edit ±51 ms recovery. None of this adds a public operational runtime claim."
+      "title": "Publish and deliver the verified guarded player",
+      "detail": "The final guarded-player Mac evidence records all six native checks passing with exit 0, zero compiler diagnostics, 2,097 verified source files, and 11 fresh product hashes verified. All 19 actual-owner playback cases pass with exit 0. Independent review clears the repeated-Silence correction. These qualify scoped working sources, rather than an installed release. The simpler player is not installed on Orbit; the installed app remains unchanged. Root reports a fresh Tailscale check at 23:44 UTC: Orbit is offline, last seen at 21:07:52 UTC. No new delivery or hardware playback is claimed. Doctor Biz’s audible confirmation keeps its earlier selected-local-PCM scope. Doctor Biz explicitly deferred the quit/background-playback decision; current detach behavior stays unchanged."
     },
     {
-      "title": "Extend controller qualification beyond silent GetMute",
-      "detail": "One silent read-only native SDK GetMute passes on the interim ef87602 Engine fixture. Complete SDK and owner joins, stopped containers, and an empty bridge are verified. No live owner remains. This is not the controller matrix, current 0d65805 qualification, audio, or AC-15 acceptance. Broader action, audio-format, and interoperability scenarios remain pending."
-    },
-    {
-      "title": "Deliver Stop and finish first-release gates",
-      "detail": "The earlier 6318d6a hosted run now passes both Linux and Mac. The Mac checkout has the exact published tree; native Swift/linking and all six UI/owner checks pass. This validates the shared deployment target under that source scope, without physical output, installation, or new DSD compilation. Orbit is last observed offline, and the installed app has not received the Stop correction. Whole-project implementation continues."
+      "title": "Integrate private Sendspin preparation, actor, and render prerequisites",
+      "detail": "Private Core preparation passes clear independent re-review. Its combined guarded-volume/Core run exits 0 with 467 passes across 34 targets. The source actor v2 passes 18 tests and clear independent re-review after fixing the stopped-stream epoch barrier. It preserves queued events until Core commits the next output epoch. The actor is unregistered; actual owner/Host integration remains pending. Port timing stays unqualified and source payload remains inadmissible. The private correction-capacity helper passes 17 tests and clear narrow independent review. Broader render period staging remains active; that separate implementation has no completion claim. These private units do not establish operational Sendspin, physical synchronization, or release readiness."
     }
   ],
   "pending": [
     {
-      "title": "Orbit Stop delivery remains blocked by connectivity",
-      "detail": "The Stop fix is published, but the installed Orbit app is unchanged. The wake question remains pending. No new installation or audio Start is claimed."
+      "title": "Guarded-player publication and delivery remain pending",
+      "detail": "The fifth full Linux canonical run and product build both finish with exit 0. All 2,097 frozen source files remain unchanged. The run reports 1,884 passes, zero failures, 22 ignores, and 198 groups, including nested reports rather than unique tests. Its logs and both retained product hashes verify exactly. The earlier fourth run remains failed with exit 101 in one renderer owner callback-expiry IPC deadline case. Its exact unchanged isolated recheck passes. That earlier root cause remains unestablished. The fifth run adds only RUST_BACKTRACE=1; no deadline, product, or test changes mask the earlier failure. This qualifies the scoped working software snapshot; publication and Orbit installation remain pending."
     },
     {
-      "title": "DSD physical and operational routes remain gated",
-      "detail": "Published typed software ownership passes Linux checks. Public DSD Unmute is blocked; Core Audio DSD is unsupported. Earlier Mac UI gates do not compile or qualify this new DSD unit."
+      "title": "The installed Orbit app remains unchanged",
+      "detail": "The simpler player is not installed on Orbit; the installed app remains unchanged. Root reports a fresh Tailscale check at 23:44 UTC: Orbit is offline, last seen at 21:07:52 UTC. No new delivery or hardware playback is claimed. Doctor Biz’s audible confirmation keeps its earlier selected-local-PCM scope. Doctor Biz explicitly deferred the quit/background-playback decision; current detach behavior stays unchanged. Earlier screenshots remain unqualified; no new appearance or manual interaction result is inferred."
     },
     {
-      "title": "Operational Sendspin, controller matrix, and release remain open",
-      "detail": "Clock wrapper, projection, and correction checks retain separate incomplete integration scopes. Silent interim GetMute does not establish full controller interoperability. Hearing is confirmed only for the selected Orbit local PCM path. Signing, physical synchronization, broader routes, and release remain open."
+      "title": "Sendspin runtime and the whole first release remain open",
+      "detail": "Private Core preparation passes clear independent re-review. Its combined guarded-volume/Core run exits 0 with 467 passes across 34 targets. The source actor v2 passes 18 tests and clear independent re-review after fixing the stopped-stream epoch barrier. It preserves queued events until Core commits the next output epoch. The actor is unregistered; actual owner/Host integration remains pending. Port timing stays unqualified and source payload remains inadmissible. The private correction-capacity helper passes 17 tests and clear narrow independent review. Broader render period staging remains active; that separate implementation has no completion claim. These private units do not establish operational Sendspin, physical synchronization, or release readiness. DSD physical carriage, broader controller interoperability, signing, and whole-release acceptance remain incomplete."
     }
   ],
   "activity": [
     {
-      "title": "Reviewed DSD software checkpoint is published",
-      "detail": "The DSD typed software ownership and retained failed-retirement work is published in clean checkpoint 0d65805. Root’s full Linux scripts/check joins exit 0 with all 2,093 source hashes verified: 1,850 reported passes, zero failures, 22 ignores, and 197 groups. Counts include nested results rather than unique tests."
+      "title": "Final guarded-player Mac evidence verifies six checks and 11 product hashes",
+      "detail": "The final guarded-player Mac evidence records all six native checks passing with exit 0, zero compiler diagnostics, 2,097 verified source files, and 11 fresh product hashes verified. All 19 actual-owner playback cases pass with exit 0. Independent review clears the repeated-Silence correction. These qualify scoped working sources, rather than an installed release."
     },
     {
-      "title": "Earlier exact-source Mac UI and deployment-target checks pass",
-      "detail": "The earlier 6318d6a hosted run now passes both Linux and Mac. The Mac checkout has the exact published tree; native Swift/linking and all six UI/owner checks pass. This validates the shared deployment target under that source scope, without physical output, installation, or new DSD compilation."
+      "title": "Full Linux canonical and product build pass; prior failure stays retained",
+      "detail": "The fifth full Linux canonical run and product build both finish with exit 0. All 2,097 frozen source files remain unchanged. The run reports 1,884 passes, zero failures, 22 ignores, and 198 groups, including nested reports rather than unique tests. Its logs and both retained product hashes verify exactly. The earlier fourth run remains failed with exit 101 in one renderer owner callback-expiry IPC deadline case. Its exact unchanged isolated recheck passes. That earlier root cause remains unestablished. The fifth run adds only RUST_BACKTRACE=1; no deadline, product, or test changes mask the earlier failure. This qualifies the scoped working software snapshot; publication and Orbit installation remain pending."
     },
     {
-      "title": "Silent interim GetMute retires cleanly",
-      "detail": "One silent read-only native SDK GetMute passes on the interim ef87602 Engine fixture. Complete SDK and owner joins, stopped containers, and an empty bridge are verified. No live owner remains. This is not the controller matrix, current 0d65805 qualification, audio, or AC-15 acceptance."
+      "title": "Private Core and actor fixes clear independent re-review",
+      "detail": "Private Core preparation passes clear independent re-review. Its combined guarded-volume/Core run exits 0 with 467 passes across 34 targets. The source actor v2 passes 18 tests and clear independent re-review after fixing the stopped-stream epoch barrier. It preserves queued events until Core commits the next output epoch. The actor is unregistered; actual owner/Host integration remains pending. Port timing stays unqualified and source payload remains inadmissible. The private correction-capacity helper passes 17 tests and clear narrow independent review. Broader render period staging remains active; that separate implementation has no completion claim. These private units do not establish operational Sendspin, physical synchronization, or release readiness."
     },
     {
-      "title": "Clock and correction qualification continues",
-      "detail": "The output-clock wrapper has 26 targeted passes, including the independent tracker-binding regression. A full Engine repeat on final source is running. The pure projection unit passes 20 tests and clears review but is not integrated. Correction work has more than 15 tests and actual software PCM with bounded multi-edit ±51 ms recovery. None of this adds a public operational runtime claim."
+      "title": "Orbit delivery and quit policy keep their explicit boundaries",
+      "detail": "The simpler player is not installed on Orbit; the installed app remains unchanged. Root reports a fresh Tailscale check at 23:44 UTC: Orbit is offline, last seen at 21:07:52 UTC. No new delivery or hardware playback is claimed. Doctor Biz’s audible confirmation keeps its earlier selected-local-PCM scope. Doctor Biz explicitly deferred the quit/background-playback decision; current detach behavior stays unchanged."
     }
   ]
 }

@@ -41,6 +41,42 @@ fn attach(controller: &NativeController, owner: &Owner) -> Value {
 }
 
 #[test]
+fn native_product_play_reports_missing_setup_without_granting_output_or_starting_audio() {
+    let mut owner = Owner::start();
+    let controller = NativeController::new();
+    let before = attach(&controller, &owner);
+    assert_eq!(before["flags"]["play_local_available"], false);
+    assert_eq!(before["flags"]["play_local_pending"], false);
+    assert_eq!(before["flags"]["volume_edit_available"], false);
+    let volume = send(
+        &controller,
+        json!({"version":1,"kind":"set_volume", "basis_token":before["basis_token"],"millidecibels":-25000,"ramp_frames":64}),
+    );
+    assert!(
+        volume["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("Software volume is unavailable"))
+    );
+    let after = send(
+        &controller,
+        json!({"version":1,"kind":"play_local",
+        "basis_token":before["basis_token"],"takeover":false}),
+    );
+    assert!(
+        after["error"]
+            .as_str()
+            .is_some_and(|s| s.contains("approve an output"))
+    );
+    assert_eq!(after["flags"]["play_local_pending"], false);
+    assert!(after["playback_action_status"].is_string());
+    assert!(owner.state().session_id.is_none());
+    assert!(owner.state().output.is_none());
+    send(&controller, json!({"version":1,"kind":"close_controller"}));
+    wait(&controller, |s| s["flags"]["ready_to_close"] == true);
+    owner.stop();
+}
+
+#[test]
 fn construction_and_local_drafts_never_attach_or_launch() {
     let controller = NativeController::new();
     let initial = value(&controller);

@@ -152,8 +152,12 @@ Installation, authenticated artifacts, signing, macOS launch, rollback, and the 
 
 The [Mac native-control receipt](evidence/desktop/macos-native-controls-20261121.json) binds the standard-control application and six native checks.
 The operator confirmed external paste in the launched app.
-The first real Play attempt remains blocked by the separate Core Audio rate and callback mismatch.
-This evidence qualifies control workflows and package consistency, rather than physical playback.
+The separate Core Audio rate and callback mismatch was fixed after that control-only receipt.
+Doctor Biz later confirmed audible local PCM from the installed Orbit app.
+The [system-output receipt](evidence/local-playback/coreaudio-system-20261121.json) binds the separate silent native lifecycle qualification.
+The [simpler-player receipt](evidence/local-playback/simple-player-20261121.json) binds the later controller and six native checks.
+That later app still needs installation and user acceptance on Orbit.
+Control and package checks alone establish no physical playback or timing qualification.
 
 The [Linux package receipt](evidence/packaging/software-linux-20261120.json) binds construction and verification to the integrated source.
 The [packaged GUI receipt](evidence/packaging/packaged-gui-linux-20261120.json) covers a separate, exact retained product pair.

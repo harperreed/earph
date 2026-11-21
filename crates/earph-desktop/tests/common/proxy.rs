@@ -24,10 +24,14 @@ pub struct Proxy {
     stop: Arc<AtomicBool>,
     gate: Arc<(Mutex<bool>, Condvar)>,
     terminal_held: Arc<AtomicBool>,
+    hold_state_reply: Arc<AtomicBool>,
     pub entered: Receiver<()>,
     join: Option<JoinHandle<()>>,
 }
 impl Proxy {
+    pub fn forward(owner: PathBuf) -> Self {
+        Self::start(owner, None, false)
+    }
     pub fn drop_first_append(owner: PathBuf) -> Self {
         Self::start(owner, Some("queue.append"), false)
     }
@@ -99,6 +103,8 @@ impl Proxy {
         let gate = Arc::new((Mutex::new(false), Condvar::new()));
         let terminal_held = Arc::new(AtomicBool::new(false));
         let holding_terminal = terminal_held.clone();
+        let hold_state_reply = Arc::new(AtomicBool::new(false));
+        let holding_state = hold_state_reply.clone();
         let (entered_tx, entered) = mpsc::sync_channel(1);
         let stopping = stop.clone();
         let captured = frames.clone();
@@ -122,6 +128,7 @@ impl Proxy {
                         let first_queue_reply = first_queue_reply.clone();
                         let accepted_export = accepted_export.clone();
                         let terminal_held = holding_terminal.clone();
+                        let hold_state_reply = holding_state.clone();
                         let retained = retained.clone();
                         handlers.push(thread::spawn(move || {
                             stream
@@ -165,6 +172,12 @@ impl Proxy {
                             };
                             fs::write(retained.join(format!("reply-{index}.json")), &reply)
                                 .unwrap();
+                            if method == "state.get" && hold_state_reply.swap(false, Ordering::AcqRel) {
+                                entered.send(()).unwrap();
+                                let (lock, changed) = &*waiting;
+                                let guard = lock.lock().unwrap();
+                                let _ = changed.wait_timeout_while(guard, Duration::from_secs(2), |released| !*released).unwrap();
+                            }
                             if method == "queue.get"
                                 && first_queue_reply.swap(false, Ordering::AcqRel)
                             {
@@ -227,6 +240,7 @@ impl Proxy {
             stop,
             gate,
             terminal_held,
+            hold_state_reply,
             entered,
             join: Some(join),
         }
@@ -234,6 +248,10 @@ impl Proxy {
     pub fn release(&self) {
         *self.gate.0.lock().unwrap() = true;
         self.gate.1.notify_all();
+    }
+    pub fn hold_next_state_reply(&self) {
+        *self.gate.0.lock().unwrap() = false;
+        self.hold_state_reply.store(true, Ordering::Release);
     }
     pub fn terminal_held(&self) -> bool {
         self.terminal_held.load(Ordering::Acquire)

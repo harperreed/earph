@@ -26,6 +26,77 @@ struct PresentationTests {
         precondition(decoded["command"]["position_frames"].uint == UInt64.max)
         precondition(snapshot.action("mute")["basis_token"] == .null)
         precondition(snapshot.action("shutdown_and_quit")["basis_token"].string == "captured-a")
+        precondition(snapshot.action("play_local", fields: ["takeover": .bool(false)])["basis_token"].string == "captured-a",
+                     "Play must retain the exact visible owner basis")
+        precondition(snapshot.action("play_local", fields: ["takeover": .bool(false), "entry_id": .string("local-42")])["entry_id"].string == "local-42")
+        let playing = try NativeSnapshot(json: """
+        {"version":1,"flags":{},"state":{"owner_id":"owner-a","transport":"playing","muted":false,"active_entry_id":"track-a"}}
+        """)
+        precondition(playing.pausesPlayback(selectedEntry: .string("track-a"), selectionOwner: .string("owner-a")))
+        precondition(!playing.pausesPlayback(selectedEntry: .string("track-b"), selectionOwner: .string("owner-a")),
+                     "Selecting another track must offer Play without first pausing the active track")
+        precondition(!playing.pausesPlayback(selectedEntry: .string("track-a"), selectionOwner: .string("owner-b")))
+        precondition(playing.pausesPlayback(selectedEntry: .null, selectionOwner: .null))
+        let paused = try NativeSnapshot(json: """
+        {"version":1,"flags":{},"state":{"owner_id":"owner-a","transport":"paused","muted":false,"active_entry_id":"track-a"}}
+        """)
+        precondition(!paused.pausesPlayback(selectedEntry: .string("track-a"), selectionOwner: .string("owner-a")))
+        let muted = try NativeSnapshot(json: """
+        {"version":1,"flags":{},"state":{"owner_id":"owner-a","transport":"playing","muted":true,"active_entry_id":"track-a"}}
+        """)
+        precondition(!muted.pausesPlayback(selectedEntry: .string("track-a"), selectionOwner: .string("owner-a")))
+        let firstPlay = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let secondPlay = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let queuedSelection = PlaybackSelection(entryID: "track-a", owner: .string("owner-a"), phase: .queued(firstPlay))
+        precondition(queuedSelection.observing(playing)?.phase == .queued(firstPlay),
+                     "An older background read cannot consume an enqueued selection")
+        let preparingSnapshot = try NativeSnapshot(json: """
+        {"version":1,"flags":{"play_local_pending":true},"state":{"owner_id":"owner-a"},"error":null}
+        """)
+        let preparingSelection = queuedSelection.observing(preparingSnapshot, completionID: firstPlay)
+        precondition(preparingSelection?.phase == .preparing(firstPlay))
+        precondition(preparingSelection?.observing(playing) == nil,
+                     "A completed Play consumes its selection even if the queue has already advanced")
+        let refreshingQueue = try NativeSnapshot(json: """
+        {"version":1,"flags":{"play_local_pending":false,"queue_stale":true},"state":{"owner_id":"owner-a"},"error":"Queue changed during read","action_error":null,"observation_error":"Queue changed during read"}
+        """)
+        precondition(preparingSelection?.observing(refreshingQueue) == nil,
+                     "A queue refresh warning must not turn completed playback into a refusal")
+        let refusedPlay = try NativeSnapshot(json: """
+        {"version":1,"flags":{"play_local_pending":false},"state":{"owner_id":"owner-a"},"error":"Output changed","action_error":"Output changed","observation_error":null}
+        """)
+        precondition(queuedSelection.observing(refusedPlay, completionID: firstPlay)?.phase == .selected,
+                     "A refused Play must preserve the chosen track for retry")
+        let nextSelection = PlaybackSelection(entryID: "track-b", owner: .string("owner-a"))
+        precondition(nextSelection.observing(playing, completionID: firstPlay)?.entryID == "track-b",
+                     "An older Play completion cannot consume a later selection")
+        let queuedNext = PlaybackSelection(entryID: "track-b", owner: .string("owner-a"), phase: .queued(secondPlay))
+        let afterOldRefusal = queuedNext.observing(refusedPlay, completionID: firstPlay)
+        precondition(afterOldRefusal?.phase == .queued(secondPlay), "An old refusal cannot reset a newer queued Play")
+        precondition(afterOldRefusal?.failed(completionID: firstPlay).phase == .queued(secondPlay),
+                     "An old driver failure cannot reset a newer queued Play")
+        let preparingNext = afterOldRefusal?.observing(preparingSnapshot, completionID: secondPlay)
+        precondition(preparingNext?.phase == .preparing(secondPlay))
+        precondition(preparingNext?.observing(playing) == nil)
+        let quiet = try NativeSnapshot(json: """
+        {"version":1,"flags":{"connected":true},"state":{"software_gain_db":-30,"software_gain_zero":false,"volume_policy":{"software_cap_db":-20}}}
+        """)
+        precondition(PlaybackVolume(snapshot: quiet).decibels == -30)
+        precondition(PlaybackVolume(snapshot: quiet).maximumDecibels == -20)
+        let volumeCommand = try PlaybackVolume.command(decibels: -29.5, rampFrames: 256)
+        precondition(volumeCommand["millidecibels"] == .int(-29500))
+        precondition(volumeCommand["ramp_frames"] == .uint(256))
+        precondition(snapshot.action("set_volume", fields: volumeCommand)["basis_token"].string == "captured-a")
+        let capped = try NativeSnapshot(json: """
+        {"version":1,"flags":{},"state":{"software_gain_db":-30,"volume_policy":{"software_cap_db":-20.0004}}}
+        """)
+        precondition(PlaybackVolume(snapshot: capped).maximumDecibels == -20.001)
+        let fractionalVolume = try PlaybackVolume.command(decibels: -20.0004, rampFrames: 64)
+        precondition(fractionalVolume["millidecibels"] == .int(-20001), "Volume quantization must stay below its cap")
+        do {
+            _ = try PlaybackVolume.command(decibels: .nan, rampFrames: 64)
+            preconditionFailure("Nonfinite volume must not construct an action")
+        } catch {}
         do {
             _ = try NativeSnapshot(json: "{\"version\":2,\"flags\":{}}")
             preconditionFailure("Unsupported presentation versions must fail")

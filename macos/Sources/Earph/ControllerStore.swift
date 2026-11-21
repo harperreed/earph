@@ -12,6 +12,7 @@ final class ControllerStore: ObservableObject {
     @Published var executable: String
     @Published var graphText = ""
     @Published private(set) var profileDraftLoadCount: UInt64 = 0
+    @Published private(set) var trackSelection: PlaybackSelection?
     private(set) var loadedProfileDraft: JSONValue = .null
     private var driver: ControllerDriver!
     private var closing = false
@@ -35,11 +36,45 @@ final class ControllerStore: ObservableObject {
     func value(_ key: String) -> JSONValue { snapshot?.root[key] ?? .null }
     func flag(_ key: String) -> Bool { snapshot?.flag(key) ?? false }
 
+    func connectAutomatically() {
+        guard !closing, !flag("attached"), !flag("busy") else { return }
+        if ["owned_running", "attached_existing"].contains(value("host")["kind"].string ?? "") {
+            send("attach", fields: ["runtime": .string(runtime)])
+        } else {
+            send("launch", fields: ["runtime": .string(runtime), "executable": .string(executable)])
+        }
+    }
+    func selectTrack(_ id: String?, owner: JSONValue) {
+        guard owner != .null else { return }
+        if let id, snapshot?.state["owner_id"] == owner,
+           snapshot?.state["active_entry_id"].string == id,
+           snapshot?.state["transport"].string == "playing", snapshot?.state["muted"].bool == false {
+            trackSelection = nil
+        } else { trackSelection = PlaybackSelection(entryID: id, owner: owner) }
+    }
+    func play(captured: NativeSnapshot?) {
+        let selected = trackSelection?.entryToPlay ?? .null
+        if let selection = trackSelection, selection.phase != .selected {
+            error = "Playback is already being prepared."
+            return
+        }
+        if selected != .null, trackSelection?.owner != captured?.state["owner_id"] {
+            error = "The audio player changed. Select the track again."
+            return
+        }
+        let submissionID = UUID()
+        if send("play_local", fields: ["takeover": .bool(false), "entry_id": selected], captured: captured, submissionID: submissionID),
+           var selection = trackSelection {
+            selection.phase = .queued(submissionID)
+            trackSelection = selection
+        }
+    }
+
     @discardableResult
-    func send(_ kind: String, fields: [String: JSONValue] = [:], captured: NativeSnapshot? = nil) -> Bool {
+    func send(_ kind: String, fields: [String: JSONValue] = [:], captured: NativeSnapshot? = nil, submissionID: UUID? = nil) -> Bool {
         guard !closing else { return false }
         let action = (captured ?? snapshot)?.action(kind, fields: fields) ?? .object(fields.merging(["version": .uint(1), "kind": .string(kind)]) { _, value in value })
-        let admitted = driver.send(action, safety: kind == "mute" || kind == "stop")
+        let admitted = driver.send(action, safety: kind == "mute" || kind == "stop", submissionID: submissionID)
         if !admitted { error = "Too many pending actions. Wait for the current requests to finish." }
         return admitted
     }
@@ -70,9 +105,17 @@ final class ControllerStore: ObservableObject {
         if send("shutdown_and_quit", captured: captured) { shutdownRequested = true }
     }
     private func adopt(_ snapshot: NativeSnapshot?, error: String?, completed: [NativeCompletion]) {
-        let completedKinds = completed.map(\.kind)
-        if let error { self.error = error; pendingFiles.removeAll(); fileInFlight = false }
+        let completedKinds = completed.compactMap { completion -> String? in
+            guard case .snapshot = completion.outcome else { return nil }
+            return completion.kind
+        }
+        if let error {
+            self.error = error; pendingFiles.removeAll(); fileInFlight = false
+        }
         if let snapshot {
+            if self.snapshot?.state["owner_id"] != snapshot.state["owner_id"] {
+                trackSelection = nil
+            }
             self.snapshot = snapshot
             if let graph = snapshot.root["local_draft"]["graph_json"].string, graph != canonicalGraph {
                 canonicalGraph = graph
@@ -82,9 +125,19 @@ final class ControllerStore: ObservableObject {
                 graphText = canonicalGraph ?? ""
             }
         }
-        for completion in completed where completion.snapshot.root["error"] == .null {
+        for completion in completed where completion.kind == "play_local" {
+            guard let submissionID = completion.submissionID else { continue }
+            switch completion.outcome {
+            case .snapshot(let snapshot): trackSelection = trackSelection?.observing(snapshot, completionID: submissionID)
+            case .failed: trackSelection = trackSelection?.failed(completionID: submissionID)
+            }
+        }
+        if let snapshot { trackSelection = trackSelection?.observing(snapshot) }
+        for completion in completed {
+            guard case .snapshot(let completedSnapshot) = completion.outcome,
+                  completedSnapshot.root["error"] == .null else { continue }
             if completion.kind == "profile_draft_load" {
-                loadedProfileDraft = completion.snapshot.root["local_draft"]
+                loadedProfileDraft = completedSnapshot.root["local_draft"]
                 profileDraftLoadCount &+= 1
             } else if completion.kind == "profile_draft_reset" {
                 loadedProfileDraft = .null
@@ -200,8 +253,10 @@ final class ControllerStore: ObservableObject {
 }
 
 private struct NativeCompletion: Sendable {
+    enum Outcome: Sendable { case snapshot(NativeSnapshot), failed(String) }
     let kind: String
-    let snapshot: NativeSnapshot
+    let submissionID: UUID?
+    let outcome: Outcome
 }
 
 private final class ControllerDriver: @unchecked Sendable {
@@ -221,7 +276,7 @@ private final class ControllerDriver: @unchecked Sendable {
         self.deliver = deliver
         queue.async { [self] in controller = NativeController(); tick() }
     }
-    func send(_ action: JSONValue, safety: Bool) -> Bool {
+    func send(_ action: JSONValue, safety: Bool, submissionID: UUID?) -> Bool {
         lock.lock()
         let admitted = !closeRequested && (safety ? safetyPending < 2 : ordinaryPending < 16)
         if admitted {
@@ -230,7 +285,7 @@ private final class ControllerDriver: @unchecked Sendable {
         lock.unlock()
         guard admitted else { return false }
         queue.async { [self] in
-            call(action)
+            call(action, submissionID: submissionID)
             lock.lock()
             if safety { safetyPending -= 1 } else { ordinaryPending -= 1 }
             lock.unlock()
@@ -245,13 +300,16 @@ private final class ControllerDriver: @unchecked Sendable {
         guard !alreadyClosing else { return }
         queue.async { [self] in call(action) }
     }
-    private func call(_ action: JSONValue) {
+    private func call(_ action: JSONValue, submissionID: UUID? = nil) {
         guard let controller else { return }
         do {
             let snapshot = try NativeSnapshot(json: controller.send(actionJson: action.encoded()))
-            publish(snapshot, completed: NativeCompletion(kind: action["kind"].string ?? "", snapshot: snapshot))
+            publish(snapshot, completed: NativeCompletion(kind: action["kind"].string ?? "", submissionID: submissionID, outcome: .snapshot(snapshot)))
         }
-        catch { publish(nil, error: error.localizedDescription) }
+        catch {
+            publish(nil, error: error.localizedDescription,
+                    completed: NativeCompletion(kind: action["kind"].string ?? "", submissionID: submissionID, outcome: .failed(error.localizedDescription)))
+        }
     }
     private func tick() {
         guard let controller else { return }

@@ -86,6 +86,8 @@ impl NativeState {
             "host":controller.host_status(),"runtime":controller.runtime(),
             "flags":{
                 "connected":controller.connected(),"attached":controller.attached(),"busy":controller.busy(),
+                "play_local_available":controller.play_local_available(),"play_local_pending":controller.play_local_pending(),
+                "volume_edit_available":controller.volume_edit_available(),
                 "ready_to_close":controller.ready_to_close(),"queue_stale":controller.queue_stale(),
                 "queue_edit_pending":controller.queue_edit_pending(),"queue_edit_available":controller.queue_edit_available(),
                 "control_edit_available":controller.control_edit_available(),"diagnostic_read_available":controller.diagnostic_read_available(),
@@ -98,7 +100,8 @@ impl NativeState {
                 "profile_review_available":profile_review_available
                 ,"graph_review_available":self.graph_review_available()
             },
-            "error":controller.error(),
+            "error":controller.error(),"action_error":controller.action_error(),
+            "observation_error":controller.observation_error(),"playback_action_status":controller.playback_action_status(),
             "observed_age_ms":controller.observed_at().map(|at|u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX)),
             "state":controller.state(),"capabilities":controller.capabilities(),"queue":controller.queue(),
             "discovery":controller.discovery(),"inspection":controller.inspection(),

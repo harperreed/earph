@@ -67,14 +67,79 @@ struct NativeSnapshot: Sendable {
     }
     var state: JSONValue { root["state"] }
     func flag(_ name: String) -> Bool { root["flags"][name].bool }
+    func pausesPlayback(selectedEntry: JSONValue, selectionOwner: JSONValue) -> Bool {
+        guard state["transport"].string == "playing", !state["muted"].bool else { return false }
+        guard selectedEntry != .null else { return true }
+        return selectionOwner == state["owner_id"] && selectedEntry == state["active_entry_id"]
+    }
     func action(_ kind: String, fields: [String: JSONValue] = [:]) -> JSONValue {
         var fields = fields
         fields["version"] = .uint(1)
         fields["kind"] = .string(kind)
-        let basisKinds = ["control_edit", "start_local", "profile_action", "diagnostic_action", "preview_correction", "graph_load_profile", "profile_draft_load", "graph_add_fir", "review_diagnostic_preview", "mark_package_object_reviewed", "package_acknowledgments", "export_reviewed_package", "read_package_object", "shutdown_and_quit"]
+        let basisKinds = ["control_edit", "start_local", "play_local", "set_volume", "profile_action", "diagnostic_action", "preview_correction", "graph_load_profile", "profile_draft_load", "graph_add_fir", "review_diagnostic_preview", "mark_package_object_reviewed", "package_acknowledgments", "export_reviewed_package", "read_package_object", "shutdown_and_quit"]
         if kind == "queue_edit" { fields["basis_token"] = root["queue_basis_token"] }
         else if basisKinds.contains(kind) { fields["basis_token"] = root["basis_token"] }
         return .object(fields)
+    }
+}
+
+struct PlaybackSelection: Equatable {
+    enum Phase: Equatable { case selected, queued(UUID), preparing(UUID) }
+    let entryID: String?
+    let owner: JSONValue
+    var phase: Phase = .selected
+    var entryToPlay: JSONValue { phase == .selected ? entryID.map(JSONValue.string) ?? .null : .null }
+
+    func observing(_ snapshot: NativeSnapshot, completionID: UUID? = nil) -> PlaybackSelection? {
+        guard snapshot.state["owner_id"] == owner else { return completionID == nil ? nil : self }
+        var next = self
+        if let completionID {
+            guard case .queued(let expected) = phase, completionID == expected else { return self }
+            if snapshot.root["action_error"] != .null { next.phase = .selected }
+            else if snapshot.flag("play_local_pending") { next.phase = .preparing(completionID) }
+            else { return nil }
+            return next
+        }
+        if case .preparing = phase, !snapshot.flag("play_local_pending") {
+            if snapshot.root["action_error"] == .null { return nil }
+            next.phase = .selected
+        }
+        return next
+    }
+    func failed(completionID: UUID) -> PlaybackSelection {
+        var next = self
+        switch phase {
+        case .queued(let expected), .preparing(let expected):
+            if expected == completionID { next.phase = .selected }
+        case .selected: break
+        }
+        return next
+    }
+}
+
+struct PlaybackVolume {
+    let decibels: Double?
+    let maximumDecibels: Double?
+    init(snapshot: NativeSnapshot?) {
+        decibels = Self.level(snapshot?.state["software_gain_db"] ?? .null)
+        maximumDecibels = Self.level(snapshot?.state["volume_policy"]["software_cap_db"] ?? .null)
+            .map { ($0 * 1000).rounded(.down) / 1000 }
+    }
+    private static func level(_ value: JSONValue) -> Double? {
+        let number: Double
+        switch value {
+        case .double(let value): number = value
+        case .int(let value): number = Double(value)
+        case .uint(let value): number = Double(value)
+        default: return nil
+        }
+        return number.isFinite && (-120...0).contains(number) ? number : nil
+    }
+    static func command(decibels: Double, rampFrames: UInt64) throws -> [String: JSONValue] {
+        guard decibels.isFinite, (-120...0).contains(decibels), rampFrames <= UInt64(UInt32.max) else {
+            throw DraftError.invalid("Choose a volume between −120 and 0 dB.")
+        }
+        return ["millidecibels": .int(Int64((decibels * 1000).rounded(.down))), "ramp_frames": .uint(rampFrames)]
     }
 }
 

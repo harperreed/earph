@@ -5,17 +5,22 @@ Rust owns the Engine connection, command fencing, review gates, and cleanup.
 
 ## Play a local file
 
-1. In **Connect**, choose **Connect** for a running Engine, or **Start Engine** when none runs.
-2. In **Queue**, choose **Add Files…**, then select a track.
-3. In **Output**, choose **Refresh Devices**, pick an output, then choose **Select Output**.
-4. Choose **Approve Current Output** for that device.
-5. In **Queue**, choose **Play**. Play does not approve the output or unmute it.
-6. If muted, choose **Unmute** in **Output** to start listening.
+1. Choose **Open…** or press Command-O to add audio files.
+2. Choose **Play** in the toolbar. An empty selection starts the first queued file.
 
-The level field starts at −30000 millidecibels (−30 dB). **Set Level** applies it.
-Use **Pause** and **Resume** in Queue. The toolbar always exposes **Mute** and **Stop** while attached.
-If another controller changes the Engine, choose **Refresh** before the next action.
+Earph connects automatically. Play prepares the file and starts sound through an approved output.
+Before first playback, **Set Up Audio…** opens the output picker.
+Choose a device, select it, and approve audio for that output.
+Changing the output requires fresh approval. Play never grants that approval itself.
+
+The toolbar keeps Play/Pause, Stop, Mute, and ordinary volume controls visible.
+The volume control respects the observed cap and retains the configured ramp.
+Mute and Stop cancel an unfinished Play action.
+Play preserves the observed volume level.
+Connection details, runtime paths, and exact observations sit under **Advanced**.
+
 Closing the window leaves the Engine running. **Stop Engine and Quit…** stops the shared Engine.
+The default quit and background-playback policy remains a deferred product decision.
 
 System output uses macOS format conversion. The default buffer has 4096 frames; the period has 64 frames.
 Keep explicit buffer choices when they suit the selected output.

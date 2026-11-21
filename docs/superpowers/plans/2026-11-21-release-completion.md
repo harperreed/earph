@@ -66,6 +66,26 @@ Do not claim any of these gates from source inspection or a software file/null c
 
 ## Current work
 
+Doctor Biz approved simplifying the native player to Open a file, then Play.
+Connect and preparation become controller work; output approval remains explicit.
+Keep Play, Pause, Stop, and ordinary volume controls easy to reach.
+Keep runtime paths and Engine diagnostics under Advanced.
+Prioritize this usable local-player flow before resuming shared Sendspin runtime integration.
+Preserve the sealed Sendspin components and private integration work during this change.
+
+Verify the simplified flow against these concrete outcomes:
+
+- Launch attaches the existing owner or starts one owner without selecting output or starting audio.
+- Open adds files without playback. Play starts the selected or first file through an already approved output.
+- Play waits for actual preparation before one fenced Unmute. Mute and Stop cancel that continuation.
+- Pause and Play resume the current file without restarting it. A different local selection replaces that local source.
+- After automatic queue advance, default Play resumes the active file instead of the older Engine selection.
+- Consume a row selection after its Play completes. Preserve a later selection and any refused selection.
+- Volume uses current output facts and caps. Ordinary playback progress cannot invalidate an otherwise unchanged volume gesture.
+- Native controls pass Mac checks without clipboard, recording, or accessibility grants.
+- Inspect actual visual evidence before claiming the simplified interface is visually verified.
+- Quit and background playback retain their current policy until the deferred product decision.
+
 The pure Sendspin timeline is integrated and passes the full repository check.
 Its independent review cleared both findings after focused fixes and failing-baseline regressions.
 See the [scoped evidence](../../evidence/network/sendspin-player-timeline-20261121.json).
@@ -88,5 +108,32 @@ Git commits and scoped evidence record completed work; this document defines the
 The native Mac build now shares one deployment target across Rust, C, and Swift.
 Hosted Linux and Mac checks pass for source `6318d6a`, including strict linking and native controls.
 The later DSD source exposed a Linux-only test variant in the Mac test build.
-Its conditional build boundary now matches its Linux-only consumer; fresh Mac verification remains required.
+Its conditional build boundary now matches its Linux-only consumer.
 See the [build evidence](../../evidence/packaging/macos-deployment-target-20261121.json).
+
+Published checkpoint `700ad16` passes hosted Linux and Mac checks in run `44939701838`.
+Those checks precede the simpler player interface and do not qualify its current changes.
+The simpler player now passes the full Linux check and six native Mac checks on the same 2,097 source files.
+Nineteen real-owner playback cases pass, including cancellation, automatic advance, Stop, and guarded volume.
+Independent review cleared the controller, native selection, refresh classification, and guarded-volume changes.
+See the [simpler-player evidence](../../evidence/local-playback/simple-player-20261121.json).
+
+One earlier full run failed an existing renderer callback-expiry test at its local IPC deadline.
+The unchanged isolated test and the later unchanged full run pass.
+The cause remains unestablished. No product or test deadline changed.
+
+Core accepts Stop after playback progress only for its exact owner and active session with a supplied revision.
+Guarded volume preserves its original output, source, consent, policy, mute, and exact-silence observations.
+An older gesture cannot clear a later repeated Silence.
+The native row intent preserves later selections and follows the actual active entry after Play completes.
+
+Orbit remains offline, so installation and native user acceptance remain pending.
+AppKit bitmap and layer captures omit composited SwiftUI content. They do not qualify the visual result.
+These checks do not complete the first release or its physical output gates.
+
+## Product decision to revisit
+
+Doctor Biz deferred the default quit and background-playback policy.
+The current app disconnects its controller and leaves the shared Engine running.
+Revisit whether Quit stops playback and whether background playback needs an explicit option.
+Do not change that policy as part of the Open-to-Play simplification.

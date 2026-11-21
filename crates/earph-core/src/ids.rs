@@ -74,6 +74,11 @@ impl DeviceId {
         self.0.capacity()
     }
 }
+impl QueueEntryId {
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
 impl RequestId {
     pub(crate) fn capacity_bytes(&self) -> usize {
         self.0.capacity()

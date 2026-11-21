@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "scope": "Simplified native local playback, same-session Stop, and guarded software-volume gestures.",
+  "requirement_ids": [
+    "PLAY-01",
+    "SAFE-01",
+    "CTL-03"
+  ],
+  "acceptance_ids": [
+    "AC-08",
+    "AC-14",
+    "AC-33",
+    "AC-37"
+  ],
+  "source": {
+    "kind": "working_tree_snapshot",
+    "parent_commit": "700ad160c25393b86cd4b21d1d1144c60028ca5d",
+    "source_commit": null,
+    "source_files_verified": 2097,
+    "archive_sha256": "5a4c77a9d94572c37c6defdc022e5add6a55f114d3aa2836ef38fb4d16d3a223",
+    "files": [
+      {
+        "file": "crates/earph-core/src/control.rs",
+        "sha256": "c2c0ba66d1b091af34d855c9b8d1641a04d4fdf81ca0d60e1c42e7c9f20b175b"
+      },
+      {
+        "file": "crates/earph-core/src/ids.rs",
+        "sha256": "a181ebc41ac793dc8cfd0a36ad709b91188c6ce957b105963d93f438c4edbcd6"
+      },
+      {
+        "file": "crates/earph-core/src/network_source.rs",
+        "sha256": "e80c07337fff29cc4f060e0cd089516619b66072690d82f94470bc5b4cec9d4f"
+      },
+      {
+        "file": "crates/earph-core/src/session.rs",
+        "sha256": "ba9448df96e0b4c071a83ec100d225703247eaece37b862143665a058b37e4ca"
+      },
+      {
+        "file": "crates/earph-core/tests/local_control.rs",
+        "sha256": "751f89d3ffc43fd131b77bd03895c0969f8dfe57b3e849bcb68e5e9946ab2824"
+      },
+      {
+        "file": "crates/earph-core/tests/session_contracts.rs",
+        "sha256": "b950b101fde014858e509a85e0b4c1a33bfd4fa3c7f4638cecdbf3a0ceb829bb"
+      },
+      {
+        "file": "crates/earph-desktop/src/gui/native/actions.rs",
+        "sha256": "fd637a5c8d48faf746ced19a8ce8eb620844fca6f96cb20584a910680c284836"
+      },
+      {
+        "file": "crates/earph-desktop/src/gui/native/snapshot.rs",
+        "sha256": "0d737da6b6b2ec72db0fafd93c8510836585a61efaf88c122a7ffa3d96ea2b21"
+      },
+      {
+        "file": "crates/earph-desktop/src/gui/workflow.rs",
+        "sha256": "4074ccd94d21873046c8efbc60e4dffa4d2cded7cb70fb409eb66004bc8f89c2"
+      },
+      {
+        "file": "crates/earph-desktop/src/gui/workflow_playback.rs",
+        "sha256": "3f440b589cbadc85cd2ca5afd29c66bd4ff559d70aa6215f5f36eccb0eac23c2"
+      },
+      {
+        "file": "crates/earph-desktop/src/gui/workflow_playback_tests.rs",
+        "sha256": "b706d0d8e5c4f31f7f06ef2837f97a72fcf4deb1b21d01aedab83b5f38ef3540"
+      },
+      {
+        "file": "crates/earph-desktop/tests/common/proxy.rs",
+        "sha256": "b454097cf34719e3055ac5cb091175f744f91aafd7259447d20a7c35897e418b"
+      },
+      {
+        "file": "crates/earph-desktop/tests/gui_diagnostics_admission/mod.rs",
+        "sha256": "dfba59bb234a8bf436ef578c973411a5b44f54415c9b6a4d767c1f29864a53af"
+      },
+      {
+        "file": "crates/earph-desktop/tests/gui_playback.rs",
+        "sha256": "ecf2df1a810076fd0270a8c229de3c1fd22dc0a6a9b8429860078ed6491f8a93"
+      },
+      {
+        "file": "crates/earph-desktop/tests/native_bridge.rs",
+        "sha256": "cab751bf071f80c25f4dc7b5b6d3ca67c9340dfe0675bd3db7518897709ce13b"
+      },
+      {
+        "file": "crates/earph-engine/src/host.rs",
+        "sha256": "27a740238be09c0fc361bf7cf7332c94eaa01bdd40c2009f8c865774070a2d8d"
+      },
+      {
+        "file": "macos/Sources/Earph/ContentView.swift",
+        "sha256": "a5a269679a51a74fae9776eb3fba2a75f80ea9b2fac7690b1f52ff17e2bfb27f"
+      },
+      {
+        "file": "macos/Sources/Earph/ControllerStore.swift",
+        "sha256": "8d701e2c42f90d5cbe6be797201db86eb5e5a3e025229abfe2cb3745e223471a"
+      },
+      {
+        "file": "macos/Sources/Earph/EarphApp.swift",
+        "sha256": "1480af003cba271235da115780173469fb8b23afd8b961989338c5786d4cceaa"
+      },
+      {
+        "file": "macos/Sources/Earph/Presentation.swift",
+        "sha256": "60446ca4ab758107489b270715c16c068f53289cc7870fb0d350151ad1d23be3"
+      },
+      {
+        "file": "macos/Sources/Earph/WorkflowViews.swift",
+        "sha256": "85cb70ac24de5fe0d0d5fc61d5848d7aa44dc3a981df4957049fa360b89a964a"
+      },
+      {
+        "file": "macos/Tests/BatchIntegrationTests.swift",
+        "sha256": "6113ff1564d7ef189ea6ef93a7f761939174d450b486f4e0fb31e6e15d032f53"
+      },
+      {
+        "file": "macos/Tests/OwnerIntegrationTests.swift",
+        "sha256": "0f17fc90cf4617bfbe1bcc403f1836f5dd375b1dfeb53a47d9118e63eb59e7ab"
+      },
+      {
+        "file": "macos/Tests/PresentationTests.swift",
+        "sha256": "0f2a175f8ea4e0c89d330496fe360d78b67aa66ea9270959f1d99547f906d061"
+      },
+      {
+        "file": "macos/Tests/ViewPresentationTests.swift",
+        "sha256": "f6ce4e2dae361347c37c36bc4c63cdb55807449a70581f4be76c41b748ab75ee"
+      }
+    ]
+  },
+  "behavior": [
+    "Attach or start one owner on launch without starting audio.",
+    "Open files, then Play through an already approved output.",
+    "Prepare, resume, and send one fenced Unmute inside the Play intent.",
+    "Cancel unsent automatic Unmute on Mute, Stop, Pause, close, or changed authority.",
+    "Resume the actual active track after automatic queue advance.",
+    "Consume only the completed native row intent and preserve a later selection.",
+    "Accept stale supplied Stop revisions only for the exact owner and active session.",
+    "Guard software-volume gestures against changed source, output, consent, policies, Mute, or Silence.",
+    "Keep ordinary volume.set revision admission unchanged.",
+    "Separate action failure from background observation warnings."
+  ],
+  "verification": {
+    "linux": {
+      "command": "bash scripts/check",
+      "exit": 0,
+      "log_sha256": "ef508289ed005bae8cc64a41cc219314cdcac43407aabf8c2d3b4de09f72f89a",
+      "reported": {
+        "passed": 1884,
+        "failed": 0,
+        "ignored": 22,
+        "groups": 198
+      },
+      "count_scope": "Reported summaries include nested subprocess tests; this is not a unique-test count.",
+      "products": [
+        {
+          "name": "earph-engine",
+          "sha256": "8f44e92406607719ee234d5a850a8b2184b42c227ea42694c6d41c944ee6f3bf"
+        },
+        {
+          "name": "earph-desktop",
+          "sha256": "5889fd65280aa97f4749027ab04fa5c88f67f1dbc9c3f3e08d0c380c1fbeb5a3"
+        }
+      ]
+    },
+    "real_owner_playback": {
+      "exit": 0,
+      "passed": 19,
+      "failed": 0,
+      "log_sha256": "524d74bb306d4e7e7f1d368ff90aeb0ff85e50389f761673469b8ef9256ad1ab"
+    },
+    "macos": {
+      "target": "aarch64-apple-darwin",
+      "source_files_verified": 2097,
+      "checks": [
+        "controls",
+        "presentation",
+        "lifecycle",
+        "view",
+        "owner-integration",
+        "regressions"
+      ],
+      "exit": 0,
+      "compiler_diagnostics": 0,
+      "products": [
+        {
+          "name": "earph-desktop",
+          "sha256": "b509ceebb846ef5ab990643c27e0da205e356f49748db1b07ed521812acaa3b8"
+        },
+        {
+          "name": "earph-engine",
+          "sha256": "b76cdbeff4bc99eec8c3a11beab7b8ac49c7c174a5bedf3f816646358631d347"
+        }
+      ],
+      "receipt_sha256": "2f75438fa1e927da1b4d88fad151bd0b2d03ffcfbd8305fcb036f3f70b0f3aef"
+    },
+    "guarded_volume_independent_review": {
+      "verdict": "CLEAR",
+      "receipt_sha256": "beebaa959a5ceb36c09db845bbd6e73354601088dcd0674dfe4daccb94a61f5c"
+    }
+  },
+  "retained_failure": {
+    "canonical_attempt": 4,
+    "test": "owner_callback_expiry_retires_a_real_inflight_notify_without_media",
+    "result": "Local IPC deadline failure; unchanged isolated test passed. The exact unchanged full rerun passed.",
+    "root_cause": "Unestablished. No product deadline or test deadline changed."
+  },
+  "deferred": {
+    "quit_policy": "Doctor Biz deferred whether Quit stops playback and whether background playback needs an explicit option. Current policy remains unchanged."
+  },
+  "limits": [
+    "Software and native-control qualification only; no new physical playback or port-timing claim.",
+    "The simplified app is not installed on offline Orbit.",
+    "Owned-view tests do not qualify composited SwiftUI appearance.",
+    "Development products remain unsigned and unreleased.",
+    "These scoped results do not complete the acceptance IDs or the whole first release."
+  ]
+}
