@@ -7,7 +7,9 @@ use security_framework::{
     item::{ItemClass, ItemSearchOptions, Limit, SearchResult},
     os::macos::keychain::SecKeychain,
 };
-use security_framework_sys::base::{SecKeychainRef, errSecAuthFailed, errSecItemNotFound};
+use security_framework_sys::base::{
+    SecKeychainRef, errSecAuthFailed as AUTH_FAILED, errSecItemNotFound as ITEM_NOT_FOUND,
+};
 use std::path::Path;
 // Verified against Apple SecBase.h; absent from the sys crate.
 const INTERACTION_NOT_ALLOWED: i32 = -25308;
@@ -20,8 +22,8 @@ unsafe extern "C" {
 }
 fn error(error: Error) -> StoreError {
     match error.code() {
-        errSecItemNotFound => StoreError::Missing,
-        INTERACTION_NOT_ALLOWED | errSecAuthFailed => StoreError::Locked,
+        ITEM_NOT_FOUND => StoreError::Missing,
+        INTERACTION_NOT_ALLOWED | AUTH_FAILED => StoreError::Locked,
         _ => StoreError::Unavailable,
     }
 }
