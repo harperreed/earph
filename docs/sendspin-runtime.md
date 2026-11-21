@@ -166,6 +166,8 @@ Its filesystem store contains synthetic credentials and is development-only.
 Each scenario restarts a separate process to read and verify its committed catalog.
 Do not use it as a production persistence fallback.
 
+The [pure player timeline](sendspin-timing.md#pure-player-timeline) now provides bounded, generation-bound PCM ownership and lifecycle handling.
+The roleless transport does not yet advertise or operate that player.
 Full player support, Music Assistant interoperability, output-clock mapping, and physical synchronization remain unqualified.
 
 The dormant Engine [native services bridge](sendspin-native-services.md) connects explicit credential ownership to these services.

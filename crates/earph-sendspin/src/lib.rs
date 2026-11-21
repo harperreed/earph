@@ -7,6 +7,7 @@ pub mod message;
 pub mod noise;
 pub mod pairing;
 pub mod pairing_token;
+pub mod player;
 pub mod session;
 pub mod timing;
 
@@ -59,25 +60,40 @@ pub fn decode_player_audio(
     if plaintext.len() > max_frame_bytes {
         return Err(ProtocolError::FrameBudgetExceeded);
     }
-    let header: &[u8; 13] = plaintext
-        .get(..13)
-        .ok_or(ProtocolError::TruncatedHeader)?
-        .try_into()
-        .map_err(|_| ProtocolError::TruncatedHeader)?;
-    if header[0] != 4 {
+    if plaintext.len() < 13 {
+        return Err(ProtocolError::TruncatedHeader);
+    }
+    decode_player_audio_body(plaintext[0], &plaintext[1..], max_frame_bytes)
+}
+
+/// Decode the ID and borrowed body returned by authenticated message reassembly.
+pub fn decode_player_audio_body(
+    id: u8,
+    body: &[u8],
+    max_frame_bytes: usize,
+) -> Result<PlayerAudioFrame<'_>, ProtocolError> {
+    if body
+        .len()
+        .checked_add(1)
+        .is_none_or(|bytes| bytes > max_frame_bytes)
+    {
+        return Err(ProtocolError::FrameBudgetExceeded);
+    }
+    let header = body.get(..12).ok_or(ProtocolError::TruncatedHeader)?;
+    if id != 4 {
         return Err(ProtocolError::WrongMessageType);
     }
     Ok(PlayerAudioFrame {
         server_timestamp_us: i64::from_be_bytes(
-            header[1..9]
+            header[..8]
                 .try_into()
                 .map_err(|_| ProtocolError::TruncatedHeader)?,
         ),
         send_ahead_us: u32::from_be_bytes(
-            header[9..13]
+            header[8..12]
                 .try_into()
                 .map_err(|_| ProtocolError::TruncatedHeader)?,
         ),
-        payload: &plaintext[13..],
+        payload: &body[12..],
     })
 }

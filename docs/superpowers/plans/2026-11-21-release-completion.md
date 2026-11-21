@@ -62,7 +62,12 @@ Do not claim any of these gates from source inspection or a software file/null c
 
 ## Current work
 
-Sendspin timeline and DSD Engine implementation run in separate worktrees from `4d8f6d5`.
-UPnP interoperability investigation runs independently against retained controller evidence.
+The pure Sendspin timeline is integrated and passes the full repository check.
+Its independent review cleared both findings after focused fixes and failing-baseline regressions.
+See the [scoped evidence](../../evidence/network/sendspin-player-timeline-20261121.json).
+Operational Network admission and Engine scheduling remain the next Sendspin work.
+DSD Engine implementation continues in its separate worktree from `4d8f6d5`.
+Native output timing adapters passed source review; Mac compilation remains pending.
+UPnP's independent SDK passed its native API probe; current-owner controller qualification remains pending.
 Root continues release integration while the dashboard records verified milestones.
 Git commits and scoped evidence record completed work; this document defines the continuing execution boundary.

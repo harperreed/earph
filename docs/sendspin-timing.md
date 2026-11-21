@@ -82,6 +82,25 @@ Send-ahead never changes a playback target.
 `arrival_delay` maps `timestamp - send_ahead` for diagnostics alone.
 It skips saturated send-ahead values 0 and `u32::MAX`.
 
+## Pure player timeline
+
+`PlayerEvent` decodes complete player messages through the shared ID-4 body decoder.
+`PlayerTimeline` binds bounded PCM storage to one connection, owner, and source generation.
+It handles start, full and partial clear, end, participation changes, and cancellation.
+Protocol completion retains the original timestamp and duration.
+Rendering positions retain fractional frame boundaries separately.
+An explicit irretractable output frontier prevents replacement audio from overlapping accepted samples.
+Zero-frame packets cannot retire that frontier.
+
+`UsableMapping` captures one immutable, expiring clock estimate without granting playback readiness.
+The existing time filter remains the only mapping authority.
+`PcmChunk::take_samples` transfers its allocation once and keeps the chunk as a release lease.
+Consumers must drop all downstream sample storage before calling `release_chunk`.
+Clear and cancellation retain allocation charges until that lease returns.
+
+The [timeline evidence](evidence/network/sendspin-player-timeline-20261121.json) records focused tests, actual Core ownership tests, and independent review.
+This pure component does not connect Network admission to native output or establish synchronized playback.
+
 ## Evidence boundary
 
 Numeric tests use hand-calculated anchors, strict threshold cases, and boundary failures.

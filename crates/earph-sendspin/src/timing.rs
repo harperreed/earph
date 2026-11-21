@@ -158,6 +158,104 @@ pub struct MappedTime {
     pub binding: Binding,
     pub mapping_revision: u64,
 }
+/// Immutable conversion facts. These grant no connection or output authority.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UsableMapping {
+    binding: Binding,
+    revision: u64,
+    estimate: Estimate,
+    observed_at_us: i64,
+    expires_at_us: i64,
+}
+impl UsableMapping {
+    pub fn binding(self) -> Binding {
+        self.binding
+    }
+    pub fn mapping_revision(self) -> u64 {
+        self.revision
+    }
+    pub fn estimate(self) -> Estimate {
+        self.estimate
+    }
+    pub fn expires_at_us(self) -> i64 {
+        self.expires_at_us
+    }
+    fn check(self, now_us: i64, expected: Binding) -> Result<(), TimingError> {
+        if expected != self.binding {
+            return Err(TimingError::BindingMismatch);
+        }
+        local_us(now_us)?;
+        if now_us < self.observed_at_us {
+            return Err(TimingError::ClockRegression);
+        }
+        if now_us > self.expires_at_us {
+            return Err(TimingError::Stale);
+        }
+        Ok(())
+    }
+    fn mapped(self, time_us: i64) -> MappedTime {
+        MappedTime {
+            time_us,
+            binding: self.binding,
+            mapping_revision: self.revision,
+        }
+    }
+    pub fn map_server_time(
+        self,
+        server_us: i64,
+        now_us: i64,
+        expected: Binding,
+    ) -> Result<MappedTime, TimingError> {
+        signed_us(i128::from(server_us))?;
+        self.check(now_us, expected)?;
+        let estimate = self.estimate;
+        let d = if estimate.use_drift {
+            estimate.drift
+        } else {
+            0.
+        };
+        let time = round_us(
+            (server_us as f64 - estimate.offset_us + d * estimate.last_update_us as f64) / (1. + d),
+        )?;
+        Ok(self.mapped(local_us(time)?))
+    }
+    pub fn map_client_time(
+        self,
+        client_us: i64,
+        now_us: i64,
+        expected: Binding,
+    ) -> Result<MappedTime, TimingError> {
+        local_us(client_us)?;
+        self.check(now_us, expected)?;
+        let estimate = self.estimate;
+        let d = if estimate.use_drift {
+            estimate.drift
+        } else {
+            0.
+        };
+        let correction =
+            round_us(estimate.offset_us + d * (client_us - estimate.last_update_us) as f64)?;
+        Ok(self.mapped(signed_us(i128::from(client_us) + i128::from(correction))?))
+    }
+    /// Subtract external output delay exactly once, after the canonical conversion.
+    pub fn port_target(
+        self,
+        server_us: i64,
+        output_delay_ms: u32,
+        now_us: i64,
+        expected: Binding,
+    ) -> Result<MappedTime, TimingError> {
+        if output_delay_ms > 5000 {
+            return Err(TimingError::DelayRange);
+        }
+        let mapped = self.map_server_time(server_us, now_us, expected)?;
+        let target = signed_us(i128::from(mapped.time_us) - i128::from(output_delay_ms) * 1000)?;
+        Ok(MappedTime {
+            time_us: local_us(target)?,
+            ..mapped
+        })
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Measurement {
     offset: i64,
@@ -606,16 +704,8 @@ impl TimeSync {
         now_us: i64,
     ) -> Result<MappedTime, TimingError> {
         signed_us(i128::from(server_us))?;
-        let estimate = self.mapping(now_us)?;
-        let d = if estimate.use_drift {
-            estimate.drift
-        } else {
-            0.
-        };
-        let time = round_us(
-            (server_us as f64 - estimate.offset_us + d * estimate.last_update_us as f64) / (1. + d),
-        )?;
-        Ok(self.mapped(local_us(time)?))
+        self.usable_mapping(now_us)?
+            .map_server_time(server_us, now_us, self.binding)
     }
     pub fn map_client_time(
         &mut self,
@@ -623,15 +713,8 @@ impl TimeSync {
         now_us: i64,
     ) -> Result<MappedTime, TimingError> {
         local_us(client_us)?;
-        let estimate = self.mapping(now_us)?;
-        let d = if estimate.use_drift {
-            estimate.drift
-        } else {
-            0.
-        };
-        let correction =
-            round_us(estimate.offset_us + d * (client_us - estimate.last_update_us) as f64)?;
-        Ok(self.mapped(signed_us(i128::from(client_us) + i128::from(correction))?))
+        self.usable_mapping(now_us)?
+            .map_client_time(client_us, now_us, self.binding)
     }
     /// Subtract output delay once, in local time, after server-to-client conversion.
     pub fn port_target(
@@ -643,12 +726,13 @@ impl TimeSync {
         if output_delay_ms > 5000 {
             return Err(TimingError::DelayRange);
         }
-        let mapped = self.map_server_time(frame.server_timestamp_us, now_us)?;
-        let target = signed_us(i128::from(mapped.time_us) - i128::from(output_delay_ms) * 1000)?;
-        Ok(MappedTime {
-            time_us: local_us(target)?,
-            ..mapped
-        })
+        signed_us(i128::from(frame.server_timestamp_us))?;
+        self.usable_mapping(now_us)?.port_target(
+            frame.server_timestamp_us,
+            output_delay_ms,
+            now_us,
+            self.binding,
+        )
     }
     /// This arrival-delay diagnostic never changes playback targets or filter state.
     pub fn arrival_delay(
@@ -806,12 +890,18 @@ impl TimeSync {
             Status::Retired => Err(TimingError::Retired),
         }
     }
-    fn mapped(&self, time_us: i64) -> MappedTime {
-        MappedTime {
-            time_us,
+    pub fn usable_mapping(&mut self, now_us: i64) -> Result<UsableMapping, TimingError> {
+        let estimate = self.mapping(now_us)?;
+        let expires_at_us = (i128::from(estimate.last_update_us)
+            + i128::from(self.policy.max_measurement_age_us))
+        .min(i128::from(MAX_TIME_US)) as i64;
+        Ok(UsableMapping {
             binding: self.binding,
-            mapping_revision: self.revision,
-        }
+            revision: self.revision,
+            estimate,
+            observed_at_us: now_us,
+            expires_at_us,
+        })
     }
 }
 fn signed_us(value: i128) -> Result<i64, TimingError> {
