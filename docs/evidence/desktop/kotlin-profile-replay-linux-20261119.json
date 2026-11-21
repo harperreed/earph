@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "status": "pass_for_kotlin_profile_and_package_replay_checkpoint",
+  "source": {
+    "reviewed_base_commit": "b6d5f5ab177805d3e8edaa88f5e033deb0509ade",
+    "driver_sha256": "cdc74e8f4552139af153fcb486e17456d6f9670276063dc6d76f4230dbc070b2",
+    "unchanged_previously_frozen_rust_and_cargo_inputs": 212,
+    "owner_sha256": "58131bbeec4f3b48636b69c3cd2aae98d86fa142aa0040d03a2e1987d8165711",
+    "library_sha256": "ac0250fb52829060f9f1472dfe69025d66072382c94b9a54e4d50b4a47e66243",
+    "post_test_changes": "Public evidence and append-only binding documentation."
+  },
+  "checks": {
+    "canonical": {
+      "exit": 0,
+      "signal": null,
+      "passed": 896,
+      "failed": 0,
+      "ignored": 5,
+      "summaries": 103,
+      "log_sha256": "42f7da732dccf65149684e7f1135f5671d0ff37b29ca1d78e939173c031dffa2"
+    },
+    "actual_kotlin": {
+      "exit": 0,
+      "foreign_frames": 48,
+      "consumer_processes": 20,
+      "exact_cli_comparisons": 29,
+      "terminal_replays": 9,
+      "initial_accepted_receipts": 5,
+      "generated_package_objects_verified": 2,
+      "missing_export_review_refused": true,
+      "occupied_import_id_rejected": true,
+      "missing_package_inspection_failed": true,
+      "owner_exit_code": 0,
+      "owner_signal": null,
+      "private_jna_dispatcher_verified": true,
+      "reported_safety_unchanged": true,
+      "native_output_opened": false
+    },
+    "syntax_check_exit": 0,
+    "material_review_findings": 0,
+    "review_sha256": "509c43000d8768312c02b8fde43be8bcc7287c3908ea31de58451bf7fd166155"
+  },
+  "limits": [
+    "Foreign clients forward opaque bytes. They do not implement typed profile policy or a typed JSON projection.",
+    "The existing baseline passed before the missing integrated-profile acceptance failed as expected.",
+    "The successful foreign package import case and current Swift execution remain unqualified.",
+    "Physical output, cancellation, subscriptions, callback delivery, audibility and desktop parity remain separate work.",
+    "Raw runtime paths, owner identities, command bytes and transcripts remain private."
+  ],
+  "raw_private_values_included": false
+}

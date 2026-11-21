@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "source": {
+    "baseline_commit": "37187308853150655aeeb0fb2d27e793d31a26be",
+    "source_dirty": true,
+    "qualified_archive_sha256": "0f48896e200ebbfd79910e5e758bc767b31bfada083667428937e274a5f85fba",
+    "qualified_source_files": 1966,
+    "source_unchanged_during_checks": true
+  },
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "measurement_boundary": "Software contracts; physical output unqualified"
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "reported_results": {
+      "passed": 1584,
+      "failed": 0,
+      "ignored": 11,
+      "groups": 171
+    },
+    "log_sha256": "83a3d9c4328158ac15efa2ed64d1a0d5380db3fec00bb2f4ec3cf25ff7628420",
+    "product_build_exit": 0,
+    "count_note": "Reported blocks include child results and are not a unique-test total. Six ignored Sendspin peer tests passed separately."
+  },
+  "integrated_peer": {
+    "tests_passed": 6,
+    "exit": 0,
+    "log_sha256": "26407b442ff56b4200ca4cd8bf3a614e79e2413595db4b96333224c69daf46bc"
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "bf72bd9a44c9d4e3bf356aae717c34b999720bef0077ac98966463f7980576a2"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "160b3d81d2396751240d2784bb81e9b7e44ff9aeb0cb673042f1be31b7e40d82"
+    }
+  ],
+  "scope": "Renderer Core graph authorization, callback grants, subscription lifecycle and shared event projection",
+  "requirement_status": "partial",
+  "source_files": [
+    {
+      "path": "crates/earph-core/src/control.rs",
+      "sha256": "da53cd7bf68e120b27c5b13dd79eba603a465b9c583001677502c2e350a6fbb5"
+    },
+    {
+      "path": "crates/earph-core/src/graph_control.rs",
+      "sha256": "fcfb25544c49b342e016323c0ce83843932ada12b47ffc8e3296f0952a05961f"
+    },
+    {
+      "path": "crates/earph-core/src/lib.rs",
+      "sha256": "7a441caad24674a081c1284a1b2553bb622b0fbde9866e9e6c7f3acdbdc6426b"
+    },
+    {
+      "path": "crates/earph-core/src/network_source.rs",
+      "sha256": "c8bb10fd6e9ba4d3339ad68bde87705778da43b6b7f3c615502eed571758e359"
+    },
+    {
+      "path": "crates/earph-core/src/renderer_events.rs",
+      "sha256": "b9266bc1e5f4c45c39b15b6120ad60cc77fde781983dbc9d3a1f615365984871"
+    },
+    {
+      "path": "crates/earph-core/src/renderer.rs",
+      "sha256": "32dc2e866c55e378f75a7c02f8ffa7324afd4f073bacfd4c7a96e679ed49af58"
+    },
+    {
+      "path": "crates/earph-core/src/session_graph.rs",
+      "sha256": "d5177a3d3b6f355355949fc55ab3931d528302326e2811fdc53ee8be0acd706f"
+    },
+    {
+      "path": "crates/earph-core/src/session_network.rs",
+      "sha256": "8d64514e5cd025f53eaf654d454005665164197e017e29b859701a5debaa458e"
+    },
+    {
+      "path": "crates/earph-core/src/session_renderer_events.rs",
+      "sha256": "48a9f8cda303901c45e29cb1fe7eb8e54cfdff25326c770d26f854a0bc878ebc"
+    },
+    {
+      "path": "crates/earph-core/src/session_renderer.rs",
+      "sha256": "03d43d56237c15c2838c15dd1d59572f95723f8882343322ac15a4c2fe9c8f38"
+    },
+    {
+      "path": "crates/earph-core/src/session.rs",
+      "sha256": "8ec21020f5ee6973913c1bdc4cfa6511494ab8c1a24a43c51d422997512c1ea4"
+    },
+    {
+      "path": "crates/earph-core/tests/renderer_control.rs",
+      "sha256": "6305fd27169c110d17d99e6e97dc960bc3cf1537a1351b574032badba77b3bf3"
+    },
+    {
+      "path": "crates/earph-desktop/tests/client.rs",
+      "sha256": "cd83cdd086d6cd5dc17fcf6fbfec5ba12093c4213725ce984b5e4c794a291ecf"
+    },
+    {
+      "path": "crates/earph-engine/src/host_renderer_tests.rs",
+      "sha256": "4eacc265d9b3a8e4dfd4b5f6e11c04d606f884f9937fb467fb65413355afbe44"
+    },
+    {
+      "path": "crates/earph-engine/src/worker.rs",
+      "sha256": "e4b18c1e040baee51bc3e713dee3293db76bb9830a16da932ec1181957906ea0"
+    },
+    {
+      "path": "crates/earph-engine/tests/cli.rs",
+      "sha256": "482999c85ce7dc58c5b1dbc53c8b4af59dfe6a87afd8e737a9042e78456c0722"
+    },
+    {
+      "path": "crates/earph-engine/tests/graph_service.rs",
+      "sha256": "376b6b0e26959c2d90052eaebda022e8be10055a3eef64dda3e37cae1bce62eb"
+    },
+    {
+      "path": "crates/earph-ffi/tests/client.rs",
+      "sha256": "3e5013aa043b5c98f71f0bc5f3d562a0d73661b844468b7e982dd7db22456426"
+    },
+    {
+      "path": "crates/earph-network/tests/upnp_renderer_events.rs",
+      "sha256": "87b0c570dae8670f3a738ddcac91712a1b0d8852270b522a2750225a970a9d47"
+    },
+    {
+      "path": "docs/renderer-control.md",
+      "sha256": "7f796f6b8e9861be4ab3306eca11e2b0ba5920e7a5aa83e40077df4104129826"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-11-20-upnp-renderer.md",
+      "sha256": "987f0f1996e1dce385aa6c3cf5caf7332752ca82ffa8005e00e46ecb50d4db6a"
+    },
+    {
+      "path": "docs/upnp-core-contract.md",
+      "sha256": "f633b9c85f6255a6040549508d8d00eaf7977607edd1ba3e6618dc6aaadab0ad"
+    },
+    {
+      "path": "scripts/ffi-scenario.mjs",
+      "sha256": "cee59b17f9d76c229ce6ccd0e0acfde446fcecb5a45f9c937319217f8d66817c"
+    }
+  ],
+  "unit": {
+    "patch_sha256": "885585ce23d850be67a85e908bd2bd7271151c4b5c9e5f50fb3b024298c63597",
+    "manifest_sha256": "0728e4d94b6ed3c4117ee78495c93dcab8252bef8c1007717c13d3315003e985",
+    "focused_results": {
+      "passed": 455,
+      "failed": 0,
+      "ignored": 0,
+      "groups": 36,
+      "warnings": 0
+    },
+    "checks": [
+      {
+        "name": "final-core",
+        "exit": 0,
+        "log_sha256": "2bae2f05c4a3a9672d9c913518fcc0e7ded9a1c3c987d489ba34f4c3d958463e",
+        "counts": {
+          "passed": 397,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "final-xml",
+        "exit": 0,
+        "log_sha256": "a3b9706aa18d003c63821ca31fc26b8416f1a3af650ec090319dd40ff7dea9fe",
+        "counts": {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "final-engine-cli",
+        "exit": 0,
+        "log_sha256": "9110f97c2141e745822c95a5d192a5e5db103e6c4c7bd9e7a4dfdc15defba9dd",
+        "counts": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "final-engine-worker",
+        "exit": 0,
+        "log_sha256": "230943bc015326497497a4849abab0dbe4c4efa7db51d9ec361a65b573d739bb",
+        "counts": {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "final-engine-graph",
+        "exit": 0,
+        "log_sha256": "91dee95ea6baa1f15e2a3cd8bc1a18336c43d9cdbe515907e8d133fdf6adb3f8",
+        "counts": {
+          "passed": 50,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "final-ffi",
+        "exit": 0,
+        "log_sha256": "a19984ea6702a30a656b2918ab0b14000fba8ef9081f5a02042b4cf681042db5",
+        "counts": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "final-desktop",
+        "exit": 0,
+        "log_sha256": "3b40d413346263152aabe255836b3f90cd4648176f8ce0cb03f437db3dfe3875",
+        "counts": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "final-strict",
+        "exit": 0,
+        "log_sha256": "9e364db7008813cd6762c84dbd8bc74e0ad2e3382a63e1e2a6f4296dbdf2bd68",
+        "counts": {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      },
+      {
+        "name": "final-fmt",
+        "exit": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "counts": {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      }
+    ],
+    "private_worker_cases": 14,
+    "original_review_findings": 1,
+    "repaired_finding": "Exact accepted graph replay remains available after fresh preparation state changes; live authority still gates replay."
+  },
+  "independent_review": {
+    "status": "complete",
+    "material_findings": 0,
+    "report_sha256": "0e5366823bc5697b040bc10f887305623cea9dc3818b9387421d0dfe7fe61abf",
+    "kind": "Full original review followed by one targeted fix review"
+  },
+  "limits": [
+    "The actual adapter eight-MiB ledger, response-FIN completion and NOTIFY sender remain separate work.",
+    "The Engine bridge and joint controller qualification remain separate work.",
+    "Production renderer startup remains disabled.",
+    "No Music Assistant, second-controller, macOS discovery or physical-output qualification."
+  ]
+}

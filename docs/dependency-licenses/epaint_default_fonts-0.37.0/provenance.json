@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "epaint_default_fonts"
+  ],
+  "version": "0.37.0",
+  "repository": "https://github.com/emilk/egui/tree/main/crates/epaint_default_fonts",
+  "revision": "7c0b40402271e8d40cda69f87cf3c2617c2e4382",
+  "license_expression": "(MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0",
+  "license_file": "LICENSE-BUNDLE",
+  "license_sha256": "2f4b9c627676110486d0bc4c614c82b557e811fb7e5a32ea220c1cb84bdac148",
+  "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/LICENSE-MIT",
+  "verified_on": "2026-11-18",
+  "sources": [
+    {
+      "repository": "emilk/egui",
+      "revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "path": "LICENSE-MIT",
+      "git_blob_sha1": "673ea5f0505d6fa65c6a2b6a753c93b8e19d11b9",
+      "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c",
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/LICENSE-MIT"
+    },
+    {
+      "repository": "emilk/egui",
+      "revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "path": "crates/epaint_default_fonts/fonts/Hack-Regular.txt",
+      "git_blob_sha1": "b0ec74488ab8a68acc95060414c7790a44a27172",
+      "sha256": "47c0cccbeec7e8614548cc485588b28149e7874188df5f41b36efebcee285c87",
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/crates/epaint_default_fonts/fonts/Hack-Regular.txt"
+    },
+    {
+      "repository": "emilk/egui",
+      "revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "path": "crates/epaint_default_fonts/fonts/UFL.txt",
+      "git_blob_sha1": "ae78a8f94eae372cb1ca4e14b67244342fce604e",
+      "sha256": "2f0015108d68627bd788d313f529c21ff4da2c2c42a5e1f3883acc83480f9002",
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/crates/epaint_default_fonts/fonts/UFL.txt"
+    },
+    {
+      "repository": "emilk/egui",
+      "revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "path": "crates/epaint_default_fonts/fonts/emoji-icon-font-mit-license.txt",
+      "git_blob_sha1": "99016e120b21a6c77e3388d415968eaf6b504b4a",
+      "sha256": "b9d2c1d909aa149996fd4c91dcb92b2362a04431640c1d200959da94caf8cde1",
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/crates/epaint_default_fonts/fonts/emoji-icon-font-mit-license.txt"
+    },
+    {
+      "repository": "emilk/egui",
+      "revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "path": "crates/epaint_default_fonts/fonts/egui-icons.txt",
+      "git_blob_sha1": "96d584d7db071f549667faf07c394120882140f5",
+      "sha256": "36dbbfd79d73974f864116879c17dd11559e1340277385f1ac52d8d29a5f5c79",
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/crates/epaint_default_fonts/fonts/egui-icons.txt"
+    },
+    {
+      "repository": "emilk/egui",
+      "revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "path": "crates/epaint_default_fonts/fonts/OFL.txt",
+      "git_blob_sha1": "d952d62c065f3f35fb83a173496e90b21525aef3",
+      "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/crates/epaint_default_fonts/fonts/OFL.txt"
+    }
+  ],
+  "license_source_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+  "source_identity": {
+    "rust_source_files_match_release": 2,
+    "published_revision_reachable": false,
+    "evidence_file": "../egui-0.37.0-source-comparison.json"
+  },
+  "font_assets": [
+    {
+      "path": "fonts/Hack-Regular.ttf",
+      "sha256": "15f55cc0c85a2988d2b4b3a8cdb5d77fdfbaf319e1bb5309d725db9818fb7125",
+      "git_blob_sha1": "92a90cb06e0535afa79f6cba26ceece15a7f7959",
+      "embedded_in_default_features": true,
+      "license_paths": [
+        "fonts/Hack-Regular.txt"
+      ],
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/crates/epaint_default_fonts/fonts/Hack-Regular.ttf"
+    },
+    {
+      "path": "fonts/Ubuntu-Light.ttf",
+      "sha256": "80307b8da7649aa4ee4d484b232140e3ce1ec0ca093073d3c53c8f5a5ced7a70",
+      "git_blob_sha1": "0e9f90d7cb13b3c816150ceae52bce1c91375e11",
+      "embedded_in_default_features": true,
+      "license_paths": [
+        "fonts/UFL.txt"
+      ],
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/crates/epaint_default_fonts/fonts/Ubuntu-Light.ttf"
+    },
+    {
+      "path": "fonts/egui-icons.ttf",
+      "sha256": "122806555c73df7cef55aa1d945289ae27fbc4dbbd31abbb4204ee0cda829cc8",
+      "git_blob_sha1": "47937bea9957ea8c5bf7b0f68020be8daf046214",
+      "embedded_in_default_features": true,
+      "license_paths": [
+        "fonts/emoji-icon-font-mit-license.txt",
+        "fonts/egui-icons.txt"
+      ],
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/crates/epaint_default_fonts/fonts/egui-icons.ttf"
+    },
+    {
+      "path": "fonts/NotoEmoji-Regular.ttf",
+      "sha256": "415dc6290378574135b64c808dc640c1df7531973290c4970c51fdeb849cb0c5",
+      "git_blob_sha1": "19b7badf4afe64dae28cd64fc506b95291bb8b03",
+      "embedded_in_default_features": false,
+      "license_paths": [
+        "fonts/OFL.txt"
+      ],
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/crates/epaint_default_fonts/fonts/NotoEmoji-Regular.ttf"
+    },
+    {
+      "path": "fonts/emoji-icon-font.ttf",
+      "sha256": "f426bec371f484646d002717e2c555a95cd5145e635d83a48bbef83f3abf18ca",
+      "git_blob_sha1": "0f29dfed814a752e23d019a6c55a864175d5e1ae",
+      "embedded_in_default_features": false,
+      "license_paths": [
+        "fonts/emoji-icon-font-mit-license.txt"
+      ],
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/crates/epaint_default_fonts/fonts/emoji-icon-font.ttf"
+    }
+  ]
+}

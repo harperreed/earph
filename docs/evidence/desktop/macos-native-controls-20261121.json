@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "status": "passed_with_playback_limit",
+  "scope": "Standard macOS controls, shared controller workflows, and native package qualification",
+  "source_archive_sha256": "87e169cde5b4cec3aaeeca6ac738cef1f284f69199cf9add92569013b25452f1",
+  "source_files_verified": 2064,
+  "source_state": "working_tree_archive",
+  "products": {
+    "earph-desktop": "ee655fb96bdcd1514701b147940e3411d9214669c407c41ec469063b5f876ce5",
+    "earph-engine": "4ea210436f547fda63a3985e5b9c5782c2824ce2af37cc90766069b1c117b45f",
+    "earph-harness": "609cff70d79a8963978cefddb153a8b253d4f7eb9a9d0c89c30173a4a738c6ea",
+    "static_bridge": "f9136dc351acafaeedd2e0d0e3384c7c8993a1c968545aebe27d44527be11742"
+  },
+  "package_manifest_sha256": "57ab452fc965af7a507dc5fb613f49a62f203f964831f6fd6dc48a4bee2179a9",
+  "platform": {
+    "os": "macOS 27.2.1",
+    "architecture": "arm64",
+    "rust": "1.98.1",
+    "xcode": "27.2"
+  },
+  "native_checks": {
+    "production_build_and_check_exit": 0,
+    "strict_swift_compile_logs_empty": 7,
+    "native_editing_and_private_pasteboard": "passed",
+    "exact_integer_presentation_and_captured_actions": "passed",
+    "controller_recovery_dismissal_and_close": "passed",
+    "real_owner_launch_queue_close_reattach_shutdown": "passed",
+    "owned_view_render": "passed_with_capture_limit",
+    "real_batch_and_native_profile_reload_regressions": "passed",
+    "manual_external_paste": "operator_confirmed",
+    "main_application_launch": "observed",
+    "test_owners_retired": true,
+    "general_clipboard_access_by_tests": false
+  },
+  "review": {
+    "independent_source_paths": 43,
+    "initial_material_findings": 2,
+    "both_runtime_regressions_failed_before_fixes": true,
+    "both_runtime_regressions_passed_after_fixes": true,
+    "narrow_fix_review": "clear"
+  },
+  "package_checks": {
+    "build": "passed",
+    "fresh_verification": "passed",
+    "plist": "passed",
+    "system_library_links_only": true,
+    "executable_modes": "0700",
+    "mpl_source_archives": 15,
+    "signing": "unsigned",
+    "release": "unreleased",
+    "product_provenance": "declared-unverified"
+  },
+  "live_playback_followup": {
+    "status": "blocked",
+    "error": "FORMAT_UNSUPPORTED",
+    "file_decoding": "ready",
+    "source_sample_rate_hz": 44100,
+    "source_representation": "signed16",
+    "source_channels": "stereo",
+    "observed_device_sample_rate_hz": 48000,
+    "observed_device_callback_frames": 512,
+    "requested_callback_frames": 64,
+    "observed_device_stream": "interleaved_float32_stereo",
+    "failure_boundary": "core_audio_open",
+    "reason": "The current System compatibility route requires matching observed rate and callback size; it does not resample.",
+    "device_settings_changed_by_diagnosis": false,
+    "physical_audio_qualified": false
+  },
+  "privacy": {
+    "raw_paths": false,
+    "hostnames": false,
+    "device_names_or_uids": false,
+    "owner_or_request_identities": false,
+    "raw_receipts": false,
+    "raw_audio": false
+  },
+  "limits": [
+    "The six native checks use control-only fixtures; they select no output and start no source.",
+    "Manual external paste is confirmed; manual listening is not confirmed.",
+    "The owned-view bitmap has a sidebar vibrancy capture artifact and does not establish actual app appearance.",
+    "A real first-listen attempt exposed the separate System-route rate and callback mismatch.",
+    "The archive and exact products bind this result; later commits or products need their own evidence."
+  ]
+}

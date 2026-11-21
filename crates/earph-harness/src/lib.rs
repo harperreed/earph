@@ -5,6 +5,7 @@ pub mod catalog;
 pub mod evidence;
 pub mod fixture;
 pub mod inventory;
+pub mod package;
 pub mod render;
 #[cfg(test)]
 #[path = "../tests/support/mod.rs"]

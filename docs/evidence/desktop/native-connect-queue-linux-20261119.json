@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "status": "pass_for_native_connect_queue_checkpoint",
+  "scope": "native Linux Connect, bounded queue edits, mute, themes and confirmed shutdown",
+  "source": {
+    "base_commit": "9bc97128b96315a7e599cad95e4b3e207571ba54",
+    "tested_source_dirty": true,
+    "files": 1731,
+    "manifest_sha256": "c65367e50e8ffdec3822acbcf920212559f1d93a317803cf21d50fe0f2d7260c",
+    "dependency_lock_sha256": "a6e5e6f87a1c21ba703ac72872a6e6551f02131216002167624a0766fcdf9288",
+    "desktop_executable_sha256": "2f0228b387aecafd39529771656367a0eaf5d14581aaf175185457b196049347",
+    "owner_executable_sha256": "67fea7aac233927b462c3f946b3fd3c0691f24f4133c46d105d63c2f11197124"
+  },
+  "checks": {
+    "canonical": {
+      "command": "scripts/check",
+      "exit": 0,
+      "passed": 768,
+      "failed": 0,
+      "ignored": 4,
+      "log_sha256": "68ebb106f24466bb7e494c111b418e7e7c531a1f895b90f303ad96f42d18a9be"
+    },
+    "desktop_package": {
+      "exit": 0,
+      "passed": 54,
+      "failed": 0,
+      "ignored": 0,
+      "overlaps_canonical": true
+    },
+    "native_harness": {
+      "exit": 0,
+      "tests": 36,
+      "product_acceptance": false
+    },
+    "native_product": {
+      "wrapper_exit": 0,
+      "close_smoke_gui_exit": 0,
+      "close_smoke_consumer_exit": 0,
+      "owner_gui_exit": 0,
+      "owner_consumer_exit": 0,
+      "confirmed_shutdown_invoked": true,
+      "owner_exit_code": null,
+      "fresh_owner_absent": true,
+      "remaining_owned_processes": 0,
+      "source_binaries_tools_unchanged": true,
+      "fixtures_unchanged": true
+    }
+  },
+  "native_evidence": {
+    "binding_sha256": "270b49d61c75d16181a5e6399d4a60185a5c00f8cba2d284437978b646d94164",
+    "harness_sha256": "aa9d4e7dccf0a1cfc41ce98811e1fb43bfe4e0d8f050876227bca673a208999b",
+    "root_verification_sha256": "597f3dcc751226b4b5a6002eb5161270c5a2a34f9878a90c96d92844fba673f8",
+    "private_files": 194,
+    "earlier_failed_attempts_retained": 6,
+    "light_png_sha256": "7d483ce9390eaab0dfb64ffb7b0cad46d4be00d8b022ac80e4fcd22e18330520",
+    "dark_png_sha256": "3ea9b7195bb1ba9b0f0ed64fd90b790a508299b8007a7bb49724c2f726d7d76a"
+  },
+  "behavior": {
+    "queue_revisions": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "final_mute_revision": 6,
+    "queue_actions": [
+      "append_file",
+      "append_folder",
+      "select",
+      "move",
+      "remove"
+    ],
+    "output_selected": false,
+    "source_started": false,
+    "unmute_invoked": false
+  },
+  "review": {
+    "lifecycle_findings": "resolved through the same independent review",
+    "queue_intent_findings": 0,
+    "reader_same_review_sha256": "37b3aa7a0524f7cd37e34339f88a2e953eaa834c15c20be124cd75eac08791e6"
+  },
+  "limits": [
+    "The GUI owns the engine child. This native harness cannot obtain its numeric exit status.",
+    "Own X11 PNG opacity and visible Light/Dark controls do not establish compositor alpha or measured contrast.",
+    "This unit does not qualify Mac product windows, playback, output selection, profile application or full desktop parity.",
+    "Core-serialized controlled safety replies test scheduling. They do not prove playback Stop.",
+    "The dispatch 0.2.0 original notice and Apple SDK distribution review remain open release limits.",
+    "Private paths, process IDs, owner IDs, raw native trees and screenshots remain in retained local evidence."
+  ],
+  "raw_private_values_included": false
+}

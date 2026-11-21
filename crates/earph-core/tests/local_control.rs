@@ -60,6 +60,260 @@ fn configure(s: &mut Session) {
     let c = command(s, "select", Command::QueueSelect { id: Some(id) });
     s.submit(c);
 }
+
+#[test]
+fn software_silence_is_independent_of_mute_and_finite_gain() {
+    let mut s = session();
+    configure(&mut s);
+    assert_eq!(
+        s.submit(command(
+            &s,
+            "unmute-before-zero",
+            Command::Mute { muted: false }
+        ))
+        .status,
+        ReceiptStatus::Applied
+    );
+    let before = s.snapshot();
+    let payload = serde_json::from_value(serde_json::json!({"method":"volume.silence"})).unwrap();
+    let receipt = s.submit(command(&s, "silence", payload));
+    assert_eq!(receipt.status, ReceiptStatus::Applied, "{receipt:?}");
+    let after = serde_json::to_value(s.snapshot()).unwrap();
+    assert_eq!(after["software_gain_zero"], true);
+    assert_eq!(s.snapshot().software_gain_db, before.software_gain_db);
+    assert_eq!(s.snapshot().muted, before.muted);
+    assert_eq!(s.snapshot().epochs, before.epochs);
+    assert_eq!(s.snapshot().transport, before.transport);
+    let receipt = s.submit(command(
+        &s,
+        "finite",
+        Command::VolumeSet {
+            millidecibels: -40000,
+            ramp_frames: 23,
+        },
+    ));
+    assert_eq!(receipt.status, ReceiptStatus::Applied);
+    let after = serde_json::to_value(s.snapshot()).unwrap();
+    assert_eq!(after["software_gain_zero"], false);
+    assert!(!s.snapshot().muted);
+    s.submit(command(
+        &s,
+        "mute-after-zero",
+        Command::Mute { muted: true },
+    ));
+    let payload = serde_json::from_value(serde_json::json!({"method":"volume.silence"})).unwrap();
+    assert_eq!(
+        s.submit(command(&s, "muted-zero", payload)).status,
+        ReceiptStatus::Applied
+    );
+    assert_eq!(
+        s.submit(command(
+            &s,
+            "muted-finite",
+            Command::VolumeSet {
+                millidecibels: -40000,
+                ramp_frames: 0
+            }
+        ))
+        .status,
+        ReceiptStatus::Applied
+    );
+    assert!(s.snapshot().muted);
+}
+
+#[test]
+fn silence_rejects_unsupported_routes_without_leaving_latent_intent() {
+    for output in [
+        None,
+        Some((VolumeMode::Fixed, FidelityPolicy::CompatibleConversion)),
+        Some((VolumeMode::Hardware, FidelityPolicy::CompatibleConversion)),
+        Some((VolumeMode::Software, FidelityPolicy::StrictPreservation)),
+    ] {
+        let mut s = session();
+        if let Some((mode, fidelity)) = output {
+            let mut selected = self::output();
+            selected.volume_mode = mode;
+            selected.fidelity = fidelity;
+            s.submit(command(
+                &s,
+                "select",
+                Command::OutputSelect { output: selected },
+            ));
+        }
+        let before = s.snapshot();
+        let payload =
+            serde_json::from_value(serde_json::json!({"method":"volume.silence"})).unwrap();
+        assert_eq!(
+            s.submit(command(&s, "silence", payload)).status,
+            ReceiptStatus::Rejected
+        );
+        assert_eq!(s.snapshot(), before);
+    }
+}
+
+#[test]
+fn factory_defaults_mutes_and_applies_the_current_cap_atomically() {
+    let mut s = session();
+    configure(&mut s);
+    s.submit(command(
+        &s,
+        "caps",
+        Command::VolumeCaps {
+            software_millidecibels: -60000,
+            hardware_millidecibels: None,
+        },
+    ));
+    s.submit(command(
+        &s,
+        "gain",
+        Command::VolumeSet {
+            millidecibels: -80000,
+            ramp_frames: 100,
+        },
+    ));
+    let before = s.snapshot();
+    let payload =
+        serde_json::from_value(serde_json::json!({"method":"volume.factory_defaults"})).unwrap();
+    assert_eq!(
+        s.submit(command(&s, "preset", payload)).status,
+        ReceiptStatus::Applied
+    );
+    let after = s.snapshot();
+    assert_eq!(after.revision, before.revision + 1);
+    assert!(after.muted);
+    assert_eq!(after.software_gain_db, -60.0);
+    assert_eq!(after.gain_ramp_frames, 0);
+    assert_eq!(after.epochs, before.epochs);
+    assert_eq!(after.output, before.output);
+    assert_eq!(after.output_consented, before.output_consented);
+    assert_eq!(after.volume_policy, before.volume_policy);
+    assert_eq!(s.renderer_presets(), ["FactoryDefaults"]);
+}
+
+#[test]
+fn factory_defaults_disarms_fixed_unity_and_rejects_incomplete_presets() {
+    let mut s = session();
+    assert!(s.renderer_presets().is_empty());
+    let mut fixed = output();
+    fixed.volume_mode = VolumeMode::Fixed;
+    fixed.fidelity = FidelityPolicy::StrictPreservation;
+    s.submit(command(
+        &s,
+        "fixed-preset-output",
+        Command::OutputSelect { output: fixed },
+    ));
+    assert!(s.renderer_presets().is_empty());
+    let before = s.snapshot();
+    assert_eq!(
+        s.submit(command(
+            &s,
+            "incomplete-fixed",
+            Command::VolumeFactoryDefaults
+        ))
+        .status,
+        ReceiptStatus::Rejected
+    );
+    assert_eq!(s.snapshot(), before);
+    s.submit(command(
+        &s,
+        "fixed-preset-unity",
+        Command::VolumeSet {
+            millidecibels: 0,
+            ramp_frames: 0,
+        },
+    ));
+    s.submit(command(
+        &s,
+        "fixed-preset-consent",
+        Command::OutputConsent {
+            device_id: output().device_id,
+            profile_id: output().profile_id,
+        },
+    ));
+    s.submit(command(
+        &s,
+        "fixed-preset-arm",
+        Command::FixedArm {
+            device_id: output().device_id,
+            profile_id: output().profile_id,
+        },
+    ));
+    assert_eq!(s.renderer_presets(), ["FactoryDefaults"]);
+    assert_eq!(
+        s.submit(command(&s, "fixed-preset", Command::VolumeFactoryDefaults))
+            .status,
+        ReceiptStatus::Applied
+    );
+    assert_eq!(s.snapshot().software_gain_db, 0.0);
+    assert!(s.snapshot().muted);
+    assert!(!s.snapshot().software_gain_zero);
+    assert_eq!(
+        s.submit(command(
+            &s,
+            "fixed-preset-unmute",
+            Command::Mute { muted: false }
+        ))
+        .error
+        .unwrap()
+        .code,
+        ErrorCode::SafetyPolicyBlocked
+    );
+}
+
+#[test]
+fn failed_zero_delivery_does_not_publish_a_setting_or_successful_execution() {
+    let mut s = session();
+    configure(&mut s);
+    let before = s.snapshot();
+    let receipt = s.submit_with_queue_expansion(
+        command(&s, "failed-zero", Command::VolumeSilence),
+        |_| unreachable!(),
+        |_| {
+            Err(earph_core::EngineError::new(
+                ErrorCode::OutputFault,
+                "playback worker is unavailable",
+            ))
+        },
+    );
+    assert_eq!(receipt.status, ReceiptStatus::Failed);
+    assert_eq!(s.snapshot(), before);
+}
+
+#[test]
+fn selecting_an_incompatible_output_cannot_authorize_a_saved_zero_setting() {
+    let mut s = session();
+    configure(&mut s);
+    let payload = serde_json::from_value(serde_json::json!({"method":"volume.silence"})).unwrap();
+    assert_eq!(
+        s.submit(command(&s, "zero", payload)).status,
+        ReceiptStatus::Applied
+    );
+    let before = s.snapshot();
+    let mut fixed = output();
+    fixed.volume_mode = VolumeMode::Fixed;
+    assert_eq!(
+        s.submit(command(
+            &s,
+            "fixed",
+            Command::OutputSelect { output: fixed }
+        ))
+        .status,
+        ReceiptStatus::Rejected
+    );
+    assert_eq!(s.snapshot(), before);
+    let checkpoint = serde_json::from_slice(&serde_json::to_vec(&s.checkpoint()).unwrap()).unwrap();
+    let restored = Session::restore_owner(
+        ZoneId::new("main").unwrap(),
+        OwnerId::new("restored").unwrap(),
+        ControlLimits::default(),
+        checkpoint,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(restored.snapshot()).unwrap()["software_gain_zero"],
+        false
+    );
+}
 fn start(s: &Session) -> CommandEnvelope {
     let mut c = command(
         s,
@@ -262,6 +516,7 @@ fn a_local_stream_can_finish_without_claiming_a_sample_activation() {
     s.submit(start.clone());
     let state = s.snapshot();
     let observation = PlaybackObservation {
+        output_activity: None,
         processing: None,
         format: earph_core::audio::PcmFormat::new(
             48000,
@@ -314,6 +569,7 @@ fn unknown_audible_timing_is_not_replaced_with_a_software_restart_cursor() {
     s.submit(request);
     let state = s.snapshot();
     let observation = PlaybackObservation {
+        output_activity: None,
         processing: None,
         format: earph_core::audio::PcmFormat::new(
             48000,

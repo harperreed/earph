@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "kind": "scoped_software_qualification_receipt",
+  "date": "2026-11-21",
+  "subject": "Music Assistant TRACK through Earph UPnP renderer on isolated Linux software output",
+  "result": "partial_scoped_pass",
+  "music_assistant": {
+    "version": "2.10.12",
+    "image": "ghcr.io/music-assistant/server@sha256:f6bedec4f610735f504ff209201fc7340542a7283b6a4043dfaa72f14dd93a97",
+    "source_commit": "6ab5bfa63f02d0daa237d342097a42feae5c5aae",
+    "source_url": "https://github.com/music-assistant/server/tree/6ab5bfa63f02d0daa237d342097a42feae5c5aae",
+    "official_source_archive_sha256": "c479415b341f1a7ae2217bf2e8283206ccc0231e627c671071690f8db5410122",
+    "unmodified_controller": true,
+    "request_media_form": "Explicit builtin TRACK URI for generated HTTP FLAC",
+    "source_attribution_limit": "Earlier image metadata matched six runtime files. The installed streams/audio.py file was not separately hashed. Actual TRACK and S24 behavior was observed in this run."
+  },
+  "earph_assets": {
+    "engine_sha256": "36ac0a5eb091a24da197efeab2ff6676890f152e90221df2cba7da8ac5b2d28d",
+    "fixture_sha256": "8d30f38b72b6af7adbfbc1e073fb2e91891883c16d05888c685436b824a0e3bd",
+    "fixture_manifest_sha256": "05081dbd9af4635ccf32d68a642c2fc57418c66f9936248aa84f532e421dac7b",
+    "fixture_compiled_root_head": "486760081d49a4bcd7500f13400a50369a6ded42",
+    "fixture_source_binding_sha256": "c66a96bc0e9fb75485bd53936b55d62caa28c7f0b9895f73b05a011aa68917db",
+    "original_source_archive_sha256": "d3c186401b9b4438bf1f496e8c1b7cdad33c3f081646c4ef736d27a9123bc45a",
+    "diagnosis_source_binding_sha256": "63c4a0861795ddbb3315e6d253109959e3149e214a60dd8160c15d4fe3031964",
+    "inspected_source_files": [
+      {
+        "repository_path": "crates/earph-alsa/src/native.rs",
+        "sha256": "9c1acd6f8fb28f76bd88f7e293da3cbdd48e879b85bc80552e5fee8f38a1192c",
+        "matched_root_source_at_diagnosis": true
+      },
+      {
+        "repository_path": "crates/earph-alsa/src/output.rs",
+        "sha256": "b96d7f67b13ae8e3a6ed1f6133bca9f1dd962dd3611efa39a4031d35fe579dc5",
+        "matched_root_source_at_diagnosis": true
+      },
+      {
+        "repository_path": "crates/earph-core/src/network_source.rs",
+        "sha256": "c8bb10fd6e9ba4d3339ad68bde87705778da43b6b7f3c615502eed571758e359",
+        "matched_root_source_at_diagnosis": true
+      },
+      {
+        "repository_path": "crates/earph-core/src/session_network.rs",
+        "sha256": "8d64514e5cd025f53eaf654d454005665164197e017e29b859701a5debaa458e",
+        "matched_root_source_at_diagnosis": true
+      },
+      {
+        "repository_path": "crates/earph-dsp/src/stream.rs",
+        "sha256": "15c75595406a58296918af6bb6d2046f4f02c4f2bf541134255fb947bb8e337c",
+        "matched_root_source_at_diagnosis": true
+      },
+      {
+        "repository_path": "crates/earph-engine/src/output.rs",
+        "sha256": "cabb7c01d8f6b6b96274cb615ea81383dc73d338822411ef2b17801087d6811a",
+        "matched_root_source_at_diagnosis": true
+      },
+      {
+        "repository_path": "crates/earph-engine/src/output_replay.rs",
+        "sha256": "9d477f78615f91da4d36a047d36fc85a8abaa5ee4189639083ea1ecb569e9fef",
+        "matched_root_source_at_diagnosis": true
+      },
+      {
+        "repository_path": "crates/earph-engine/src/stream_render.rs",
+        "sha256": "9201e253dae44e7815468a6f441ee77d3b0558a224191f1b6f77d248fe4d1a6d",
+        "matched_root_source_at_diagnosis": true
+      },
+      {
+        "repository_path": "crates/earph-engine/src/worker/network.rs",
+        "sha256": "b43e0cce79e7d95b59f14d059c5b31310991f7f820192212d00acb4b769e8cef",
+        "matched_root_source_at_diagnosis": true
+      },
+      {
+        "repository_path": "crates/earph-engine/src/worker.rs",
+        "sha256": "e4b18c1e040baee51bc3e713dee3293db76bb9830a16da932ec1181957906ea0",
+        "matched_root_source_at_diagnosis": true
+      },
+      {
+        "repository_path": "crates/earph-engine/tests/stream_render.rs",
+        "sha256": "21be6dc926379221df9a9f77528671aa6edd6134a529ac5048334c6714b7b57c",
+        "matched_root_source_at_diagnosis": true
+      }
+    ],
+    "current_whole_root_product_qualified": false
+  },
+  "isolation": {
+    "private_internal_bridge": true,
+    "physical_audio_devices": false,
+    "published_host_ports": false,
+    "generated_media_only": true,
+    "output": "ALSA file/null with paced FIFO capture",
+    "all_objects_retained": true
+  },
+  "observed": {
+    "media_type": "track",
+    "ma_output": {
+      "content_type": "flac",
+      "sample_rate_hz": 48000,
+      "bit_depth": 24,
+      "channels": 2
+    },
+    "normalization": "disabled",
+    "received_format": {
+      "channels": "stereo",
+      "representation": "signed24",
+      "sample_rate_hz": 48000
+    },
+    "backend_client_format": {
+      "bytes_per_frame": 6,
+      "channels": 2,
+      "interleaved": true,
+      "representation": "signed24",
+      "sample_rate_hz": 48000
+    },
+    "backend_measurement_boundary": "alsa_client_negotiation",
+    "physical_preservation_verified": false,
+    "graph": {
+      "gain_linear": 0.5,
+      "epoch": 1,
+      "device_epoch": 1,
+      "ready_while_muted": true
+    },
+    "control_checks": {
+      "explicit_remote_unmute": true,
+      "actual_unmuted_playback_and_progress": true,
+      "remote_pause": true,
+      "ma_and_core_paused": true,
+      "remote_stop": true,
+      "actual_idle_and_muted_after_stop": true
+    }
+  },
+  "pcm": {
+    "qualified_segment": true,
+    "frames": 2048,
+    "channels": 2,
+    "representation": "signed24",
+    "sample_rate_hz": 48000,
+    "maximum_error_lsb": 0,
+    "tolerance_lsb": 1,
+    "graph_gain": 0.5,
+    "volume_millidecibels": 0,
+    "source_frame_start": 153792,
+    "capture_byte_start": 922752,
+    "segment_bytes": 12288,
+    "source_frame_end": 155840,
+    "absolute_output_frame_end": 155840,
+    "new_native_epoch_submitted_frames": 0,
+    "backend_origin_frames": 155840,
+    "stable_paused_capture_reads_bytes": [
+      935040,
+      935040
+    ],
+    "final_writer_closed_and_drained": true,
+    "full_capture_bytes": 935040,
+    "full_capture_sha256": "bbff0aed5df77e8ef03277053ea4b87f467ad607e6bd02af4646eafeab5ec3d7",
+    "segment_sha256": "05fb0b5fe4c2e402967f9b42005e47d1f5870b0a81d13a9eece419793923346e",
+    "reference_wav_sha256": "bc83e4c2c5617656d1228a2bf06755ed9a57dbea6444643bd961ec5115cca0de",
+    "coordinate_basis": [
+      "Observed zero source/output origin and zero capture bytes before explicit Unmute.",
+      "Two identical paused native snapshots have stable gain, binding, formats, graph, and device epochs.",
+      "Absolute output frontier equals backend origin plus the new native epoch submitted count.",
+      "Source accepted and source position equal the absolute output frontier for this identity-rate half-gain graph.",
+      "Source/output rates are 48000 Hz with stereo S24 and no rate, channel, delay, or tail transformation.",
+      "Two paused capture counts and the final drained count equal the complete output frontier times six bytes.",
+      "Checked integer arithmetic selects exactly the final 2048 frames using separate source, output, and byte domains."
+    ],
+    "alignment_search": false,
+    "zero_stripping": false,
+    "format_reinterpretation": false
+  },
+  "original_live_measurement": {
+    "refused_before_sample_comparison": true,
+    "source_frames": 155840,
+    "native_submitted_frames": 0,
+    "reason": "The private guard compared an absolute source count with a native counter reset for the new paused output epoch.",
+    "application_bug_established": false,
+    "original_refusal_retained": true,
+    "refusal_sha256": "acf0f9b73aca4f14a08c848559f8a85441ed472733989fc02c1bb2586e8a93f7",
+    "original_outcome_sha256": "a9ed55b54b9322c0ad1fcdb285f46602e4664f9c437df1216f2630020c3c34f7"
+  },
+  "retirement": {
+    "authority_revokes": [
+      {
+        "method": "sources.grants.revoke",
+        "status": "applied",
+        "request_sha256": "3c98f1682a34540e368684b290508e48a4b0d003d25834ed6732062aad8db3dc",
+        "response_sha256": "d0945afca3824ef15c9bb5f2e25974993879e44e1abe6eff80d9d7373bb6885f"
+      },
+      {
+        "method": "renderer.callbacks.revoke",
+        "status": "applied",
+        "request_sha256": "7064343aa208e07b2a6e9e659ba8603e94a3a33d9cc34a408825befa2838c5a7",
+        "response_sha256": "e6fdc421aacc58beca00667068ccbe3e73a938443a2db52cfd384fe51f64f21f"
+      },
+      {
+        "method": "renderer.grants.revoke",
+        "status": "applied",
+        "request_sha256": "2e1a145ea94308528a3ca260c419db6af610e4934bfa49709fa521b9f7575c9b",
+        "response_sha256": "7ea173ad7a583c9e40561d140bb5a68f2fa127c53904ed943000a45225cb0b90"
+      }
+    ],
+    "final_core": {
+      "transport": "idle",
+      "muted": true,
+      "active_source": false,
+      "closing_source": false,
+      "staged_source": false,
+      "controller_count": 0,
+      "allowed_origin_count": 0
+    },
+    "containers": [
+      {
+        "role": "namespace_holder",
+        "running": false,
+        "pid": 0,
+        "exit_code": 0
+      },
+      {
+        "role": "temporary_route_helper",
+        "running": false,
+        "pid": 0,
+        "exit_code": 0
+      },
+      {
+        "role": "music_assistant",
+        "running": false,
+        "pid": 0,
+        "exit_code": 0
+      },
+      {
+        "role": "earph_owner",
+        "running": false,
+        "pid": 0,
+        "exit_code": 0
+      },
+      {
+        "role": "generated_media",
+        "running": false,
+        "pid": 0,
+        "exit_code": 0
+      }
+    ],
+    "owner_and_ssdp_joined": true,
+    "capture_joined": true,
+    "capture_exit_code": 0,
+    "generated_media_joined": true,
+    "nested_controller_session_joined": true,
+    "nested_controller_exit_code": 0,
+    "outer_control_exit_code": 0,
+    "owned_host_children_absent": true,
+    "retained_network_endpoint_count": 0
+  },
+  "execution_evidence": {
+    "original_live_tool_handle_gap": true,
+    "original_live_tool_handle_note": "Initial exec tool handle was lost across compaction. Actual durable process close exit zero, child joins, and fresh process absence remain retained.",
+    "offline_tool_session": 78667,
+    "offline_tool_session_joined": true,
+    "offline_tool_exit_code": 0,
+    "offline_input_hashes_rechecked_unchanged": 38,
+    "operators": {
+      "live_outer_sha256": "94459dba042bb35f0a0740173e02252b25f448e45586716f203bce7209dae68a",
+      "live_controller_sha256": "1824fc3fada88f494a8b98cdf01a2999452e1cb8939d4e9e723602839ff9986e",
+      "offline_sha256": "4ee03984972642238207605efff71f9d15e81e1aa7235b1851fa69822336d8ab",
+      "offline_input_binding_sha256": "596ceae4a6f1535193a4a6ef729f67cca4e783718758a178ec3dc46aeff6ef60",
+      "offline_manifest_sha256": "876730172fa196e521a7e471c2faeff34902c642437b7cfc64273fd8c2e79b72",
+      "sample_verifier_sha256": "f035c21eec6ff24ba203c24191f534420dc251ecda4007a6bd12fd1ca2e04a8b"
+    },
+    "outcomes": {
+      "live_acceptance_sha256": "a9ed55b54b9322c0ad1fcdb285f46602e4664f9c437df1216f2630020c3c34f7",
+      "live_outer_sha256": "00e6baa70b37f8925eaf3935442e24eb846d27c59c0a7fc5210486b88cf4b6c0",
+      "live_controller_sha256": "e2b92802511af373838b31858ca000cc220412250687a14ad97087e3259b84b5",
+      "live_control_sha256": "1a67483cf33a0ab44ed7f6135abd32380bb97c01555f33d2aab403e307cb9bc0",
+      "fresh_retirement_sha256": "ce5d06de2e2615bcc70ebbbfde27fe45be6d68f71291a37132ac8e34661c1226",
+      "offline_pcm_sha256": "dac9d4c078a69601930c054e55dbbf658d3a22fe688f14d3258cd149dcf7b931",
+      "offline_join_sha256": "7793f4697d532f656ea0abda1e4d20e7d44f7db06ef41ed04c6793591b55c015",
+      "offline_control_sha256": "5fed34dfe9b37998ade7febd59872954d40eacb4284dfc850b6792f9e13a981c"
+    }
+  },
+  "limits": {
+    "qualified_scope": "Only the retained 2048-frame software S24 segment and the listed MA control observations.",
+    "resume_qualified": false,
+    "new_volume_matrix_qualified": false,
+    "new_cap_refusal_qualified": false,
+    "independent_controller_qualified": false,
+    "ac15_complete": false,
+    "physical_output_qualified": false,
+    "real_lan_qualified": false,
+    "current_whole_root_product_qualified": false,
+    "unchanged_original_refusal": true,
+    "no_new_runtime_for_offline_verification": true
+  },
+  "public_safe_preparation": {
+    "constructed_from_explicit_field_allowlist": true,
+    "raw_private_paths_included": false,
+    "raw_logs_included": false,
+    "account_material_included": false,
+    "mutable_runtime_object_ids_included": false,
+    "root_review_and_install_pending": false
+  }
+}

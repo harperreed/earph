@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-11-19",
+  "scope": "Native Linux correction previews, imports, provenance review and local FIR graph insertion",
+  "status": "pass",
+  "source": {
+    "base_commit": "e6a2a5ff4482443a090bc6275219dea92e06cb80",
+    "dirty_precommit": true,
+    "files": 1802,
+    "checksum_text_manifest_sha256": "3e79307c7359490db36d2a6757d77acf6915a59b01c11fe597d5bc6931e6a462",
+    "unchanged_during_canonical_and_native": true,
+    "post_check_changes": [
+      "this evidence document",
+      "desktop plan checkpoint",
+      "desktop state machine notes"
+    ]
+  },
+  "products": [
+    {
+      "artifact": "earph-desktop",
+      "sha256": "14750e3d6f47c445987bbbf097d075f15fabc57316e09307ce886f1d2c351415"
+    },
+    {
+      "artifact": "earph-engine",
+      "sha256": "5131001e510b2c173d78c5dcc92ac05eb47b846d4710cb9b203c7f14528072fb"
+    }
+  ],
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "passed": 1011,
+    "failed": 0,
+    "ignored": 5,
+    "groups": 115,
+    "log_sha256": "711b5128359c52343df5b7205a23396c9aa8f5ec423326d3c9aa77807733b0ce"
+  },
+  "desktop_tests": {
+    "passed": 160,
+    "failed": 0,
+    "ignored": 0,
+    "strict_workspace_clippy_exit": 0
+  },
+  "native": {
+    "exit": 0,
+    "actions": 105,
+    "harness_sha256": "fa048e1c4d363871cd306f19a18c7dc518f7b88f52c71373c1be41b2c6a944f9",
+    "binding_sha256": "71811adcb06e72f2060d9375e1b73352185f533e6acd0b6d73643898be0d958a",
+    "root_proof_sha256": "4b67fd0e1bfb4f2f91e59320c1083ed6a714e6309784622b91b2a8e79f0246cd",
+    "root_visual_proof_sha256": "6f756a7983e8ab4015f750ee5564b07b93f29cfd6c180f196dcc8024c9dd56a9",
+    "gui_exits": [
+      0,
+      0
+    ],
+    "consumer_exits": [
+      0,
+      0
+    ],
+    "owner_exit_code": null,
+    "owner_exit_limit": "The controller owns its child handle; fresh absence is verified.",
+    "owner_fresh_absence": true,
+    "owned_processes_remaining": 0,
+    "source_products_tools_fixtures_configuration_unchanged": true,
+    "unmute_actions": 0,
+    "capture": {
+      "bytes": 0,
+      "frames": 0,
+      "muted_throughout": true,
+      "scope": "No playback output selected or source started"
+    },
+    "exact_receipts": [
+      {
+        "method": "profiles.import_correction",
+        "status": "applied",
+        "sha256": "c2e00ac392fde1bec1b7532849e091ba92bc384d3b2f409ccb7cc335bbae73da",
+        "observed_reply_sha256": "38e57205e7fcd572a637e9ebaef18af5f0c6b447a9b27a6d07756050133a1cd3"
+      },
+      {
+        "method": "profiles.import_correction",
+        "status": "applied",
+        "sha256": "29669fbc6ad188fe2df070169a3ee069eca982b6913d12930a75e2c7df3623fe",
+        "observed_reply_sha256": "920b2babfc64e6a4604312df60d8e87865d9b04e75db1047d590ef964bfd1e01"
+      },
+      {
+        "method": "profiles.import_correction",
+        "status": "applied",
+        "sha256": "559976595a5a6737fb5bd47d327f73c420e22320776442f4ee8c2fc441fcfce7",
+        "observed_reply_sha256": "67f9f2c3be73f98d0c19cef3af2abbb69b4759d95c6450c4ec3e7accf0540c41"
+      },
+      {
+        "method": "assets.import_fir",
+        "status": "applied",
+        "sha256": "e059b28fd5d3a60a08f4e79696bed446ea68a879d46d995359e0431d1540186f",
+        "observed_reply_sha256": "869dfe68a475da9bd4a0acc5033f391f771c081544ce12763d8b96f2b44b69eb"
+      },
+      {
+        "method": "sessions.stop",
+        "status": "rejected",
+        "sha256": "28d783aa22761deee55ada06b71632b59553e2422f593d487df57b262b4951fa",
+        "observed_reply_sha256": "ae89d45c14b7ac6c428318752596d51ee47b72ce77b219644c37bf8c27c47274"
+      }
+    ],
+    "independent_owner_queries": 37,
+    "local_actual_reviews": 4,
+    "shared_parser_previews": [
+      "rew",
+      "autoeq",
+      "camilladsp",
+      "fir"
+    ],
+    "canonical_convolution_added": true,
+    "processing_applied": false,
+    "source_started": false,
+    "output_selected": false,
+    "final_stop": {
+      "status": "rejected",
+      "code": "STALE_SESSION",
+      "profile_worker_idle": true,
+      "state_unchanged": true
+    },
+    "images": [
+      {
+        "theme": "light",
+        "sha256": "00a74bbdabc99dd46ae8a6324b627aac2c48b665c3531ec5c3299376556a042a",
+        "opaque": true,
+        "root_viewed": true,
+        "scope": "Actual owned native X11 window"
+      },
+      {
+        "theme": "dark",
+        "sha256": "7d05e24acb8f6bb9cab2f52507840221f08a0d540e56f93f4740a95816103aad",
+        "opaque": true,
+        "root_viewed": true,
+        "scope": "Actual owned native X11 window"
+      }
+    ],
+    "private_corpus_used": false,
+    "physical_output_used": false
+  },
+  "review": {
+    "source_receipt_sha256": "69d02d8b5d7fb15066f391f0adafa51a7e033b52e28ddf68136058635c3b9470",
+    "presentation_reconciliation_sha256": "bcdf02b1e299335607bf8fdccb82c08fec9778ddc86903e77e085d79b297c29f",
+    "fir_label_reconciliation_sha256": "44f3b1e6d6241f1853ef9160f3111b1ddfea0a6e54a8365a45ea891352b89f38",
+    "harness_receipt_sha256": "fe9bd51699b336df8095c3f72ee827c335cc0500470f1888a57696bc3865a932",
+    "material_findings": 0
+  },
+  "verified": [
+    "REW, AutoEq and CamillaDSP use the actual shared text parser with explicit context and metadata.",
+    "An authored edit invalidates the captured preview before import.",
+    "Text imports match exact source bytes, parser reports and independent immutable profile reads.",
+    "Reconstruction creates new source bytes and a new profile revision while preserving graph, metadata and preamp.",
+    "FIR preview remains advisory; actual owner import and verification identify complete WAV source bytes.",
+    "Actual imported correction and FIR asset reviews remain explicit local actions.",
+    "One reviewed FIR asset becomes one local convolution node without gain or processing activation.",
+    "Idle Stop refuses the null session before mutation, with exact context and unchanged safe-idle state.",
+    "Matching observed reply UTF8 is retained before terminal-status assertions."
+  ],
+  "retained_attempts": [
+    {
+      "attempt": 1,
+      "status": "failed",
+      "cause": "The harness incorrectly expected Applied for an idle null-session Stop after 99 actions.",
+      "missing_evidence": "The unexpected reply error bytes were not archived before the status assertion.",
+      "source_products_tools_fixtures_configuration_unchanged": true,
+      "owned_processes_remaining": 0
+    },
+    {
+      "attempt": 2,
+      "status": "passed",
+      "whole_consumer_seconds": 600,
+      "close_smoke_seconds": 180,
+      "product_and_per_action_deadlines_unchanged": true
+    }
+  ],
+  "limits": [
+    "Only isolated Linux X11 and generated public-safe correction inputs are qualified.",
+    "No output selection, playback, processing activation, Prepare, Apply, consent, arming, gain change or Unmute occurs.",
+    "The saved correction detail disclosure still contains debug text; presentation polish remains required before release.",
+    "FIR path preview is advisory and does not atomically bind later owner import bytes.",
+    "Packages, diagnostics, networks, Mac windows and full GUI parity remain incomplete."
+  ]
+}

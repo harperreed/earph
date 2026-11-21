@@ -20,6 +20,8 @@ use earph_core::{
     },
 };
 use earph_media::LocalFile;
+mod network;
+use network::{HttpSource, NetworkPreparation, Reader};
 use std::{
     path::Path,
     sync::{
@@ -80,6 +82,15 @@ impl StopRequest {
     }
 }
 pub(crate) enum Action {
+    StartNetwork {
+        settings: Settings,
+        context: Arc<earph_core::network_source::NetworkSourceContext>,
+        permit: earph_network::FetchPermit,
+        live: crate::network_source::LiveBinding,
+        clock: std::time::Instant,
+        cancel: Arc<AtomicBool>,
+    },
+    RetireNetwork(earph_core::network_source::NetworkClosingSource),
     ActivateGraph {
         settings: Settings,
         activation: GraphActivationRequest,
@@ -104,11 +115,21 @@ pub(crate) enum Action {
 }
 impl Action {
     fn is_safety(&self) -> bool {
-        matches!(self, Self::Pause(_) | Self::Stop(_) | Self::Shutdown)
-            || matches!(self, Self::Settings(settings) if settings.snapshot.muted)
+        matches!(
+            self,
+            Self::Pause(_) | Self::Stop(_) | Self::Shutdown | Self::RetireNetwork(_)
+        ) || matches!(self, Self::Settings(settings) if settings.snapshot.muted || settings.snapshot.software_gain_zero)
     }
 }
 pub(crate) enum Event {
+    Network(earph_core::network_source::NetworkEvent),
+    NetworkRetired(earph_core::network_source::NetworkRetirementAck),
+    NetworkGraphActivated(earph_core::network_source::NetworkGraphActivationAck),
+    NetworkGraphFailed {
+        request_id: RequestId,
+        error: EngineError,
+        actual: earph_core::network_source::NetworkExecutionFence,
+    },
     GraphActivated(GraphActivationAck),
     GraphFailed {
         epochs: Epochs,
@@ -185,6 +206,7 @@ pub(crate) struct Worker {
     sender: SyncSender<Action>,
     pub events: Receiver<Event>,
     queued: Arc<AtomicUsize>,
+    retiring: Arc<AtomicBool>,
     cancel: Option<Arc<AtomicBool>>,
     join: Option<JoinHandle<()>>,
     pub view: Arc<Mutex<PlanView>>,
@@ -195,24 +217,32 @@ impl Worker {
         let (sender, receiver) = mpsc::sync_channel(COMMANDS);
         let (events, event_receiver) = mpsc::sync_channel(1024);
         let queued = Arc::new(AtomicUsize::new(0));
+        let retiring = Arc::new(AtomicBool::new(false));
         let view = Arc::new(Mutex::new(PlanView::default()));
         let progress = Arc::new(Mutex::new(None));
         let observations = progress.clone();
         let q = queued.clone();
         let v = view.clone();
-        let join = thread::spawn(move || run(receiver, events, q, v, observations));
+        let retirement = retiring.clone();
+        let join = thread::spawn(move || run(receiver, events, q, v, observations, retirement));
         Self {
             sender,
             events: event_receiver,
             queued,
+            retiring,
             cancel: None,
             join: Some(join),
             view,
             progress,
         }
     }
-    pub fn has_capacity(&self, safety: bool) -> bool {
-        self.queued.load(Ordering::Acquire) < if safety { COMMANDS } else { ORDINARY_COMMANDS }
+    pub fn has_capacity_for(&self, safety: bool, actions: usize) -> bool {
+        (safety || !self.retiring.load(Ordering::Acquire))
+            && self
+                .queued
+                .load(Ordering::Acquire)
+                .checked_add(actions)
+                .is_some_and(|queued| queued <= if safety { COMMANDS } else { ORDINARY_COMMANDS })
     }
     pub fn cancel_active(&self) {
         if let Some(cancel) = &self.cancel {
@@ -227,9 +257,18 @@ impl Worker {
             .ok_or_else(|| EngineError::new(ErrorCode::StaleSession, "source is unavailable"))
     }
     pub fn send(&mut self, action: Action) -> Result<(), EngineError> {
+        if matches!(action, Action::RetireNetwork(_)) {
+            self.retiring.store(true, Ordering::Release);
+        }
         let safety = action.is_safety();
         let reserved = safety || matches!(action, Action::AcknowledgeSourceTerminal(_));
-        if !self.has_capacity(reserved) {
+        if self.queued.load(Ordering::Acquire)
+            >= if reserved {
+                COMMANDS
+            } else {
+                ORDINARY_COMMANDS
+            }
+        {
             if safety {
                 self.cancel_active();
             }
@@ -237,12 +276,16 @@ impl Worker {
         }
         if matches!(
             action,
-            Action::Stop(_) | Action::Shutdown | Action::Start { .. }
+            Action::Stop(_)
+                | Action::Shutdown
+                | Action::Start { .. }
+                | Action::StartNetwork { .. }
+                | Action::RetireNetwork(_)
         ) && let Some(cancel) = &self.cancel
         {
             cancel.store(true, Ordering::Release);
         }
-        if let Action::Start { cancel, .. } = &action {
+        if let Action::Start { cancel, .. } | Action::StartNetwork { cancel, .. } = &action {
             self.cancel = Some(cancel.clone());
         }
         self.queued.fetch_add(1, Ordering::AcqRel);
@@ -290,8 +333,8 @@ fn item(
 }
 
 struct Track {
-    entry: QueueEntry,
-    file: LocalFile,
+    entry: Option<QueueEntry>,
+    file: Reader,
     packet: Option<PcmBlock>,
     offset: usize,
 }
@@ -315,8 +358,8 @@ impl Track {
                     },
                 )?;
                 Ok(Self {
-                    entry,
-                    file,
+                    entry: Some(entry),
+                    file: Reader::Local(file),
                     packet,
                     offset: 0,
                 })
@@ -337,6 +380,9 @@ impl Track {
         self.packet = None;
         self.offset = 0;
         Ok(())
+    }
+    fn local_entry(&self) -> Result<&QueueEntry, EngineError> {
+        self.entry.as_ref().ok_or(FAILED)
     }
 }
 #[derive(Clone)]
@@ -368,18 +414,23 @@ impl Drop for QueueReservation {
     }
 }
 struct Playback {
+    preparation_failure: Option<EngineError>,
     pipeline: Option<PreparedPipeline>,
     installed_graph_epoch: u64,
     phase: RenderPhase,
     pending_kind: PendingPeriodKind,
     source_stream_position: u64,
     source_epochs: Epochs,
+    native_epochs: Epochs,
     replacement_boundary: Option<Arc<StreamingReplacementBoundary>>,
+    network_replacement_boundary:
+        Option<Arc<earph_core::network_source::NetworkReplacementBoundary>>,
     saturation_count: u64,
     graph_peak: Option<f64>,
     prequantization_peak: Option<f64>,
     backend: BackendObservation,
     last_counters: Counters,
+    last_counter_epochs: Epochs,
     // Keep one irreversible native prefix across a quiet control boundary.
     control_stop_observation: Option<(Epochs, PlaybackObservation)>,
     settings: Settings,
@@ -460,8 +511,29 @@ impl Playback {
             }
             expected = Some(track.file.format());
         }
-        let current = Track::open(entries[selected_index].clone(), epochs, epochs, events)?;
-        let format = current.file.format();
+        let mut current = Some(Track::open(
+            entries[selected_index].clone(),
+            epochs,
+            epochs,
+            events,
+        )?);
+        Self::prepare_current(settings, &mut current, cancel, view, progress, events, base)
+    }
+    fn prepare_current(
+        settings: Settings,
+        current: &mut Option<Track>,
+        cancel: Arc<AtomicBool>,
+        view: Arc<Mutex<PlanView>>,
+        progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
+        events: &SyncSender<Event>,
+        base: u64,
+    ) -> Result<Self, EngineError> {
+        let profile_budget = EngineError::new(
+            ErrorCode::ResourceBudgetExceeded,
+            "source preparation exceeds memory admission",
+        );
+        let epochs = settings.snapshot.epochs;
+        let format = current.as_ref().ok_or(FAILED)?.file.format();
         let config = settings.snapshot.output.as_ref().ok_or(FAILED)?;
         if cancel.load(Ordering::Acquire) {
             return Err(EngineError::new(
@@ -487,22 +559,26 @@ impl Playback {
         )?;
         let gain = GainRamp::new(format)?;
         let mut playback = Self {
+            preparation_failure: None,
             installed_graph_epoch: settings.snapshot.graph_epoch,
             pipeline: None,
             phase: RenderPhase::Feeding,
             pending_kind: PendingPeriodKind::Source,
             source_stream_position: 0,
             source_epochs: epochs,
+            native_epochs: epochs,
             replacement_boundary: None,
+            network_replacement_boundary: None,
             saturation_count: 0,
             graph_peak: None,
             prequantization_peak: None,
             backend,
             last_counters,
+            last_counter_epochs: epochs,
             control_stop_observation: None,
             settings,
             output,
-            current,
+            current: current.take().ok_or(FAILED)?,
             next: None,
             period,
             period_offset: 0,
@@ -524,13 +600,32 @@ impl Playback {
             modified: false,
             progress,
         };
-        playback.spans.push(Span {
-            entry: playback.current.entry.clone(),
-            start: 0,
-            source_start: 0,
-            end: 0,
-        });
+        if let Some(entry) = &playback.current.entry {
+            playback.spans.push(Span {
+                entry: entry.clone(),
+                start: 0,
+                source_start: 0,
+                end: 0,
+            });
+        }
         playback.prefetch(events)?;
+        if playback.is_network() {
+            let prepared = (|| {
+                let observation = playback
+                    .observe_network(earph_core::network_source::NetworkLifecycle::Ready)?;
+                playback.emit_network(
+                    events,
+                    earph_core::network_source::NetworkEventKind::Prepared { observation },
+                )?;
+                playback.set_gain()?;
+                if !playback.settings.playing {
+                    playback.network_paused(events)?;
+                }
+                Ok(())
+            })();
+            playback.preparation_failure = prepared.err();
+            return Ok(playback);
+        }
         let observation = playback.observe()?;
         emit(
             events,
@@ -547,10 +642,11 @@ impl Playback {
     }
     fn cancelled_stream_source(&self) -> bool {
         self.cancel.load(Ordering::Acquire)
-            && self
-                .pipeline
-                .as_ref()
-                .is_some_and(|p| p.stream_render().is_some())
+            && (self.is_network()
+                || self
+                    .pipeline
+                    .as_ref()
+                    .is_some_and(|p| p.stream_render().is_some()))
     }
     fn format(&self) -> PcmFormat {
         self.current.file.format()
@@ -622,6 +718,15 @@ impl Playback {
                     ErrorCode::ResourceBudgetExceeded,
                     "installed graph generation exhausted",
                 ))?;
+        if self.is_network() {
+            return self.activate_network_graph(
+                settings,
+                activation,
+                pipeline,
+                installed_graph_epoch,
+                events,
+            );
+        }
         if incoming_stream
             || self
                 .pipeline
@@ -675,7 +780,7 @@ impl Playback {
                 graph_hash: activation.prepared.preview.graph_hash.clone(),
                 activation_frame: self.stream_position,
                 observation: self.observe()?,
-                source_total_frames: self.current.file.total_frames(),
+                source_total_frames: self.current.file.total_frames().ok_or(FAILED)?,
             }),
         )?;
         // FIFO puts this acknowledgement before later facts from the installed graph.
@@ -716,26 +821,47 @@ impl Playback {
         }
     }
     fn set_gain(&mut self) -> Result<(), EngineError> {
-        let gain = if self.settings.snapshot.muted {
+        let zero = self.settings.snapshot.software_gain_zero;
+        let gain = if self.settings.snapshot.muted || zero {
             None
         } else {
             Some(self.settings.snapshot.software_gain_db)
         };
-        let ramp = self.settings.snapshot.gain_ramp_frames;
+        let ramp = if zero {
+            0
+        } else {
+            self.settings.snapshot.gain_ramp_frames
+        };
         self.gain.set_target(gain, ramp)?;
         if let Some(stream) = self.pipeline.as_mut().and_then(|p| p.stream_render_mut()) {
-            return stream.set_gain_target(gain, ramp);
+            stream.set_gain_target(gain, ramp)?;
+        } else if let Some(render) = self.pipeline.as_mut().and_then(|p| p.render_mut()) {
+            render.set_gain_target(gain, ramp).map_err(render_error)?;
         }
-        {
-            self.pipeline
-                .as_mut()
-                .and_then(|p| p.render_mut())
-                .map_or(Ok(()), |r| {
-                    r.set_gain_target(gain, ramp).map_err(render_error)
-                })
+        if gain.is_none() && ramp == 0 {
+            self.silence_pending_period()?;
         }
+        Ok(())
+    }
+    fn silence_pending_period(&mut self) -> Result<(), EngineError> {
+        if !self.pending {
+            return Ok(());
+        }
+        if let Some(pipeline) = &mut self.pipeline {
+            if let Some(stream) = pipeline.stream_render_mut() {
+                let offset = stream.period_offset();
+                return silence_period_suffix(&mut stream.period, offset);
+            }
+            if let Some(render) = pipeline.render_mut() {
+                return silence_period_suffix(&mut render.period, self.period_offset);
+            }
+        }
+        silence_period_suffix(&mut self.period, self.period_offset)
     }
     fn prefetch(&mut self, events: &SyncSender<Event>) -> Result<(), EngineError> {
+        if self.is_network() {
+            return Ok(());
+        }
         if self.next.is_some() || self.phase != RenderPhase::Feeding {
             return Ok(());
         }
@@ -743,10 +869,10 @@ impl Playback {
             let Ok(mut view) = self.view.try_lock() else {
                 return Ok(());
             };
-            view.active = Some(self.current.entry.id.clone());
+            view.active = Some(self.current.local_entry()?.id.clone());
             view.epochs = Some(self.epochs());
             self.reservation.epochs = self.epochs();
-            let next = view.following(&self.current.entry.id);
+            let next = view.following(&self.current.local_entry()?.id);
             view.reserved = next.as_ref().map(|entry| entry.id.clone());
             next
         };
@@ -755,7 +881,7 @@ impl Playback {
                 events,
                 Event::Reserved {
                     epochs: self.epochs(),
-                    active: self.current.entry.id.clone(),
+                    active: self.current.local_entry()?.id.clone(),
                     next: Some(entry.id.clone()),
                 },
             )?;
@@ -781,14 +907,24 @@ impl Playback {
     fn observe(&mut self) -> Result<PlaybackObservation, EngineError> {
         let progress = self.output.progress()?;
         if let Some(stream) = self.pipeline.as_mut().and_then(|p| p.stream_render_mut()) {
-            stream.observe(progress.submitted, restart_cursor(progress)?)?;
+            if let Some(restart) = progress.restart_cursor {
+                stream.observe(progress.submitted, restart)?;
+            } else if !self.output.initial_restart_cursor_pending() {
+                return Err(EngineError::new(
+                    ErrorCode::CapabilityUnsupported,
+                    "streaming requires a known backend restart boundary",
+                ));
+            }
         }
         self.last_counters = progress;
+        self.last_counter_epochs = self.native_epochs;
         Ok(self.observation(progress))
     }
     fn failure_observation(&self) -> PlaybackObservation {
         if let Some((_, observation)) = self.cancelled_control_observation() {
-            return observation.clone();
+            let mut observation = observation.clone();
+            self.refresh_activity(&mut observation);
+            return observation;
         }
         let mut counters = self.last_counters;
         counters.submitted = self.stream_position;
@@ -797,15 +933,80 @@ impl Playback {
         counters.delay = None;
         self.observation(counters)
     }
+    fn refresh_activity(&self, observation: &mut PlaybackObservation) {
+        observation.output_activity = self.output.activity();
+    }
     fn cancelled_control_observation(&self) -> Option<&(Epochs, PlaybackObservation)> {
         (self.cancel.load(Ordering::Acquire) && self.stream_position == 0)
             .then_some(self.control_stop_observation.as_ref())
             .flatten()
     }
     fn remember_control_observation(&mut self) {
-        if self.stream_position != 0 {
+        if !self.is_network() && self.stream_position != 0 {
             self.control_stop_observation = Some((self.epochs(), self.failure_observation()));
         }
+    }
+    fn processing_observation(&self) -> Option<PlaybackProcessingObservation> {
+        self.pipeline
+            .as_ref()
+            .map(|p| PlaybackProcessingObservation {
+                streaming: p.stream_render().map(|r| {
+                    let positions = r.output_positions();
+                    StreamingRuntimeObservation {
+                        source_epochs: self.source_epochs,
+                        output_epochs: positions.epochs,
+                        source_accepted_frames: r.stream().stats().source_frames,
+                        generated_output_frames: positions.generated,
+                        submission_frontier_frames: positions.next_submission,
+                        backend_origin_frames: positions.backend_origin,
+                        retained_start_frames: positions.retained_start,
+                    }
+                }),
+                source_boundary: self.replacement_boundary.clone(),
+                resident_bytes: p.resources().pipeline_bytes,
+                audio_payload_bytes: if p.stream_render().is_some() {
+                    None
+                } else {
+                    Some(p.render().map_or(0, |r| r.resources().audio_payload_bytes))
+                },
+                failure_node: p
+                    .stream_render()
+                    .and_then(|r| {
+                        let stage = r.stream().failure()?.stage?;
+                        let graph = r.stream().island(stage)?;
+                        let node = graph
+                            .plan()
+                            .schedule()
+                            .get(graph.failure_node_index()?)?
+                            .id();
+                        let earph_core::graph_control::GraphTiming::Streaming { stages } =
+                            &p.preview().timing
+                        else {
+                            return None;
+                        };
+                        stages
+                            .get(stage)?
+                            .original_nodes
+                            .contains(node)
+                            .then(|| node.clone())
+                    })
+                    .or_else(|| {
+                        p.render().and_then(|r| {
+                            r.graph().failure_node_index().and_then(|index| {
+                                r.graph()
+                                    .plan()
+                                    .schedule()
+                                    .get(index)
+                                    .map(|node| node.id().clone())
+                            })
+                        })
+                    }),
+                graph_hash: p.preview().graph_hash.clone(),
+                timing: p.preview().timing.playback_timing(),
+                saturation_count: self.saturation_count,
+                graph_peak: self.graph_peak,
+                prequantization_peak: self.prequantization_peak,
+            })
     }
     fn observation(&self, counters: Counters) -> PlaybackObservation {
         let filter_phase = self.pipeline.as_ref().is_some_and(|p| {
@@ -840,73 +1041,20 @@ impl Playback {
                     })
             });
         PlaybackObservation {
-            processing: self
-                .pipeline
-                .as_ref()
-                .map(|p| PlaybackProcessingObservation {
-                    streaming: p.stream_render().map(|r| {
-                        let positions = r.output_positions();
-                        StreamingRuntimeObservation {
-                            source_epochs: self.source_epochs,
-                            output_epochs: positions.epochs,
-                            source_accepted_frames: r.stream().stats().source_frames,
-                            generated_output_frames: positions.generated,
-                            submission_frontier_frames: positions.next_submission,
-                            backend_origin_frames: positions.backend_origin,
-                            retained_start_frames: positions.retained_start,
-                        }
-                    }),
-                    source_boundary: self.replacement_boundary.clone(),
-                    resident_bytes: p.resources().pipeline_bytes,
-                    audio_payload_bytes: if p.stream_render().is_some() {
-                        None
-                    } else {
-                        Some(p.render().map_or(0, |r| r.resources().audio_payload_bytes))
-                    },
-                    failure_node: p
-                        .stream_render()
-                        .and_then(|r| {
-                            let stage = r.stream().failure()?.stage?;
-                            let graph = r.stream().island(stage)?;
-                            let node = graph
-                                .plan()
-                                .schedule()
-                                .get(graph.failure_node_index()?)?
-                                .id();
-                            let earph_core::graph_control::GraphTiming::Streaming { stages } =
-                                &p.preview().timing
-                            else {
-                                return None;
-                            };
-                            stages
-                                .get(stage)?
-                                .original_nodes
-                                .contains(node)
-                                .then(|| node.clone())
-                        })
-                        .or_else(|| {
-                            p.render().and_then(|r| {
-                                r.graph().failure_node_index().and_then(|index| {
-                                    r.graph()
-                                        .plan()
-                                        .schedule()
-                                        .get(index)
-                                        .map(|node| node.id().clone())
-                                })
-                            })
-                        }),
-                    graph_hash: p.preview().graph_hash.clone(),
-                    timing: p.preview().timing.playback_timing(),
-                    saturation_count: self.saturation_count,
-                    graph_peak: self.graph_peak,
-                    prequantization_peak: self.prequantization_peak,
-                }),
+            output_activity: self.output.activity(),
+            processing: self.processing_observation(),
             format: self.format(),
             submitted_frames: counters.submitted,
             consumed_frames: counters.consumed,
             backend_delay_frames: counters.delay,
             consumption_basis: counters.basis,
-            source_entry_id: self.current.entry.id.clone(),
+            source_entry_id: self
+                .current
+                .entry
+                .as_ref()
+                .expect("local playback observation")
+                .id
+                .clone(),
             source_position_frames: if self
                 .pipeline
                 .as_ref()
@@ -949,6 +1097,20 @@ impl Playback {
         if self.cancelled_stream_source() {
             return Ok(());
         }
+        if self.is_network() && self.pipeline.is_none() {
+            if position.is_some() {
+                return Err(ENDED);
+            }
+            self.output.suspend(settings.snapshot.epochs)?;
+            self.native_epochs = settings.snapshot.epochs;
+            self.settings = settings;
+            self.set_gain()?;
+            return if notify {
+                self.network_paused(events)
+            } else {
+                Ok(())
+            };
+        }
         if self
             .pipeline
             .as_ref()
@@ -957,6 +1119,7 @@ impl Playback {
             self.remember_control_observation();
         }
         let counters = self.output.suspend(settings.snapshot.epochs)?;
+        self.native_epochs = settings.snapshot.epochs;
         self.backend = self.output.observation()?;
         if let Some(stream) = self.pipeline.as_mut().and_then(|p| p.stream_render_mut()) {
             let restart = restart_cursor(counters)?;
@@ -971,6 +1134,9 @@ impl Playback {
                 }
                 self.set_gain()?;
                 if notify {
+                    if self.is_network() {
+                        return self.network_paused(events);
+                    }
                     let observation = self.observe()?;
                     emit(
                         events,
@@ -988,7 +1154,7 @@ impl Playback {
                 let output = stream.output_positions();
                 let frontier = output.backend_origin.checked_add(restart).ok_or(FAILED)?;
                 self.replacement_boundary = Some(Arc::new(StreamingReplacementBoundary {
-                    source_entry_id: self.current.entry.id.clone(),
+                    source_entry_id: self.current.local_entry()?.id.clone(),
                     source_position_frames: self.source_position,
                     source_epochs: self.source_epochs,
                     discarded_output_frames: output
@@ -999,7 +1165,7 @@ impl Playback {
             }
         }
         let requested = if let Some(position) = position {
-            (self.current.entry.clone(), position)
+            (self.current.local_entry()?.clone(), position)
         } else {
             let consumed = counters
                 .restart_cursor
@@ -1024,7 +1190,7 @@ impl Playback {
         };
         let reset_graph = settings.snapshot.epochs != self.epochs();
         self.settings = settings;
-        if self.current.entry.id != requested.0.id {
+        if self.current.local_entry()?.id != requested.0.id {
             self.current = Track::open(requested.0, self.epochs(), self.epochs(), events)?;
         }
         self.current.seek(requested.1, self.epochs())?;
@@ -1041,7 +1207,7 @@ impl Playback {
         self.pending_kind = PendingPeriodKind::Source;
         self.spans.clear();
         self.spans.push(Span {
-            entry: self.current.entry.clone(),
+            entry: self.current.local_entry()?.clone(),
             start: 0,
             source_start: requested.1,
             end: 0,
@@ -1068,12 +1234,19 @@ impl Playback {
         )
     }
     fn step(&mut self, events: &SyncSender<Event>) -> Result<bool, EngineError> {
+        if let Some(error) = self.preparation_failure.take() {
+            return Err(error);
+        }
+        self.current.file.check()?;
         if self.cancel.load(Ordering::Acquire) {
             self.output.stop()?;
             return Ok(true);
         }
         self.prefetch(events)?;
-        if !self.settings.playing || self.settings.snapshot.muted {
+        if !self.settings.playing
+            || self.settings.snapshot.muted
+            || self.is_network() && self.pipeline.is_none()
+        {
             return Ok(false);
         }
         if self
@@ -1215,7 +1388,10 @@ impl Playback {
         }
         Ok(false)
     }
-    fn stream_progress(&mut self) -> Result<(), EngineError> {
+    fn stream_progress(&mut self, events: &SyncSender<Event>) -> Result<(), EngineError> {
+        if self.is_network() {
+            return self.network_progress(events);
+        }
         let observation = self.observe()?;
         if let Ok(mut latest) = self.progress.try_lock() {
             *latest = Some((self.epochs(), observation));
@@ -1350,7 +1526,7 @@ impl Playback {
                 {
                     self.phase = RenderPhase::BackendDrain;
                 }
-                self.stream_progress()?;
+                self.stream_progress(events)?;
                 return Ok(false);
             }
         }
@@ -1361,6 +1537,7 @@ impl Playback {
             .ok_or(FAILED)?;
         let offset = render.period_offset();
         let count = render.period().header().frame_count as usize - offset;
+        self.current.file.check()?;
         match self.output.write(render.period(), offset, count)? {
             Some(frames) => {
                 render.accepted(frames)?;
@@ -1372,22 +1549,52 @@ impl Playback {
                     .checked_add(frames as u64)
                     .ok_or(FAILED)?;
                 if !self.started && self.output.is_running() {
-                    emit(
-                        events,
-                        Event::Started {
-                            epochs: self.epochs(),
-                        },
-                    )?;
+                    if self.is_network() {
+                        self.emit_network(
+                            events,
+                            earph_core::network_source::NetworkEventKind::Started {
+                                activation_frame: 0,
+                            },
+                        )?;
+                    } else {
+                        emit(
+                            events,
+                            Event::Started {
+                                epochs: self.epochs(),
+                            },
+                        )?;
+                    }
                     self.started = true;
                 }
                 self.pending = frames != count;
-                self.stream_progress()?;
+                self.stream_progress(events)?;
             }
             None => self.output.wait()?,
         }
         Ok(false)
     }
     fn source_packet(&mut self, events: &SyncSender<Event>) -> Result<bool, EngineError> {
+        if let Reader::Http(source) = &mut self.current.file {
+            source.check()?;
+            if self.current.packet.is_some() {
+                return Ok(true);
+            }
+            match source.poll()? {
+                network::SourcePoll::Pending => {
+                    thread::sleep(Duration::from_millis(1));
+                    return Ok(false);
+                }
+                network::SourcePoll::Block(block) => {
+                    self.current.packet = Some(block);
+                    self.current.offset = 0;
+                    return Ok(true);
+                }
+                network::SourcePoll::End => {
+                    self.phase = RenderPhase::GraphTail;
+                    return Ok(false);
+                }
+            }
+        }
         loop {
             if self.current.packet.is_some() {
                 return Ok(true);
@@ -1403,23 +1610,24 @@ impl Playback {
                         self.current = next;
                         self.source_position = 0;
                         self.spans.push(Span {
-                            entry: self.current.entry.clone(),
+                            entry: self.current.local_entry()?.clone(),
                             start: self.source_stream_position,
                             source_start: 0,
                             end: self.source_stream_position,
                         });
                         let next = {
                             let mut view = self.view.lock().map_err(|_| FAILED)?;
-                            view.active = Some(self.current.entry.id.clone());
-                            view.reserved =
-                                view.following(&self.current.entry.id).map(|entry| entry.id);
+                            view.active = Some(self.current.local_entry()?.id.clone());
+                            view.reserved = view
+                                .following(&self.current.local_entry()?.id)
+                                .map(|entry| entry.id);
                             view.reserved.clone()
                         };
                         emit(
                             events,
                             Event::Reserved {
                                 epochs: self.epochs(),
-                                active: self.current.entry.id.clone(),
+                                active: self.current.local_entry()?.id.clone(),
                                 next,
                             },
                         )?;
@@ -1428,7 +1636,7 @@ impl Playback {
                         let Ok(view) = self.view.try_lock() else {
                             return Ok(false);
                         };
-                        if view.following(&self.current.entry.id).is_some() {
+                        if view.following(&self.current.local_entry()?.id).is_some() {
                             return Ok(false);
                         }
                         self.phase = RenderPhase::GraphTail;
@@ -1445,7 +1653,7 @@ impl Playback {
                     item(
                         events,
                         self.epochs(),
-                        &self.current.entry.id,
+                        &self.current.local_entry()?.id,
                         PreparationStatus::Failed { code: error.code },
                     )?;
                     return Err(error);
@@ -1678,12 +1886,14 @@ fn playback_step_failure(
     terminal: &mut Option<SourceTerminal>,
     events: &SyncSender<Event>,
 ) {
-    let observation = current.failure_observation();
+    let mut observation = current.failure_observation();
     let settings = current.failure_context(None);
-    if current.cancel.load(Ordering::Acquire) {
+    let cancelled = current.cancel.load(Ordering::Acquire);
+    let _ = current.output.stop();
+    current.refresh_activity(&mut observation);
+    if cancelled {
         *stopped = Some((settings.clone(), observation.clone(), Some(error)));
     }
-    let _ = current.output.stop();
     clear_reservation(&current.view, current.epochs());
     clear_reservation(&current.view, settings.snapshot.epochs);
     retain_source_failure(terminal, &settings, error, Some(observation), events);
@@ -1704,13 +1914,14 @@ fn action_failure(
         })
     {
         let mut current = playback.take().expect("checked live source");
-        let (context, observation) = if current.cancelled_control_observation().is_some() {
+        let (context, mut observation) = if current.cancelled_control_observation().is_some() {
             (current.failure_context(None), current.failure_observation())
         } else {
             before_control
                 .unwrap_or_else(|| (current.failure_context(None), current.failure_observation()))
         };
         let close_error = current.output.stop().err();
+        current.refresh_activity(&mut observation);
         clear_reservation(&current.view, context.snapshot.epochs);
         clear_reservation(&current.view, current.epochs());
         if let Some(error) = close_error {
@@ -1720,8 +1931,9 @@ fn action_failure(
         return;
     }
     let observation = playback.take().map(|mut current| {
-        let observation = current.failure_observation();
+        let mut observation = current.failure_observation();
         let _ = current.output.stop();
+        current.refresh_activity(&mut observation);
         clear_reservation(&current.view, current.epochs());
         settings = Some(current.failure_context(settings.take()));
         observation
@@ -1739,9 +1951,10 @@ fn stop_source(
     events: &SyncSender<Event>,
 ) -> Result<(), EngineError> {
     if let Some(mut current) = playback.take() {
-        let observation = current.failure_observation();
+        let mut observation = current.failure_observation();
         let context = current.failure_context(None);
         let failure = current.output.stop().err();
+        current.refresh_activity(&mut observation);
         clear_reservation(view, context.snapshot.epochs);
         clear_reservation(view, current.epochs());
         *stopped = Some((context, observation, failure));
@@ -1779,12 +1992,49 @@ fn run(
     queued: Arc<AtomicUsize>,
     view: Arc<Mutex<PlanView>>,
     progress: Arc<Mutex<Option<(Epochs, PlaybackObservation)>>>,
+    retiring: Arc<AtomicBool>,
 ) {
     let mut playback: Option<Playback> = None;
     let mut stopped: Option<StoppedSource> = None;
     let mut terminal: Option<SourceTerminal> = None;
+    let mut network_preparation: Option<NetworkPreparation> = None;
+    let mut network_retirement = None;
+    let mut network_terminal_reported = false;
+    let mut deferred_start = None;
     loop {
-        let action = if playback.is_some() {
+        if let Some(closing) = network_retirement.as_ref() {
+            match network::retire_owned(&mut playback, &mut network_preparation, closing) {
+                Ok(ack) => {
+                    let _ = emit(&events, Event::NetworkRetired(ack));
+                    network_retirement = None;
+                    retiring.store(false, Ordering::Release);
+                    network_terminal_reported = false;
+                }
+                Err(error) if error.code != ErrorCode::SourceBusy => {
+                    let _ = emit(
+                        &events,
+                        Event::Network(earph_core::network_source::NetworkEvent {
+                            binding: closing.context.binding.clone(),
+                            source_epochs: closing.context.source_epochs,
+                            output_epochs: closing.output_epochs,
+                            graph_epoch: closing.graph_epoch,
+                            device_epoch: closing.device_epoch,
+                            monotonic_ns: 0,
+                            kind: earph_core::network_source::NetworkEventKind::Failed {
+                                code: error.code,
+                            },
+                        }),
+                    );
+                }
+                Err(_) => {}
+            }
+        }
+        let action = if network_retirement.is_none() && deferred_start.is_some() {
+            deferred_start.take()
+        } else if playback.is_some()
+            || network_preparation.is_some()
+            || network_retirement.is_some()
+        {
             match receiver.try_recv() {
                 Ok(action) => Some(action),
                 Err(TryRecvError::Empty) => None,
@@ -1797,6 +2047,12 @@ fn run(
             }
         };
         if let Some(action) = action {
+            if matches!(action, Action::Start { .. } | Action::StartNetwork { .. })
+                && network_retirement.is_some()
+            {
+                deferred_start = Some(action);
+                continue;
+            }
             queued.fetch_sub(1, Ordering::AcqRel);
             if matches!(action, Action::Start { .. } | Action::Shutdown) {
                 terminal = None;
@@ -1817,14 +2073,53 @@ fn run(
                 playback
                     .as_ref()
                     .filter(|p| {
-                        incoming_stream
-                            || p.pipeline
-                                .as_ref()
-                                .is_some_and(|p| p.stream_render().is_some())
+                        !p.is_network()
+                            && (incoming_stream
+                                || p.pipeline
+                                    .as_ref()
+                                    .is_some_and(|p| p.stream_render().is_some()))
                     })
                     .map(|p| (p.failure_context(None), p.failure_observation()))
             });
             let result = match action {
+                Action::RetireNetwork(closing) => {
+                    network_retirement = Some(closing);
+                    Ok(())
+                }
+                Action::StartNetwork {
+                    settings,
+                    context,
+                    permit,
+                    live,
+                    clock,
+                    cancel,
+                } => {
+                    // Native local ownership ends before any HTTP request starts.
+                    if let Some(current) = &mut playback
+                        && let Err(error) = current.output.stop()
+                    {
+                        let _ = network::preparation_failed(&settings, &context, error, &events);
+                        continue;
+                    }
+                    playback = None;
+                    stopped = None;
+                    terminal = None;
+                    network_terminal_reported = false;
+                    match HttpSource::start(context.clone(), permit, live, clock, cancel) {
+                        Ok(source) => {
+                            network_preparation = Some(NetworkPreparation { settings, source })
+                        }
+                        Err((error, source)) => {
+                            let _ =
+                                network::preparation_failed(&settings, &context, error, &events);
+                            network_preparation = source
+                                .owns_job()
+                                .then_some(NetworkPreparation { settings, source });
+                            network_terminal_reported = true;
+                        }
+                    }
+                    Ok(())
+                }
                 Action::ActivateGraph {
                     settings,
                     activation,
@@ -1833,6 +2128,7 @@ fn run(
                     let epochs = activation.epochs;
                     let request_id = activation.request_id.clone();
                     let live = playback.is_some();
+                    let network = playback.as_ref().is_some_and(|p| p.is_network());
                     let result = if let Some(current) = &mut playback {
                         current.activate_graph(settings, activation, pipeline, &events)
                     } else {
@@ -1849,6 +2145,21 @@ fn run(
                             Err(error) => Err(error),
                         }
                     };
+                    if network && let Err(error) = result {
+                        if let Some(current) = &mut playback {
+                            let _ = emit(
+                                &events,
+                                Event::NetworkGraphFailed {
+                                    request_id,
+                                    error,
+                                    actual: current.execution_fence(),
+                                },
+                            );
+                            let _ = current.output.stop();
+                            network_terminal_reported = true;
+                        }
+                        continue;
+                    }
                     if !live && let Err(error) = result {
                         let _ = emit(
                             &events,
@@ -1915,6 +2226,9 @@ fn run(
                 Action::Settings(settings) => {
                     if let Some(current) = &mut playback {
                         current.apply_settings(settings, &events)
+                    } else if let Some(preparing) = &mut network_preparation {
+                        preparing.settings = settings;
+                        Ok(())
                     } else if let Some(completed) = terminal.as_mut() {
                         completed.reconcile(&settings, &events, false).map(|_| ())
                     } else {
@@ -1924,6 +2238,9 @@ fn run(
                 Action::Pause(settings) => {
                     if let Some(current) = &mut playback {
                         current.reposition(settings, None, &events, true)
+                    } else if let Some(preparing) = &mut network_preparation {
+                        preparing.settings = settings;
+                        Ok(())
                     } else if let Some(completed) = terminal.as_mut() {
                         completed
                             .reconcile(&settings, &events, true)
@@ -1945,20 +2262,110 @@ fn run(
                 }
             };
             if let Err(error) = result {
-                action_failure(
-                    &mut playback,
-                    &mut stopped,
-                    &mut terminal,
-                    failure_settings,
-                    error,
-                    before_control,
-                    &events,
-                );
+                if let Some(current) = playback.as_mut().filter(|p| p.is_network()) {
+                    let _ = current.output.stop();
+                    let _ = current.emit_network(
+                        &events,
+                        earph_core::network_source::NetworkEventKind::Failed { code: error.code },
+                    );
+                    network_terminal_reported = true;
+                } else {
+                    action_failure(
+                        &mut playback,
+                        &mut stopped,
+                        &mut terminal,
+                        failure_settings,
+                        error,
+                        before_control,
+                        &events,
+                    );
+                }
             }
         }
+        if network_retirement.is_some() {
+            continue;
+        }
+        if !network_terminal_reported && let Some(preparing) = &mut network_preparation {
+            match preparing.source.inspect() {
+                Ok(observed) if observed.ready.is_some() => {
+                    let preparing = network_preparation.take().expect("owned preparation");
+                    let settings = preparing.settings.clone();
+                    let context = preparing.source.context.clone();
+                    let cancel = preparing.source.cancellation();
+                    let mut track = Some(Track {
+                        entry: None,
+                        file: Reader::Http(Box::new(preparing.source)),
+                        packet: None,
+                        offset: 0,
+                    });
+                    match Playback::prepare_current(
+                        settings.clone(),
+                        &mut track,
+                        cancel,
+                        view.clone(),
+                        progress.clone(),
+                        &events,
+                        settings.snapshot.profile_storage_bytes,
+                    ) {
+                        Ok(current) => playback = Some(current),
+                        Err(error) => {
+                            if let Some(Track {
+                                file: Reader::Http(source),
+                                ..
+                            }) = track
+                            {
+                                network_preparation = Some(NetworkPreparation {
+                                    settings: settings.clone(),
+                                    source: *source,
+                                });
+                            }
+                            let _ =
+                                network::preparation_failed(&settings, &context, error, &events);
+                            network_terminal_reported = true;
+                        }
+                    }
+                }
+                Ok(_) => thread::sleep(Duration::from_millis(1)),
+                Err(error) => {
+                    if !network_terminal_reported {
+                        let _ = network::preparation_failed(
+                            &preparing.settings,
+                            &preparing.source.context,
+                            error,
+                            &events,
+                        );
+                        network_terminal_reported = true;
+                    }
+                    thread::sleep(Duration::from_millis(1));
+                }
+            }
+        }
+        if network_terminal_reported && network_preparation.is_some() {
+            thread::sleep(Duration::from_millis(1));
+        }
         if let Some(current) = &mut playback {
+            if current.is_network() && network_terminal_reported {
+                thread::sleep(Duration::from_millis(1));
+                continue;
+            }
             match current.step(&events) {
                 Ok(true) => {
+                    if current.is_network() {
+                        if current.phase == RenderPhase::Finished {
+                            let observation = current.network_observation(
+                                current.last_counters,
+                                earph_core::network_source::NetworkLifecycle::Completed,
+                            );
+                            let _ = current.emit_network(
+                                &events,
+                                earph_core::network_source::NetworkEventKind::Completed {
+                                    observation,
+                                },
+                            );
+                        }
+                        network_terminal_reported = true;
+                        continue;
+                    }
                     if current.cancel.load(Ordering::Acquire) {
                         stopped = Some((
                             current.failure_context(None),
@@ -1992,6 +2399,22 @@ fn run(
                     }
                 }
                 Err(error) => {
+                    if current.is_network() {
+                        current.last_counters.submitted = current.stream_position;
+                        current.last_counter_epochs = current.native_epochs;
+                        current.last_counters.consumed = None;
+                        current.last_counters.restart_cursor = None;
+                        current.last_counters.delay = None;
+                        let _ = current.output.stop();
+                        let _ = current.emit_network(
+                            &events,
+                            earph_core::network_source::NetworkEventKind::Failed {
+                                code: error.code,
+                            },
+                        );
+                        network_terminal_reported = true;
+                        continue;
+                    }
                     playback_step_failure(current, error, &mut stopped, &mut terminal, &events);
                     playback = None;
                 }
@@ -2007,6 +2430,17 @@ fn clear_reservation(view: &Mutex<PlanView>, epochs: Epochs) {
         view.active = None;
         view.reserved = None;
     }
+}
+fn silence_period_suffix(period: &mut PcmBlock, offset: usize) -> Result<(), EngineError> {
+    let frames = period.header().frame_count as usize;
+    if offset > frames {
+        return Err(FAILED);
+    }
+    let channels = period.header().format.channels().count();
+    for sample in offset * channels..frames * channels {
+        period.set_integer_sample(sample, 0)?;
+    }
+    Ok(())
 }
 fn render_error(error: crate::render::RenderError) -> EngineError {
     EngineError::new(error.code, error.message)
@@ -2122,6 +2556,7 @@ pub(crate) mod tests {
                 sender,
                 events,
                 queued: Arc::new(AtomicUsize::new(0)),
+                retiring: Arc::new(AtomicBool::new(false)),
                 cancel: None,
                 join: None,
                 view: Arc::new(Mutex::new(PlanView::default())),
@@ -2437,6 +2872,8 @@ pub(crate) mod tests {
         service
             .submit(
                 GraphJobRequest {
+                    renderer_application: None,
+                    profile_application: None,
                     request_id: request_id.clone(),
                     binding: binding.clone(),
                     intent: Arc::new(GraphIntent {
@@ -2461,6 +2898,7 @@ pub(crate) mod tests {
             std::thread::yield_now();
         };
         let activation = GraphActivationRequest {
+            renderer_application: None,
             request_id,
             epochs: binding.epochs.next_stream().unwrap(),
             previous_binding: binding,
@@ -2794,7 +3232,7 @@ pub(crate) mod tests {
         assert!(view.active.is_some());
         assert_eq!(
             view.validate_edit(&earph_core::control::Command::QueueRemove {
-                id: playback.current.entry.id.clone(),
+                id: playback.current.entry.as_ref().unwrap().id.clone(),
             })
             .unwrap_err()
             .code,
@@ -2810,7 +3248,7 @@ pub(crate) mod tests {
         let (current, events, receiver) = resumed_tail_playback();
         let before = current.failure_observation();
         let view = current.view.clone();
-        let entry = current.current.entry.id.clone();
+        let entry = current.current.entry.as_ref().unwrap().id.clone();
         let mut settings = current.settings.clone();
         settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
         current.cancel.store(true, Ordering::Release);
@@ -2846,7 +3284,7 @@ pub(crate) mod tests {
     fn completed_resumed_graph_tail_releases_its_original_queue_reservation() {
         let (mut current, events, _receiver) = resumed_tail_playback();
         let view = current.view.clone();
-        let entry = current.current.entry.id.clone();
+        let entry = current.current.entry.as_ref().unwrap().id.clone();
         let mut completed = false;
         for _ in 0..256 {
             if current.step(&events).unwrap() {
@@ -2869,7 +3307,7 @@ pub(crate) mod tests {
     fn failed_resumed_graph_tail_releases_its_original_queue_reservation() {
         let (mut current, events, receiver) = resumed_tail_playback();
         let view = current.view.clone();
-        let entry = current.current.entry.id.clone();
+        let entry = current.current.entry.as_ref().unwrap().id.clone();
         let before = current.failure_observation();
         current.output.stop().unwrap();
         let error = current.step(&events).unwrap_err();
@@ -2980,6 +3418,376 @@ pub(crate) mod tests {
             playback.output.progress().unwrap().submitted,
             playback.stream_position
         );
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn zero_target_preserves_an_actual_accepted_prefix_and_silences_the_cached_suffix() {
+        let (mut playback, events, receiver, _) = staged_streaming_playback();
+        let (before, prefix) = (0..256)
+            .find_map(|_| {
+                let period = playback.native_period();
+                let frames = period.header().frame_count as usize;
+                let first = (0..frames).find(|frame| period.integer_sample(frame * 2) != Some(0));
+                let last = (0..frames).rfind(|frame| period.integer_sample(frame * 2) != Some(0));
+                if let (Some(first), Some(last)) = (first, last)
+                    && first < last
+                    && playback.pending
+                {
+                    return Some((period.clone(), first + 1));
+                }
+                playback.step(&events).unwrap();
+                let render = playback
+                    .pipeline
+                    .as_mut()
+                    .unwrap()
+                    .stream_render_mut()
+                    .unwrap();
+                render.pump(None).unwrap();
+                playback.stage_stream().unwrap();
+                None
+            })
+            .expect("real SRC never produced a nonzero splittable cached period");
+        let frames = before.header().frame_count as usize;
+        let accepted = playback.output.write(&before, 0, prefix).unwrap().unwrap();
+        assert!(accepted > 0 && accepted < frames);
+        assert!((0..accepted * 2).any(|i| before.integer_sample(i) != Some(0)));
+        assert!((accepted * 2..frames * 2).any(|i| before.integer_sample(i) != Some(0)));
+        playback
+            .pipeline
+            .as_mut()
+            .unwrap()
+            .stream_render_mut()
+            .unwrap()
+            .accepted(accepted)
+            .unwrap();
+        playback.stream_position += accepted as u64;
+        let source = playback.source_position;
+        let peak = playback.output_peak;
+        assert!(peak.unwrap() > 0.0);
+        let positions = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .output_positions();
+        receiver.try_iter().for_each(drop);
+        let mut zero = playback.settings.clone();
+        zero.snapshot.software_gain_zero = true;
+        zero.snapshot.gain_ramp_frames = 17;
+        playback.apply_settings(zero, &events).unwrap();
+        assert_eq!(playback.output_peak, peak);
+        assert_eq!(playback.native_period().header(), before.header());
+        for i in 0..frames * 2 {
+            assert_eq!(
+                playback.native_period().integer_sample(i),
+                if i < accepted * 2 {
+                    before.integer_sample(i)
+                } else {
+                    Some(0)
+                },
+                "sample {i}"
+            );
+        }
+        assert_eq!(playback.source_position, source);
+        assert_eq!(
+            playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .output_positions(),
+            positions
+        );
+        assert!(playback.pending);
+        assert!(
+            receiver
+                .try_iter()
+                .all(|e| !matches!(e, Event::Paused { .. } | Event::Started { .. }))
+        );
+        playback.step(&events).unwrap();
+        assert_eq!(playback.source_position, source);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn zero_settings_from_an_old_output_epoch_keep_the_current_period_and_source() {
+        let (mut playback, events, _receiver, _) = staged_streaming_playback();
+        let before = playback.settings.snapshot.clone();
+        let period = playback.native_period().clone();
+        let source = playback.source_position;
+        let mut stale = playback.settings.clone();
+        stale.snapshot.software_gain_zero = true;
+        stale.snapshot.epochs.stream -= 1;
+        playback.apply_settings(stale, &events).unwrap();
+        assert_eq!(playback.settings.snapshot, before);
+        assert_eq!(playback.native_period(), &period);
+        assert_eq!(playback.source_position, source);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn zero_during_pending_graph_ack_keeps_the_matching_output_epoch_setting() {
+        let (mut playback, events, _receiver) = prepared_nonzero_source();
+        let observed = playback.observe().unwrap();
+        let (settings, activation, pipeline) = prepare_activation(&playback.settings, &observed);
+        playback
+            .activate_graph(settings, activation, pipeline, &events)
+            .unwrap();
+        assert_eq!(playback.settings.snapshot.graph_epoch, 0);
+        assert_eq!(playback.installed_graph_epoch, 1);
+        let epochs = playback.epochs();
+        let mut zero = playback.settings.clone();
+        zero.snapshot.software_gain_zero = true;
+        playback.apply_settings(zero, &events).unwrap();
+        assert!(playback.settings.snapshot.software_gain_zero);
+        assert_eq!(playback.epochs(), epochs);
+        let mut acknowledged = playback.settings.clone();
+        acknowledged.snapshot.graph_epoch = 1;
+        playback.apply_settings(acknowledged, &events).unwrap();
+        assert!(playback.settings.snapshot.software_gain_zero);
+        assert_eq!(playback.installed_graph_epoch, 1);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn zero_preserves_paused_replay_then_finishes_the_original_stream_tail() {
+        let (mut playback, events, receiver) = resumed_tail_playback();
+        let source = playback.source_position;
+        let source_epochs = playback.source_epochs;
+        let mut paused = playback.settings.clone();
+        paused.snapshot.epochs = paused.snapshot.epochs.next_stream().unwrap();
+        paused.snapshot.muted = true;
+        paused.playing = false;
+        playback.reposition(paused, None, &events, true).unwrap();
+        let before = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .output_positions();
+        let stats = playback
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .stream_render()
+            .unwrap()
+            .stream()
+            .stats();
+        let epochs = playback.epochs();
+        receiver.try_iter().for_each(drop);
+        let mut zero = playback.settings.clone();
+        zero.snapshot.software_gain_zero = true;
+        playback.apply_settings(zero, &events).unwrap();
+        playback.step(&events).unwrap();
+        assert_eq!(
+            playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .output_positions(),
+            before
+        );
+        assert_eq!(
+            playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .stream()
+                .stats(),
+            stats
+        );
+        assert_eq!(playback.epochs(), epochs);
+        assert_eq!(playback.source_position, source);
+        assert!(!playback.settings.playing);
+        assert!(receiver.try_iter().next().is_none());
+        let mut resume = playback.settings.clone();
+        resume.snapshot.muted = false;
+        resume.playing = true;
+        playback.apply_settings(resume, &events).unwrap();
+        let mut observed_period = false;
+        for _ in 0..512 {
+            let submitted = playback.stream_position;
+            let done = playback.step(&events).unwrap();
+            let period = playback.native_period();
+            if playback.stream_position > submitted {
+                observed_period = true;
+                assert!(
+                    (0..period.header().frame_count as usize * 2)
+                        .all(|i| period.integer_sample(i) == Some(0))
+                );
+            }
+            if done {
+                break;
+            }
+        }
+        assert!(observed_period);
+        assert_eq!(playback.phase, RenderPhase::Finished);
+        assert_eq!(playback.source_epochs, source_epochs);
+        assert_eq!(playback.source_position, source);
+        assert!(playback.settings.snapshot.software_gain_zero);
+        assert!(!playback.settings.snapshot.muted);
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn zero_queued_during_preparation_is_the_first_submitted_gain() {
+        let (playback, _, _) = prepared_nonzero_frames(257);
+        let settings = playback.settings.clone();
+        let entries = playback.view.lock().unwrap().entries.clone();
+        drop(playback);
+        let mut worker = Worker::spawn();
+        worker.view.lock().unwrap().entries = entries.clone();
+        let (gate, reached, release) = preparation_gate();
+        worker.send(Action::PausePreparation(gate)).unwrap();
+        worker
+            .send(Action::Start {
+                settings: settings.clone(),
+                entries,
+                cancel: Arc::new(AtomicBool::new(false)),
+            })
+            .unwrap();
+        reached.recv_timeout(Duration::from_secs(5)).unwrap();
+        let mut zero = settings.clone();
+        zero.snapshot.software_gain_zero = true;
+        zero.snapshot.muted = false;
+        zero.snapshot.gain_ramp_frames = 37;
+        worker.send(Action::Settings(zero)).unwrap();
+        drop(release);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match worker
+                .events
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .unwrap()
+            {
+                Event::Drained {
+                    epochs,
+                    observation,
+                    ..
+                } => {
+                    assert_eq!(epochs, settings.snapshot.epochs);
+                    assert_eq!(observation.submitted_frames, 257);
+                    assert_eq!(observation.source_position_frames, 257);
+                    assert!(observation.input_peak.unwrap() > 0.0);
+                    assert_eq!(observation.output_peak, Some(0.0));
+                    assert!(observation.modified);
+                    break;
+                }
+                Event::Failed { error, .. } => panic!("zero preparation failed: {error}"),
+                Event::Paused { .. } => panic!("zero emitted an unrelated pause"),
+                _ => {}
+            }
+        }
+    }
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn raw_and_fixed_render_zero_leave_the_accepted_prefix_and_cursors_intact() {
+        for (graph, ramp) in [(false, 0), (false, 4), (true, 0), (true, 4)] {
+            let (mut playback, events, receiver) = prepared_nonzero_frames(257);
+            if graph {
+                let observed = playback.observe().unwrap();
+                let (settings, activation, pipeline) =
+                    prepare_activation(&playback.settings, &observed);
+                playback
+                    .activate_graph(settings, activation, pipeline, &events)
+                    .unwrap();
+                playback.settings.snapshot.graph_epoch = 1;
+            }
+            playback.settings.snapshot.muted = false;
+            playback.settings.snapshot.software_gain_db = 0.0;
+            playback.settings.snapshot.gain_ramp_frames = 0;
+            playback.set_gain().unwrap();
+            assert!(playback.source_packet(&events).unwrap());
+            let packet = playback.current.packet.as_ref().unwrap();
+            let frames = playback
+                .period
+                .capacity_frames()
+                .min(packet.header().frame_count as usize);
+            if let Some(render) = playback.pipeline.as_mut().and_then(|p| p.render_mut()) {
+                render.process(packet, 0, frames).unwrap();
+            } else {
+                for i in 0..frames * 2 {
+                    playback
+                        .period
+                        .set_integer_sample(i, packet.integer_sample(i).unwrap())
+                        .unwrap();
+                }
+                playback
+                    .period
+                    .set_span(playback.epochs(), playback.sequence, 0, frames as u64)
+                    .unwrap();
+                playback.gain.process(&mut playback.period).unwrap();
+            }
+            playback.pending = true;
+            playback.pending_kind = PendingPeriodKind::Source;
+            let before = playback.native_period().clone();
+            assert!(before.integer_sample(frames * 2 - 1).unwrap() > 0);
+            let accepted = playback
+                .output
+                .write(&before, 0, 7.min(frames - 1))
+                .unwrap()
+                .unwrap();
+            playback.period_offset = accepted;
+            playback.stream_position += accepted as u64;
+            playback.source_position += accepted as u64;
+            playback.source_stream_position += accepted as u64;
+            let position = playback.source_position;
+            let packet_position = playback.current.offset;
+            let epochs = playback.epochs();
+            receiver.try_iter().for_each(drop);
+            playback.settings.snapshot.software_gain_zero = true;
+            playback.settings.snapshot.gain_ramp_frames = 17;
+            playback.set_gain().unwrap();
+            for i in 0..frames * 2 {
+                assert_eq!(
+                    playback.native_period().integer_sample(i),
+                    if i < accepted * 2 {
+                        before.integer_sample(i)
+                    } else {
+                        Some(0)
+                    }
+                );
+            }
+            assert_eq!(playback.native_period().header(), before.header());
+            assert_eq!(playback.period_offset, accepted);
+            assert_eq!(playback.source_position, position);
+            assert_eq!(playback.current.offset, packet_position);
+            assert_eq!(playback.epochs(), epochs);
+            assert!(playback.pending);
+            assert!(receiver.try_iter().next().is_none());
+            playback.settings.snapshot.software_gain_zero = false;
+            playback.settings.snapshot.gain_ramp_frames = ramp;
+            playback.set_gain().unwrap();
+            assert_eq!(
+                playback.native_period().integer_sample(accepted * 2),
+                Some(0)
+            );
+            playback.step(&events).unwrap();
+            assert_eq!(playback.source_position, frames as u64);
+            assert_eq!(playback.current.offset, frames);
+            playback.step(&events).unwrap();
+            for (frame, expected) in if ramp == 0 {
+                [8192, 8192, 8192, 8192, 8192]
+            } else {
+                [2048, 4096, 6144, 8192, 8192]
+            }
+            .into_iter()
+            .enumerate()
+            {
+                assert_eq!(
+                    playback.native_period().integer_sample(frame * 2),
+                    Some(expected)
+                );
+                assert_eq!(
+                    playback.native_period().integer_sample(frame * 2 + 1),
+                    Some(expected)
+                );
+            }
+            assert_eq!(playback.epochs(), epochs);
+        }
     }
     #[test]
     #[cfg(target_os = "linux")]
@@ -3254,7 +4062,7 @@ pub(crate) mod tests {
             let mut view = view.lock().unwrap();
             assert_eq!(view.epochs, Some(origin));
             assert!(view.active.is_some());
-            view.reserved = Some(current.current.entry.id.clone());
+            view.reserved = Some(current.current.entry.as_ref().unwrap().id.clone());
         }
         let mut pause = current.settings.clone();
         pause.snapshot.epochs = origin.next_stream().unwrap();
@@ -3595,6 +4403,244 @@ pub(crate) mod tests {
         assert_eq!(ack.graph_hash, hash);
         assert_eq!(ack.observation.submitted_frames, 0);
         assert!(playback.settings.snapshot.muted);
+    }
+    #[cfg(target_os = "linux")]
+    mod activity_tests {
+        use super::*;
+        use earph_core::session::{OutputActivity, OutputActivityBoundary, OutputActivityScope};
+
+        // Only diagnostic samples are controlled. Decoding, output, and cleanup use real ALSA null.
+        struct ControlledActivity {
+            inner: Box<dyn Output>,
+            sample: Arc<Mutex<OutputActivity>>,
+            close_failure: bool,
+            cancel_during_close: Option<Arc<AtomicBool>>,
+        }
+        impl Output for ControlledActivity {
+            fn audio_storage_bytes(&self) -> Result<u64, EngineError> {
+                self.inner.audio_storage_bytes()
+            }
+            fn is_running(&self) -> bool {
+                self.inner.is_running()
+            }
+            fn observation(&self) -> Result<BackendObservation, EngineError> {
+                self.inner.observation()
+            }
+            fn activity(&self) -> Option<OutputActivity> {
+                Some(*self.sample.lock().unwrap())
+            }
+            fn write(
+                &mut self,
+                block: &PcmBlock,
+                offset: usize,
+                frames: usize,
+            ) -> Result<Option<usize>, EngineError> {
+                self.inner.write(block, offset, frames)
+            }
+            fn progress(&mut self) -> Result<Counters, EngineError> {
+                self.inner.progress()
+            }
+            fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError> {
+                let counters = self.inner.suspend(epochs)?;
+                self.sample.lock().unwrap().native_open_successes += 1;
+                Ok(counters)
+            }
+            fn finish(&mut self) -> Result<Option<Counters>, EngineError> {
+                let result = self.inner.finish()?;
+                if result.is_some() {
+                    self.sample.lock().unwrap().close_confirmed = true;
+                }
+                Ok(result)
+            }
+            fn wait(&mut self) -> Result<(), EngineError> {
+                self.inner.wait()
+            }
+            fn stop(&mut self) -> Result<(), EngineError> {
+                self.inner.stop()?;
+                if let Some(cancel) = &self.cancel_during_close {
+                    cancel.store(true, Ordering::Release);
+                }
+                if self.close_failure {
+                    return Err(EngineError::new(
+                        ErrorCode::OutputFault,
+                        "controlled close failure",
+                    ));
+                }
+                self.sample.lock().unwrap().close_confirmed = true;
+                Ok(())
+            }
+        }
+        fn attach(
+            mut playback: Playback,
+            close_failure: bool,
+            cancel_during_close: bool,
+        ) -> (Playback, Arc<Mutex<OutputActivity>>) {
+            let sample = Arc::new(Mutex::new(OutputActivity {
+                scope: OutputActivityScope::OutputInstanceAcrossNativeReopens,
+                measurement_boundary: OutputActivityBoundary::CoreAudioSdkEntryCalls,
+                origin_epochs: playback.epochs(),
+                native_open_successes: 1,
+                sdk_write_attempts: 4,
+                accepted_frames: 29,
+                sdk_start_attempts: 1,
+                counter_overflow: false,
+                close_confirmed: false,
+            }));
+            playback.output = Box::new(ControlledActivity {
+                inner: playback.output,
+                sample: sample.clone(),
+                close_failure,
+                cancel_during_close: cancel_during_close.then(|| playback.cancel.clone()),
+            });
+            (playback, sample)
+        }
+        #[test]
+        fn cancellation_refreshes_activity_without_replacing_the_retained_source_prefix() {
+            let (current, _, _, _) = staged_streaming_playback();
+            let (mut current, sample) = attach(current, false, false);
+            let before = current.failure_observation();
+            current.control_stop_observation = Some((current.epochs(), before.clone()));
+            current.stream_position = 0;
+            current.cancel.store(true, Ordering::Release);
+            sample.lock().unwrap().native_open_successes = 2;
+            let mut expected = before;
+            expected.output_activity = Some(*sample.lock().unwrap());
+            assert_eq!(current.failure_observation(), expected);
+        }
+        #[test]
+        fn natural_completion_retains_the_closed_activity_sample() {
+            let (current, events, _receiver) = streaming_playback();
+            let (mut current, sample) = attach(current, false, false);
+            for _ in 0..1024 {
+                if current.step(&events).unwrap() {
+                    break;
+                }
+            }
+            assert_eq!(current.phase, RenderPhase::Finished);
+            let terminal = SourceTerminal::completed_from_playback(&current).unwrap();
+            let SourceTerminalOutcome::Completed(observation) = terminal.outcome else {
+                panic!("completed source required")
+            };
+            assert!(observation.output_activity.unwrap().close_confirmed);
+            assert_eq!(observation.output_activity, Some(*sample.lock().unwrap()));
+        }
+        #[test]
+        fn terminal_paths_sample_activity_after_close_and_preserve_failures() {
+            for close_failure in [false, true] {
+                for path in ["stop", "action", "step", "cancel_step", "cancel"] {
+                    let (current, events, receiver, _) = staged_streaming_playback();
+                    let (current, sample) = attach(current, close_failure, false);
+                    let before = current.failure_observation();
+                    let settings = current.failure_context(None);
+                    let view = current.view.clone();
+                    let error =
+                        EngineError::new(ErrorCode::InternalFault, "controlled source failure");
+                    let mut stopped = None;
+                    let mut terminal = None;
+                    let mut playback = Some(current);
+                    receiver.try_iter().for_each(drop);
+                    match path {
+                        "stop" => stop_source(
+                            StopRequest {
+                                request_id: RequestId::new("activity-stop").unwrap(),
+                                settings: settings.clone(),
+                            },
+                            &mut playback,
+                            &mut stopped,
+                            &mut terminal,
+                            &view,
+                            &events,
+                        )
+                        .unwrap(),
+                        "step" => playback_step_failure(
+                            playback.as_mut().unwrap(),
+                            error,
+                            &mut stopped,
+                            &mut terminal,
+                            &events,
+                        ),
+                        "cancel_step" => {
+                            playback
+                                .as_mut()
+                                .unwrap()
+                                .cancel
+                                .store(true, Ordering::Release);
+                            playback_step_failure(
+                                playback.as_mut().unwrap(),
+                                error,
+                                &mut stopped,
+                                &mut terminal,
+                                &events,
+                            );
+                        }
+                        "cancel" => {
+                            playback
+                                .as_mut()
+                                .unwrap()
+                                .cancel
+                                .store(true, Ordering::Release);
+                            action_failure(
+                                &mut playback,
+                                &mut stopped,
+                                &mut terminal,
+                                Some(settings.clone()),
+                                EngineError::new(
+                                    ErrorCode::OperationCancelled,
+                                    "controlled cancellation",
+                                ),
+                                Some((settings, before.clone())),
+                                &events,
+                            );
+                        }
+                        _ => action_failure(
+                            &mut playback,
+                            &mut stopped,
+                            &mut terminal,
+                            Some(settings),
+                            error,
+                            None,
+                            &events,
+                        ),
+                    }
+                    let observation = if let Some((_, observation, _)) = stopped {
+                        observation
+                    } else {
+                        receiver.try_iter().find_map(|event| match event {
+                            Event::Stopped { observation, .. } | Event::Failed { observation, .. } | Event::StopFailed { observation, .. } => observation,
+                            _ => None,
+                        }).unwrap_or_else(|| panic!("missing terminal observation: {path}, close_failure={close_failure}"))
+                    };
+                    let activity = observation.output_activity.unwrap();
+                    assert_eq!(activity.close_confirmed, !close_failure, "{path}");
+                    assert_eq!(activity, *sample.lock().unwrap(), "{path}");
+                    let mut expected = before;
+                    expected.output_activity = Some(activity);
+                    assert_eq!(observation, expected, "{path}");
+                }
+            }
+        }
+        #[test]
+        fn sampling_after_close_keeps_the_original_cancellation_admission_point() {
+            let (current, events, receiver, _) = staged_streaming_playback();
+            let (mut current, sample) = attach(current, false, true);
+            let mut stopped = None;
+            let mut terminal = None;
+            let error = EngineError::new(ErrorCode::InternalFault, "controlled source failure");
+            receiver.try_iter().for_each(drop);
+            assert!(!current.cancel.load(Ordering::Acquire));
+            playback_step_failure(&mut current, error, &mut stopped, &mut terminal, &events);
+            assert!(current.cancel.load(Ordering::Acquire));
+            assert!(sample.lock().unwrap().close_confirmed);
+            assert!(
+                stopped.is_none(),
+                "a cancellation arriving during close changed cache admission"
+            );
+            let event = receiver.try_iter().next().unwrap();
+            assert!(
+                matches!(event, Event::Failed { error: actual, observation: Some(observation), .. }
+                if actual == error && observation.output_activity.unwrap().close_confirmed)
+            );
+        }
     }
     // These controlled observations model a reopen boundary, not native hardware changes.
     #[cfg(target_os = "linux")]
@@ -4610,7 +5656,7 @@ pub(crate) mod tests {
         for _ in 0..32 {
             worker.send(Action::Settings(settings(false))).unwrap();
         }
-        assert!(!worker.has_capacity(false));
+        assert!(!worker.has_capacity_for(false, 1));
         assert!(worker.send(Action::Settings(settings(false))).is_err());
         let mute = worker.send(Action::Settings(settings(true)));
         let stop = worker.send(Action::Stop(StopRequest {
@@ -4640,7 +5686,7 @@ pub(crate) mod tests {
             worker.send(Action::Settings(settings(true))).unwrap();
         }
         assert_eq!(worker.queued.load(Ordering::Acquire), 64);
-        assert!(!worker.has_capacity(true));
+        assert!(!worker.has_capacity_for(true, 1));
         let error = worker
             .send(Action::Stop(StopRequest {
                 request_id: RequestId::new("overflow-stop").unwrap(),
@@ -4659,6 +5705,40 @@ pub(crate) mod tests {
         );
     }
     #[test]
+    fn exact_zero_uses_safety_reserve_and_fails_closed_on_failed_delivery() {
+        for disconnected in [false, true] {
+            let (mut worker, receiver) = admission();
+            let cancel = Arc::new(AtomicBool::new(false));
+            worker.cancel = Some(cancel.clone());
+            let mut zero = settings(false);
+            zero.snapshot.software_gain_zero = true;
+            if disconnected {
+                drop(receiver);
+                assert_eq!(
+                    worker.send(Action::Settings(zero)).unwrap_err().code,
+                    ErrorCode::OutputFault
+                );
+                assert_eq!(worker.queued.load(Ordering::Acquire), 0);
+            } else {
+                for _ in 0..ORDINARY_COMMANDS {
+                    worker.send(Action::Settings(settings(false))).unwrap();
+                }
+                for _ in ORDINARY_COMMANDS..COMMANDS {
+                    worker
+                        .send(Action::Settings(zero.clone()))
+                        .expect("ordinary traffic must leave exact zero its safety reserve");
+                }
+                assert_eq!(
+                    worker.send(Action::Settings(zero)).unwrap_err().code,
+                    ErrorCode::SourceBusy
+                );
+                assert_eq!(worker.queued.load(Ordering::Acquire), COMMANDS);
+                assert_eq!(receiver.try_iter().count(), COMMANDS);
+            }
+            assert!(cancel.load(Ordering::Acquire));
+        }
+    }
+    #[test]
     fn disconnected_safety_delivery_cancels_without_claiming_delivery() {
         let (mut worker, receiver) = admission();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -4668,5 +5748,156 @@ pub(crate) mod tests {
         assert_eq!(error.code, ErrorCode::OutputFault);
         assert!(cancel.load(Ordering::Acquire));
         assert_eq!(worker.queued.load(Ordering::Acquire), 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    mod initial_clock_tests {
+        use super::*;
+        use std::sync::atomic::AtomicU8;
+        // Only timing observations are controlled. Real SRC, replay, PCM writes, and ALSA null remain active.
+        struct InitialClock {
+            inner: Box<dyn Output>,
+            phase: Arc<AtomicU8>,
+        }
+        impl InitialClock {
+            fn counters(&self, mut counters: Counters) -> Counters {
+                if self.phase.load(Ordering::Acquire) != 2 {
+                    counters.restart_cursor = None;
+                    counters.consumed = None;
+                }
+                counters
+            }
+        }
+        impl Output for InitialClock {
+            fn audio_storage_bytes(&self) -> Result<u64, EngineError> {
+                self.inner.audio_storage_bytes()
+            }
+            fn is_running(&self) -> bool {
+                self.inner.is_running()
+            }
+            fn observation(&self) -> Result<BackendObservation, EngineError> {
+                self.inner.observation()
+            }
+            fn write(
+                &mut self,
+                block: &PcmBlock,
+                offset: usize,
+                frames: usize,
+            ) -> Result<Option<usize>, EngineError> {
+                self.inner.write(block, offset, frames)
+            }
+            fn initial_restart_cursor_pending(&self) -> bool {
+                self.phase.load(Ordering::Acquire) == 0
+            }
+            fn progress(&mut self) -> Result<Counters, EngineError> {
+                if self.phase.load(Ordering::Acquire) == 3 {
+                    return Err(EngineError::new(
+                        ErrorCode::OutputFault,
+                        "controlled native clock fault",
+                    ));
+                }
+                let counters = self.inner.progress()?;
+                Ok(self.counters(counters))
+            }
+            fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError> {
+                let counters = self.inner.suspend(epochs)?;
+                Ok(self.counters(counters))
+            }
+            fn finish(&mut self) -> Result<Option<Counters>, EngineError> {
+                let counters = self.inner.finish()?;
+                Ok(counters.map(|c| self.counters(c)))
+            }
+            fn wait(&mut self) -> Result<(), EngineError> {
+                self.inner.wait()
+            }
+            fn stop(&mut self) -> Result<(), EngineError> {
+                self.inner.stop()
+            }
+        }
+        fn pending() -> (Playback, SyncSender<Event>, Receiver<Event>, Arc<AtomicU8>) {
+            let (mut playback, events, receiver, _) = staged_streaming_playback();
+            let phase = Arc::new(AtomicU8::new(0));
+            let render = playback
+                .pipeline
+                .as_mut()
+                .unwrap()
+                .stream_render_mut()
+                .unwrap();
+            let accepted = playback
+                .output
+                .write(render.period(), 0, 1)
+                .unwrap()
+                .unwrap();
+            render.accepted(accepted).unwrap();
+            playback.stream_position += accepted as u64;
+            playback.output = Box::new(InitialClock {
+                inner: playback.output,
+                phase: phase.clone(),
+            });
+            (playback, events, receiver, phase)
+        }
+        #[test]
+        fn pending_coreaudio_clock_preserves_real_stream_replay_until_a_known_frontier() {
+            let (mut playback, _events, _receiver, phase) = pending();
+            let before = playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .output_positions();
+            let observed = playback.observe().unwrap();
+            assert!(observed.consumed_frames.is_none());
+            assert_eq!(
+                playback
+                    .pipeline
+                    .as_ref()
+                    .unwrap()
+                    .stream_render()
+                    .unwrap()
+                    .output_positions(),
+                before
+            );
+            phase.store(2, Ordering::Release);
+            playback.observe().unwrap();
+            let after = playback
+                .pipeline
+                .as_ref()
+                .unwrap()
+                .stream_render()
+                .unwrap()
+                .output_positions();
+            assert_eq!(after.generated, before.generated);
+            assert_eq!(after.next_submission, before.next_submission);
+            assert!(after.retained_start > before.retained_start);
+            phase.store(1, Ordering::Release);
+            assert_eq!(
+                playback.observe().unwrap_err().code,
+                ErrorCode::CapabilityUnsupported
+            );
+            phase.store(3, Ordering::Release);
+            assert_eq!(playback.observe().unwrap_err().code, ErrorCode::OutputFault);
+        }
+        #[test]
+        fn pending_clock_does_not_authorize_pause_or_final_stream_retirement() {
+            let (mut playback, events, _receiver, _phase) = pending();
+            playback.phase = RenderPhase::BackendDrain;
+            assert_eq!(
+                playback.step_streaming(&events).unwrap_err().code,
+                ErrorCode::CapabilityUnsupported
+            );
+            let (mut playback, events, _receiver, _phase) = pending();
+            let mut settings = playback.settings.clone();
+            settings.snapshot.epochs = settings.snapshot.epochs.next_stream().unwrap();
+            settings.snapshot.muted = true;
+            settings.playing = false;
+            assert_eq!(
+                playback
+                    .reposition(settings, None, &events, true)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::CapabilityUnsupported
+            );
+        }
     }
 }

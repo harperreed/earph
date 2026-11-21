@@ -3,16 +3,27 @@
 #![forbid(unsafe_code)]
 pub mod audio;
 pub mod control;
+pub mod devices;
+pub mod diagnostics;
+pub mod dop;
 pub mod dsp_nodes;
 pub mod gain;
 pub mod graph;
 pub mod graph_control;
 pub mod ids;
+pub mod network_source;
 pub mod profile_control;
+pub mod profile_packages;
 pub mod profiles;
+pub mod provenance;
 pub mod queue;
+pub mod remote_volume;
+pub mod renderer;
+pub mod renderer_events;
 pub mod safety;
+mod serde_helpers;
 pub mod session;
+pub mod source;
 
 use serde::{Deserialize, Serialize};
 

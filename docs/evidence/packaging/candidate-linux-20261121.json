@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "source": {
+    "baseline_commit": "486760081d49a4bcd7500f13400a50369a6ded42",
+    "source_dirty": true,
+    "qualified_archive_sha256": "d3c186401b9b4438bf1f496e8c1b7cdad33c3f081646c4ef736d27a9123bc45a",
+    "qualified_source_files": 1994,
+    "source_unchanged_during_checks": true,
+    "publication_note": "Derived receipts and progress notes are added after this source archive."
+  },
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "measurement_boundary": "Software contracts; physical output unqualified"
+  },
+  "scope": "Exact current Linux candidate construction, tree verification and packaged owner/CLI software exchange",
+  "requirement_status": "partial",
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "36ac0a5eb091a24da197efeab2ff6676890f152e90221df2cba7da8ac5b2d28d"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "72d7ad7ececede9d4da24ec0e004f4e80b4b45106d19116f87002bfa1b830bdf"
+    }
+  ],
+  "package_tool_sha256": "71a0d9f53b1e33fa90664a25629641e16ca5f2b67402cf939e2582f01cb68c26",
+  "package_manifest_sha256": "eb9830ad6d33b1e973635e5e95cee3ed3cd8cf7a3c1a8bab3da69c4dd6601572",
+  "distributed_files": 28,
+  "mpl_source_archives": 15,
+  "mpl_source_index_sha256": "05c91d269f4f55bbeea1ef265b35ee353141966af0b6f7589fc9af2ee74f0999",
+  "cargo_lock_sha256": "19da83ed1b5e72238b571d35b25f5ef3bcf33f2e6e538bc52cf0e0a2516c54a0",
+  "dependency_inventory_sha256": "b3413718e74bbac9cc8303200d84709ce314741ba44fa1e4ec5631bf4951532b",
+  "commands": [
+    {
+      "label": "tool-build-info",
+      "exit": 0,
+      "signal": null
+    },
+    {
+      "label": "build",
+      "exit": 0,
+      "signal": null
+    },
+    {
+      "label": "verify",
+      "exit": 0,
+      "signal": null
+    },
+    {
+      "label": "desktop-entry-validate",
+      "exit": 0,
+      "signal": null
+    },
+    {
+      "label": "state",
+      "exit": 0,
+      "signal": null
+    },
+    {
+      "label": "shutdown",
+      "exit": 0,
+      "signal": null
+    },
+    {
+      "label": "verify-after-run",
+      "exit": 0,
+      "signal": null
+    }
+  ],
+  "owner": {
+    "identity_matched": true,
+    "source": null,
+    "output": null,
+    "output_consented": false,
+    "exit": 0,
+    "signal": null
+  },
+  "inputs_unchanged": true,
+  "product_provenance_state": "declared-unverified",
+  "signing": "unsigned",
+  "release": "unreleased-development-candidate",
+  "limits": [
+    "Candidate consistency and packaged CLI only; no GUI qualification for this product pair.",
+    "No installation, signing, authenticated distribution, physical output or Mac launch qualification.",
+    "The earlier packaged GUI receipt retains its distinct source and product pair."
+  ]
+}

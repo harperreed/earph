@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "jni-sys-macros"
+  ],
+  "version": "0.4.1",
+  "repository": "https://github.com/jni-rs/jni-sys",
+  "revision": "64d77b7a5f119d7b55b4e2c169a4668067ff59e6",
+  "license_expression": "MIT OR Apache-2.0",
+  "license_file": "LICENSE-MIT",
+  "license_sha256": "1d85bd754b04ceec93e98e890edd1fa3c6a22e81bcb32135806beeccefa51cd1",
+  "source_url": "https://github.com/jni-rs/jni-sys/blob/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-MIT",
+  "verified_on": "2026-11-18",
+  "sources": [
+    {
+      "repository": "jni-rs/jni-sys",
+      "revision": "64d77b7a5f119d7b55b4e2c169a4668067ff59e6",
+      "path": "LICENSE-MIT",
+      "git_blob_sha1": "2008402b8a1299cf118ea38e02116bfcc72e53c3",
+      "sha256": "1d85bd754b04ceec93e98e890edd1fa3c6a22e81bcb32135806beeccefa51cd1",
+      "source_url": "https://github.com/jni-rs/jni-sys/blob/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-MIT"
+    }
+  ]
+}

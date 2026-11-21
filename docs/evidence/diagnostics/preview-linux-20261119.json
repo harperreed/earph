@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-11-19",
+  "scope": "Bounded retained-event recovery, immutable diagnostic preview and compiled Engine package provenance",
+  "status": "pass",
+  "source": {
+    "base_commit": "7cd0bf8168f864912cd5e81bf9fc5e9872ef7b8e",
+    "dirty_precommit": true,
+    "files": 1835,
+    "checksum_text_manifest_sha256": "7cb73d7820741f520d3c7b67f173f85ab76dd51cf149291bb1606cbe0ac9ee6b",
+    "unchanged_during_qualification": true,
+    "post_check_changes": [
+      "this evidence document",
+      "diagnostics guide qualification",
+      "desktop plan checkpoint",
+      "shared build-input gotcha"
+    ]
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "passed": 1109,
+    "failed": 0,
+    "ignored": 5,
+    "groups": 127,
+    "log_sha256": "712f8d5528a2f7fb67dc739ad1d86532f913e6d127cf61c2af94d273a7effafa"
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "9c0c394da175b58d1fd4801a45668cac49a5d4cdf9e6ae69b555e3bf56fe0241"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "34ff1c210594276fc88a9a5c1b262cc8d60161425e8654423d088e5f2b5e41ed"
+    }
+  ],
+  "focused": [
+    {
+      "name": "cli",
+      "passed": 1,
+      "failed": 0,
+      "log_sha256": "a8074a7c885e34644affb95e3e9d2836a82056ebdfd7a076667de9e160da3f26"
+    },
+    {
+      "name": "ffi",
+      "passed": 1,
+      "failed": 0,
+      "log_sha256": "04eadbe60ba6216afb7a3d65c1fe6f02d95827d27ecf80d62671b54010c75fc8"
+    },
+    {
+      "name": "build-record",
+      "passed": 6,
+      "failed": 0,
+      "log_sha256": "4733186b457ce44284aaded04bcb4f79d48949c17abe56d9ef1c27a8160568b0"
+    },
+    {
+      "name": "build-inputs",
+      "passed": 6,
+      "failed": 0,
+      "log_sha256": "689568580a90e0870335c4e6ce0a2c7c840b6c7eff61637b1a37b37319a85863"
+    }
+  ],
+  "root_qualification_sha256": "0c0b3015e3268999eb20b8152dcab8a7723fb6307c351643f012167d6d08edfe",
+  "independent_review": {
+    "source_sha256": "2122c777b8eaaedb58fbc77868854318b6e949db87e78def43a44b91f5cf0497",
+    "test_followups_sha256": "fe4f39bcafa7e0a3950c47d5f0b2e8d41959030f7f01d97773cea7b91fbc690a",
+    "material_findings": 0
+  },
+  "bounds": {
+    "event_page_entries": 128,
+    "event_result_bytes": 262144,
+    "retained_history_entries": 1024,
+    "preview_payload_bytes": 524288,
+    "preview_metadata_bytes": 65536,
+    "candidate_lifetime_ns": 30000000000,
+    "retained_diagnostic_payload_bytes": 8388608,
+    "outer_receipt_bytes": 1048576
+  },
+  "verified": [
+    "Event pages preserve sparse retained history, owner scope, continuation and authoritative gap recovery.",
+    "Preview sections share one actor cut and one exact immutable serialized payload.",
+    "Digest, length, schema and cut validation use the shared Core consumer.",
+    "Historical replay preserves exact bytes after candidate expiry without restoring live authority.",
+    "Failed larger-preview admission preserves the prior candidate and its authority.",
+    "Default shareable bytes omit raw identities, route fingerprints, authored strings, paths, error messages and logs.",
+    "The Engine attaches its immutable compiled package record after restore and before endpoint publication.",
+    "Actual CLI and Rust FFI reads preserve exact replay and verify the running Engine compiled record without opening output.",
+    "A real standalone desktop client decodes the same owner results and joins the Engine with exit zero.",
+    "The shared build hash retains component ordering and little-endian u64 framing.",
+    "A non-Git archive does not inherit its parent checkout identity.",
+    "The compiled stamp remains unchanged after a real hashed source input changes.",
+    "New provenance test fixtures remain retained."
+  ],
+  "provenance_scope": {
+    "producer": "engine_package",
+    "input_inventory": "build_support/provenance.rs:ENGINE_INPUTS",
+    "runtime_executable_identity": "unavailable",
+    "execution_checkout": "unavailable",
+    "test_inventory": "not_attached",
+    "reproduction": "incomplete"
+  },
+  "mac": {
+    "original_clippy_exit": 101,
+    "cause": "Linux-only test imports and helpers were visible on macOS.",
+    "source_fix": "Gate the transport test module and ProcessOwner import for Linux.",
+    "after_fix_qualification": "pending"
+  },
+  "limits": [
+    "The after-fix Mac compile proof remains pending.",
+    "Diagnostic artifact export and pinning belong to U4.",
+    "No new native diagnostics UI, complete test inventory or exact reproduction is qualified.",
+    "No privacy proof or complete performance instrumentation.",
+    "No full T17, AC-34, AC-38 or AC-39 acceptance."
+  ]
+}

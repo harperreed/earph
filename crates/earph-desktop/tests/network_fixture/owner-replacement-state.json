@@ -1,0 +1,201 @@
+{
+  "active_entry_id": null,
+  "audible_position_frames": null,
+  "configured_profile": null,
+  "decoded_position_frames": 1024,
+  "device_epoch": 1,
+  "epochs": {
+    "session": 1,
+    "stream": 3
+  },
+  "error": null,
+  "event_sequence": 42,
+  "gain_ramp_frames": 0,
+  "graph_epoch": 2,
+  "local_volume_policy": {
+    "hardware_cap_db": null,
+    "software_cap_db": 0.0
+  },
+  "monotonic_ns": 739747541,
+  "muted": true,
+  "network_playback": {
+    "audible_source_position_frames": null,
+    "backend": {
+      "audio_storage_bytes": 384,
+      "backend": "alsa",
+      "client_format": {
+        "bytes_per_frame": 6,
+        "channels": 2,
+        "interleaved": true,
+        "representation": "signed24",
+        "sample_rate_hz": 48000.0
+      },
+      "device_format": null,
+      "device_identity_sha256": null,
+      "measurement_boundary": "alsa_client_negotiation",
+      "preservation": "unverified"
+    },
+    "backend_delay_frames": 0,
+    "binding": {
+      "grant_generation": 1,
+      "media_id": "staged-1",
+      "owner_id": "o-1f41a1-18e99dc3899278f6-0",
+      "session_id": "network-acceptance-2048415-15",
+      "source_generation": 1
+    },
+    "consumed_frames": 0,
+    "consumption_basis": "alsa_client_estimate",
+    "device_epoch": 1,
+    "format": {
+      "channels": "stereo",
+      "representation": "signed24",
+      "sample_rate_hz": 48000
+    },
+    "graph_epoch": 2,
+    "input_peak": null,
+    "lifecycle": "ready",
+    "modified": true,
+    "output_activity": null,
+    "output_epochs": {
+      "session": 1,
+      "stream": 3
+    },
+    "output_format": {
+      "channels": "stereo",
+      "representation": "signed24",
+      "sample_rate_hz": 48000
+    },
+    "output_peak": null,
+    "processing": {
+      "audio_payload_bytes": null,
+      "failure_node": null,
+      "graph_hash": "8ef0a27edd72be21dba7ac932bd7aa3fcee159fe7b659fdf8f5698d78d5e02af",
+      "graph_peak": null,
+      "prequantization_peak": null,
+      "resident_bytes": 6311111,
+      "saturation_count": 0,
+      "stages": [
+        {
+          "input_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "input_peak_bounds": [
+            1.0,
+            1.0
+          ],
+          "kind": {
+            "bounded_iir_truncation": false,
+            "emitted_tail_frames": 0,
+            "kernel_hash": "ee7b16459184c315bcad054b3d7fc7a5984be3b12b153dfd4ea7c9026665b87e",
+            "kind": "island",
+            "local_latency_frames": 0,
+            "terminal_output_bounds": [
+              0.0,
+              0.0
+            ]
+          },
+          "original_nodes": [
+            "input",
+            "delay",
+            "gain",
+            "output"
+          ],
+          "output_format": {
+            "channels": "stereo",
+            "representation": "float64",
+            "sample_rate_hz": 48000
+          },
+          "output_peak_bounds": [
+            0.5,
+            0.5
+          ]
+        }
+      ],
+      "streaming": {
+        "backend_origin_frames": 0,
+        "generated_output_frames": 0,
+        "output_epochs": {
+          "session": 1,
+          "stream": 3
+        },
+        "retained_start_frames": 0,
+        "source_accepted_frames": 0,
+        "source_epochs": {
+          "session": 1,
+          "stream": 0
+        },
+        "submission_frontier_frames": 0
+      },
+      "timing_kind": "streaming"
+    },
+    "replacement_boundary": {
+      "binding": {
+        "grant_generation": 1,
+        "media_id": "staged-1",
+        "owner_id": "o-1f41a1-18e99dc3899278f6-0",
+        "session_id": "network-acceptance-2048415-15",
+        "source_generation": 1
+      },
+      "discarded_output_frames": 60,
+      "output_epochs": {
+        "session": 1,
+        "stream": 3
+      },
+      "previous_output_epochs": {
+        "session": 1,
+        "stream": 2
+      },
+      "previous_output_format": {
+        "channels": "stereo",
+        "representation": "signed24",
+        "sample_rate_hz": 48000
+      },
+      "source_epochs": {
+        "session": 1,
+        "stream": 0
+      },
+      "source_position_frames": 1024
+    },
+    "source_epochs": {
+      "session": 1,
+      "stream": 0
+    },
+    "source_position_frames": 1024,
+    "submitted_frames": 0,
+    "total_frames": 65537
+  },
+  "operation": null,
+  "output": {
+    "backend": "alsa",
+    "buffer_frames": 256,
+    "device_id": "acceptance-output",
+    "endpoint": "earph_capture",
+    "fidelity": "compatible_conversion",
+    "period_frames": 64,
+    "profile_id": "acceptance-profile",
+    "route": "system",
+    "volume_mode": "software"
+  },
+  "output_consented": true,
+  "output_id": "acceptance-output",
+  "owner_id": "o-1f41a1-18e99dc3899278f6-0",
+  "playback": null,
+  "profile_storage_bytes": 0,
+  "profile_worker_busy": false,
+  "reserved_next_entry_id": null,
+  "revision": 17,
+  "seekable": false,
+  "session_id": "network-acceptance-2048415-15",
+  "shutdown_requested": false,
+  "software_gain_db": -48.0,
+  "software_gain_zero": false,
+  "source": "http_flac",
+  "transport": "paused",
+  "volume_policy": {
+    "hardware_cap_db": null,
+    "software_cap_db": 0.0
+  },
+  "zone_id": "main"
+}

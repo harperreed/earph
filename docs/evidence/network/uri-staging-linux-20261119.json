@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-11-19",
+  "status": "pass",
+  "scope": "Owner-scoped unadmitted URI metadata staging through the shared local command path",
+  "source": {
+    "base_commit": "e96290172e4c7abf94ab1162feb88d8ca1719e92",
+    "dirty_precommit": true,
+    "files": 1808,
+    "checksum_text_manifest_sha256": "3f989e9662e43b8d5418a38eaff4accdf248b34b6dbcf449d7afc0f1abbf0c95",
+    "unchanged_during_canonical": true,
+    "post_check_changes": [
+      "this evidence document",
+      "source staging verification notes",
+      "state machine notes"
+    ]
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "passed": 1031,
+    "failed": 0,
+    "ignored": 5,
+    "groups": 117,
+    "log_sha256": "28b0c661b046cb607210ed5a98bd04547e92fe737b994e1864e34ac858c631bf"
+  },
+  "products": [
+    {
+      "artifact": "earph-engine",
+      "sha256": "921f352fd7d9b82b73febbbe777c5b941ef2ab575f52ab3ec95548c60a66179d"
+    },
+    {
+      "artifact": "earph-desktop",
+      "sha256": "74b0d11315d95bb58bbc73cd251d1d5e5ac436f388f81c2e9fc84e7c34e3aba9"
+    }
+  ],
+  "integrated_client": {
+    "passed": 14,
+    "failed": 0,
+    "ignored": 0,
+    "exit": 0,
+    "log_sha256": "88237cbf355b3955fb9d22536f7c42cddb25abc74c669cca9a3be661c0246a03"
+  },
+  "isolated_scenarios": {
+    "passed": 20,
+    "test_invocations": 8,
+    "format_exit": 0,
+    "includes": [
+      "Core bounds, owner guard, rollback, generation exhaustion and state preservation",
+      "Strict source-result projection and generation-zero query distinction",
+      "Actual OwnerClient staging, two-client sharing, exact replay, clear and restart fences",
+      "Actual CLI replay, checkpoint privacy, clear and crash recovery",
+      "Actual Rust FFI byte replay without playback activation"
+    ],
+    "counts_overlap_canonical": true
+  },
+  "review": {
+    "receipt_sha256": "6f94caa59db5e1bcd3e2bc10b3d86b8009608a728a7af29e5193ac14266638b7",
+    "material_findings": 0
+  },
+  "integration": {
+    "root_discovery_changes_preserved": true,
+    "correction_controls_unchanged": true,
+    "root_qualification_receipt_sha256": "3b5e0d2431db3cafed9c67500267c854aefc38603e2d9c179b007af91a162732"
+  },
+  "verified": [
+    "Both methods use schema version one and the existing command envelope.",
+    "Staging requires the current owner and revision; a named session must remain current.",
+    "The shared summary returns only owner-scoped staged identity, generation, unadmitted status and byte counts.",
+    "The retained URI and metadata capacities stay within 8192 and 65536 bytes respectively.",
+    "Empty URI and metadata clear staging; successful mutations have positive generations.",
+    "Initial or restored queries allow generation zero and no descriptor.",
+    "Exact retained replay returns the original receipt after a later replacement without altering the new descriptor.",
+    "Checkpoints and general state/event snapshots exclude raw URI, metadata and staging.",
+    "Staging preserves local playback, queue, epochs, gain, mute and consent.",
+    "A failed transaction or exhausted generation preserves the prior descriptor."
+  ],
+  "limits": [
+    "No network source is admitted or advertised by these methods.",
+    "No listener, URL fetch, decoder, playback takeover, output selection, consent or Unmute occurs.",
+    "This metadata foundation does not qualify T14 or UPnP interoperability.",
+    "Rust FFI is tested; new Swift and Kotlin source-method scenarios remain unqualified.",
+    "Current Mac and GUI native qualification do not transfer from earlier source snapshots.",
+    "Exact replay remains bounded by the existing shared receipt retention policy."
+  ]
+}

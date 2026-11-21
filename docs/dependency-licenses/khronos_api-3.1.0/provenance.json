@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "khronos_api"
+  ],
+  "version": "3.1.0",
+  "repository": "https://github.com/brendanzab/gl-rs/",
+  "revision": "f150967b1c44ae888e6676f93f639ebc82771bdc",
+  "license_expression": "Apache-2.0",
+  "license_file": "LICENSE",
+  "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+  "source_url": "https://github.com/rust-windowing/gl-rs/blob/f150967b1c44ae888e6676f93f639ebc82771bdc/LICENSE",
+  "verified_on": "2026-11-18",
+  "sources": [
+    {
+      "repository": "rust-windowing/gl-rs",
+      "revision": "f150967b1c44ae888e6676f93f639ebc82771bdc",
+      "path": "LICENSE",
+      "git_blob_sha1": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source_url": "https://github.com/rust-windowing/gl-rs/blob/f150967b1c44ae888e6676f93f639ebc82771bdc/LICENSE"
+    }
+  ]
+}

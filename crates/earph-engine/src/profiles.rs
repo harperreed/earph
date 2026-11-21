@@ -9,8 +9,7 @@ use earph_core::{
     ids::RequestId,
     profile_control::{
         ProfileCatalogReference, ProfileCorrectionObject, ProfileCorrectionPreview, ProfileRecord,
-        ProfileSaveBinding, ProfileSaveJob, ProfileWorkOperation, ProfileWorkOutput,
-        ProfileWorkRequest,
+        ProfileSaveJob, ProfileWorkOperation, ProfileWorkOutput, ProfileWorkRequest,
     },
     profiles::{MAX_PROFILE_BYTES, ProfileDocument, ProfileObjectHash, read_profile},
     safety::{FidelityPolicy, SampleDomain},
@@ -25,9 +24,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, SyncSender},
     },
-    thread::{self, JoinHandle},
 };
 
 const INVALID: EngineError = EngineError::new(
@@ -43,8 +40,17 @@ const CANCELLED: EngineError =
 const LIMIT: u64 = 256 * 1024 * 1024;
 // Covers bounded graph metadata and object buffers; compiler and asset peaks are admitted separately.
 const SCRATCH: u64 = 4 * 1024 * 1024;
+#[path = "artifact_io.rs"]
+mod artifact_io;
+#[path = "artifact_jobs.rs"]
+mod artifact_jobs;
 #[path = "profile_import.rs"]
 mod correction_import;
+#[path = "diagnostic_artifacts.rs"]
+mod diagnostic_artifacts;
+#[path = "profile_package.rs"]
+mod package;
+pub(crate) use artifact_jobs::ArtifactJobs;
 
 fn check(cancel: &AtomicBool) -> Result<(), EngineError> {
     if cancel.load(Ordering::Acquire) {
@@ -132,6 +138,10 @@ fn write_object_with_sync(
 enum PreparedCorrectionSource {
     Text(Vec<u8>),
     Fir(assets::PreparedFirSource),
+    Package {
+        text: Vec<(ProfileObjectHash, Vec<u8>)>,
+        fir: Vec<assets::PreparedFirSource>,
+    },
 }
 #[derive(Debug)]
 struct PreparedInputs {
@@ -145,13 +155,24 @@ impl PreparedInputs {
         graph_bytes: Vec<u8>,
         source: Option<PreparedCorrectionSource>,
     ) -> Result<Self, EngineError> {
+        let profile_bytes = serde_json::to_vec(profile).map_err(|_| INVALID)?;
+        Self::original(profile, profile_bytes, graph_bytes, source)
+    }
+    fn original(
+        profile: &ProfileDocument,
+        profile_bytes: Vec<u8>,
+        graph_bytes: Vec<u8>,
+        source: Option<PreparedCorrectionSource>,
+    ) -> Result<Self, EngineError> {
         if graph_bytes.len() > MAX_GRAPH_INTENT_BYTES || hash(&graph_bytes)? != profile.graph_sha256
         {
             return Err(BUDGET);
         }
-        let profile_bytes = serde_json::to_vec(profile).map_err(|_| INVALID)?;
         if profile_bytes.len() > MAX_PROFILE_BYTES {
             return Err(BUDGET);
+        }
+        if read_profile(&profile_bytes)? != *profile {
+            return Err(INVALID);
         }
         Ok(Self {
             graph_bytes,
@@ -159,9 +180,19 @@ impl PreparedInputs {
             source,
         })
     }
-    fn fir(&self) -> Option<&assets::PreparedFirSource> {
+    fn fir(
+        &self,
+        reference: &earph_core::dsp_nodes::FirAssetReference,
+    ) -> Option<&assets::PreparedFirSource> {
         match &self.source {
-            Some(PreparedCorrectionSource::Fir(source)) => Some(source),
+            Some(PreparedCorrectionSource::Fir(source))
+                if source.coefficients().reference() == reference =>
+            {
+                Some(source)
+            }
+            Some(PreparedCorrectionSource::Package { fir, .. }) => fir
+                .iter()
+                .find(|s| s.coefficients().reference() == reference),
             _ => None,
         }
     }
@@ -179,6 +210,20 @@ impl PreparedInputs {
                     bytes = bytes
                         .checked_sub(source.coefficients().resident_bytes())
                         .ok_or(BUDGET)?;
+                }
+                bytes
+            }
+            Some(PreparedCorrectionSource::Package { text, fir }) => {
+                let mut bytes = (text.capacity() * size_of::<(ProfileObjectHash, Vec<u8>)>()
+                    + fir.capacity() * size_of::<assets::PreparedFirSource>())
+                    as u64;
+                for (_, source) in text {
+                    bytes = bytes.checked_add(source.capacity() as u64).ok_or(BUDGET)?;
+                }
+                for source in fir {
+                    let mut held = source.retained_bytes()?;
+                    if graph.graph.nodes.iter().any(|node|matches!(&node.kind,NodeKind::Convolution{asset} if asset==source.coefficients().reference())) { held=held.checked_sub(source.coefficients().resident_bytes()).ok_or(BUDGET)?; }
+                    bytes = bytes.checked_add(held).ok_or(BUDGET)?;
                 }
                 bytes
             }
@@ -301,9 +346,7 @@ fn validate_prepared_intent(
         resident.min(preparation),
         || check(cancel),
         |reference| {
-            if let Some(source) = inputs.and_then(PreparedInputs::fir)
-                && source.coefficients().reference() == reference
-            {
+            if let Some(source) = inputs.and_then(|inputs| inputs.fir(reference)) {
                 return Ok(source.coefficients().clone());
             }
             assets::coefficients(runtime_path, reference)
@@ -421,6 +464,17 @@ fn persist_record(
     if let Some(PreparedCorrectionSource::Fir(source)) = &inputs.source {
         source.publish(runtime_path, &mut || check(cancel))?;
     }
+    if let Some(PreparedCorrectionSource::Package { text, fir }) = &inputs.source {
+        for source in fir {
+            source.publish(runtime_path, &mut || check(cancel))?;
+        }
+        let destination = directory(runtime_path, true)?;
+        for (expected, bytes) in text {
+            if write_object(&destination, bytes, "text-source", cancel)? != *expected {
+                return Err(INVALID);
+            }
+        }
+    }
     let directory = directory(runtime_path, true)?;
     if let Some(PreparedCorrectionSource::Text(bytes)) = &inputs.source {
         write_object(&directory, bytes, "text-source", cancel)?;
@@ -517,13 +571,22 @@ pub(crate) fn restore(
     runtime_path: &Path,
     references: &[ProfileCatalogReference],
 ) -> Result<Vec<Arc<ProfileRecord>>, EngineError> {
+    restore_with_retained(runtime_path, references, 0, &AtomicBool::new(false))
+}
+fn restore_with_retained(
+    runtime_path: &Path,
+    references: &[ProfileCatalogReference],
+    live_retained: u64,
+    cancel: &AtomicBool,
+) -> Result<Vec<Arc<ProfileRecord>>, EngineError> {
     if references.is_empty() {
         return Ok(Vec::new());
     }
     let directory = directory(runtime_path, false)?;
     let mut records = Vec::with_capacity(references.len());
-    let mut retained = 0_u64;
+    let mut retained = live_retained;
     for reference in references {
+        check(cancel)?;
         let bytes = read_object(
             &directory,
             reference.profile_sha256,
@@ -541,13 +604,8 @@ pub(crate) fn restore(
             MAX_GRAPH_INTENT_BYTES,
         )?;
         let graph: GraphIntent = serde_json::from_slice(&bytes).map_err(|_| INVALID)?;
-        let (corrections, correction_preview) = correction_import::load(
-            runtime_path,
-            &profile,
-            &graph,
-            retained,
-            &AtomicBool::new(false),
-        )?;
+        let (corrections, correction_preview) =
+            correction_import::load(runtime_path, &profile, &graph, retained, cancel)?;
         let record = Arc::new(ProfileRecord {
             profile: Arc::new(profile),
             profile_sha256: reference.profile_sha256,
@@ -561,195 +619,74 @@ pub(crate) fn restore(
             .ok_or(BUDGET)?;
         records.push(record);
     }
-    validate_catalog_records(runtime_path, &records, 0, &AtomicBool::new(false))?;
+    validate_catalog_records(runtime_path, &records, live_retained, cancel)?;
     Ok(records)
 }
 
-struct Work {
-    job: ProfileWorkRequest,
-    catalog: Arc<Vec<Arc<ProfileRecord>>>,
+fn execute_profile(
+    job: &ProfileWorkRequest,
+    catalog: &Arc<Vec<Arc<ProfileRecord>>>,
     retained: u64,
-    cancel: Arc<AtomicBool>,
-}
-struct Completion {
-    id: RequestId,
-    binding: ProfileSaveBinding,
-    result: Result<ProfileWorkOutput, EngineError>,
-}
-pub(crate) struct ProfileJobs {
-    sender: Option<SyncSender<Work>>,
-    receiver: Receiver<Completion>,
-    active: Option<(RequestId, Arc<AtomicBool>)>,
-    join: Option<JoinHandle<()>>,
-}
-impl ProfileJobs {
-    pub(crate) fn spawn(directory: PathBuf) -> Self {
-        let (sender, work) = mpsc::sync_channel::<Work>(1);
-        let (complete, receiver) = mpsc::sync_channel(1);
-        let join = thread::spawn(move || {
-            while let Ok(work) = work.recv() {
-                let publish = |prepared| {
-                    validate_prospective_catalog(
-                        &directory,
-                        &work.catalog,
-                        &prepared,
-                        work.retained,
-                        &work.cancel,
-                    )?;
-                    persist_record(&directory, prepared, &work.cancel)
-                };
-                let result = match &work.job.operation {
-                    ProfileWorkOperation::Save {
-                        id,
-                        revision,
-                        draft,
-                        graph,
-                    } => prepare_save(
-                        &directory,
-                        &ProfileSaveJob {
-                            request_id: work.job.request_id.clone(),
-                            binding: work.job.binding.clone(),
-                            id: id.clone(),
-                            revision: *revision,
-                            draft: draft.clone(),
-                            graph: graph.clone(),
-                            deadline_monotonic_ns: work.job.deadline_monotonic_ns,
-                        },
-                        work.retained,
-                        &work.cancel,
-                    )
-                    .and_then(&publish)
-                    .map(ProfileWorkOutput::Profile),
-                    ProfileWorkOperation::Import {
-                        id,
-                        revision,
-                        draft,
-                        input,
-                    } => correction_import::prepare_import(
-                        &directory,
-                        id.clone(),
-                        *revision,
-                        draft,
-                        input,
-                        work.retained,
-                        &work.cancel,
-                    )
-                    .and_then(&publish)
-                    .map(ProfileWorkOutput::Profile),
-                    ProfileWorkOperation::FirAsset { path, .. } => correction_import::import_asset(
-                        &directory,
-                        path,
-                        work.retained,
-                        &work.cancel,
-                    )
-                    .map(ProfileWorkOutput::FirAsset),
-                };
-                if complete
-                    .send(Completion {
-                        id: work.job.request_id,
-                        binding: work.job.binding,
-                        result,
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
-        Self {
-            sender: Some(sender),
-            receiver,
-            active: None,
-            join: Some(join),
+    cancel: &AtomicBool,
+    directory: &Path,
+) -> Result<ProfileWorkOutput, EngineError> {
+    let publish = |prepared| {
+        validate_prospective_catalog(directory, catalog, &prepared, retained, cancel)?;
+        persist_record(directory, prepared, cancel)
+    };
+    match &job.operation {
+        ProfileWorkOperation::Package(operation) => {
+            package::execute(directory, operation, catalog, retained, cancel)
         }
-    }
-    pub(crate) fn submit(&mut self, session: &Session) -> Result<(), EngineError> {
-        if self.active.is_some() {
-            return Err(EngineError::new(
-                ErrorCode::SourceBusy,
-                "profile worker is still retiring an operation",
-            ));
+        ProfileWorkOperation::Save {
+            id,
+            revision,
+            draft,
+            graph,
+        } => prepare_save(
+            directory,
+            &ProfileSaveJob {
+                request_id: job.request_id.clone(),
+                binding: job.binding.clone(),
+                id: id.clone(),
+                revision: *revision,
+                draft: draft.clone(),
+                graph: graph.clone(),
+                deadline_monotonic_ns: job.deadline_monotonic_ns,
+            },
+            retained,
+            cancel,
+        )
+        .and_then(&publish)
+        .map(ProfileWorkOutput::Profile),
+        ProfileWorkOperation::Import {
+            id,
+            revision,
+            draft,
+            input,
+        } => correction_import::prepare_import(
+            directory,
+            id.clone(),
+            *revision,
+            draft,
+            input,
+            retained,
+            cancel,
+        )
+        .and_then(&publish)
+        .map(ProfileWorkOutput::Profile),
+        ProfileWorkOperation::FirAsset { path, .. } => {
+            correction_import::import_asset(directory, path, retained, cancel)
+                .map(ProfileWorkOutput::FirAsset)
         }
-        let job = session.profile_work().ok_or(INVALID)?;
-        let cancel = Arc::new(AtomicBool::new(false));
-        let retained = preparation_retained_bytes(session)?;
-        self.sender
-            .as_ref()
-            .ok_or(runtime::IO)?
-            .try_send(Work {
-                job: job.clone(),
-                catalog: session.profile_records()?,
-                retained,
-                cancel: cancel.clone(),
-            })
-            .map_err(|_| runtime::IO)?;
-        self.active = Some((job.request_id, cancel));
-        Ok(())
-    }
-    pub(crate) fn poll(
-        &mut self,
-        session: &mut Session,
-        now: u64,
-        directory: &Path,
-        token: &str,
-    ) -> Result<(), EngineError> {
-        session.expire_profile_work(now);
-        if let Some((id, cancel)) = &self.active
-            && session.profile_work().is_none_or(|j| &j.request_id != id)
-        {
-            cancel.store(true, Ordering::Release);
-        }
-        while let Ok(completion) = self.receiver.try_recv() {
-            if self
-                .active
-                .as_ref()
-                .is_none_or(|(id, _)| id != &completion.id)
-            {
-                continue;
-            }
-            self.active = None;
-            let mut persistence_error = None;
-            let _ = session.complete_profile_work(
-                &completion.id,
-                &completion.binding,
-                now,
-                completion.result,
-                |staged| {
-                    let bytes = serde_json::to_vec(&staged.checkpoint()).map_err(|_| INVALID)?;
-                    runtime::write_checkpoint(
-                        directory,
-                        &format!("{token}-profile-{}", staged.snapshot().revision),
-                        &bytes,
-                    )
-                    .inspect_err(|e| persistence_error = Some(*e))
-                },
-            );
-            if let Some(error) = persistence_error {
-                return Err(error);
-            }
-        }
-        Ok(())
     }
 }
 fn preparation_retained_bytes(session: &Session) -> Result<u64, EngineError> {
-    // Existing receipt history may grow to its allowance while this worker owns compilation.
     earph_core::profile_control::MAX_PROFILE_STORAGE_BYTES
         .checked_mul(2)
         .and_then(|n| n.checked_add(session.profile_environment_bytes().ok()?))
         .ok_or(BUDGET)
 }
-impl Drop for ProfileJobs {
-    fn drop(&mut self) {
-        if let Some((_, cancel)) = self.active.take() {
-            cancel.store(true, Ordering::Release);
-        }
-        self.sender = None;
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -983,13 +920,10 @@ mod tests {
             &cancel,
         )
         .unwrap();
-        let reference = prepared
-            .inputs
-            .fir()
-            .unwrap()
-            .coefficients()
-            .reference()
-            .clone();
+        let Some(PreparedCorrectionSource::Fir(prepared_source)) = &prepared.inputs.source else {
+            panic!("expected one prepared FIR source")
+        };
+        let reference = prepared_source.coefficients().reference().clone();
         assert!(!runtime.join("assets").exists());
         assert!(!runtime.join("profiles").exists());
         fs::write(&source, b"changed owned source after preparation").unwrap();
@@ -1117,8 +1051,8 @@ mod tests {
             session.submit_graph(command.clone(), 1).status,
             ReceiptStatus::Accepted
         );
-        let mut jobs = ProfileJobs::spawn(runtime.clone());
-        jobs.submit(&session).unwrap();
+        let mut jobs = ArtifactJobs::spawn(runtime.clone());
+        jobs.submit(&session, 1).unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
             jobs.poll(&mut session, 2, &runtime, "catalog-check")
@@ -1335,3 +1269,7 @@ mod tests {
         assert_eq!(fs::read(path).unwrap(), bytes);
     }
 }
+
+#[cfg(test)]
+#[path = "diagnostic_artifact_tests.rs"]
+mod diagnostic_artifact_tests;

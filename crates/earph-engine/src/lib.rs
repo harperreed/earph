@@ -2,16 +2,25 @@
 // ABOUTME: Persists validated queue state before publishing command success.
 #![forbid(unsafe_code)]
 pub mod assets;
+mod build_provenance;
+pub use build_provenance::build_provenance;
+mod devices;
 mod directory;
+pub use devices::{DeviceDiscoveryHelper, run_helper as run_device_query_helper};
 mod graph;
 mod host;
 mod ipc;
+pub mod network_decode;
+mod network_source;
 pub mod offline_render;
 mod output;
 mod output_replay;
 mod plan;
 mod profiles;
 mod render;
+mod renderer;
+pub mod sendspin_credentials;
+pub use renderer::RendererConfiguration;
 mod runtime;
 pub mod stream_render;
 mod transport;
@@ -52,9 +61,38 @@ pub struct EngineOwner {
     runtime: PathBuf,
     token: String,
     session: Session,
+    device_helper: Option<DeviceDiscoveryHelper>,
+    renderer: Option<renderer::RendererRuntime>,
 }
 
 impl EngineOwner {
+    /// Binds trusted ingress before enabling Core admission. Grants remain explicit local commands.
+    pub fn with_renderer(
+        mut self,
+        configuration: RendererConfiguration,
+    ) -> Result<Self, EngineError> {
+        if self.renderer.is_some() {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "renderer listener already bound",
+            ));
+        }
+        let renderer = configuration.bind()?;
+        self.session.enable_renderer_control();
+        self.renderer = Some(renderer::RendererRuntime::new(renderer, &self.session));
+        Ok(self)
+    }
+    pub fn renderer_address(&self) -> Option<std::net::SocketAddrV4> {
+        self.renderer.as_ref().map(|renderer| renderer.local_addr())
+    }
+    /// Enables discovery only when this host explicitly supplies the production engine helper.
+    pub fn with_device_discovery(mut self, helper: DeviceDiscoveryHelper) -> Self {
+        if let Some(backend) = helper.backend() {
+            self.session.enable_device_discovery(backend);
+            self.device_helper = Some(helper);
+        }
+        self
+    }
     pub fn snapshot(&self) -> earph_core::session::SessionSnapshot {
         self.session.snapshot()
     }
@@ -104,8 +142,11 @@ impl EngineOwner {
         };
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         session.enable_local_playback();
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        session.enable_network_playback();
         let records = profiles::restore(&runtime, session.profile_references())?;
         session.restore_profile_records(records)?;
+        session = session.with_diagnostic_build(build_provenance())?;
         let endpoint = serde_json::to_vec(&Endpoint {
             schema_version: 1,
             socket,
@@ -118,6 +159,8 @@ impl EngineOwner {
             runtime,
             token,
             session,
+            device_helper: None,
+            renderer: None,
         })
     }
 
@@ -128,10 +171,17 @@ impl EngineOwner {
             runtime,
             token,
             session,
+            device_helper,
+            renderer,
         } = self;
         let _owner_lock = _lock;
-        host::serve(session, listener, runtime, token)
+        host::serve(session, listener, runtime, token, device_helper, renderer)
     }
+}
+
+/// Returns the shared local command and response frame limit in bytes.
+pub const fn control_frame_limit() -> usize {
+    transport::MAX_BYTES
 }
 
 /// Sends one shared command document to the existing owner.

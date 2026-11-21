@@ -17,6 +17,7 @@ use std::{collections::BTreeSet, sync::Arc};
 pub const GRAPH_COMMAND_BYTES: usize = 128 * 1024;
 pub const GRAPH_TOKEN_TTL_NS: u64 = 30_000_000_000;
 pub const GRAPH_PREPARATION_DEADLINE_NS: u64 = 5_000_000_000;
+pub const GRAPH_PREVIEW_RETENTION_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -228,7 +229,6 @@ fn streaming_facts_valid(
         return false;
     }
     let mut nodes = BTreeSet::new();
-    let mut has_src = false;
     for (index, stage) in stages.iter().enumerate() {
         if stage.original_nodes.is_empty()
             || stage.original_nodes.len() > MAX_GRAPH_NODES
@@ -274,7 +274,6 @@ fn streaming_facts_valid(
                 maximum_adapter_finish_output_frames,
                 ..
             } => {
-                has_src = true;
                 if !src_facts_valid(parameters, stage.input_format, stage.output_format)
                     || parameters.resources.preparation_peak_bytes > aggregate_peak_bytes
                     || *guard_time_denominator != parameters.input_rate
@@ -285,7 +284,7 @@ fn streaming_facts_valid(
             }
         }
     }
-    has_src
+    true
 }
 fn src_facts_valid(parameters: &SrcParameters, input: PcmFormat, output: PcmFormat) -> bool {
     parameters.input_rate == input.sample_rate_hz()
@@ -313,6 +312,10 @@ fn src_facts_valid(parameters: &SrcParameters, input: PcmFormat, output: PcmForm
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GraphPreview {
+    /// Compiler-origin facts stay outside the established graph-inspection wire body.
+    #[serde(skip)]
+    pub diagnostic_nodes: Option<Arc<[crate::diagnostics::DiagnosticNode]>>,
+    pub profile_application: Option<Arc<crate::profile_control::ProfileApplicationBinding>>,
     pub backend: Option<BackendObservation>,
     pub graph_hash: String,
     pub kernel_hash: String,
@@ -333,17 +336,159 @@ pub struct GraphPreview {
     pub required_headroom_db: f64,
     pub transition: GraphTransition,
 }
+
+/// Matches boundary rates and layouts while permitting explicit sample representation conversions.
+pub(crate) fn graph_boundary_formats_match(
+    source: PcmFormat,
+    processing_input: PcmFormat,
+    processing_output: PcmFormat,
+    native_output: PcmFormat,
+) -> bool {
+    source.sample_rate_hz() == processing_input.sample_rate_hz()
+        && source.channels() == processing_input.channels()
+        && processing_output.sample_rate_hz() == native_output.sample_rate_hz()
+        && processing_output.channels() == native_output.channels()
+}
+
 impl GraphPreview {
+    /// Bounds profile receipt retention, including spare capacity in trusted compiler results.
+    pub fn retained_capacity_bytes(&self) -> Result<usize, EngineError> {
+        let budget = EngineError::new(
+            ErrorCode::ResourceBudgetExceeded,
+            "graph preview retention exceeds admission",
+        );
+        let mut bytes = size_of::<Self>();
+        if let Some(nodes) = &self.diagnostic_nodes {
+            bytes = bytes
+                .checked_add(nodes.len() * size_of::<crate::diagnostics::DiagnosticNode>())
+                .ok_or(budget)?;
+        }
+        let add = |bytes: &mut usize, count: usize| -> Result<(), EngineError> {
+            *bytes = bytes
+                .checked_add(count)
+                .filter(|n| *n <= GRAPH_PREVIEW_RETENTION_BYTES)
+                .ok_or(budget)?;
+            Ok(())
+        };
+        for count in [
+            self.graph_hash.capacity(),
+            self.kernel_hash.capacity(),
+            self.implementation_version.capacity(),
+            self.binding.owner_id.capacity_bytes(),
+            self.binding.session_id.capacity_bytes(),
+            self.channel_peak_bounds.capacity() * size_of::<f64>(),
+            self.transformations.capacity() * size_of::<SignalTransformation>(),
+        ] {
+            add(&mut bytes, count)?;
+        }
+        if let Some(application) = &self.profile_application {
+            add(
+                &mut bytes,
+                size_of::<crate::profile_control::ProfileApplicationBinding>()
+                    + application.profile.id.capacity_bytes(),
+            )?;
+        }
+        for transformation in &self.transformations {
+            if let SignalTransformation::Kernel { transformation } = transformation {
+                match transformation {
+                    Transformation::Compensation { edge, .. } => {
+                        add(&mut bytes, edge.from.capacity_bytes())?;
+                        add(&mut bytes, edge.to.capacity_bytes())?;
+                    }
+                    Transformation::Gain { node }
+                    | Transformation::Peq { node }
+                    | Transformation::Convolution { node }
+                    | Transformation::Src { node }
+                    | Transformation::BoundedIirTruncation { node, .. }
+                    | Transformation::Delay { node }
+                    | Transformation::Matrix { node }
+                    | Transformation::Sum { node } => add(&mut bytes, node.capacity_bytes())?,
+                }
+            }
+        }
+        match &self.timing {
+            GraphTiming::SameRate {
+                terminal_output_bounds,
+                node_tails,
+                ..
+            } => {
+                add(
+                    &mut bytes,
+                    terminal_output_bounds.capacity() * size_of::<f64>(),
+                )?;
+                add(
+                    &mut bytes,
+                    node_tails.capacity() * size_of::<FilterTailObservation>(),
+                )?;
+                for node in node_tails {
+                    add(&mut bytes, node.node.capacity_bytes())?;
+                    add(
+                        &mut bytes,
+                        node.terminal_output_bounds.capacity() * size_of::<f64>(),
+                    )?;
+                }
+            }
+            GraphTiming::Streaming { stages } => {
+                add(&mut bytes, stages.len() * size_of::<CompiledStreamStage>())?;
+                for stage in stages.iter() {
+                    add(
+                        &mut bytes,
+                        stage.original_nodes.capacity() * size_of::<NodeId>(),
+                    )?;
+                    for node in &stage.original_nodes {
+                        add(&mut bytes, node.capacity_bytes())?;
+                    }
+                    add(
+                        &mut bytes,
+                        stage.input_peak_bounds.capacity() * size_of::<f64>(),
+                    )?;
+                    add(
+                        &mut bytes,
+                        stage.output_peak_bounds.capacity() * size_of::<f64>(),
+                    )?;
+                    if let CompiledStreamStageKind::Island {
+                        kernel_hash,
+                        terminal_output_bounds,
+                        ..
+                    } = &stage.kind
+                    {
+                        add(&mut bytes, kernel_hash.capacity())?;
+                        add(
+                            &mut bytes,
+                            terminal_output_bounds.capacity() * size_of::<f64>(),
+                        )?;
+                    }
+                }
+            }
+        }
+        Ok(bytes)
+    }
     pub fn validate(&self) -> Result<(), EngineError> {
+        if let Some(nodes) = &self.diagnostic_nodes {
+            if nodes.is_empty() || nodes.len() > MAX_GRAPH_NODES {
+                return Err(EngineError::new(
+                    ErrorCode::GraphInvalid,
+                    "invalid compiled node facts",
+                ));
+            }
+            for (index, node) in nodes.iter().enumerate() {
+                node.validate(index)?;
+            }
+        }
+        if let Some(application) = &self.profile_application {
+            application.validate()?;
+            self.retained_capacity_bytes()?;
+        }
         if !valid_graph_hash(&self.graph_hash)
             || !valid_graph_hash(&self.kernel_hash)
             || !(1..=8192).contains(&self.quantum_frames)
             || self.channel_peak_bounds.len() != self.native_output_format.channels().count()
-            || self.processing_input_format.sample_rate_hz() != self.source_format.sample_rate_hz()
-            || self.processing_input_format.channels() != self.source_format.channels()
-            || self.processing_output_format.sample_rate_hz()
-                != self.native_output_format.sample_rate_hz()
-            || self.processing_output_format.channels() != self.native_output_format.channels()
+            || !graph_boundary_formats_match(
+                self.source_format,
+                self.processing_input_format,
+                self.processing_output_format,
+                self.native_output_format,
+            )
             || !self.timing.valid(
                 self.processing_input_format,
                 self.processing_output_format,
@@ -452,6 +597,8 @@ impl GraphDiagnostic {
 
 #[derive(Debug, Clone)]
 pub struct GraphJobRequest {
+    pub renderer_application: Option<Arc<crate::renderer::RendererGraphBinding>>,
+    pub profile_application: Option<Arc<crate::profile_control::ProfileApplicationBinding>>,
     pub request_id: RequestId,
     pub binding: GraphBinding,
     pub intent: Arc<GraphIntent>,
@@ -461,6 +608,7 @@ pub struct GraphJobRequest {
 
 #[derive(Debug, Clone)]
 pub struct GraphActivationRequest {
+    pub renderer_application: Option<Arc<crate::renderer::RendererGraphBinding>>,
     pub request_id: RequestId,
     pub previous_binding: GraphBinding,
     pub epochs: Epochs,

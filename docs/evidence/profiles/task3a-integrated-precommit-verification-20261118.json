@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "Task3a integrated software profile application precommit",
+  "source": {
+    "commit": "24e997009963ffc62d6c711e9d0756b9e81b40e4",
+    "integration_parent": "c0e27b93d8f0ee875dee054d7eef7e6901df424a",
+    "source_dirty": true,
+    "profile": "debug",
+    "patch_sha256": "55dc5f9fb2f9d4bbeb9ee4cc6078b4b969caa9678f89bf8820d7f2862b626d35",
+    "source_files": 1566,
+    "source_manifest_sha256": "9d48738e7c21554842809ab44a3714c80caedbf0026057939bedea040afbf83e",
+    "runtime_source_sha256": "ca46ef4020a3f59c3ce7f92f15f8c688b7afbbec3dacc95da4aae6b9dff9f8bd",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574"
+  },
+  "canonical": {
+    "schema_version": 1,
+    "status": "pass",
+    "command": "scripts/check",
+    "child_pid": 12094,
+    "child_exit_code": 0,
+    "child_signal": null,
+    "wrapper_signal": null,
+    "source_manifest_sha256": "9d48738e7c21554842809ab44a3714c80caedbf0026057939bedea040afbf83e",
+    "source_mismatches": [],
+    "log_sha256": "aaa485d6987ac95ebfeaa88e6e89b1019c5f052f8a55543d2452b5ebb7af78e4",
+    "passed": 722,
+    "failed": 0,
+    "ignored": 4,
+    "compiler_warnings_or_errors": [],
+    "final_log_line": "{\"status\":\"pass\"}"
+  },
+  "independent_merge_review_sha256": "b4b99e1d14e14506d5dd814f505e301bf7f4691aa517474511564d4389b81e5e",
+  "macos_candidate_sha256": "623781e7f9e5a3dedf7262d6a8ff422f9a0383d2442bdedc993ff09d8a7982fb",
+  "macos_root_verification_sha256": "377dbc4b11a22908b350bb58790b330ee7d8895c3aee591dacf6aecad5a53c44",
+  "limits": [
+    "Dirty precommit debug snapshot; not clean release or full Mac canonical qualification.",
+    "The original Engine profiles invocation passed15 cases and failed1 missing CLI prerequisite; only that exact case was rerun.",
+    "Private arming and owner callback counters are unavailable on the wire.",
+    "Muted control evidence does not qualify emitted profile PCM, DAC, acoustic, fixed/hardware, fidelity transitions, native associations, or full Task3."
+  ]
+}

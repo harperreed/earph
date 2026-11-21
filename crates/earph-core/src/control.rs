@@ -35,6 +35,7 @@ impl Default for ControlLimits {
 pub enum SourceKind {
     Virtual,
     LocalFile,
+    HttpFlac,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,15 +103,107 @@ impl OutputConfiguration {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", deny_unknown_fields)]
 pub enum Command {
     #[serde(rename = "capabilities.get")]
     Capabilities,
     #[serde(rename = "state.get")]
     State,
+    #[serde(rename = "signal_path.get")]
+    SignalPathGet {},
+    #[serde(rename = "metrics.get")]
+    MetricsGet {},
+    #[serde(rename = "events.get")]
+    EventsGet {
+        #[serde(deserialize_with = "crate::serde_helpers::nullable")]
+        cursor: Option<crate::diagnostics::EventCursor>,
+    },
+    #[serde(rename = "diagnostics.preview")]
+    DiagnosticsPreview {},
+    #[serde(rename = "diagnostics.export")]
+    DiagnosticsExport {
+        directory: String,
+        expected_sha256: crate::profiles::ProfileObjectHash,
+    },
+    #[serde(rename = "diagnostics.inspect")]
+    DiagnosticsInspect {
+        directory: String,
+        expected_sha256: crate::profiles::ProfileObjectHash,
+    },
+    #[serde(rename = "diagnostics.cancel")]
+    DiagnosticsCancel { request_id: RequestId },
+    #[serde(rename = "devices.list")]
+    DevicesList { backend: OutputBackend },
+    #[serde(rename = "devices.inspect")]
+    DevicesInspect {
+        backend: OutputBackend,
+        endpoint: String,
+    },
     #[serde(rename = "queue.get")]
     QueueGet { offset: usize, limit: usize },
+    #[serde(rename = "sources.get")]
+    SourcesGet {},
+    #[serde(rename = "renderer.get")]
+    RendererGet {},
+    #[serde(rename = "renderer.grants.replace")]
+    RendererGrantsReplace {
+        expected_generation: u64,
+        grants: Arc<crate::renderer::RendererGrantDocument>,
+        lifetime_ms: u64,
+    },
+    #[serde(rename = "renderer.grants.revoke")]
+    RendererGrantsRevoke {
+        expected_generation: u64,
+        controller_id: RendererControllerId,
+    },
+    #[serde(rename = "renderer.callbacks.replace")]
+    RendererCallbackGrantsReplace {
+        controller_id: RendererControllerId,
+        expected_controller_generation: u64,
+        expected_generation: u64,
+        lifetime_ms: u64,
+        grants: Arc<crate::renderer_events::RendererCallbackGrantDocument>,
+    },
+    #[serde(rename = "renderer.callbacks.revoke")]
+    RendererCallbackGrantsRevoke {
+        controller_id: RendererControllerId,
+        expected_controller_generation: u64,
+        expected_generation: u64,
+    },
+    #[serde(rename = "renderer.subscription")]
+    RendererSubscription {
+        controller_id: RendererControllerId,
+        grant_generation: u64,
+        callback_generation: u64,
+        action: crate::renderer_events::RendererSubscriptionAction,
+    },
+    #[serde(rename = "renderer.request")]
+    RendererRequest {
+        controller_id: RendererControllerId,
+        grant_generation: u64,
+        action: crate::renderer::RendererAction,
+    },
+    #[serde(rename = "sources.stage_uri")]
+    SourceStageUri { uri: String, metadata: String },
+    #[serde(rename = "sources.network.get")]
+    NetworkGet {},
+    #[serde(rename = "sources.grants.replace")]
+    NetworkGrantsReplace {
+        expected_generation: u64,
+        grants: Arc<crate::network_source::NetworkGrantDocument>,
+        lifetime_ms: u64,
+    },
+    #[serde(rename = "sources.grants.revoke")]
+    NetworkGrantsRevoke { expected_generation: u64 },
+    #[serde(rename = "sources.start_http_flac")]
+    NetworkStartHttpFlac {
+        media_id: StagedMediaId,
+        staging_generation: u64,
+        grant_generation: u64,
+        device_id: DeviceId,
+        takeover: bool,
+    },
     #[serde(rename = "graph.inspect")]
     GraphInspect {},
     #[serde(rename = "profiles.list")]
@@ -121,6 +214,27 @@ pub enum Command {
     ProfilesResolve {
         manual_profile_id: Option<ProfileId>,
         output: ProfileOutputSelector,
+    },
+    #[serde(rename = "profiles.prepare")]
+    ProfilesPrepare {
+        id: ProfileId,
+        expected_profile_revision: u64,
+        profile_sha256: crate::profiles::ProfileObjectHash,
+    },
+    #[serde(rename = "profiles.apply")]
+    ProfilesApply {
+        id: ProfileId,
+        expected_profile_revision: u64,
+        profile_sha256: crate::profiles::ProfileObjectHash,
+        token: PreparedGraphId,
+        graph_hash: String,
+    },
+    #[serde(rename = "profiles.bind")]
+    ProfilesBind {
+        id: ProfileId,
+        expected_profile_revision: u64,
+        profile_sha256: crate::profiles::ProfileObjectHash,
+        expected_device_epoch: u64,
     },
     #[serde(rename = "profiles.create")]
     ProfilesCreate {
@@ -141,6 +255,25 @@ pub enum Command {
         expected_profile_revision: Option<u64>,
         draft: Arc<ProfileDraft>,
         input: Arc<ProfileCorrectionInput>,
+    },
+    #[serde(rename = "profiles.package_inspect")]
+    ProfilesPackageInspect { directory: String },
+    #[serde(rename = "profiles.package_preview")]
+    ProfilesPackagePreview { profile: ProfileCatalogReference },
+    #[serde(rename = "profiles.import_package")]
+    ProfilesImportPackage {
+        directory: String,
+        expected_manifest_sha256: crate::profiles::ProfileObjectHash,
+        profile: ProfileCatalogReference,
+    },
+    #[serde(rename = "profiles.export")]
+    ProfilesExport {
+        directory: String,
+        profile: ProfileCatalogReference,
+        expected_manifest_sha256: crate::profiles::ProfileObjectHash,
+        export_review: PackageExportReview,
+        content_review: PackageContentReview,
+        redistribution: PackageRedistribution,
     },
     #[serde(rename = "assets.import_fir")]
     FirImport {
@@ -186,6 +319,10 @@ pub enum Command {
         millidecibels: i32,
         ramp_frames: u32,
     },
+    #[serde(rename = "volume.silence")]
+    VolumeSilence,
+    #[serde(rename = "volume.factory_defaults")]
+    VolumeFactoryDefaults,
     #[serde(rename = "volume.caps.set")]
     VolumeCaps {
         software_millidecibels: i32,
@@ -216,7 +353,56 @@ pub enum Command {
     #[serde(other)]
     Unsupported,
 }
+impl std::fmt::Debug for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Command")
+            .field("kind", &std::mem::discriminant(self))
+            .finish_non_exhaustive()
+    }
+}
+
 impl Command {
+    pub fn is_renderer(&self) -> bool {
+        matches!(
+            self,
+            Self::RendererGet {}
+                | Self::RendererGrantsReplace { .. }
+                | Self::RendererGrantsRevoke { .. }
+                | Self::RendererRequest { .. }
+                | Self::RendererCallbackGrantsReplace { .. }
+                | Self::RendererCallbackGrantsRevoke { .. }
+                | Self::RendererSubscription { .. }
+        )
+    }
+
+    pub fn is_network(&self) -> bool {
+        matches!(
+            self,
+            Self::NetworkGet {}
+                | Self::NetworkGrantsReplace { .. }
+                | Self::NetworkGrantsRevoke { .. }
+                | Self::NetworkStartHttpFlac { .. }
+        )
+    }
+
+    pub fn is_package(&self) -> bool {
+        matches!(
+            self,
+            Self::ProfilesPackageInspect { .. }
+                | Self::ProfilesPackagePreview { .. }
+                | Self::ProfilesImportPackage { .. }
+                | Self::ProfilesExport { .. }
+        )
+    }
+    pub fn prepares_graph(&self) -> bool {
+        matches!(
+            self,
+            Self::GraphPrepare { .. } | Self::GraphValidate { .. } | Self::ProfilesPrepare { .. }
+        )
+    }
+    pub fn activates_graph(&self) -> bool {
+        matches!(self, Self::GraphCommit { .. } | Self::ProfilesApply { .. })
+    }
     pub fn is_profile_save(&self) -> bool {
         matches!(
             self,
@@ -224,25 +410,67 @@ impl Command {
                 | Self::ProfilesUpdate { .. }
                 | Self::ProfilesImport { .. }
                 | Self::FirImport { .. }
+                | Self::ProfilesPackageInspect { .. }
+                | Self::ProfilesPackagePreview { .. }
+                | Self::ProfilesImportPackage { .. }
+                | Self::ProfilesExport { .. }
         )
     }
     pub fn is_profile(&self) -> bool {
         self.is_profile_save()
             || matches!(
                 self,
-                Self::ProfilesList { .. } | Self::ProfilesGet { .. } | Self::ProfilesResolve { .. }
+                Self::ProfilesList { .. }
+                    | Self::ProfilesGet { .. }
+                    | Self::ProfilesResolve { .. }
+                    | Self::ProfilesPrepare { .. }
+                    | Self::ProfilesApply { .. }
+                    | Self::ProfilesBind { .. }
             )
     }
     pub fn is_query(&self) -> bool {
         matches!(
             self,
             Self::Capabilities
+                | Self::DevicesList { .. }
+                | Self::DevicesInspect { .. }
                 | Self::State
+                | Self::SignalPathGet {}
+                | Self::MetricsGet {}
+                | Self::EventsGet { .. }
+                | Self::DiagnosticsPreview {}
+                | Self::DiagnosticsInspect { .. }
                 | Self::QueueGet { .. }
+                | Self::SourcesGet { .. }
+                | Self::RendererGet {}
+                | Self::NetworkGet {}
                 | Self::GraphInspect { .. }
                 | Self::ProfilesList { .. }
                 | Self::ProfilesGet { .. }
                 | Self::ProfilesResolve { .. }
+        )
+    }
+    pub fn is_diagnostic(&self) -> bool {
+        matches!(
+            self,
+            Self::SignalPathGet {}
+                | Self::MetricsGet {}
+                | Self::EventsGet { .. }
+                | Self::DiagnosticsPreview {}
+        )
+    }
+    pub fn is_diagnostic_artifact(&self) -> bool {
+        matches!(
+            self,
+            Self::DiagnosticsExport { .. }
+                | Self::DiagnosticsInspect { .. }
+                | Self::DiagnosticsCancel { .. }
+        )
+    }
+    pub fn starts_diagnostic_work(&self) -> bool {
+        matches!(
+            self,
+            Self::DiagnosticsExport { .. } | Self::DiagnosticsInspect { .. }
         )
     }
 }
@@ -277,6 +505,26 @@ impl CommandEnvelope {
         }
         let mut bytes = size_of::<Self>() + 128 + ids.iter().sum::<usize>();
         let id = match &self.payload {
+            Command::ProfilesPackageInspect { directory } => {
+                validate_package_path(directory)?;
+                bytes = bytes.checked_add(directory.capacity()).ok_or(BUDGET)?;
+                None
+            }
+            Command::ProfilesPackagePreview { profile } => {
+                validate_catalog(std::slice::from_ref(profile), 1)?;
+                Some(&profile.id)
+            }
+            Command::ProfilesImportPackage {
+                directory, profile, ..
+            }
+            | Command::ProfilesExport {
+                directory, profile, ..
+            } => {
+                validate_package_path(directory)?;
+                validate_catalog(std::slice::from_ref(profile), 1)?;
+                bytes = bytes.checked_add(directory.capacity()).ok_or(BUDGET)?;
+                Some(&profile.id)
+            }
             Command::ProfilesImport {
                 id, draft, input, ..
             } => {
@@ -309,7 +557,25 @@ impl CommandEnvelope {
                     .ok_or(BUDGET)?;
                 Some(id)
             }
-            Command::ProfilesGet { id } => Some(id),
+            Command::ProfilesGet { id }
+            | Command::ProfilesPrepare { id, .. }
+            | Command::ProfilesBind { id, .. } => Some(id),
+            Command::ProfilesApply {
+                id,
+                token,
+                graph_hash,
+                ..
+            } => {
+                if token.capacity_bytes() > 128 || graph_hash.capacity() > GRAPH_HASH_STORAGE_BYTES
+                {
+                    return Err(BUDGET);
+                }
+                bytes = bytes
+                    .checked_add(token.capacity_bytes())
+                    .and_then(|n| n.checked_add(graph_hash.capacity()))
+                    .ok_or(BUDGET)?;
+                Some(id)
+            }
             Command::ProfilesResolve {
                 manual_profile_id,
                 output,
@@ -338,7 +604,8 @@ impl CommandEnvelope {
     }
     pub fn validate(&self) -> Result<(), EngineError> {
         self.validate_storage()?;
-        if let Command::GraphCommit { graph_hash, .. } = &self.payload
+        if let Command::GraphCommit { graph_hash, .. } | Command::ProfilesApply { graph_hash, .. } =
+            &self.payload
             && !valid_graph_hash(graph_hash)
         {
             return Err(EngineError::new(
@@ -369,13 +636,73 @@ impl CommandEnvelope {
         if let Command::OutputSelect { output } = &self.payload {
             output.validate()?;
         }
+        if let Command::DevicesInspect { endpoint, .. } = &self.payload {
+            crate::devices::validate_endpoint(endpoint)?;
+        }
         self.validate_retained_storage()
     }
     pub(crate) fn validate_retained_storage(&self) -> Result<(), EngineError> {
+        if self.payload.is_network() || self.payload.is_renderer() {
+            self.network_capacity_bytes()?;
+        }
+
+        if matches!(
+            self.payload,
+            Command::SourceStageUri { .. }
+                | Command::SourcesGet {}
+                | Command::SignalPathGet {}
+                | Command::MetricsGet {}
+                | Command::EventsGet { .. }
+                | Command::DiagnosticsPreview {}
+                | Command::DiagnosticsExport { .. }
+                | Command::DiagnosticsInspect { .. }
+                | Command::DiagnosticsCancel { .. }
+        ) && [
+            self.request_id.capacity_bytes(),
+            self.zone_id.capacity_bytes(),
+            self.owner_id.as_ref().map_or(0, OwnerId::capacity_bytes),
+            self.session_id
+                .as_ref()
+                .map_or(0, SessionId::capacity_bytes),
+        ]
+        .into_iter()
+        .any(|bytes| bytes > 128)
+        {
+            return Err(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "request identity exceeds storage limit",
+            ));
+        }
         if self.payload.is_profile() {
             self.profile_capacity_bytes()?;
         }
+        if let Command::EventsGet {
+            cursor: Some(cursor),
+        } = &self.payload
+            && cursor.owner_id.capacity_bytes() > 128
+        {
+            return Err(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "event cursor exceeds storage limit",
+            ));
+        }
         match &self.payload {
+            Command::DiagnosticsExport { directory, .. }
+            | Command::DiagnosticsInspect { directory, .. } => {
+                if directory.capacity() > 1024 {
+                    return Err(BUDGET);
+                }
+                Ok(())
+            }
+            Command::DiagnosticsCancel { request_id } if request_id.capacity_bytes() > 128 => {
+                Err(BUDGET)
+            }
+            Command::SourceStageUri { uri, metadata } => {
+                crate::source::validate_storage(uri, metadata)
+            }
+            Command::DevicesInspect { endpoint, .. } if endpoint.capacity() > 4096 => {
+                Err(crate::devices::DEVICE_BUDGET)
+            }
             Command::GraphValidate { graph, .. } | Command::GraphPrepare { graph, .. } => {
                 graph.validate_storage()
             }
@@ -464,6 +791,16 @@ pub enum ReceiptStatus {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum QueryResult {
+    SignalPath(Arc<crate::diagnostics::SignalPathRead>),
+    Metrics(Arc<crate::diagnostics::MetricsRead>),
+    Events(Arc<crate::diagnostics::EventsRead>),
+    DiagnosticPreview(Arc<crate::diagnostics::PreviewRead>),
+    DiagnosticArtifact(Arc<crate::diagnostics::DiagnosticArtifactReceipt>),
+    DiagnosticCancel(Arc<crate::diagnostics::DiagnosticCancelReceipt>),
+    Sources(crate::source::SourceStagingSnapshot),
+    Network(crate::network_source::NetworkSnapshot),
+    Renderer(crate::renderer::RendererSnapshot),
+    Devices(Arc<crate::devices::DeviceQueryResult>),
     State(Box<crate::session::SessionSnapshot>),
     Capabilities(Capabilities),
     Queue(crate::queue::QueuePage),
@@ -475,14 +812,26 @@ pub enum QueryResult {
     Profile(Arc<ProfileRecord>),
     Profiles(ProfilePage),
     ProfileResolution(ProfileResolution),
+    ProfileBound(crate::profiles::ProfileAssociation),
+    ProfilePackage(Arc<ProfilePackageResult>),
+    ProfilePackageIssue(ProfilePackageIssue),
     FirAsset(crate::dsp_nodes::FirAssetReference),
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Capabilities {
+    pub diagnostics: crate::diagnostics::DiagnosticCapabilities,
+    pub devices: Arc<crate::devices::DeviceCapabilities>,
     pub schema_version: u32,
     pub sources: Vec<SourceKind>,
     pub physical_output: bool,
     pub profiles: ProfileCapabilities,
+    pub output_activity: OutputActivityCapabilities,
+}
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OutputActivityCapabilities {
+    pub backends: Vec<OutputBackend>,
+    pub scope: crate::session::OutputActivityScope,
+    pub measurement_boundary: crate::session::OutputActivityBoundary,
 }
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Receipt {

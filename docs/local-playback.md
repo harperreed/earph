@@ -43,6 +43,29 @@ Marker detection does not prove an arbitrary file's intended sample domain.
 Keep known DoP and DSD sources outside the PCM lane.
 Physical signal emission requires explicit approval for the selected output.
 
+## Output activity
+
+Playback observations include nullable `output_activity` diagnostics.
+Capability discovery advertises the supported backends and the measurement boundary.
+Only the enabled macOS owner advertises `core_audio`; ALSA observations report null.
+
+One Core Audio output instance owns the counters across its native stream reopens.
+`sdk_write_attempts` and `sdk_start_attempts` count entries into the SDK, including failed entries.
+`accepted_frames` counts only frames accepted by actual SDK write results.
+These counters do not measure OS calls, callback consumption, DAC delivery, or audible output.
+`native_open_successes` counts successful opens without changing the original output epochs.
+Overflow saturates totals and sets `counter_overflow`; those totals are then lower bounds.
+
+Live observations are samples and cannot establish future inactivity.
+A matching Stop acknowledgment carries the final activity sample after cleanup.
+Require `close_confirmed: true` to qualify that output scope as closed.
+Missing observations and failed closes leave the scope unqualified.
+Cancellation retains source-prefix facts while refreshing only the activity diagnostics.
+
+Activity never changes graph identity or grants consent, arming, or signal permission.
+Checkpoints and profile packages do not save activity; owner restart clears its playback observation.
+Clients must retain integer precision and preserve unknown values rather than inventing zero counts.
+
 ## Verification
 
 The public tests generate known WAV samples and lossless FLAC and AIFF counterparts.

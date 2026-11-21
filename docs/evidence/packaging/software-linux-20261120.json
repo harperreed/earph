@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "source": {
+    "baseline_commit": "37187308853150655aeeb0fb2d27e793d31a26be",
+    "source_dirty": true,
+    "qualified_archive_sha256": "0f48896e200ebbfd79910e5e758bc767b31bfada083667428937e274a5f85fba",
+    "qualified_source_files": 1966,
+    "source_unchanged_during_checks": true
+  },
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "measurement_boundary": "Software contracts; physical output unqualified"
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "reported_results": {
+      "passed": 1584,
+      "failed": 0,
+      "ignored": 11,
+      "groups": 171
+    },
+    "log_sha256": "83a3d9c4328158ac15efa2ed64d1a0d5380db3fec00bb2f4ec3cf25ff7628420",
+    "product_build_exit": 0,
+    "count_note": "Reported blocks include child results and are not a unique-test total. Six ignored Sendspin peer tests passed separately."
+  },
+  "integrated_peer": {
+    "tests_passed": 6,
+    "exit": 0,
+    "log_sha256": "26407b442ff56b4200ca4cd8bf3a614e79e2413595db4b96333224c69daf46bc"
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "bf72bd9a44c9d4e3bf356aae717c34b999720bef0077ac98966463f7980576a2"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "160b3d81d2396751240d2784bb81e9b7e44ff9aeb0cb673042f1be31b7e40d82"
+    }
+  ],
+  "scope": "Explicit unsigned native package construction and exact consistency verification",
+  "requirement_status": "partial",
+  "source_files": [
+    {
+      "path": "crates/earph-harness/src/package.rs",
+      "sha256": "12c2d81392c36ba5d3b47235ca1aec90549c621cfd4efa502f1b190869aff0e9"
+    },
+    {
+      "path": "crates/earph-harness/src/lib.rs",
+      "sha256": "4588879c15b657f005355731cd777c4c91a28b90d8ec35fa9be6415077fbf11c"
+    },
+    {
+      "path": "crates/earph-harness/src/main.rs",
+      "sha256": "a4b2782c703978f28d823c30b6e21d633b7a6365693ee70f7cea56bb95c97fef"
+    },
+    {
+      "path": "crates/earph-harness/tests/native_package.rs",
+      "sha256": "c5c8c39f328a6bed53ed42cfbcdf423040248e9c7d50b03d657edac0102aed69"
+    },
+    {
+      "path": "docs/native-packaging.md",
+      "sha256": "ad7b2c6d4b5667fe9c41e00c678ab53eeea0c7d5c8f2b277a1033c008e84eff1"
+    }
+  ],
+  "unit": {
+    "patch_sha256": "08622c40621f7840614b03b963e2a6512d1e69f257ed920d1a18a40ea12601cc",
+    "tests": {
+      "passed": 66,
+      "failed": 0,
+      "ignored": 0,
+      "groups": 11,
+      "new_package_unit_tests": 4,
+      "new_package_integration_tests": 14
+    },
+    "checks": {
+      "final-format": 0,
+      "final-harness": 0,
+      "final-clippy": 0,
+      "final-fmt-check": 0,
+      "final-tool-build": 0
+    },
+    "desktop_entry_validator_exit": 0,
+    "mpl_source_archives": 15,
+    "private_retention_receipt_distributed": false,
+    "archives_extracted": false
+  },
+  "independent_review": {
+    "status": "complete",
+    "material_findings": 0,
+    "report_sha256": "c7f7081204198b99f0ec3465f1b0cc2cbf816a326cf234c4df5d9c6e01b27ab4"
+  },
+  "native_gui_receipt": "packaged-gui-linux-20261120.json",
+  "limits": [
+    "Candidates remain unsigned and unreleased; provenance is declared-unverified.",
+    "Executable header validation does not establish loader or libc compatibility.",
+    "The builder requires private input directories without concurrent writers.",
+    "Input modes are preserved; another-account access remains unqualified.",
+    "Installation, signing, authenticated artifacts, rollback, native macOS and SDK distribution remain unqualified."
+  ]
+}

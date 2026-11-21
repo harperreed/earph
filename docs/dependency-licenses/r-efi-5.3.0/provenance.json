@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "r-efi"
+  ],
+  "version": "5.3.0",
+  "repository": "https://github.com/r-efi/r-efi",
+  "revision": "97b55bed1c2c91dcbf787674849f05337ff80b33",
+  "license_expression": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+  "license_file": "AUTHORS",
+  "license_sha256": "ff92bed461f50338dd703a9ba9aee496a425957873df1d91192776e4bdf5dda7",
+  "source_url": "https://github.com/r-efi/r-efi/blob/97b55bed1c2c91dcbf787674849f05337ff80b33/AUTHORS",
+  "verified_on": "2026-11-18",
+  "sources": [
+    {
+      "repository": "r-efi/r-efi",
+      "revision": "97b55bed1c2c91dcbf787674849f05337ff80b33",
+      "path": "AUTHORS",
+      "git_blob_sha1": "7397b2bd6a8580d51fe7b23783f8f1a05fa70291",
+      "sha256": "ff92bed461f50338dd703a9ba9aee496a425957873df1d91192776e4bdf5dda7",
+      "source_url": "https://github.com/r-efi/r-efi/blob/97b55bed1c2c91dcbf787674849f05337ff80b33/AUTHORS"
+    }
+  ]
+}

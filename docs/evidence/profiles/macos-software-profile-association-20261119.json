@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "muted_software_profile_native_association_closed_sdk_zero_entry_scope",
+  "source": {
+    "commit": "79810bc05246d67f4a08e157c7fdcb99bcf692e1",
+    "tree": "76c7ac0014d40144fd482f20b5a80237491f2007",
+    "dirty": false,
+    "runtime_sha256": "6a585be134e679101d962d03331e00731fad66d427cabd3a72aa8ba7abfffb54",
+    "lock_sha256": "19ff958fa2db03d3c4ec6c4e5a693239cf3012385886d1d06a0ec983966f041d",
+    "files": 1762,
+    "text_manifest_sha256": "264a98fffa092e7cce9f9066c92d942b4834c375eb3bf441894b950b8e123433",
+    "json_manifest_sha256": "c07155947894cf03d40c304a1815336528ed290c3a30b82bc949e56a4730395b"
+  },
+  "build": {
+    "commit": "79810bc05246d67f4a08e157c7fdcb99bcf692e1",
+    "dependency_lock_sha256": "19ff958fa2db03d3c4ec6c4e5a693239cf3012385886d1d06a0ec983966f041d",
+    "profile": "release",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": false,
+    "source_inputs_sha256": "6a585be134e679101d962d03331e00731fad66d427cabd3a72aa8ba7abfffb54",
+    "target": "aarch64-apple-darwin"
+  },
+  "products": [
+    {
+      "label": "earph-engine",
+      "sha256": "835e8adc380f2cd5e9e6d9e52ac902bb27071de9af924151d7c840a9d2ac59c1"
+    },
+    {
+      "label": "earph-coreaudio",
+      "sha256": "c79824e51f7dea8d8c8ecfe24e9e54ff687b9975bff2e68b9965b7db573fbfcc"
+    },
+    {
+      "label": "earph-harness",
+      "sha256": "e7b9b22fb006e2a7676b649bb71da3f1bc1fff33e8aed176d5e0c2f57e51f27c"
+    }
+  ],
+  "software_only": true,
+  "activity": {
+    "scope": "output_instance_across_native_reopens",
+    "measurement_boundary": "core_audio_sdk_entry_calls",
+    "samples": 5,
+    "final_native_open_successes": 4,
+    "sdk_write_attempts": 0,
+    "sdk_start_attempts": 0,
+    "accepted_frames": 0,
+    "counter_overflow": false,
+    "matching_stop_acknowledged": true,
+    "close_confirmed": true
+  },
+  "profile": {
+    "observed_identity_matches_owner": true,
+    "association_persisted": true,
+    "automatic_resolution": "exact_device",
+    "profile_revision_bound": true,
+    "muted_application_acknowledged": true,
+    "checkpoint_matches_selection": true,
+    "restart_muted_unconsented": true,
+    "restart_activity_unavailable": true,
+    "direct_fixed_arming_state": null
+  },
+  "owner_exits": [
+    {
+      "exit_code": 0,
+      "signal_code": null,
+      "fresh_absence": true
+    },
+    {
+      "exit_code": 0,
+      "signal_code": null,
+      "fresh_absence": true
+    }
+  ],
+  "muted": true,
+  "unmute_requests": 0,
+  "signal_attempts": 0,
+  "max_signal_attempts": 0,
+  "closed_scope": true,
+  "settings_unchanged": true,
+  "source_products_unchanged": true,
+  "evidence": {
+    "logical_artifacts": 171,
+    "opaque_metadata": 0,
+    "archive_members": 172,
+    "archive_sha256": "32b62c7a02aca7e8c72abd263c37c24dec92aaba69cbe60be841d2948b099967",
+    "manifest_sha256": "8da60e1bdfeffd8269b6282eeedc141ae382e97cf353e39d12e9bc9fb999f396",
+    "metadata_ledger_sha256": "59f03fbac6c318eb2b6aaf9d758d48328634205968bdc3cd73518eee82707fc7"
+  },
+  "prior_physical_proof": {
+    "commit": "98244f0d913204917fe1b66e3b974f4e6c99d801",
+    "candidate_sha256": "80a90e02dd29461987950bdf0a307caa98f9cbe813b24c6ece6a7c8fd0df3807",
+    "signal_guards_consumed": true
+  },
+  "limits": [
+    "SDK entry counts describe one output instance across native reopens, not process lifetime or OS calls.",
+    "Zero-entry scope does not qualify positive/error SDK counts, callbacks, DAC delivery, acoustics, fixed output, fullT12 or CPU margin.",
+    "Implementation support in capabilities is not hardware qualification.",
+    "Fixed arming is not directly serialized; its readback remains unavailable.",
+    "The full selected-device snapshot matched; this does not prove all global OS properties.",
+    "Historical evidence remains in local archives; the former remote root is missing and its removal cause is unknown.",
+    "This qualification applies only to the recorded commit; later source changes remain outside its scope.",
+    "Observed Core Audio identity does not identify passive speakers or headphones connected to the same device."
+  ],
+  "date_utc": "2026-11-19",
+  "verification": {
+    "build_operations": 9,
+    "build_source_phases": 6,
+    "public_cli_invocations": 63,
+    "owner_exits": 2,
+    "final_verifier_exit": 0
+  },
+  "review": {
+    "independent_verifier_exit": 0,
+    "root_final_inspection": "pass",
+    "safe_candidate_sha256": "16afe2111d6c815d8b604dbeda1350c0321773246fe74570dd6fed40b502a501",
+    "verifier_proof_sha256": "0631a8379fdef54c6d2e745904556b12f91f4c8697d55a056268f4e8f133e68e",
+    "root_final_inspection_sha256": "f9ef70105b80d3483e9ed511ce67bdb3b9857c7438537af69fd608dd5862f090"
+  },
+  "qualification_extends_to_later_commits": false,
+  "raw_device_values_included": false
+}

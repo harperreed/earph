@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "epaint"
+  ],
+  "version": "0.37.0",
+  "repository": "https://github.com/emilk/egui/tree/main/crates/epaint",
+  "revision": "7c0b40402271e8d40cda69f87cf3c2617c2e4382",
+  "license_expression": "MIT OR Apache-2.0",
+  "license_file": "LICENSE-MIT",
+  "license_sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c",
+  "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/LICENSE-MIT",
+  "verified_on": "2026-11-18",
+  "sources": [
+    {
+      "repository": "emilk/egui",
+      "revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+      "path": "LICENSE-MIT",
+      "git_blob_sha1": "673ea5f0505d6fa65c6a2b6a753c93b8e19d11b9",
+      "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c",
+      "source_url": "https://github.com/emilk/egui/blob/841a328ba2dd8f6996beb7189ebb7fc00e668a2a/LICENSE-MIT"
+    }
+  ],
+  "license_source_revision": "841a328ba2dd8f6996beb7189ebb7fc00e668a2a",
+  "source_identity": {
+    "rust_source_files_match_release": 52,
+    "published_revision_reachable": false,
+    "evidence_file": "../egui-0.37.0-source-comparison.json"
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "status": "passed",
+  "scope": "Linux native GUI exact-zero and active diagnostic acceptance",
+  "source_archive_sha256": "2dc7ab29e61eea6533968693a2ddeb7fbeda72417e473d6cba947d9300c0919b",
+  "products": {
+    "earph-engine": "577889b83b678988f08743c2e4d7b9f8402bc0863afd8a181b16640883e0ee24",
+    "earph-desktop": "5f48a9f08a2fdf3513ef7d4afb8cbcf7b39adc47f2be0882a52a36be419bbc1e"
+  },
+  "operator_sha256": "092f35c079b592ffdca68fdddf9b2862202ba88fd55225b937732f5aa4da8b4f",
+  "native": {
+    "display": "private Xvfb X11",
+    "semantic_actions": 24,
+    "atspi_mutations": 23,
+    "native_scrolls": 1,
+    "actual_cli_invocations": 52,
+    "dbus_calls": 107,
+    "gui_exit": 0,
+    "owner_exit": 0,
+    "capture_reader_exit": 0,
+    "owned_processes_remaining": 0
+  },
+  "coverage": {
+    "generated_local_flac": true,
+    "actual_graph_activation": true,
+    "exact_zero_while_playing": true,
+    "mute_independent": true,
+    "finite_setting_retained_db": -12,
+    "finite_exit_db": -6,
+    "requested_ramp_frames": 128,
+    "factory_defaults_db": -40,
+    "exact_zero_capture_bytes": 83968,
+    "exact_zero_capture_sha256": "1a7493dd5e92b5159da5e3fd64a9074573f3b89095aed09d86016cfad3056233",
+    "requested_resolved_and_observed_facts_separate": true,
+    "unavailable_hardware_facts_preserved": true,
+    "exact_native_preview_matches_export": true,
+    "diagnostic_export_bytes": 109975,
+    "diagnostic_export_sha256": "7cc8d51457ce3e75ee74b6da528a7d3705f3d800e89a8909dbf213885507bb02",
+    "installed_modes_verified": true,
+    "inspection_matching": true
+  },
+  "privacy": {
+    "raw_paths": false,
+    "hostnames": false,
+    "owner_or_request_identities": false,
+    "images": false,
+    "raw_receipts": false,
+    "raw_audio": false
+  },
+  "limits": [
+    "Linux private X11 only; no Mac or Wayland qualification",
+    "Private ALSA file-to-null software client PCM only; no physical, DAC, or acoustic output",
+    "The requested 128-frame ramp and finite exit were observed; ramp shape was not independently measured",
+    "Factory defaults is the available reset preset; no volume preset UI or Zero button is claimed",
+    "Successful diagnostic reads retire receipts; current native views and observation identities were verified",
+    "Synthetic local FLAC only; no HTTP streaming, user media, performance margin, or fault/cancellation qualification",
+    "The frozen archive and products bind this result; mutable checkout HEAD and later changes are outside this result"
+  ]
+}

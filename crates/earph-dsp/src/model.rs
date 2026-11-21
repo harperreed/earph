@@ -243,6 +243,46 @@ pub struct CompiledPlan {
     pub(crate) enforce_input_bounds: bool,
 }
 impl CompiledPlan {
+    /// Projects this compiler's resolved schedule without authored names or inferred kernel versions.
+    pub fn diagnostic_nodes(&self) -> Vec<earph_core::diagnostics::DiagnosticNode> {
+        use earph_core::diagnostics::{
+            DiagnosticNode, DiagnosticNodeKind as Kind, UnavailableReason,
+        };
+        self.schedule
+            .iter()
+            .enumerate()
+            .map(|(index, node)| DiagnosticNode {
+                alias: (index + 1) as u16,
+                kind: match node.kind() {
+                    NodeKind::Input => Kind::Input,
+                    NodeKind::Output => Kind::Output,
+                    NodeKind::Bypass => Kind::Bypass,
+                    NodeKind::Gain { .. } => Kind::Gain,
+                    NodeKind::Peq { .. } => Kind::Peq,
+                    NodeKind::Convolution { .. } => Kind::Convolution,
+                    NodeKind::Src { .. } => Kind::Src,
+                    NodeKind::Delay { .. } => Kind::Delay,
+                    NodeKind::Matrix { .. } => Kind::Matrix,
+                    NodeKind::Sum => Kind::Sum,
+                    NodeKind::Meter => Kind::Meter,
+                },
+                format: PcmFormat::new(
+                    node.format.sample_rate_hz,
+                    node.format.channels,
+                    node.format.precision,
+                )
+                .expect("compiled PCM node format"),
+                path_latency_frames: node.latency_frames,
+                gain_linear: match node.kind() {
+                    NodeKind::Gain { gain_linear } => Some(gain_linear.get()),
+                    _ => None,
+                },
+                bypass: matches!(node.kind(), NodeKind::Bypass),
+                implementation_version: None,
+                implementation_unavailable_reason: UnavailableReason::NotObserved,
+            })
+            .collect()
+    }
     pub fn content_hash(&self) -> &str {
         &self.content_hash
     }

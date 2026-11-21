@@ -1,4 +1,4 @@
-// ABOUTME: Exposes explicit ALSA routes and owned PCM output.
+// ABOUTME: Exposes explicit ALSA routes and owned typed audio outputs.
 // ABOUTME: Keeps platform pointers behind a private native boundary.
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(unsafe_code)]
@@ -14,4 +14,4 @@ mod output;
 #[cfg(target_os = "linux")]
 pub use native::{devices, library_version};
 #[cfg(target_os = "linux")]
-pub use output::AlsaOutput;
+pub use output::{AlsaOutput, DopOutput};

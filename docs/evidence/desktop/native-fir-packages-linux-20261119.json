@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-11-19",
+  "scope": "Owned FIR correction package export and distinct-owner import with explicit original-byte reviews",
+  "status": "pass",
+  "source": {
+    "commit": "ff1cb536abc679fd8668f20970fd35359698a901",
+    "files": 1821,
+    "checksum_text_manifest_sha256": "bb82991c052d5f8d92ff23556ff4557916e4d6031ea68fa11d7e8e643bf7cf9b",
+    "unchanged_during_native": true
+  },
+  "products": [
+    {
+      "artifact": "earph-desktop",
+      "sha256": "c65540a4a222135b9177addc7cafe315b4b55eb8a4f4a4df6a3ba1459736ff04"
+    },
+    {
+      "artifact": "earph-engine",
+      "sha256": "4c8090de19af69ec23ac784323531bea2778155584d299d9e4d3432d0ac85f0b"
+    }
+  ],
+  "canonical": {
+    "command": "scripts/check",
+    "passed": 1071,
+    "failed": 0,
+    "ignored": 5,
+    "groups": 121,
+    "exit": 0,
+    "log_sha256": "8e090b4b9d139bc83f08f26c9e1fe86ba0f6451f4433fe08fd8d981890523e42",
+    "scope": "Existing source qualification for the exact ff1cb536 product source"
+  },
+  "native": {
+    "exit": 0,
+    "actions": 176,
+    "exact_receipts": 9,
+    "independent_owner_queries": 51,
+    "harness_sha256": "85a155cc690b8dd49bd3ca0caa0b27e067d3eba298376fffd1b1508fb7e58585",
+    "binding_sha256": "a31cdfdf0f1b40c22e21e22422c4d22a899b4f551a4ae14e102ec0110751b4b5",
+    "root_proof_sha256": "617cc003b03d2e0888d870b9c81922355c37bffb41974da17d94ca992c7fbd7a",
+    "root_visual_proof_sha256": "7d7432edc848cc2f31811534dabfb49e46fb26ccf12d7b1aed7d3c879c9f1d25",
+    "fresh_process_proof_sha256": "103b44581ad0f360a794d7bbf4840e1b818350495c29c07cd9dd8ecc6a6eb375",
+    "gui_exits": [
+      0,
+      0,
+      0
+    ],
+    "consumer_exits": [
+      0,
+      0,
+      0
+    ],
+    "owners": 2,
+    "owner_numeric_exits": [
+      null,
+      null
+    ],
+    "fresh_owner_absences": 2,
+    "owned_processes_remaining": 0,
+    "capture": {
+      "bytes": 0,
+      "frames": 0,
+      "muted_throughout": true,
+      "scope": "owned ALSA file sink; no Unmute or physical output"
+    },
+    "unmute_actions": 0,
+    "original_objects": [
+      {
+        "bytes": 666,
+        "kind": "profile",
+        "sha256": "d49ccf92b42d37cf71e89ceafdf562e0a56b5aa96f96758f1a23a3b2f0763dde"
+      },
+      {
+        "bytes": 1151,
+        "kind": "graph",
+        "sha256": "3893e15046ba5e4d4424290240b11b2d90e307c26a717e5a9ed95995f0a7d82a"
+      },
+      {
+        "bytes": 614,
+        "kind": "fir_manifest",
+        "sha256": "ab7e107122788e7fa6c1e54a1b33a7c78c8277eb10cebb4ab4004997ec5d1dd2"
+      },
+      {
+        "bytes": 60,
+        "kind": "fir_wav",
+        "sha256": "0276b984f87d7406fb819b14765c5a19268e94044b914dab647b9fbc97039667"
+      }
+    ],
+    "package_manifest_sha256": "5da96e2ba555074c0575d4944728882dfd0d9fc31634122d03a59e29e3d3f1c3",
+    "source_products_tools_fixtures_preserved": true,
+    "configuration_preservation": {
+      "recorded_runner_before_after_comparison": true,
+      "retained_current_sha256": "12a746659a1c9d2773dbc6a2d436abd57bae1b272132b3e33bc06df48dbae576",
+      "independent_pre_run_hash_artifact": false
+    },
+    "images": [
+      {
+        "mode": "package-export",
+        "theme": "light",
+        "part": "normal",
+        "sha256": "49eefe8b23371a3e1c857c9ef35bb5226020199708255f343eeb8a4aa4c9a959",
+        "opaque": true,
+        "root_viewed": true
+      },
+      {
+        "mode": "package-export",
+        "theme": "light",
+        "part": "overview",
+        "sha256": "89e16b4c38ba14e49af440b8145f26f57392a967867d7a772f2972df57cc2e71",
+        "opaque": true,
+        "root_viewed": true
+      },
+      {
+        "mode": "package-export",
+        "theme": "light",
+        "part": "reviews",
+        "sha256": "07d820b77d4e2161f91b0aafdb7dce8e94446985deb3eed5e83cf87484b7a700",
+        "opaque": true,
+        "root_viewed": true
+      },
+      {
+        "mode": "package-export",
+        "theme": "dark",
+        "part": "normal",
+        "sha256": "3c69f9dfcce1b2537b0462f18866f49de1df5e6081a88bad9ad6ef7bf5ca7074",
+        "opaque": true,
+        "root_viewed": true
+      },
+      {
+        "mode": "package-export",
+        "theme": "dark",
+        "part": "overview",
+        "sha256": "253bdfe8561a267730829fd6a2ea1decd9119b6d993cb85f2f578e48c713897a",
+        "opaque": true,
+        "root_viewed": true
+      },
+      {
+        "mode": "package-export",
+        "theme": "dark",
+        "part": "reviews",
+        "sha256": "61750c6829acfbd9c33ad058e9d6f4d48dd1fd89bb0cb6daac6aa98e77cbf7e2",
+        "opaque": true,
+        "root_viewed": true
+      },
+      {
+        "mode": "package-import",
+        "theme": "light",
+        "part": "normal",
+        "sha256": "620fbee1d8cb8edb2cab73022665cec3923612424437f0b6b3791b404046143a",
+        "opaque": true,
+        "root_viewed": true
+      },
+      {
+        "mode": "package-import",
+        "theme": "light",
+        "part": "overview",
+        "sha256": "3b09bc5fa141d4921f141307181cfd4be6278ed8af2e0af4f788fad02b7a54e8",
+        "opaque": true,
+        "root_viewed": true
+      },
+      {
+        "mode": "package-import",
+        "theme": "light",
+        "part": "reviews",
+        "sha256": "82055e5caa5d5f7facaf565e82c456c4dc04d7313d405c79cbdff99df2f43542",
+        "opaque": true,
+        "root_viewed": true
+      },
+      {
+        "mode": "package-import",
+        "theme": "dark",
+        "part": "normal",
+        "sha256": "7f65180366a63767fb437d4b45b6404345334c8b81f87f798f42d65d408507ff",
+        "opaque": true,
+        "root_viewed": true
+      },
+      {
+        "mode": "package-import",
+        "theme": "dark",
+        "part": "overview",
+        "sha256": "1aab23cf1c00f68fbf7ef4d640005301d1901438ffcc1cd0313c945cbab73f99",
+        "opaque": true,
+        "root_viewed": true
+      },
+      {
+        "mode": "package-import",
+        "theme": "dark",
+        "part": "reviews",
+        "sha256": "01346535b634d1ac13a6a85108e6aba39c9dcf74eeae7c6d440c6c845f103770",
+        "opaque": true,
+        "root_viewed": true
+      }
+    ],
+    "normal_capture_scope": "Actual scroll position; Dark normal captures retain the review position.",
+    "private_corpus_used": false,
+    "physical_output_used": false
+  },
+  "verified": [
+    "An actual owner imports the public FIR fixture with the declared minus-six dB preamp and original metadata.",
+    "Each profile, graph, FIR manifest and WAV requires an original-byte read and explicit review mark.",
+    "Measurement redistribution starts refused and fails with redistribution_review_required and inspect_required.",
+    "A fresh preview and explicit measurement review allow export without omitting dependencies.",
+    "A distinct empty owner imports the exact saved record and rejects an occupied identity.",
+    "Package overview and review panels were captured and viewed in both themes for both owners."
+  ],
+  "retained_attempts": [
+    {
+      "attempt": 1,
+      "status": "failed",
+      "cause": "The unchanged 600-second owner budget expired after export, before full panel capture and import.",
+      "partial_export_retained": true,
+      "owned_processes_remaining": 0
+    },
+    {
+      "attempt": 2,
+      "status": "passed",
+      "change": "One complete pre-Mark accessibility read replaces seven redundant observations.",
+      "pure_harness_checks": 95,
+      "per_read_seconds": 20,
+      "whole_owner_seconds": 600,
+      "deadlines_unchanged": true
+    }
+  ],
+  "review": {
+    "packet_01_sha256": "8870c75e8186175d50aa8613c7848edca5812e5779e2e2ecfe92e8049a55c7a2",
+    "read_coalescing_reconciliation_sha256": "fe828fe26b3315a9f8d25aa7295db96b779e4be04284a4db376bd6727ffb7164"
+  },
+  "limits": [
+    "No native uncertain-export or in-flight cancellation qualification.",
+    "No acoustic, hardware, private-corpus, Wayland or Mac window qualification.",
+    "Numeric Engine exits are unavailable because the GUI owns those child handles; fresh absence is verified.",
+    "The configuration before hash existed inside the released runner; no separate before-hash artifact exists.",
+    "Saved correction details remain verbose Debug text and need presentation polish."
+  ]
+}

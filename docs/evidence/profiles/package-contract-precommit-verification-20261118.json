@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "Pure package declaration, reference, and observed inventory consistency only",
+  "source": {
+    "base_commit": "24e997009963ffc62d6c711e9d0756b9e81b40e4",
+    "dirty_precommit": true,
+    "files": 1558,
+    "manifest_sha256": "8a53f5e89fe443ded8e0485bf4f6a72d4e98e6172a2547737be536f2fa414bba",
+    "patch_sha256": "d3e28ab56194a5000c0090a36a004b0c4d3af32ef7e9aa3207727bbcccd73200",
+    "runtime_sha256": "f4398032ef479c5c899c6042a85fbc28f042c23888fa2a2e1b486d957332d104",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574"
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "child_exit_code": 0,
+    "passed": 705,
+    "failed": 0,
+    "ignored": 4,
+    "log_sha256": "59e766c4703d1a107e91e92a9e656ea6d1d01f331aa8b5ba5a0569391a947db1"
+  },
+  "review": {
+    "decision": "approve_pure_contract_unit",
+    "material_findings": 0,
+    "receipt_sha256": "5b459dc4c1616310f553fb6555bdddafe3183ad73c0a8a621079467eb0fdeacb"
+  },
+  "root_verification": {
+    "source_records_verified": 1558,
+    "mismatches": 0,
+    "shared_schema": "approved"
+  },
+  "limitations": [
+    "Missing-API RED proves absent compilation contract, not a runtime regression.",
+    "No owner import/export, raw SHA verification, Media, filesystem, privacy, rights, or hardware qualification.",
+    "Post-gate changes add only this receipt and plan checkpoint."
+  ]
+}

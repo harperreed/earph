@@ -1,0 +1,44 @@
+{
+  "scope": "owner device discovery with strict desktop consumers on Linux",
+  "date_utc": "2026-11-19",
+  "desktop_base_commit": "285330c41504cea7b8c802f4fc09cc551f790972",
+  "producer_commit": "fecf4030075285e89ffb47bbc819a9e50cc81c01",
+  "source": {
+    "files": 1778,
+    "checksum_text_manifest_sha256": "82fd2507413dc5a9a2e2794875994989324b83fb9ce913099784e1dc19228bdc",
+    "integrated_patch_sha256": "bcc7821263582fb9f0d07c270e87bcca299f9a4f98d473e1afdaf5312bf4185a",
+    "client_patch_sha256": "f6afe3dce5a3477aa93ce706a9e2f2768af501cdd11bd38a20ad25c4705331a6",
+    "unchanged_during_and_after_check": true,
+    "post_check_additions": ["this evidence document", "the append-only desktop plan checkpoint"]
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "attempts": 1,
+    "exit": 0,
+    "passed": 931,
+    "failed": 0,
+    "ignored": 5,
+    "summaries": 106,
+    "log_sha256": "d16991d7903e1c1f7692d617e4c6c45635f8032beb9aee7eedf465eed8cf63eb"
+  },
+  "desktop_package": {"passed": 83, "failed": 0, "ignored": 0},
+  "strict_clippy_exit": 0,
+  "independent_review": {
+    "findings": 0,
+    "receipt_sha256": "8b1c997fc5632d1178556d1a58b197ec72d56fe7ca98bcda21722c5c9ba3b84a"
+  },
+  "verified": [
+    "actual Core serialized device results and strict required nullable fields",
+    "actual standalone owner and exec helper using owned ALSA hints",
+    "Accepted polling, exact terminal replay, backend and endpoint matching",
+    "unknown hints remain unknown without changing output or playback state"
+  ],
+  "limits": {
+    "gui_discovery_implemented": false,
+    "core_audio_fixtures_are_native_qualification": false,
+    "foreign_discovery_qualified": false,
+    "physical_output_opened_by_discovery": false,
+    "signal_attempts": 0,
+    "full_desktop_parity": false
+  }
+}

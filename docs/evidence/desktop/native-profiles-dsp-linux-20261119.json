@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-11-19",
+  "scope": "Native Linux profile forms, catalog, resolution, graph editing and muted activation",
+  "status": "pass",
+  "source": {
+    "base_commit": "5cf898548fe9349bbaa7c6968d191e36c10c7fa9",
+    "dirty_precommit": true,
+    "files": 1796,
+    "checksum_text_manifest_sha256": "a7b5177d1a470bcf7f901326f66c068d0c368d8e97c041ca0b55f2ebddfc6623",
+    "unchanged_during_canonical_and_native": true,
+    "post_check_changes": [
+      "this evidence document",
+      "desktop plan checkpoint",
+      "desktop state machine notes",
+      "read refresh gotcha"
+    ]
+  },
+  "products": [
+    {
+      "artifact": "earph-desktop",
+      "sha256": "1b385953804d1aeb6a5489004d97ddba0b094265082ad8203dcb34940228ac95"
+    },
+    {
+      "artifact": "earph-engine",
+      "sha256": "5131001e510b2c173d78c5dcc92ac05eb47b846d4710cb9b203c7f14528072fb"
+    }
+  ],
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "passed": 992,
+    "failed": 0,
+    "ignored": 5,
+    "groups": 112,
+    "log_sha256": "642a3d85280f2e16fc7f657d1cd5d5e4b8c46e19a40834b77974db70672dc343"
+  },
+  "desktop_tests": {
+    "passed": 141,
+    "failed": 0,
+    "ignored": 0,
+    "strict_workspace_clippy_exit": 0
+  },
+  "native": {
+    "exit": 0,
+    "actions": 135,
+    "harness_sha256": "22075af85fe04335b26d6623ee8b685215a088ee3b9e2e9862b7a398437436c5",
+    "binding_sha256": "4476c414cb647af142d371a4b1dc79ba18fe302262d5b3cfa5b69048a304f1e3",
+    "root_proof_sha256": "a1f7fa6b28d957c20f0022d825e15979ce3184e8ca3fb0ec7fd5bbfe22689bfe",
+    "root_visual_proof_sha256": "9c690f1bf03c527f4c68bac2115a2e3debf8cacdb6b4d6d24df6d591486595f3",
+    "gui_exits": [
+      0,
+      0
+    ],
+    "consumer_exits": [
+      0,
+      0
+    ],
+    "owner_exit_code": null,
+    "owner_exit_limit": "The controller owns its child handle; fresh absence is verified.",
+    "owner_fresh_absence": true,
+    "owned_processes_remaining": 0,
+    "source_products_tools_fixtures_configuration_unchanged": true,
+    "unmute_actions": 0,
+    "capture": {
+      "bytes": 0,
+      "frames": 0,
+      "muted_throughout": true,
+      "scope": "Owned ALSA file/null route; no physical or default output"
+    },
+    "exact_receipts": [
+      {
+        "method": "profiles.create",
+        "status": "applied",
+        "sha256": "06f2e8b30f59f2df6572b59faa05ea4355032f2491d5181980d3fb1f9510361e"
+      },
+      {
+        "method": "profiles.update",
+        "status": "applied",
+        "sha256": "8c6cd014da1e50cbd0103f4a6277b53ebfc89ba15564c27d641b3520d3c203a3"
+      },
+      {
+        "method": "sessions.start",
+        "status": "accepted",
+        "sha256": "3114192300bdb58bc88b9792a2280b2d0001e7d99eaf58a5b726d1cfcd995b50"
+      },
+      {
+        "method": "graph.validate",
+        "status": "applied",
+        "sha256": "825e8b3a521a82fcbafb373b905fe78c6f6e4a7b7d1571d117e1e1cad892118f"
+      },
+      {
+        "method": "graph.prepare",
+        "status": "applied",
+        "sha256": "b38461ba8db3d35eb83f9c91f059e859923249ea69c8c54fb9a835847fe9750c"
+      },
+      {
+        "method": "graph.commit",
+        "status": "applied",
+        "sha256": "e09d9ba72d363938faf4801feb4aafe8daea418d658d1714e8cdfc347b45a8ad"
+      },
+      {
+        "method": "profiles.prepare",
+        "status": "applied",
+        "sha256": "83633b8596ff8eb4c3dfde73ea6e7fb4bcf478f705ed177d607b4d4daa16a56d"
+      },
+      {
+        "method": "profiles.apply",
+        "status": "applied",
+        "sha256": "d9b206c52ba95f57702617d0658ebe540c0176f541e7862fa88bd574c179992c"
+      },
+      {
+        "method": "sessions.stop",
+        "status": "applied",
+        "sha256": "2aa66e109c802d87a65814e24678258f09c9000192d4fafdbccea770f5b7f4fe"
+      }
+    ],
+    "activations": [
+      {
+        "kind": "graph.commit",
+        "activation_frame": 0,
+        "elapsed_before_activation_seconds": 2.2226473968476057,
+        "graph_hash": "15aa1293850e2ea46d6418e6fb58379a4bc8783866211f5d8b874199d4ff777e"
+      },
+      {
+        "kind": "profiles.apply",
+        "activation_frame": 0,
+        "elapsed_before_activation_seconds": 2.4578141290694475,
+        "graph_hash": "8d347206d51808f03db7ce4c112ced91a9f50c2dd0e84a55ab7b13fe4221b924"
+      }
+    ],
+    "images": [
+      {
+        "theme": "light",
+        "sha256": "adef99ad3a889b2b5ec0a3518e5c66ab7169c612e73a85b2ea0765fdca8a5d39",
+        "root_viewed": true,
+        "scope": "Actual owned native X11 window",
+        "opaque": true
+      },
+      {
+        "theme": "dark",
+        "sha256": "debad7b0fc97a72867ac17f53e0cb677608eb4bd598b7bdea848c02fc8bb8950",
+        "root_viewed": true,
+        "scope": "Actual owned native X11 window",
+        "opaque": true
+      }
+    ],
+    "private_corpus_used": false,
+    "physical_output_used": false
+  },
+  "review": {
+    "source_receipt_sha256": "0d2cc3a90922d5d7a526f464b80dd1038107cfea6b259b8dd838f3a8a9f404f5",
+    "harness_receipt_sha256": "0c2668ea4077add3f96784d7610ec86d9048e5eae5d0ecb852de2c64e81c1d8b",
+    "material_findings": 0
+  },
+  "verified": [
+    "Native create and update publish exact immutable profile revisions and authored graph intent.",
+    "Catalog, Get, explicit Load and manual resolution preserve an unrelated local draft.",
+    "Common Add/Remove and invalid raw edits preserve one canonical graph.",
+    "Muted Start retains its matching Accepted receipt and actual backend readiness.",
+    "Ordinary Prepare/Commit and saved Prepare/Apply match exact owner, revision, token, hash and activation frame.",
+    "Apply revokes consent and preserves mute, selected output and software level.",
+    "Successful profile and graph reads retire after adoption. Failed, uncertain and action receipts remain available.",
+    "Explicit catalog refresh accepts a newer revision from the same owner while rejecting a replacement owner.",
+    "Background queue recovery clears its own warning and preserves unrelated action errors."
+  ],
+  "retained_attempts": [
+    {
+      "attempt": 1,
+      "status": "failed",
+      "cause": "The expanded workflow exceeded the inherited 180-second consumer limit after 95 actions.",
+      "source_products_tools_fixtures_configuration_unchanged": true,
+      "owned_processes_remaining": 0
+    },
+    {
+      "attempt": 2,
+      "status": "passed",
+      "whole_consumer_seconds": 600,
+      "close_smoke_seconds": 180,
+      "product_token_ttl_seconds": 30,
+      "token_reserve_seconds": 5,
+      "product_and_per_action_deadlines_unchanged": true
+    }
+  ],
+  "limits": [
+    "Only isolated Linux X11 and generated zero PCM are qualified.",
+    "Zero captured bytes prove the gate remained muted; no DAC or acoustic delivery is claimed.",
+    "Profile summaries still expose raw debug text; polish remains required before final release.",
+    "Correction U3, packages, diagnostics, networks, Mac windows and full GUI parity remain incomplete."
+  ]
+}

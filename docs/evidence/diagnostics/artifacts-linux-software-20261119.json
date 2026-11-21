@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-11-19",
+  "status": "pass",
+  "scope": "Linux diagnostic artifact contracts, shared publisher, client, desktop workflow and canonical regression checks",
+  "source": {
+    "base_commit": "bb5963cfe03a8b33d42b9c7410d5231f49768564",
+    "dirty_precommit": true,
+    "files": 1850,
+    "json_manifest_sha256": "3f1b6c4d83f9c11072694e500922eaa396a41e53a8ada47b3d916f6248a1d97f",
+    "unchanged_during_qualification": true,
+    "post_check_changes": [
+      "this receipt",
+      "diagnostics guide qualification",
+      "desktop plan checkpoint",
+      "accessibility and native-observation gotchas"
+    ]
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "passed": 1157,
+    "failed": 0,
+    "ignored": 5,
+    "groups": 133,
+    "log_sha256": "e188a8bea6fdd63df5d9548493d60e86791e2082fe23f2625d9a8004139a3ecc"
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "c392bb2213e7f13fd7fe6309795768540c028464ac26088ac6d9ad0cc0d05e9f"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "abcd92956a845ad2255e11e8946a78b652dbe78b27a7340a1300be673d8d71b0"
+    }
+  ],
+  "root_qualification_sha256": "abfe125dcc3a979b2bfd5932afb6d4540bbedfed67d93835c6681dbb0a2395c1",
+  "independent_review": {
+    "material_findings": 0,
+    "artifacts": [
+      {
+        "name": "backend-review.md",
+        "sha256": "99208617f8e8f6b8f1cdae14d2c7b998b006c52230ce512046a417ca437eb3c0"
+      },
+      {
+        "name": "shared-client-review.md",
+        "sha256": "55b7fcd951b43e11442b1c7f22ae1f095a4b741e88727570a60d268d8e435dd5"
+      },
+      {
+        "name": "safety-review.md",
+        "sha256": "928c4378546601b12d8ab11ff97dff8b69667d00d0e679ab33b00817640ef1e3"
+      },
+      {
+        "name": "gui-review.md",
+        "sha256": "621f2977fb4a62541a1bb4e5425b694c9c90c2ad8feb139d5a8c36762374d838"
+      },
+      {
+        "name": "guarded-reconcile-followup.md",
+        "sha256": "a1c0da02f17fda76fe15755e70429c083fd655878fc111ca1aed21adc17d0d1b"
+      },
+      {
+        "name": "connect-label-followup-receipt.json",
+        "sha256": "a45c47149cead27fa2831dde2b60aa612c872d2371d8d1252d4e1251de655477"
+      },
+      {
+        "name": "mac-fixture-paths-review.json",
+        "sha256": "a92f7667bf12397a1f71c271da7e6485d2cb8cc02e7c8772f9164b023b2c6bb2"
+      }
+    ]
+  },
+  "verified": [
+    "Export writes the exact reviewed preview bytes through the shared bounded artifact worker.",
+    "Exclusive publication, bounded readback, private paths and explicit filesystem effects remain separate from receipt status.",
+    "Read-only inspection preserves files and distinguishes missing, matching, conflicting and unreadable outcomes.",
+    "Cancellation acknowledgment preserves worker ownership until actual retirement; verified installation can win the race.",
+    "Actual owner, CLI, Rust foreign-client and standalone desktop scenarios cover publication and exact lost-reply reconciliation.",
+    "The GUI retains diagnostic observations separately from product state and preserves unavailable metrics.",
+    "Preview review binds its request identity and destination; destination edits, new captures and owner changes invalidate it.",
+    "Ordinary backpressure preserves captured work and exact reconciliation in the existing waiting slot.",
+    "Two safety admissions preserve back-to-back Mute and Stop without depending on worker scheduling.",
+    "Owner replacement preserves the original reconciliation rejection paths and prevents retargeting.",
+    "Semantic accessibility label lookup preserves the actual field labelled_by relationship.",
+    "Owned artifact test destinations use physical parent paths without weakening symlink rejection."
+  ],
+  "bounds": {
+    "candidate_lifetime_ns": 30000000000,
+    "artifact_file_count": 2,
+    "artifact_aggregate_bytes": 589824,
+    "artifact_workers": 1,
+    "ordinary_queue": 1,
+    "safety_queue": 2,
+    "completion_queue": 4
+  },
+  "linux_native": {
+    "status": "incomplete",
+    "first_runner_exit": 1,
+    "diagnosis": "The acceptance harness required receipt rows for successful diagnostic reads that the GUI adopts and retires.",
+    "delivery_after_click": "unverified in the failed run",
+    "source_products_tools_unchanged": true,
+    "fresh_recorded_processes_absent": 11,
+    "root_absence_receipt_sha256": "799c1819be978c23abcd1e44ceb72518cb0999eff9ae706a29f7b730f45442af",
+    "replacement_harness": "in preparation"
+  },
+  "mac": {
+    "current_source_software": "pending",
+    "previous_source_runtime": {
+      "passed": 632,
+      "failed": 1,
+      "ignored": 4
+    },
+    "fixture_path_metadata_verified": true,
+    "fixture_product_baseline_failure_run": false,
+    "native_window": "pending local access verification"
+  },
+  "limits": [
+    "The deterministic held-read test proves waiting, its caption and safety availability; its Applied target does not prove a resend.",
+    "The separate actual lost-export case supplies successful manual exact replay evidence.",
+    "Native diagnostic window acceptance remains incomplete; no native lost reply, cancellation or replacement-owner fault was induced.",
+    "Filesystem name validation is not atomic with rename; bounded installed readback detects retained replacement effects.",
+    "The filesystem deadline is cooperative; a blocked syscall can delay cancellation and thread joining.",
+    "Runtime executable identity and checkout remain unavailable in shareable previews; test inventory is not attached and reproduction is incomplete.",
+    "Unsupported performance metrics remain unavailable.",
+    "This does not complete T14 through T18 or full T17 observability and release acceptance."
+  ]
+}

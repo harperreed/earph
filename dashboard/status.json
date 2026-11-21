@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-18T10:29:14.479Z",
-  "headline": "Addressing graph review findings before merge.",
-  "focus": "T10 · PR #2 changes requested: validate and fix concurrency/state, shutdown ownership, and wire precision",
-  "summary": "CodeRabbit requested changes on PR #2. Concurrency/state, shutdown ownership, and wire-precision findings are being validated and fixed before merge. Prior platform receipts remain historical frozen checkpoints; forthcoming fixes require fresh verification. T11 kernel/source-proof work has started without production qualification.",
+  "updated_at": "2026-11-21T14:51:02.806Z",
+  "headline": "Native app delivered to Applications; the whole Earph build continues.",
+  "focus": "Continue the whole Earph build · Prepare bounded Sendspin PCM and DSD Engine work · Keep hearing and release gates open",
+  "summary": "The exact qualified native app is copied into Doctor Biz’s Applications folder, opened, and revealed in Finder. Fresh bundle hashes, package verification, and plist checks pass. The delivery operator exits 0. Existing Engine and GUI processes remain unchanged. This is an unsigned development app; delivery starts no audio and grants no new permissions. The earlier selected-file run retains its own evidence: Playing with advancing frames and nonzero software PCM, then Idle/muted with all selected-file frames accepted/submitted and output closure confirmed. One SDK Start occurs, with no Engine error or repeated mutation. Hearing and acoustic presentation remain unconfirmed. Root continues implementation beyond these milestones. Separate bounded Sendspin PCM player and DSD Engine contracts are being prepared; those units have no new integration or playback qualification yet. PR #4 remains draft. Signing, acoustic/DAC preservation, broader interoperability, physical DSD, and whole-release acceptance remain open.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -14,25 +14,32 @@
     "T07": "done",
     "T08": "done",
     "T09": "done",
-    "T10": "active",
-    "T11": "active"
+    "T10": "done",
+    "T11": "active",
+    "T12": "active",
+    "T13": "active",
+    "T14": "active",
+    "T17": "active",
+    "T15": "active",
+    "T16": "active",
+    "T18": "active"
   },
   "milestone_states": {
     "M0": {
       "state": "active",
-      "detail": "Contracts and backend risk spikes exist. The GUI toolkit decision remains open."
+      "detail": "The verified native UI/control source and typed DoP/live clock work are published in 2318253 with exact manifest, normal hooks, final Linux canonical, and clean remote/local checks. PR #4 remains draft; the whole release is incomplete."
     },
     "M1": {
       "state": "active",
-      "detail": "The joined player passed scoped Linux and Mac acceptance and is saved in ecd7572. The GUI shell and broader qualification remain open; M1 is not complete."
+      "detail": "The qualified live upgrade, one selected-item Start/Unmute, Playing progress, nonzero software PCM, and natural EOF all verify. Final state is Idle/muted/error-free with confirmed close. Hearing/acoustic confirmation remains pending; submission and output closure is not assumed physical acceptance. The qualified development app is now delivered to Applications and opened; whole-project work continues."
     },
     "M2": {
       "state": "active",
-      "detail": "T10 review fixes are in progress before PR #2 can merge. T11 PEQ kernel and SRC source-proof work has started. Broader DSP-player, full-worker real-time, and release qualification remain incomplete."
+      "detail": "Verified code/default/package gates are followed by an executed owner-fenced handover and full-track submission and output closure. All file frames reach matching submitted/accepted/source-position counts with one SDK Start and no Engine error. Whole release, acoustic/DAC preservation, and broader interoperability remain open."
     },
     "M3": {
-      "state": "planned",
-      "detail": "Network adapters, timing, DSD, and arbitration remain ahead."
+      "state": "active",
+      "detail": "Actual live conversion/submission and EOF are observed from source/client44.1kHz to device48kHz, with nonzero software PCM mid-track. This does not qualify heard sound, physical DAC preservation, every output/path, or the whole release. No mutation retry follows the observer-only revision false alarm."
     },
     "M4": {
       "state": "planned",
@@ -41,116 +48,1008 @@
   },
   "checks": [
     {
-      "title": "PR #2 changes requested",
-      "detail": "CodeRabbit completed review. Concurrency/state, shutdown ownership, and wire-precision findings are being validated and fixed before merge."
+      "title": "Published native UI/control checkpoint passes exact source and Linux checks",
+      "detail": "Checkpoint 23182537de3e5a0497c8ba560dd14a437dc34ba9 is published with native UI, typed ALSA DoP, and live Sendspin clock work. All 81 manifest files match exactly, normal hooks pass, final Linux canonical exits 0, and fresh remote/branch/PR reads verify a clean Root checkout. PR #4 stays draft. Its body records manual paste success and the real playback blocker. Publication does not complete the whole release or qualify the failed macOS audio path."
     },
     {
-      "title": "Historical Linux: 307 passed",
-      "detail": "The frozen graph checkpoint passed 307 tests with two ignored and selected-route acceptance. These receipts do not qualify forthcoming review fixes."
+      "title": "Packaged software-native proof keeps its older product boundary",
+      "detail": "The packaged software-native GUI proof uses older session/DSD products and archive ba0bd7, separate from the newer Core/package source. It passes 24 interactions, 52 requests including one pre-ready failure, 108 scenario D-Bus calls, and 97,375 exact preview/export bytes. All 83,968 captured software PCM bytes are zero. The 28 package files stay unchanged and 12 owned process identities are freshly absent. It proves no physical/native Mac/Wayland/HTTP path, acoustic result, ramp shape, installation, signing, or release."
     },
     {
-      "title": "Historical Mac: 289 passed",
-      "detail": "The frozen checkpoint passed 289 tests with two ignored. Its overlapping 11-test SDK recheck and 24,003-frame exercise retain their original scope."
+      "title": "Earlier 2aa software CI remains successful under its own source scope",
+      "detail": "Historical CI scope: all four 2aa software jobs passed. Those jobs do not qualify later source changes. The later DoP, live-clock, and native macOS UI work is now published in checkpoint 2318253 under its own checks; actual macOS audio remains blocked. The MA zero-LSB result remains one 2048-frame segment on the older Engine/fixture, without full U5 or physical proof."
     },
     {
-      "title": "T11 work is starting",
-      "detail": "PEQ kernel work and SRC source proof run in parallel on the new DSP-node branch. Baseline checks pass; no T11 production qualification is claimed."
+      "title": "Actual volume FFI and real HTTP range cases pass",
+      "detail": "The actual generated Kotlin volume gate passes with exit 0: 94 frames, 43 consumers, 52 exact CLI comparisons, 172 guards, and 48 guarded JVMs. It covers nine network, six renderer, and eight volume commands with zero TCP/HTTP, no audio, and an unopened, unconsented fixture output. The owner exits 0 and is freshly absent. The gate preserves its 489 source inputs and HEAD. Six products are frozen after the gate; only two runtime hashes are checked through the scenario. This is not a six-product before/after claim. Reviewed U2/pairing is now published in c8 with its separate completed combined check. The current native workflow has its own software-only scope."
+    },
+    {
+      "title": "Reviewed DSD software is integrated; physical routes remain open",
+      "detail": "Reviewed typed stereo DSF/uncompressed DFF to DoP software for DSD64/128 is published and passes its scoped combined Linux gates. Its earlier 458 Core/media and 15 codec/container checks retain their scoped proof. No Engine/native/physical DSD route is wired or qualified. PLAY-07 and SAFE-04 remain partial; AC-13 remains incomplete. Physical DSD qualification is still required."
+    },
+    {
+      "title": "Reviewed renderer/runtime and Engine fixes are imported",
+      "detail": "The final roleless Sendspin driver passes targeted independent review with 208 focused passes and 18 actual pinned-peer scenarios. Root imports its sixteen files. An explicit lock merge preserves only the codec serde edge; dependency inventory and notices regenerate successfully. The reviewed thirteen-path Network renderer unit is also imported. These imports are now published in 266 after the passing combined gate; they do not establish production startup, player, clock, or output qualification. Independent Engine review found paused-source A/staged-source B Play routing was wrong. A real SOAP RED exposes that defect; the correction then exposes lost Core waiting authority while A closes. The narrow eight-path unit fixes both while blocking new execution until the old worker joins. Sixty Core tests and three actual SOAP child scenarios pass, with strict Clippy/format checks. Targeted independent review clears all eight owned paths and thirteen borrowed Network paths; Root imports the corrected unit. No joint U5 acceptance follows."
+    },
+    {
+      "title": "266 exact package passes owner/CLI and normal shutdown",
+      "detail": "The 266 exact package candidate passes construction, verification, real packaged owner/CLI State, and normal shutdown. All 28 package files stay unchanged. This is not a new GUI or hardware result. The older packaged GUI proof retains its older session/DSD products and archive. No installation, signing, or release is qualified."
+    },
+    {
+      "title": "Native-store directory-sync correction clears review and imports",
+      "detail": "Published Linux native-provider/directory-sync proof retains its own source boundary. All four dbc1916 hosted jobs finish successfully, confirmed by fresh GitHub reads: push and PR Linux canonical plus both Mac jobs. Both Mac build/component and generated Swift steps pass. Retained allowlisted native summaries preserve the locked-refused stage, five successful operations, and exact helper/test hashes. Earlier a654 failures stay preserved; this is scoped hosted software/private-Keychain proof, not physical output or whole-product acceptance."
+    },
+    {
+      "title": "Reviewed pure timing passes scoped mapping and pipeline checks",
+      "detail": "The pure timing unit is complete and independently reviewed clear. It has 147 package passes and six existing Python ignores, with 26 math/lifecycle and two real in-process pipeline cases scoped separately. Strict Clippy and formatting pass. Root imports five reviewed files, but whole-candidate qualification now passes, with the timing/clock checkpoint now published in 2318253 under its own source scope. This is pure mapping proof, with no precision output, live ASRC, or AC-17 acceptance."
+    },
+    {
+      "title": "Reviewed local bridge passes fresh private Linux native E2E",
+      "detail": "The local Sendspin bridge is complete and independent review is clear. Engine tests report 187 passes and one ignore. Actual pinned authenticated transport and gated-helper success/uncertainty cases pass, alongside process/compile/helper/lint/format/inventory checks. Real Linux native E2E now passes in a fresh private environment: all three children exit 0, with no production store or output. The bridge is now integrated into Root; whole-candidate qualification now passes; the current candidate’s live handover remains pending. Provisioning, startup, recovery acknowledgement, player, clocks, and output remain unfinished."
+    },
+    {
+      "title": "Focused GUPnP reads succeed; InvalidArgs blocks mutation qualification",
+      "detail": "The focused GUPnP session finishes normally, with all three containers freshly stopped at exit 0, the network empty, and 26 evidence hashes verified by Root. Native GetProtocolInfo/GetTransportInfo succeed; SetAVTransportURI/GetMute retain captured Error 402 InvalidArgs and no stage/source increment. Strict parsing stays intact. Universal Control Point 0.12.4 and current master have identical argument code; no fixed candidate is found. Wire-order causation remains inferred. This is not U5 acceptance."
+    },
+    {
+      "title": "Integrated timing/bridge scripts/check passes; full qualification pending",
+      "detail": "The first run’s Network fixture failure and test-only correction remain retained. The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained. The qualified snapshot and reviewed safe runtime/timing/native receipt are now published in 2aa. Current 2aa has four successful hosted jobs; prior dbc retains its own successful scope. Its two isolated hosted Mac native summaries qualify dbc’s source only; they do not alone qualify the bridge on Mac. Catalog SRC-03 stays partial, with no full clock/player acceptance."
+    },
+    {
+      "title": "Finite older-scope MA S24 software comparison has zero LSB error",
+      "detail": "The fresh explicit TRACK software run reaches 48 kHz/24-bit input, native ALSA S24 with six bytes per stereo frame, and GraphReady while muted. Explicit Unmute, Pause, and Stop pass. The original measurement guard mixes absolute source position with an epoch-relative native counter. Retained equal paused cuts, capture, and final drain support an offline exact check: 2,048 stereo S24 frames at source offset 153,792 and capture-byte offset 922,752, gain 0.5/0 dB, have zero LSB error. The offline verifier joins exit 0 without search, stripping, or a new runtime. This is the older Engine 36ac/fixture 8d30 scope, not the new qualified products, physical output, or full AC-15. The bounded MA attempt retires all five objects at exit 0 with three Applied revokes and an empty network. The original tool-handle gap stays retained separately from actual process joins; the offline verifier’s handle joins exit 0. Resume, the new matrix/cap cases, and independent GUPnP interoperability remain pending. The sanitized MA receipt is now published in 2aa, keeping the same older single-segment scope."
+    },
+    {
+      "title": "Exact-source chosen-Mac app builds and verifies",
+      "detail": "First listen is now the priority. Exact published 2aa sources compile on Doctor Biz’s chosen Apple Silicon Mac using Rust 1.98.1. Locked desktop/Engine/harness builds and app construction/verification pass, alongside plist, system-linkage, and fifteen MPL checksum checks. It is an unsigned debug package with declared-unverified structural metadata. Its separate exact Git source archive is not the Linux-qualified archive."
+    },
+    {
+      "title": "Mac window is confirmed and intentionally closed",
+      "detail": "Doctor Biz confirms he saw Earph’s window on the chosen Mac, then closed it himself. That close is intentional, not a crash. Root did not start the Engine or audio, and no audible playback is confirmed. This replaces the earlier unconfirmed-visibility snapshot; a launch process alone was not treated as proof."
+    },
+    {
+      "title": "Real native text editing component passes strict compile/runtime checks",
+      "detail": "The old preview’s paste cause is confirmed: its configured clipboard feature was disabled. The real native text-view component on the chosen Mac passes strict compilation and runtime checks for selection, exact Unicode/multiline private copy/paste, and standard editing responders. This is component proof, not acceptance of the complete replacement window. The general clipboard, TCC, audio, and permissions are not changed."
+    },
+    {
+      "title": "Swift presentation preserves exact UInt64 and capture basis",
+      "detail": "The separate Swift presentation check passes with exact UInt64 values and capture-basis handling. It does not establish full-window, Rust-link, real-owner, or audio acceptance."
+    },
+    {
+      "title": "Sealed Swift sources pass actual Mac typecheck and component runtime gates",
+      "detail": "Root imports fifteen sealed Swift files with prior paths preserved. Nine sealed sources pass actual Mac strict typecheck and NativeControls/Presentation runtime checks. A later integrated candidate passes static linking, owned-view rendering, and real-owner/lifecycle checks. Later native UI/manual paste and final source-eight code/default canonical checks pass; live handover and listening remain pending."
+    },
+    {
+      "title": "Rust bridge checkpoint passes focused and desktop checks before final sealing",
+      "detail": "The earlier bridge checkpoint passes fourteen focused cases and 253 reported desktop passes across 35 executions, with strict Clippy. A later integrated native candidate passes static Swift/Rust linking and five actual checks, including real Engine lifecycle. The later corrected source-eight candidate and canonical checks pass; live handover and real listening remain pending."
+    },
+    {
+      "title": "Native build/check/provenance scripts pass scoped checks",
+      "detail": "Native build/check/provenance scripts pass seven scoped checks. The final native candidate also passes all six current Mac checks and final Linux canonical for UI/control behavior. Actual first Play is separately blocked by FORMAT_UNSUPPORTED at Core Audio open; these results do not qualify playback."
+    },
+    {
+      "title": "First integrated native Mac candidate passes all five actual checks",
+      "detail": "The first integrated native Mac candidate passes the strict static Swift/Rust build and all five actual checks: private clipboard, exact JSON, pending/refused shutdown plus dismiss/recovery lifecycle, native hosting-view rendering, and real Engine queue/close/reattach/shutdown. Its app package, verification, plist, and fifteen MPL archive checks pass. It remains unsigned and unreleased. That first candidate was not opened at its initial checkpoint; the later final candidate is now open with manual paste confirmed. No physical audio or permission change occurs."
+    },
+    {
+      "title": "Two genuine Mac regression REDs have source-reviewed corrections",
+      "detail": "Both same-profile reload and stale file-batch receipt defects have genuine Mac REDs, frozen corrections, targeted independent clearance, and actual runtime GREENs inside the final six-check candidate."
+    },
+    {
+      "title": "Integrated Linux scripts/check passes; remaining qualification stays active",
+      "detail": "The final current-source Linux canonical run is active. The prior integrated source has eleven nested gates independently verified exit 0 with source unchanged: 1,742 reported passes, zero failures, 22 ignores, and 192 groups, including child results rather than unique totals, plus actual clock peers and native-credential gates. Its outer controller unexpectedly ends 143 with a missing outer receipt. Nested logs/source hashes verify, operations are absent, and the lock is free; no outer exit-0 claim is made. The final current-source run remains the handoff gate."
+    },
+    {
+      "title": "All six current Mac checks pass with both real regressions GREEN",
+      "detail": "All six current native Mac checks pass, including the actual profile-reload and combined file-batch regressions. Both earlier medium-priority findings have targeted independent source clearance and genuine runtime GREENs. All seven Swift compile logs are empty and warning-free. The final arm64 app package, verification, plist, system-library linkage, and exact private modes pass. The 2,064 source files remain unchanged before and after, and all test Engine processes retire. Root’s Git source matches those Mac sources exactly."
+    },
+    {
+      "title": "Doctor Biz confirms paste in the open final native app",
+      "detail": "The final native Mac app is open and usable for Doctor Biz’s requested native UI workflow. Doctor Biz directly confirms paste works in the new Advanced Runtime field. Root opens the exact verified final package after fresh product/manifest checks; no Engine is observed at launch. There is no audio or heard-sound report yet. The native UI/paste delivery is distinct from completion of the whole Earph release."
+    },
+    {
+      "title": "First actual Play fails at native Core Audio open",
+      "detail": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved. The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures."
+    },
+    {
+      "title": "Sealed round-seven controlled silent lifecycle passes with unchanged inputs",
+      "detail": "Earlier source-seven silent lifecycle and matched timing evidence retain their source boundary. FINAL SOURCE-EIGHT CODE GATES PASS. Linux canonical joins exit 0 with all 2,070 frozen source files verified: 1,780 reported passes, zero failures, 22 ignores, and 192 groups, including nested results rather than unique-test totals. The new private package passes all six native checks, seven empty warning-free Swift compile logs, source checks at every boundary, and package/MPL verification. Focused default review is clear and the actual 64/4096 Mac default regression has verified RED/GREEN evidence. Backend code is unchanged from source seven, so the earlier measured W4096 timing proof keeps that backend binding. The shared native draft geometry preserves explicit overrides and validation. This does not establish acoustic speed, pitch, smooth music, or whole-release acceptance. A later qualified live upgrade and full-track submission and output closure now pass, with nonzero software PCM, natural EOF, matching frame totals, one SDK Start, and confirmed close. Hearing remains pending. The exact qualified app is subsequently copied to a fresh user Applications destination, opened, and revealed, with matching bundle hashes and successful verification. This delivery performs no audio Start and remains unsigned development scope."
     }
   ],
   "verified": [
     {
+      "title": "Recovery evidence continuity gap is explicit",
+      "detail": "Earlier build-output contents and target-resident review, test, protocol, and dashboard packets are missing. A previously target-hosted pinned build cache is also absent. Source worktrees and owner changes remain at base 716. At the recovery checkpoint, hosted v86 and local status matched exactly. Earlier reported results remain historical; statements in those reports do not establish that missing local receipts still exist. Remaining retained artifacts and backups are preserved."
+    },
+    {
+      "title": "Recovery snapshot owner files match recovered review hashes",
+      "detail": "Root freshly recovers all 45 expected owner-file hashes from retained original tool outputs, rather than missing receipt files. Current Root and T14 source match all historically reviewed hashes, with zero mismatches. The new comparison explicitly labels transcription provenance; no old receipt or log is recreated. This establishes current source equality to the reported review, not a fresh test or native qualification. This records the recovery comparison; later development/profile/presentation changes require their own source binding and verification."
+    },
+    {
+      "title": "Recovery source backup and initial failed log remain historical",
+      "detail": "The recovery snapshot backed up 1,882 source files outside targets with archive comparison exit 0. It and the initial failed suite report remain separate historical evidence. The current canonical-02 now passes with unchanged check source and frozen products; no old receipt or lost terminal exit is recreated."
+    },
+    {
+      "title": "Storage recovered without replaying the old cleanup scope",
+      "detail": "Storage is recovered externally, with the cause unverified. Root initially reports about 301 GiB free and 1,048,496 free temporary inodes; the recovery dashboard read-only snapshot saw about 299 GiB and 1,047,962 free inodes during compilation. Root reports no deletion. The old exact fixture/target cleanup scope is approved by the resume instruction, but changed state means it is not replayed or expanded. Dashboard maintenance performs no cleanup."
+    },
+    {
       "title": "Lossless decoding and exact continuity",
-      "detail": "WAV, FLAC, and AIFF preserve integer PCM without a floating-point intermediate. Private acceptance covers 51 exact PCM cases and 288,000 exact split-track frames. Four DoP inputs reject; one RF64 case is unsupported; 34 cases remain outside the qualified subset."
+      "detail": "Historical report before target loss: WAV, FLAC, and AIFF preserve integer PCM without a floating-point intermediate. Private acceptance covers 51 exact PCM cases and 288,000 exact split-track frames. Four DoP inputs reject; one RF64 case is unsupported; 34 cases remain outside the qualified subset."
     },
     {
       "title": "Saved owner foundation",
-      "detail": "Commit 754086c includes local IPC, bounded queues, safe restart, and scoped independent review. Its Linux 150 and macOS 140 test results apply to that foundation."
+      "detail": "Historical report before target loss: Commit 754086c includes local IPC, bounded queues, safe restart, and scoped independent review. Its Linux 150 and macOS 140 test results apply to that foundation."
     },
     {
       "title": "Playback integration saved",
-      "detail": "Playback integration ecd7572 and dashboard commit 9d26b6d merged in PR #1 as ced893b. Scoped Linux/Mac acceptance and safety/drain/logging regressions retain their redacted evidence. T08/T09 are scoped done; M0/M1 and release gates remain incomplete."
+      "detail": "Historical report before target loss: PR #1 merged local playback and dashboard foundations as ced893b. PR #2 now merged bounded graph playback as 4f59be3. T08/T09/T10 are scoped done. Original source branches and artifacts remain preserved; M0/M1/M2 and release gates remain incomplete."
     },
     {
       "title": "Playback foundation CLI and worker boundaries",
-      "detail": "Five independent CLI scenarios and six real-worker cases pass: exact capture, attenuation, per-item failure, pause/seek/resume, failing diagnostics, running stop, reservation protection, EOF seek, incompatible transition, and fault revocation. Controlled ALSA lifecycle tests and the separately gated native procedures retain their own evidence boundaries."
+      "detail": "Historical report before target loss: Five independent CLI scenarios and six real-worker cases pass: exact capture, attenuation, per-item failure, pause/seek/resume, failing diagnostics, running stop, reservation protection, EOF seek, incompatible transition, and fault revocation. Controlled ALSA lifecycle tests and the separately gated native procedures retain their own evidence boundaries."
     },
     {
       "title": "Frozen platform canonical checks",
-      "detail": "Historical pre-review graph snapshot: Linux 307 and Mac 289 canonical tests passed, with two ignored on each. The separate 11-test Mac SDK recheck overlaps canonical coverage; 1,441 archive inputs matched. CodeRabbit later requested changes. Forthcoming fixes require fresh verification."
+      "detail": "Historical report before target loss: Combined Linux canonical passes 642 tests / four ignored. Clean Mac 29a50dd passes canonical 576 / four ignored and overlapping release checks 130 / one ignored, without current compiler warnings. The clean release receipt records source hash d4b96c9548fe. These results qualify this snapshot; forthcoming review fixes need their own verification."
     },
     {
       "title": "Scoped native graph activation acceptance",
-      "detail": "Historical frozen graph receipts: Linux submitted and client-estimated consumed 48,007 frames, including seven tail frames, with zero saturation and retired resources. Mac submitted 24,003 frames, including three tail frames; consumed/audible fields remain unknown. Recorded source/device state stayed unchanged. These modified-route receipts do not qualify forthcoming review fixes or prove DAC/acoustic preservation."
+      "detail": "Historical report before target loss: Exact approved ba6eb8f received one quiet owned ramped −40 dB run per platform. Linux submitted 48,007 frames from 48,000 plus seven tail frames, with zero saturation, unchanged source/mixer, and closed endpoint. Mac recorded 24,003 producer-ring writes from 24,000 plus three tail frames, zero saturation, idle/muted/error-null state, zero resources, and owner exit 0. Recorded source/device state stayed unchanged; physical consumption and DAC/acoustic behavior remain unqualified."
     },
     {
       "title": "Safety and diagnostic regressions fixed",
-      "detail": "The stop/mute saturation failure was reproduced before reserved FIFO control capacity fixed normal-command pressure. Three actual-channel tests and ten core local-control cases pass. A real failing-stderr subprocess passes with best-effort diagnostic writes. Focused review and the final Linux canonical run pass."
+      "detail": "Historical report before target loss: The stop/mute saturation failure was reproduced before reserved FIFO control capacity fixed normal-command pressure. Three actual-channel tests and ten core local-control cases pass. A real failing-stderr subprocess passes with best-effort diagnostic writes. Focused review and the final Linux canonical run pass."
     },
     {
       "title": "Linux physical and zero-PCM drain acceptance passed",
-      "detail": "After the preserved failure, the final owned-tone run reached idle with no error: 48,000 submitted and client-estimated consumed frames, backend delay zero, source and mixer unchanged, and modified preservation. The zero-PCM regression passed 48,000 frames with 11 pending observations, one drain call, and zero drain-time parameter rewrites. No fallback occurred; DAC and acoustic preservation remain unverified."
+      "detail": "Historical report before target loss: After the preserved failure, the final owned-tone run reached idle with no error: 48,000 submitted and client-estimated consumed frames, backend delay zero, source and mixer unchanged, and modified preservation. The zero-PCM regression passed 48,000 frames with 11 pending observations, one drain call, and zero drain-time parameter rewrites. No fallback occurred; DAC and acoustic preservation remain unverified."
     },
     {
-      "title": "Reviewed compiler and prepared runtime checks",
-      "detail": "Compiler/runtime and integrated owner/CLI checks passed on the recorded frozen graph snapshot. CodeRabbit has since requested concurrency/state, shutdown-ownership, and wire-precision changes. Those findings are being validated and fixed before merge; forthcoming source requires fresh verification. Full-worker real-time qualification remains partial."
+      "title": "Approved R7 merged with qualification evidence",
+      "detail": "Historical report before target loss: CodeRabbit approved exact runtime ba6eb8f in review 5960734524 with zero threads. Docs-only qualification head 7071a0a kept source hash 3780f9f4d34e unchanged. Public PR #2 merged as 4f59be3 and primary main is clean/updated. The original source branch is preserved."
     },
     {
       "title": "Graph preparation and retirement lifecycle",
-      "detail": "The frozen preparation/retirement checkpoint passed 22 tests with ownership/capacity fixes. Recorded Linux graph resources retired cleanly. The earlier independent review found no remaining important or critical findings in its scope; subsequent CodeRabbit findings are now being addressed."
+      "detail": "Historical report before target loss: Linux release 7594910 retains owner exit 0, closed endpoint, settled retirement, and 240 root-verified sealed files. Clean Mac release 29a50dd also ended with actual owner exit 0, idle/muted, no fault or cleanup records, zero resident bytes and pending retirements. Root verified 480 final artifacts, 413 unchanged held artifacts, and 1,546 source files across 26 ordered phases. Historical debug-failure cleanup observations remain separate."
     },
     {
       "title": "Integrated graph owner and CLI checkpoint",
-      "detail": "The recorded frozen snapshot passed nine real owner/CLI/native-file cases, including exact delay/gain join and tail, rejection preserving the plan, pause/seek/resume suffix, and muted restart. Separate muted Mac validation/prepare/commit also passed. These are historical checkpoints; review fixes need fresh acceptance."
+      "detail": "Historical report before target loss: A single selected Linux release SRC/FIR/PEQ signal passed with master −44 dB, independent cap −40 dB, and 960-frame ramp. It accepted 24,000 source frames and submitted 26,313 ALSA-client frames with zero saturation and settled retirement. This qualifies that client path only. The earlier zero-signal headroom rejection is preserved; no DAC/acoustic proof follows."
+    },
+    {
+      "title": "Reviewed PEQ and convolution libraries",
+      "detail": "Historical report before target loss: PEQ/FIR libraries and forcing/history helpers retain their reviewed checkpoints. Product graph unit 1dfa941 is reviewed and integrated. Actual CLI captures cover imported assets and bounded tails. This product-path evidence does not complete native filter-graph, CPU-deadline, or broader DSP-player qualification."
+    },
+    {
+      "title": "Public SRC numerical checkpoint",
+      "detail": "Historical report before target loss: Public bounded-stream, source-audit, numerical, and offline Mac component checkpoints remain preserved. Shared SRC facts and compiler are now integrated with stream rendering and the real offline CLI in the passing offline checkpoint. This does not establish live native SRC, native replay, full-stack/whole-worker CPU, or hardware qualification."
+    },
+    {
+      "title": "Bounded text imports and explicit-Q shelves",
+      "detail": "Historical report before target loss: Import unit 17b19e is integrated at ac5d85b with combined canonical 479/3; the initial YAML test-first gap is recorded. Reviewed shelf unit a14b187 is integrated at d8f64be with canonical 485/3. Explicit-Q AutoEq LSC/HSC and Camilla shelves work through actual CLI/DSP; slope controls reject and 48 fixed-S=1 coefficient rows remain unchanged. DSP-06 stays open for profiles and Session imports."
+    },
+    {
+      "title": "Shared-render offline integration checkpoint",
+      "detail": "Historical report before target loss: Software/offline and real CLI integration checkpoints remain preserved. Runtime 2396efb is frozen at source 7594a1440a43. Canonical 603/3 and independent review pass. These results do not qualify the failed/blocked native procedures or whole-worker CPU behavior."
+    },
+    {
+      "title": "Independently verified prepared-DSP CPU",
+      "detail": "Historical report before target loss: Reviewed harness 7594910 has independently verified Linux and Mac raw results. Each measured ten workloads and 1,000,000 periods with zero deadline misses. Worst p99.9 period usage is Linux 30.45795% and Mac 14.75625%, strictly below the fixed 70% gate. Scope includes prepared conversion/DSP/gain/quantization and replay-ledger work. Decoding, worker scheduling, native I/O, callbacks, driver queues, and physical output are excluded."
+    },
+    {
+      "title": "Current native SRC procedure outcomes",
+      "detail": "Historical report before target loss: Linux release 7594910 retains its selected-client pass, and historical Mac release 29a50dd retains its distinct receipt. Root now independently verified the sole PR-source 98244f0d Mac signal: 24,000 accepted source frames, 26,313 generated/producer-ring frames, one unmute, zero resources/faults/cleanup, owner exit 0/fresh absence, and unchanged source/settings/FIR. The old debug 2396efb failure remains failed with unknown cause. These source-bound results do not qualify the new backend correction or callback/DAC/audibility/CPU behavior."
+    },
+    {
+      "title": "Profiles Task 1 pure model and resolver",
+      "detail": "Historical report before target loss: Pinned source 798 retains verified muted software association/resolution/application/checkpoint/restart proof with zero SDK writes/starts/accepted frames. Source-fecf separately qualifies current device properties only. Both sanitized proofs are now committed after source/privacy/hash review. Neither qualifies the newer Profiles/DSP WIP, fixed/full T12, positive-count profile playback, or full Mac desktop behavior."
+    },
+    {
+      "title": "Mac first-cause diagnostics integrated",
+      "detail": "Historical report before target loss: First-cause diagnostics are integrated, preserving the reviewed dirty-precommit SDK receipt and its zero-signal boundary. Clean release 29a50dd adds 26 release first-fault tests and a separate successful selected signal with zero fault records. Neither result establishes the cause of the historical debug failure."
+    },
+    {
+      "title": "Clean Mac release SRC/FIR/PEQ acceptance",
+      "detail": "Historical report before target loss: Root verified clean 29a50dd with one quiet half-second owned signal, master −44 dB, independent cap −40 dB, and 960-frame ramp. Accepted source 24,000, generated output 26,313, producer-ring writes 26,313; zero saturation, fault, or cleanup records. Terminal idle/muted, actual owner exit 0, graph resident/pending zero, and pinned endpoint/source/FIR unchanged. The signal guard was consumed with no retry. Callback consumption, physical acceptance, DAC/acoustics, running hold, and whole-worker deadlines remain unqualified."
+    },
+    {
+      "title": "Correction imports frozen-v2 qualification",
+      "detail": "Historical report before target loss: Correction imports 296b4c5 retain their separate Linux 675/4, independent review, scoped Mac owner/filesystem cases, and 331 raw-artifact verification. Earlier merge conflicts and duplicate-test corrections remain preserved. Later package integration d449f93 now passes canonical 783 locally; its complete platform and workflow qualification remains open."
+    },
+    {
+      "title": "FFI foundation with real Kotlin and Swift consumers",
+      "detail": "Historical report before target loss: The historical FFI foundation retains Rust 651/4 and actual Kotlin/Swift each ten exact CLI comparisons plus four typed local failures. The owner survives handle release and exits 0; initial default-JNA cleanup uncertainty remains disclosed. Historical integration a4bb42a retains Linux 710/4 in its source scope. Later Kotlin/Swift gates have their own immutable-source proof; complete desktop workflows remain unfinished."
+    },
+    {
+      "title": "Focused PR #3 correction checkpoints",
+      "detail": "Historical report before target loss: PR #3 merged remotely as a859fd6b after root independently verified current 7aebf6aa candidate c8adaf8698f7. Fresh API reads verify merge commit and remote main. The source branch remains 7aebf6aa and was not deleted. Linux 737/0/5, selected Mac 153/0/0, offline rendering, and muted backend two activations/six boundaries pass in scope. Local main fast-forward succeeded; fresh clean verification follows. No new signal occurred."
+    },
+    {
+      "title": "Mac owner-lock gate without output",
+      "detail": "Historical report before target loss: Independent source review, actual Mac owner-lock gate, and root verification pass: 12 owner plus ten profile tests, none ignored, with strict Engine Clippy. No device, output, or signal was used. A separate older frozen native-startup gate passes 13 tests; its denied start recorded zero callbacks and unchanged settings. These remain separate evidence scopes."
+    },
+    {
+      "title": "Manual application reviewed software checkpoint",
+      "detail": "Historical report before target loss: Local commit dea1e08 passes Linux 722 tests / four ignored. Root verified 503 Mac artifacts covering three muted owner lifecycles, zero writes, and unchanged settings. Reviewed consent/checkpoint/restart behavior remains preserved. Integration with later PR #3 corrections is pending; the muted gate does not qualify native signal output."
+    },
+    {
+      "title": "Desktop accessibility probes and client model start",
+      "detail": "Historical report before target loss: Earlier GUI checkpoint b58549bb retains canonical 768, package 54, and its scoped native pass. The later GUI merge was committed and has its own native009 evidence. All six earlier failed native attempts remain retained. GUI/consumer exits and fresh engine absence are source-scoped; the engine numeric exit remains unknown. Later Start API and Signal Path work require their own qualification."
+    },
+    {
+      "title": "Pure package contract saved locally",
+      "detail": "Historical report before target loss: The reviewed contract and saved owner unit retain their source verification and scoped tests. Package integration d449f93 is now clean and local with canonical 783 passed. It is an integration checkpoint, not full Task 4/T12, Mac, associations, or release completion."
+    },
+    {
+      "title": "License-provider integration checkpoint",
+      "detail": "Historical report before target loss: The saved GUI dependency checkpoint retains canonical 753/0/4, 55 strict providers, and earlier isolated binding checks. Root preserved verbatim upstream license whitespace, with handwritten check exit 0 and canonical dependency check exit 0. The new merge retains existing provenance/features and adds only signal-hook 0.4.6. The original dispatch notice and Apple SDK release audit remain open; no complete release audit is claimed."
+    },
+    {
+      "title": "Approved archived worktree cleanup completed",
+      "detail": "Historical report before target loss: Doctor Biz approved exactly two archived worktree removals. Both normal removals exited 0. Root independently verified their absence and retained refs: 42 registrations remain, all 53 branches and both full private archives are retained, and every other registration is unchanged. No broader deletion is implied."
+    },
+    {
+      "title": "Frozen Mac clean-release capsule tooling checkpoint",
+      "detail": "Historical report before target loss: Root final verifier exits 0 for the final packet: 623 logical members, 49 metadata companions, and the manifest total 673 members. All 545 held logical members and 49 companions remain unchanged. Source 98244f0d, 1,568 source files, 19 binaries, and recorded settings match. The packet includes the targeted 20-row/153-test release checks, offline/muted results, and the separately authorized sole signal. Callback/DAC/audibility/CPU remain outside that proof."
+    },
+    {
+      "title": "Fresh targeted Mac release-driver checkpoint",
+      "detail": "Historical report before target loss: The first recovery build stopped on actual Rust objcopy/LLVM loader warnings, with zero tests and unobserved products/settings; that failure is preserved. After a verified compiler-child-only LLVM-path repair, the actual fresh release driver passes 20 rows and 153/0/0, with zero strict warning-filter matches. Archived selection and saved-selector comparisons match without exposing their values. This is not full Mac canonical, CPU, DAC, audibility, or physical-output proof."
+    },
+    {
+      "title": "Observed profile associations saved locally",
+      "detail": "Historical report before target loss: Local 01f39957 retains canonical 796/0/5, overlapping scoped 357/0/1, and independent review. Fixed-profile unit e2c2f5d is now saved locally after canonical 807/0/5, overlapping scoped 373/0/1, and one independent review with no findings. Actual ALSA file-to-null unity and processed captures are exact. Physical fixed/unity, Mac, and remaining T12 gates stay open."
+    },
+    {
+      "title": "Mac archive membership gate preserved the original packet",
+      "detail": "Historical report before target loss: Both original held evidence and final evidence remain preserved. Root verified the final 673-member packet: 623 logical plus 49 metadata companions plus the manifest. All 545 held logical members and their 49 companions are unchanged. The earlier membership stop remains recorded; final exact-member verification now passes in its scope."
+    },
+    {
+      "title": "Sixth native GUI failure preserved",
+      "detail": "Historical report before target loss: Attempt six failed after queue/Mute/theme actions passed: its pre-shutdown snapshot exhausted 20 seconds with 69 identical Text-interface invalidations. Source/binaries/fixtures stayed unchanged and owned processes were absent. The exact-cache-target correction then passed 36 tests and independent review before the separate seventh native run passed. The sixth attempt remains a failure."
+    },
+    {
+      "title": "Seventh native GUI gate passed with explicit exit limits",
+      "detail": "Historical report before target loss: The reviewed reader correction and seventh native pass remain saved in the earlier GUI checkpoint. Confirmed shutdown was invoked; GUI/consumer exit 0, fresh engine absence, and no remaining owned processes were verified. Engine numeric exit remains unknown because the GUI parent owns the child. All six earlier failures are retained. This receipt remains historical and does not qualify later GUI, Start, or Signal Path sources."
+    },
+    {
+      "title": "Fixed-profile software and capture unit saved locally",
+      "detail": "Historical report before target loss: Historical fixed-profile/capture receipts retain their source scopes. Producer-counter 47118d56 separately passes canonical 821/0/5 and review. Pinned GUI source 798 now has verified muted software association/resolution/application/checkpoint/restart proof with zero SDK writes/starts/accepted frames. This does not complete fixed mode, positive-count paths, full T12, or physical/Mac fixed-profile qualification. Discovery and active GUI changes require their own later proof."
+    },
+    {
+      "title": "Final PR-source Mac signal proof verified",
+      "detail": "Historical report before target loss: Historical source 98244f0d remains independently verified by candidate 80a90e02 and archive 235c518d: one half-second source, 26,313 producer-ring frames, owner exit 0/fresh absence, and zero resources/faults/cleanup. The guard is consumed and nonreusable. Callback consumption, DAC, audibility, CPU, and full qualification remain unknown. This is not hardware proof for latest head 7aebf6aa."
+    },
+    {
+      "title": "Conditional backend-observation gap found in source review",
+      "detail": "Historical report before target loss: Backend refresh and stale-activation refusal from 7aebf6aa are now merged through PR #3 as a859fd6b. Independent review, exact-head remote approval, Linux 737/0/5, and root-verified selected Mac/offline/muted checks pass in their scopes. The muted backend exercise covers two activations and six boundaries. No new signal occurred, and both historical guards remain consumed."
+    },
+    {
+      "title": "Frozen Unit 1 integration passes scoped checks",
+      "detail": "Historical report before target loss: Earlier b77 package canonical 1045 and plain native002 retain their source scope. D1 ff1cb536 separately passes diagnostic canonical 1071. The new FIR native002 report passes its released package gate without audio. None of these receipts proves current Mac diagnostic GUI or full T12/T17 qualification."
+    },
+    {
+      "title": "Current-source GUI Unit 1 native gate passed",
+      "detail": "Historical report before target loss: Fresh native gate 009 exits 0 against 1,762 source files and 278 bound files, retaining 197 run files. Queue actions, Mute, both themes, and confirmed shutdown pass. Root independently verified fresh absence of all 44 original process identities; GUI/consumer exits are 0 and owner numeric exit remains null. No output selection, source Start, or Unmute occurred. This source-bound proof belongs to committed GUI 79810bc; earlier native receipts and six failures remain under their original scopes."
+    },
+    {
+      "title": "PR #3 merged after current Mac candidate verification",
+      "detail": "Historical report before target loss: Fresh API readback verifies merge commit and remote main a859fd6b. Root independently verified current 7aebf6aa Mac candidate c8adaf8698f7, including selected 153/0/0, offline rendering, and muted backend two activations/six boundaries; Linux remains 737/0/5. Source branch 7aebf6aa is retained. No new signal occurred. The independently verified 98244 physical result remains historical, with its original callback/DAC/audibility/CPU limits."
+    },
+    {
+      "title": "Actual Kotlin profile extension gate passed in scope",
+      "detail": "Historical report before target loss: The immutable GUI source retains its Kotlin gate: 48 foreign frames/nine terminal replays, exact CLI comparisons, Accepted receipts, generated objects, and typed rejection paths. Its Swift counterpart is now independently verified against the same GUI source. Owner exit/safety/native-output facts remain source-scoped. Successful foreign import remains false, and neither old-source gate qualifies the later strict-client port."
+    },
+    {
+      "title": "Committed GUI integration 79810bc qualified in scope",
+      "detail": "Historical report before target loss: The committed GUI source retains canonical 906/0/5, desktop/FFI 80/0/0, Kotlin replay proof, client review, and native009 within its original scope. Native009 did not perform output selection/source Start/Unmute and leaves owner numeric exit null. Later Start API and Signal Path have separate canonical proofs; none of these qualify the newer frozen client WIP or full native Start behavior."
+    },
+    {
+      "title": "Swift gate independently verified after local compiler repair",
+      "detail": "Historical report before target loss: The first failed Clippy gate remains fully preserved. Compiler selection is now repaired only through child-process PATH/Cargo-home ordering, with no global configuration changes. The actual Swift gate for immutable GUI source 79810bc passes and root independently verified exit 0. All 1,762 source inputs remain unchanged; the verified archive has 236 members. Native output stayed unopened and there was no signal. This does not qualify full Mac GUI/T12 or successful foreign package import."
+    },
+    {
+      "title": "Start API committed with its own canonical pass",
+      "detail": "Historical report before target loss: Start API commit 415377e9 retains its canonical 907/0/5 checkpoint. The later Signal Path source is now published in draft PR #4 with its own canonical 909/0/5 result. These source-scoped API/software checks do not qualify native Start/Unmute behavior or the later frozen client WIP."
+    },
+    {
+      "title": "Signal Path committed and pushed in draft PR #4",
+      "detail": "Historical report before target loss: Pushed 71678617 is the current open/draft PR #4 head. Root retains fresh remote publication readback. Integrated Linux canonical 1157/0/5 and review pass, while native diagnostics acceptance and new Mac qualification remain pending. Earlier Signal Path/package/platform receipts keep their source scopes."
+    },
+    {
+      "title": "Strict discovery client committed; later restart fix reviewed",
+      "detail": "Historical report before target loss: Committed strict discovery and owner-fence checkpoints retain their own reviews and source results. The later published Output/Transport source now passes canonical959/native008. Earlier native006 and fixture failures remain preserved. The new Profiles/DSP WIP does not inherit these passes and still needs full canonical/native qualification."
+    },
+    {
+      "title": "Muted Mac software-profile gate verified for source 798",
+      "detail": "Historical report before target loss: The actual muted Mac software-profile gate for source 798 and its frozen final verifier now pass. Root independently inspected final hashes, 172 materialized regular files, 63 CLI exits, two owner exits, and the profile/scope links. Exact association/resolution, muted application, checkpoint/restart, Stop/close, and resource retirement pass. Nine builds and five samples record four native opens, zero SDK writes/starts/accepted frames, and zero signal. No fixed-mode/full T12/positive-count/DAC/CPU qualification follows."
+    },
+    {
+      "title": "Actual Swift foreign gate passed for the immutable GUI source",
+      "detail": "Historical report before target loss: Root independently verified actual gate exit 0 for source 79810bc: 48 foreign frames, 20 consumer-exit records, 29 exact CLI comparisons, nine terminal replays, and five first Accepted receipts. Eighty typed guard replies cover four scenarios and two error codes. Seven immutable products, seven build-tool exits 0, and two generated package objects were verified. Native output stayed unopened; no signal occurred. Successful foreign import is still false, and full Mac GUI/T12 qualification remains pending."
+    },
+    {
+      "title": "Six earlier Output/Transport failures preserved",
+      "detail": "Historical report before target loss: The six earlier Output/Transport window failures, including native006 expanded Resume receipt timeout, remain retained and cleaned. Native007 now passes on its separately bound source and binary. The earlier failures are not relabeled. No prior canonical result is carried onto the latest button/view fix."
+    },
+    {
+      "title": "Root independently verified source-798 muted software profiles",
+      "detail": "Historical report before target loss: The frozen final verifier exits 0 and root final inspection passes. Candidate/proof hashes match the inspection receipt. Nine build operations, 63 CLI calls, five samples, four native opens, and two owner exits 0 with fresh absence were verified. Exact association/resolution, muted application, checkpoint/restart, matching Stop/close, and retirement pass. SDK writes/starts/accepted frames and signal attempts are zero. This qualifies source 798 only; fixed mode, positive counts, callback/DAC/acoustic behavior, full T12, and CPU remain unqualified."
+    },
+    {
+      "title": "Owner-bound discovery restart regression fixed and reviewed",
+      "detail": "Historical report before target loss: Earlier owner/discovery/correction and FIR receipts remain source-bound. Integrated diagnostics are now committed/pushed with Linux canonical 1157 and approved review. Native observer attempts remain failed and the next framing repair is under review. New Mac setup runs without a result; old bb software stays failed. No full T12/T17/release completion follows."
+    },
+    {
+      "title": "Read-only Mac discovery verified for current properties only",
+      "detail": "Historical report before target loss: The actual source-fecf read-only discovery run, independent verification, and root final inspection pass. Qualification covers current device properties only. The validator exits 0; the retained packet was checked without extraction, and no signal or playback occurred. It does not qualify opened identity, full Mac canonical, CPU, or the newer GUI owner-fence/history source. Sanitized repository evidence is now committed with unchanged qualification scope."
+    },
+    {
+      "title": "Poll-history product fix passes regressions and delta review",
+      "detail": "Historical report before target loss: History, RequestId identity, and view/button corrections retain their reviews/regression proof and are now qualified in published canonical959/native008. Earlier 956/957/native007 receipts remain separately preserved. The later Profiles/DSP WIP has additional focused tests/review but needs its own full canonical/native result."
+    },
+    {
+      "title": "Shared graph editor integrated with muted profile workflow proof",
+      "detail": "Historical report before target loss: The common GraphEditor is integrated into the published Profiles/DSP source. Its isolated component proof, integrated desktop/review/canonical992, and muted native002 receipt remain separately scoped. Ordinary Commit and saved Apply activate at frame 0 with zero Unmute/capture. Full editor/profile parity, positive-count behavior, and broader hardware qualification remain open."
+    },
+    {
+      "title": "Published Output/Transport canonical verified at 959/0/5",
+      "detail": "Historical report before target loss: The published 1,786-input source is verified at canonical 959/0/5, actual exit 0 across 108 groups, matching its frozen manifest. Native008 also passes on that source. Earlier 956/957 and retained failures keep their own bindings. The newer 13-path Profiles/DSP WIP needs separate full canonical/native proof."
+    },
+    {
+      "title": "Native006 transport actions passed; expanded receipt read failed",
+      "detail": "Historical report before target loss: Native006 remains a retained failure after muted Start/Pause/Seek/Resume passed and the expanded Resume read timed out. All owned processes were cleaned and no Unmute occurred. The later separately bound native007 run now passes; its success does not relabel native006."
+    },
+    {
+      "title": "Mac current-properties discovery and muted software profiles verified",
+      "detail": "Historical report before target loss: The two sanitized Mac proofs and supporting plan/state notes are now committed after root source/privacy/hash review, without changing their qualifications. Source-fecf qualifies current properties only with no playback. Pinned source 798 qualifies muted software profiles with zero SDK entry calls/signal. Neither establishes fixed/full T12, positive-count playback, full Mac GUI, CPU, DAC, or acoustics."
+    },
+    {
+      "title": "Native007 actual zero-PCM workflow passed",
+      "detail": "Historical report before target loss: The root proof hash and 1,786-input binding match. Native007 exits 0; 952,256 stereo frames in the private generated ALSA file/null capture are all zero. Discovery/copy/inspection, explicit output/caps/gain/consent, muted Start/Pause/Seek/Resume with exact Accepted receipt, zero-audio Unmute/Mute, exact Applied Stop, and shutdown pass. Natural GUI/consumer exits are 0 and no owned process remains. Owner numeric exit is unknown because the GUI owns the child. No physical/default PCM output or private corpus was used; both opaque themes were viewed by root."
+    },
+    {
+      "title": "Published summaries readable; saved correction detail polish open",
+      "detail": "Historical report before target loss: Published U3 has readable profile summaries and canonical FIR hash labels with renderer/source review and native visual proof. Saved correction detail disclosure still contains debug text needing low-severity plain-language polish before release. Earlier raw-summary screenshots remain retained under their original sources; the current native pass does not declare all presentation finished."
+    },
+    {
+      "title": "Profiles/DSP U1/U2 published with muted native proof",
+      "detail": "Historical report before target loss: U1/U2 passes 141 desktop tests, strict workspace Clippy, same-source review, canonical 992/0/5, and actual Profiles/DSP native002. It is now committed/pushed as e6a2a5ff with draft PR #4 head/body read back. Catalog/save/resolve/graph preparation/commit/profile application/recovery remain explicit, without automatic consent/gain/Unmute. Native proof is muted and frame-zero only, not positive-count or full product qualification."
+    },
+    {
+      "title": "UPnP bounded staging implemented; further gates pending",
+      "detail": "Historical report before target loss: URI staging is committed/pushed as 66a0856 with canonical 1031/0/5 across 117 groups and client 14, plus reviewed producer/format proof. It is owner-scoped unadmitted metadata through the shared local command path. No network source admission/advertisement, URL fetch, listener, decoder, playback, consent, or Unmute occurs. Rust FFI is tested; new Swift/Kotlin URI scenarios and T14 interoperability remain unqualified."
+    },
+    {
+      "title": "Native008 and canonical959 source published in draft PR #4",
+      "detail": "Historical report before target loss: The root native proof hash and 1,786-input binding match. Native008 exits 0 with 943,232 stereo frames all zero in generated ALSA file/null capture. No physical/default PCM or private corpus was used. Both opaque themes were viewed; GUI/consumers exit naturally with no owned process remaining, while owner numeric exit stays unknown. Full canonical 959/0/5 exits 0. Engine recovery and publication commits are pushed through head 5cf8985, and the draft body/readback matched that checkpoint at publication. The later current draft head has separate canonical992/profile-native evidence."
+    },
+    {
+      "title": "Diagnosed fixture publication race fixed and stress-checked",
+      "detail": "Historical report before target loss: The retained canonical failure was definitively traced to matching ETXTBSY fixture behavior. A narrow error-reporting and isolated child-fixture publishing fix passed independent review. Twenty repeated Engine unit runs each pass 149/0/1. The recovered full canonical passes 959/0/5; the original failure remains preserved."
+    },
+    {
+      "title": "Profiles/DSP integration and native recovery proof retained",
+      "detail": "Historical report before target loss: The source is now published with canonical 992/0/5 and actual Profiles/DSP native002 passing. Its 135 actions verify ordinary Commit and saved Apply with exact receipts/activation frame 0. The earlier helper-only failure and first 180-second whole-workflow native timeout remain preserved. The reviewed harness uses a 600-second whole-workflow budget; product deadlines remain unchanged. Preparation-to-activation measurements are about 2.22/2.46 seconds within the 30-second TTL."
+    },
+    {
+      "title": "U3 corrections and platform work remain incomplete",
+      "detail": "Historical report before target loss: Earlier owner/discovery/correction and FIR receipts remain source-bound. Integrated diagnostics are now committed/pushed with Linux canonical 1157 and approved review. Native observer attempts remain failed and the next framing repair is under review. New Mac setup runs without a result; old bb software stays failed. No full T12/T17/release completion follows."
+    },
+    {
+      "title": "Profiles/DSP native002 passed with frame-zero muted activations",
+      "detail": "Historical report before target loss: The actual gate exits 0 after 135 native actions. Ordinary graph Commit and saved-profile Apply have exact receipts and activation frame 0; preparation elapsed about 2.22 and 2.46 seconds within the 30-second TTL. Unmute count and capture bytes are zero. Both opaque themes were viewed by root. GUI/consumer exits are 0, owner is freshly absent with numeric exit unknown, and no owned processes remain. This qualifies a muted workflow, not positive-count/DAC/acoustic behavior."
+    },
+    {
+      "title": "Current Profiles/DSP source committed and pushed",
+      "detail": "Historical report before target loss: Commit e6a2a5ff is pushed and draft PR #4 head/body are freshly verified. Public native profile evidence is committed with canonical 992/0/5 and native002 scope. The earlier whole-workflow timeout and all other retained failures remain preserved. Later U3 integration is separate from this published source."
+    },
+    {
+      "title": "U3 committed and pushed with correction native proof",
+      "detail": "Historical report before target loss: U3 is committed/pushed as e9629017 and the open draft PR #4 head/body are freshly verified. Canonical1011/0/5, desktop160, strict Clippy, approved source/FIR review, and actual native002 pass. Readable summaries/FIR labels and previews/imports/local graph insertion are qualified in the isolated generated-input Linux scope. No output/source/processing activation/Unmute/audio occurred. Later staging WIP requires new integrated proof."
+    },
+    {
+      "title": "Readable summary/FIR labels verified; Mac window gates pending",
+      "detail": "Historical report before target loss: U3 readable labels and source-bound native002 are now verified, but the saved correction detail disclosure still contains debug text needing low-severity polish before release. The separate Mac helper warning fix compiles cleanly. Trust stays false, with no window acceptance or permission change."
+    },
+    {
+      "title": "U3 final canonical1011 and source-bound renderer checks pass",
+      "detail": "Historical report before target loss: Source-specific final canonical1011/0/5 across 115 groups, desktop160, strict Clippy, source/presentation review, and native002 now pass under pushed e9629017. Earlier pre-label results and failures remain retained. The actual gate covers correction preview/import/provenance/local FIR insertion only, without playback or processing activation."
+    },
+    {
+      "title": "U3 harness corrected; native002 verified without weakening policy",
+      "detail": "Historical report before target loss: Native001 remains a preserved idle Stop expectation failure after 99 actions. The diagnostic confirms idle null-session Stop rejects STALE_SESSION without state change; product guards were not weakened. The reviewed 70-check harness saves exact raw replies before assertions. Native002 now passes with the documented final Stop refusal, 105 native actions, and no selected output/source/activation/Unmute/audio."
+    },
+    {
+      "title": "Pinned Mac e6 build/helper pass; permission gates remain",
+      "detail": "Historical report before target loss: The pinned e6 application build retains its pass. The helper background-color lifetime fix now uses a strong named color and defer; compile-only exits 0 with zero diagnostics. Root verified unchanged source/tool pins against the new helper. A fresh trust-only helper query and cleanup exit 0, but accessibility/screen flags stay false. No actions, captures, permission requests/changes, or Earph launches occurred. OS identity is unresolved and local Settings confirmation is unavailable now. Permission remains unapproved; window stages are deferred."
+    },
+    {
+      "title": "U4 plain-package source committed and natively qualified",
+      "detail": "Historical report before target loss: U4 is committed/pushed as b77a79b; the Root checkpoint is clean and draft PR #4 head/body are freshly verified. Canonical 1045/0/5, desktop 179/0/0, strict Clippy, and native002 pass in scope. The native proof covers plain export/import, explicit reviews, refusals, and manual/unsupported association checks, not measurement/correction packages or full GUI/platform parity."
+    },
+    {
+      "title": "Correct idle Stop refusal preserved without weakening product policy",
+      "detail": "Historical report before target loss: The first U3 gate failed only its final idle Stop expectation. The original failure remains retained. The reviewed harness now verifies exact documented STALE_SESSION refusal and raw reply bytes, and native002 passes without changing product guards. A rejected idle Stop is not silently converted into an Applied receipt."
+    },
+    {
+      "title": "Mac build complete; trust-only checks do not qualify windows",
+      "detail": "Historical report before target loss: The pinned build and lifetime-fixed helper compile/query/cleanup retain their limited passes. Accessibility/screen trust remain false, with no permission requests or access changes. Local Settings confirmation is unavailable and further window acceptance is deferred. This does not qualify newer U4 source, permission approval, or full Mac desktop behavior."
+    },
+    {
+      "title": "Correction native002 passed with no processing or playback",
+      "detail": "Historical report before target loss: Actual exit 0 covers 105 native actions, five exact mutation receipts, and 37 independent owner queries. Generated public-safe correction previews/imports/provenance review and local FIR graph insertion pass. No playback output is selected, no source starts, no processing activates, and Unmute/audio counts remain zero. Both opaque themes were viewed by root. GUI/consumer exits are 0; owner is freshly absent with numeric exit unknown and no owned process remains. Public evidence is committed under pushed U3 source."
+    },
+    {
+      "title": "URI staging committed and pushed with canonical1031",
+      "detail": "Historical report before target loss: URI staging retains pushed source 66a canonical 1031/client 14 and its zero-network limits. Later U4 now has separate published canonical 1045/plain-package native002 proof at b77a79b. The package proof does not add network admission/fetch/listener/playback or T14 interoperability."
+    },
+    {
+      "title": "Mac trust query succeeds without granting access",
+      "detail": "Historical report before target loss: The corrected helper compile/trust query and cleanup remain independently verified with no access change. Accessibility/screen trust are false. No actions, captures, permission requests/changes, or Earph launches occurred. Local Settings confirmation is unavailable now; permission is not approved and Mac windows remain unqualified."
+    },
+    {
+      "title": "URI staging published without network admission",
+      "detail": "Historical report before target loss: Commit 66a0856 is pushed and draft PR #4 head/body are freshly read back. The289-file preflight has zero secrets/deletions. Canonical 1031/0/5 exits0 across 117 groups; client 14 passes. This proves owner-scoped unadmitted metadata staging only, not network fetch/listener/playback or T14 interop. Public source-specific evidence is committed."
+    },
+    {
+      "title": "U4 integrated desktop/Clippy pass after retained fixture and lint findings",
+      "detail": "Historical report before target loss: The earlier fixture-readiness and lint findings remain retained with exact fixes. Final desktop 179, strict Clippy, build, canonical 1045, and plain-package native002 now pass under pushed b77a79b. The evidence remains scoped to plain package workflows; it does not establish FIR/measurement, native uncertainty/cancel, positive Mac association, or full GUI parity."
+    },
+    {
+      "title": "U4 navigation failure retained; corrected native002 passes",
+      "detail": "Historical report before target loss: Native001 failed navigation before profile creation and remains retained with no owned processes left. A bounded panel wait correction passes 85 pure checks. Native002 now exits0 after145 package actions. Root verifier exits0 and exact receipts/owner queries pass; earlier preparation packets and failures remain preserved."
+    },
+    {
+      "title": "D1 integrated, canonical-qualified, committed and pushed",
+      "detail": "Historical report before target loss: D1 is committed/pushed as ff1cb536, with fresh PR #4 head/body verification and a clean Root checkpoint. Canonical 1071/0/5 exits 0 across 121 groups; strict Clippy/build pass. Privacy/cap/format findings and final storage/guard overlays have approved same-review reconciliation. The qualified freeze has 1,820 inputs; the commit tree has 1,821 files with only three public metadata changes after checks. The 304-file PR scan found zero secrets/deletions."
+    },
+    {
+      "title": "U4 final software qualification verified",
+      "detail": "Historical report before target loss: Published U4 retains actual exit 0 canonical 1045/0/5 across 119 groups, desktop 179/0/0 across 26 groups, strict Clippy 0, products build 0, and unchanged-source qualification. Plain-package native002 now also passes with independent Root verification. Source is committed/pushed; broader native/package/visual limits remain open."
+    },
+    {
+      "title": "U4 harness recovery and actual plain-package result preserved",
+      "detail": "Historical report before target loss: Original sealed harness packets/findings remain retained. The later bounded panel wait correction passes 85 pure checks, followed by actual native002 success. The new native proof is limited to the released plain-package gate and does not qualify future FIR/panel/uncertainty/cancel preparation."
+    },
+    {
+      "title": "Two bounded diagnostic reads qualified; full T17 remains open",
+      "detail": "Historical report before target loss: D1 source ff1 retains its two bounded reads and honest unknowns. Later pushed a0e5fe42 adds qualified retained-event recovery, immutable diagnostic preview, and compiled Engine package facts. Final canonical 1109, actual CLI/Rust FFI replay checks, build, and review pass without opening output. Diagnostic export, native diagnostics UI, after-fix Mac proof, and full T17 remain open."
+    },
+    {
+      "title": "Mac compiler and Cargo regression pass; full runtime still fails",
+      "detail": "Historical report before target loss: Pinned bb still passes all six compiler stages. A new bound launcher supplies the omitted CARGO setting; the same five dependency failures then pass their separate regression. The repaired full runtime stops after 66 of 112 executables: 632 passed, one failed, four ignored, and 46 unstarted. The real GUI package case reports Dispatch(Full(Safety)) with exit 101. Its retained receipts do not prove which consecutive safety call was refused. All launched groups/launchers join and are freshly absent; source/products/tools remain unchanged. No native/window/output/permission action occurred. Compiler and repaired dependency passes do not make the full runtime green."
+    },
+    {
+      "title": "Plain-package native002 independently verified and published",
+      "detail": "Historical report before target loss: Actual native and Root verifier exit 0. The gate has 145 package actions, ten exact receipts, and 53 independent owner queries, including successful plain export/import and intended refusal cases. Six natural GUI/consumer exits are 0; two distinct owners are freshly absent with numeric exits unknown and no owned process remains. Audio frames are zero and no output/Start/activation/Unmute occurs. Published evidence is source-bound to committed/pushed b77a79b."
+    },
+    {
+      "title": "Plain and FIR package visual proofs retain separate scopes",
+      "detail": "Historical report before target loss: The earlier b77 plain-package proof retains its four top-viewport images. The later FIR native002 gate adds twelve Root-viewed opaque images covering normal, package-overview, and package-review views in both themes and export/import modes. Native uncertainty/cancel, positive Mac association, Mac windows, Wayland, hardware/acoustics, and full GUI parity remain open."
+    },
+    {
+      "title": "FIR native002 passes final Root verification",
+      "detail": "Historical report before target loss: FIR native002 exits 0 with final Root verification: 176 actions, nine exact receipts, zero capture, and six natural GUI/consumer exits 0. Owners are freshly absent; their numeric exits remain unknown. Source/products/tools/fixtures stay unchanged. Root directly viewed twelve opaque Light/Dark normal, package-overview, and package-review images. The verifier checks recorded configuration equality; no independent pre-run configuration hash exists. Native uncertainty, in-flight cancellation, physical output, and Mac identity/windows remain unqualified."
+    },
+    {
+      "title": "Published D1 canonical and source qualification verified",
+      "detail": "Historical report before target loss: Public evidence records actual exit 0, canonical 1071/0/5 across 121 groups, strict Clippy 0, and products build 0. Root normally committed/pushed ff1cb536 and freshly verified PR #4 head/open/draft/body. Runtime qualification froze1,820 inputs and only public metadata changed afterward; the exact Git tree has 1,821 files. The public guide and source-specific proof are committed, without a full T17 or current Mac/native diagnostic claim."
+    },
+    {
+      "title": "D1 facts stay bounded and distinguish unknown observations",
+      "detail": "Historical report before target loss: D1 read facts keep their original source scope. U2/U3 now qualify bounded event recovery and one immutable preview cut with digest/schema/length checks. Compiled provenance describes the Engine package only; runtime executable identity, execution checkout, and complete test inventory remain unavailable. Exact reproduction, full privacy proof/performance instrumentation, export, native diagnostics UI, and full T17 acceptance remain open."
+    },
+    {
+      "title": "FIR execution and cleanup boundaries verified",
+      "detail": "Historical report before target loss: Final verifier status is pass with actual exit 0. Nine exact mutation receipts and independent owner queries cover the released FIR package gate. Root separately viewed twelve opaque export/import images. Six natural GUI/consumer exits are 0, and exact product-process absence is freshly checked. Numeric owner exits remain null; no audio or physical-output proof follows."
+    },
+    {
+      "title": "Repaired Mac runtime preserves safety admission failure",
+      "detail": "Historical report before target loss: Pinned bb compilation and the five repaired Cargo cases pass, but its full runtime remains failed at 632/1/4 after 66 executables, with 46 unstarted. Local admission/GUI corrections now pass integrated desktop targets, formatting, Clippy, and review, but final canonical is pending and no new immutable commit/Mac run exists. Original failed runs, cleanup proof, source/products/tools, and access settings remain retained."
+    },
+    {
+      "title": "U2/U3 final qualification committed and pushed",
+      "detail": "Historical report before target loss: U2/U3 are committed/pushed as a0e5fe42 after the Linux-only test-support parent. Fresh PR #4 head/body readback confirms open/draft with maintainer modification disabled. Final canonical exits 0: 1109 passed, zero failed, five existing ignored, across 127 groups. All 1,835 pre-metadata inputs stayed unchanged; the committed source has 1,836 files. Product build, independent source review, and test reconciliation pass. Focused real CLI one, Rust FFI one, Engine build six, and harness six pass as overlapping scopes, without adding totals."
+    },
+    {
+      "title": "FIR evidence committed/pushed with fresh draft PR readback",
+      "detail": "Historical report before target loss: Normal pushed commit 7cd0bf81 adds FIR evidence to existing PR #4. Fresh head/body readback confirms the same PR, open/draft, with maintainer modification disabled. The source-bound native proof retains 176 actions, nine receipts, twelve images, zero audio, unknown numeric owner exits, and fresh owner absence."
+    },
+    {
+      "title": "Export backend reviewed with real replay/files/cancel/restart proof",
+      "detail": "Historical report before target loss: U4 backend is ported locally with 282 Core tests and 31 real filesystem/profile tests passing. A real EngineOwner→LocalClient→CLI scenario passes dropped-reply replay, exact files, read-only inspection, terminal cancellation, and restart without opening output. Both owners join normally and are freshly absent. One independent backend review found no material defect. Same-account name checking and rename are not atomic; post-install readback can return uncertainty. Blocked filesystem calls can outlast cooperative cancellation deadlines. Integrated Linux canonical 1157 now passes under pushed 71678617; native acceptance remains pending."
+    },
+    {
+      "title": "Bounded events and immutable preview verified through real clients",
+      "detail": "Historical report before target loss: Event history and authoritative gap recovery are bounded. Preview sections use one actor cut and exact serialized bytes; historical replay preserves bytes without restoring expired authority. Failed larger-preview admission preserves the prior candidate. Actual CLI/Rust FFI reads verify replay and the compiled Engine record without opening output; a standalone desktop consumer joins its owner with exit 0. This is not a native diagnostics UI gate."
+    },
+    {
+      "title": "Compiled package provenance retains explicit gaps",
+      "detail": "Historical report before target loss: The Engine attaches its immutable compiled package record after restore and before endpoint publication. Real hashed-input mutation preserves the already compiled stamp. Shared build hashing retains ordering and framing; non-Git archives do not inherit a parent checkout identity. Runtime executable identity, execution checkout, and full test inventory remain unavailable; reproduction remains incomplete."
+    },
+    {
+      "title": "Linux-only import repair pushed with scoped checks",
+      "detail": "Historical report before target loss: Historical bb5963cf import-only repair retains scoped Clippy/format proof; predecessor a0e owns its canonical 1109 result. Current pushed 71678617 separately qualifies integrated diagnostics with Linux canonical 1157. New Mac setup and native observer repair do not inherit a runtime/native acceptance pass."
+    },
+    {
+      "title": "Four private archives Root-verified; removal decision pending",
+      "detail": "Historical report before target loss: Four complete target archives total 3,370,172,447 compressed bytes and 57,736 members, including six FIFOs and 7,242 hardlink groups. Native comparison, integrity, manifests, and Root independent hash verification pass. Originals, branches, and shared Git data remain. Process visibility is incomplete, and no full extraction restore or off-host copy ran. A deletion decision is pending; no removal is approved or performed. Earlier two approved removals retain their separate scope."
+    },
+    {
+      "title": "Shared diagnostic client review and standalone owner proof pass",
+      "detail": "Historical report before target loss: Backend and six-path shared-client packets have independent review with no material findings. The client suite passes 27 tests, including an actual standalone owner/client lost-reply/export/read-only-inspect/replacement-owner scenario. Exact replay and file bytes are checked; both owners exit normally with numeric 0 and output unopened. Corruption RED/GREEN covers wrong destination, cancellation target, and unbound owner. These receipts do not qualify the moving GUI, new admission fixes, integrated canonical, or native acceptance."
+    },
+    {
+      "title": "Mac compiler inventory is not a test-pass count",
+      "detail": "Historical report before target loss: Seven products and 112 test executables remain built and bound under exact bb source. Compilation is complete. A new launcher repairs the five Cargo-dependent failures, but the later runtime stops after 66 executables with 632/1/4 and 46 unstarted. No excluded/native/window/permission stage is waived and no full Mac canonical result follows."
+    },
+    {
+      "title": "U5 integrated Linux qualification committed; native acceptance pending",
+      "detail": "Historical report before target loss: U4/U5 are committed/pushed as 716 with Linux canonical 1157/0/5, lint/build, and review. Native packet01/02 remain failed, and framing probe03 fails before its framing cases on first-query startup readiness. Successor04 is prepared but not released. No native diagnostics acceptance follows."
+    },
+    {
+      "title": "Integrated admission and workflow canonical passes; committed",
+      "detail": "Historical report before target loss: U4/U5 are committed/pushed as 71678617 to open/draft PR #4. Canonical round05 exits 0 with 1157 passed, zero failed, five existing ignored, across 133 groups. Formatting, strict Clippy, desktop targets, and product build pass. The qualified pre-metadata freeze preserves 1,850 inputs; committed source/export verifies 1,851 files. Independent review has zero remaining material findings. This is Linux integrated proof, not native diagnostics UI or current Mac acceptance."
+    },
+    {
+      "title": "Earlier integrated failures retained with root-cause corrections",
+      "detail": "Historical report before target loss: Three earlier canonical failures remain retained: owner-error wording, a label test that selected a text fragment instead of its semantic label, and a duplicate owner guard that changed the legacy typed OwnerChanged result. Root reused the original reconciliation guard and existing named semantic helper. Focused discovery/general-caller tests pass and the actual widget relation matches the product. The checker now collects all test targets while preserving failure exit. Current integrated round04 still awaits its final result."
+    },
+    {
+      "title": "Framing probe04 passes; full native acceptance remains held",
+      "detail": "Historical report before target loss: Native framing probe04 passes with runner exit 0 and natural Engine exit 0. Exact compact framing, replay, and malformed-command refusal pass without signals. This is a framing probe only. Full native acceptance remains unbound pending qualified source and inode recovery; earlier native/probe failures remain preserved."
+    },
+    {
+      "title": "Reviewed network/media and worker integrated; full canonical pending",
+      "detail": "Historical report before target loss: Root locally integrates the independently reviewed 12-file NetworkFlacWorker after the earlier 24 network/media files. Review finds no material issues. The combined focused suite passes 199 tests across worker, ownership, network, media, staging, provenance, and build-input scopes. Exact strict Clippy/formatting pass; post-worker all-workspace/all-target Clippy exits 0. Full canonical has not run, no new commit/push or qualified products exist, and public PR #4 remains at 716. These checks qualify the worker integration freeze, not later HTTP owner work."
+    },
+    {
+      "title": "Integrated diagnostics canonical round05 and remote publication verified",
+      "detail": "Historical report before target loss: U4/U5 are committed/pushed as 71678617 to open/draft PR #4. Canonical round05 exits 0 with 1157 passed, zero failed, five existing ignored, across 133 groups. Formatting, strict Clippy, desktop targets, and product build pass. The qualified pre-metadata freeze preserves 1,850 inputs; committed source/export verifies 1,851 files. Independent review has zero remaining material findings. This is Linux integrated proof, not native diagnostics UI or current Mac acceptance."
+    },
+    {
+      "title": "Mac FIFO tool metadata verified; compile failure remains",
+      "detail": "Historical report before target loss: Current 716 Mac compilation remains failed at the Apple-unavailable Rustix FIFO test helper. The Linux-only test fixture repair uses the existing mkfifo command pattern and passes one actual FIFO test. A read-only Mac metadata preflight verifies the system FIFO command identity, owner/mode, and hash without executing it. This is tool metadata only; no after-fix Mac compile/runtime, permission change, or window result follows. Settings inspection remains unavailable and access stays unchanged."
+    },
+    {
+      "title": "Portable FIFO test repair passed Linux; Mac metadata only",
+      "detail": "Historical report before target loss: Current 716 Mac compilation remains failed at the Apple-unavailable Rustix FIFO test helper. The Linux-only test fixture repair uses the existing mkfifo command pattern and passes one actual FIFO test. A read-only Mac metadata preflight verifies the system FIFO command identity, owner/mode, and hash without executing it. This is tool metadata only; no after-fix Mac compile/runtime, permission change, or window result follows. Settings inspection remains unavailable and access stays unchanged."
+    },
+    {
+      "title": "Temporary inode exhaustion independently observed",
+      "detail": "Historical report before target loss: The last verified temporary filesystem observation shows all 1,048,576 inodes used despite free byte space. Canonical07 exits 101 with fixture ENOSPC. Round06 deadline failures remain separate. No successful replacement canonical or cleanup follows. Root now has verified fixture archives/restores, but deletion approval remains pending despite the passing read-only preflight."
+    },
+    {
+      "title": "Historical deadline failures remain unresolved after focused passes",
+      "detail": "Historical report before target loss: Canonical06 remains failed at 1152 passed/five failed/five ignored from deadline cancellations. The unchanged focused package replay passes eight cases in 1.42 seconds; syscall-traced replay passes eight in 1.59 seconds, with maximum observed fsync 5.264 ms. Those checks do not reproduce the stall or establish its cause. Canonical07 package target separately passes eight cases in 1.43 seconds before other targets fail from inode exhaustion. The historical deadline issue remains unresolved and is not relabeled as ENOSPC."
+    },
+    {
+      "title": "Exact generated fixture batch archived and restored; approval pending",
+      "detail": "Historical report before target loss: A fixed batch of 191 finished generated fixture trees, containing 782,527 empty files, is fully archived and restored outside worktrees. Root backup verification passes, and separate byte review of the cleanup utility passes. Root read-only full preflight exits 0 across all 191 directories and 782,527 empty files. It attempts no mutation and has no deletion authority. Actual deletion approval remains pending; no removal is authorized or performed. Source branches, originals, restore data, and earlier backups remain retained."
+    },
+    {
+      "title": "Large directory fixture uses real single-link files on disk; validation pending",
+      "detail": "Historical report before target loss: Correction: Linux shmem_link reserves inode quota for additional hard links. The earlier hardlink attempt would not prevent tmpfs quota exhaustion; Root caught this before validation or commit and retained the attempt privately. The pending fixture instead keeps real single-link files and places only large directory-limit sets in ignored disk-backed target storage. Tiny owner runtime keeps its existing pattern. Entry-count semantics remain intact. Validation is pending; no cleanup approval or successful successor canonical follows."
+    },
+    {
+      "title": "Streaming FLAC review complete; final media tests pass",
+      "detail": "Historical report before target loss: Independent main-model StreamingFlac review is complete with no material findings. Root verifies 38 source/evidence hashes against the accepted review receipt. Final media tests pass 76/0/0. The first design extent probe retains its pass. This is scoped media implementation evidence; full integrated canonical, engine-owned playback, renderer/audio/network acceptance, and new qualified products are not claimed."
+    },
+    {
+      "title": "Local network/media integration verified without a full-suite claim",
+      "detail": "Historical report before target loss: Earlier network/media and worker integrations retain matching hashes, scoped checks, and independent review. Final 45 owner files now match Root with both review findings closed. Full canonical/current full-suite qualification, native/platform proof, new commit/push, and release remain pending. Public PR #4 is still 716."
+    },
+    {
+      "title": "Dispatch notice research finishes without resolving the gate",
+      "detail": "Historical report before target loss: Research finds no original dispatch notice. One downstream question remains unanswered. Existing dependency provenance is retained, but the original notice gate and Apple SDK distribution review remain open; no release compliance completion is claimed."
+    },
+    {
+      "title": "NetworkFlacWorker independent review and Root integration pass",
+      "detail": "Historical report before target loss: Root locally integrates the independently reviewed 12-file NetworkFlacWorker after the earlier 24 network/media files. Review finds no material issues. The combined focused suite passes 199 tests across worker, ownership, network, media, staging, provenance, and build-input scopes. Exact strict Clippy/formatting pass; post-worker all-workspace/all-target Clippy exits 0. Full canonical has not run, no new commit/push or qualified products exist, and public PR #4 remains at 716. These checks qualify the worker integration freeze, not later HTTP owner work. The successor owner HTTP review now closes its fixes separately, without inheriting this earlier worker qualification or a full canonical pass."
+    },
+    {
+      "title": "Final Core03/Desktop checks retain distinct source scopes",
+      "detail": "Historical report before target loss: Final Core03 passes 33 network tests and strict all-target Clippy. The earlier 136 focused tests belong to Core02 and are not relabeled as a Core03 full-suite pass. Frozen Desktop retains 22 focused tests and strict Clippy, including an actual Engine capture consumer. The scoped FFI client bridge retains its one-case no-fetch/exact-replay proof without authority renewal; no FFI ABI qualification is claimed."
+    },
+    {
+      "title": "Native expiry preparation reviewed without binding or execution",
+      "detail": "Historical report before target loss: Native expiry preparation is byte-reviewed with 11 helpers and five passing pure tests. It waits a full 30-second local monotonic interval after observed adoption. It is unbound and unexecuted; no native/window acceptance follows. Framing probe04 keeps its narrow pass while full source/platform qualification remains open."
+    },
+    {
+      "title": "Software graph replacement discards measured held client frames",
+      "detail": "Historical report before target loss: A genuine software file→rate→null capture measures 60 held client frames discarded during graph replacement at the 1,024-source-frame frontier. Samples are exact and the source fetch occurs once. This proves that software boundary only, with no acoustic, physical-output, or hardware claim. It predates the final Engine fixes and does not qualify them."
+    },
+    {
+      "title": "Final Engine readiness/lifecycle/context regressions pass; earlier cases remain prior",
+      "detail": "Historical report before target loss: Engine48 owner/CLI 20 cases and Engine49 Clippy remain prior-source evidence. Final Engine56 passes the startup-Pause/Core-lifecycle regression, Engine57 passes the idle weak-reference cleanup regression, and Engine58 strict Engine/Network all-target Clippy exits 0. Nine media and two decoder predecessor checks are unchanged. The final Engine freeze is sealed and copied with the 45-file reviewed integration. No current full-suite, canonical, native GUI/Mac, or hardware pass follows from these separate focused checks."
+    },
+    {
+      "title": "Four-target read-only preflight passes without deletion authority",
+      "detail": "Historical report before target loss: Linux has about 1.8 GiB free bytes and zero free shared temporary inodes, blocking new full canonical/linking. A combined yes/no approval is pending for the exact 191 generated fixture directories plus four generated target roots, about 11.8 GiB. Every source checkout, branch, and verified backup is preserved. Root read-only four-target preflight exits 0 with 104 read-only operations passing. No approval receipt or deletion exists. This proposal covers generated targets only, not source checkouts or branches."
+    },
+    {
+      "title": "Final HTTP owner review closed; exactly 45 files match Root",
+      "detail": "Historical report before target loss: The sole independent main-model HTTP owner review is closed with zero unresolved findings. Both startup-Pause producer readiness and premature Core lifecycle findings are fixed and verified. Root accepts the review and verifies exactly 45 final owner files match the source manifests and integrated bytes; originals remain preserved. Root integrated formatting and scoped diff checks pass. This is accepted reviewed integration, not full canonical, full-suite qualification, or release readiness."
+    },
+    {
+      "title": "Both protocol packets prepared; adapters and interop unimplemented",
+      "detail": "Historical report before target loss: Both UPnP and Sendspin protocol preparation packets are ready. Adapters, listeners, runtime playback, and interoperability remain unimplemented or unqualified. The Sendspin packet pins spec 9d2f15e, Music Assistant 2.10.12, and aiosendspin 10.2.1 with 20 primary-source digests. It reports the inspected Rust SDK using an older plaintext/nine-byte contract versus the pinned encrypted/13-byte contract; the SDK is not accepted. Timestamped output clocks, the latency ledger, and live drift remain gaps. The rendered website/pinned-repository conflict is documented. UPnP flow-mode behavior still needs real qualification. No product/dependency changes or runtime work follow from preparation."
+    },
+    {
+      "title": "Initial recovery suite remains a separate failed report",
+      "detail": "Historical initial recovery run: 1,234 passed, 71 failed, five ignored, 144 groups, 13 failed targets, with terminal exit unrecoverable. Root preserved the failed log and image/hash outside targets. Its two confirmed causes are now fixed; the distinct canonical-02 passes 1305/0/5. No initial-run exit is invented."
+    },
+    {
+      "title": "Both initial recovery causes fixed without weakening controls",
+      "detail": "Both confirmed causes from the initial recovery run are fixed. The bounded helper now works with split development debug symbols, keeping the existing size bound, optimization/assertion settings, and security controls. Explicit local waiting detail formatting replaces the misuse of privacy-redacted Debug text; Debug redaction remains intact. Canonical-02 is green. The earlier 1234/71/5 report and unrecoverable terminal exit remain preserved as initial-run evidence."
+    },
+    {
+      "title": "Historical HTTP publication and earlier Mac SSH block",
+      "detail": "Published ce0be5b now has fresh GitHub readback of all four software jobs succeeding: Linux and Apple Silicon Mac software in both push and PR runs. Push run 44797313595 and PR run 44797328655 remain bound to ce0. Draft PR #4 stays open. Old 3af Linux failures remain preserved under their original jobs. This does not qualify later uncommitted work, native Mac/audio, interop, or release. Historical access scope: direct Mac SSH was blocked at that earlier checkpoint. The chosen Mac now has working strict configured SSH, and its native package has been built and launched."
+    },
+    {
+      "title": "Canonical-02 current Linux pass with frozen products",
+      "detail": "Canonical-02 passes: 1,305 passed, zero failed, five ignored, across 144 groups. Source remains unchanged during the check, and Engine/Desktop products are frozen. This is a current Linux canonical result. It does not qualify the whole app, Mac/native runs, FFI ABI, protocol interoperability, CI execution, or release."
+    },
+    {
+      "title": "Local waiting formatting and helper split debug verified green",
+      "detail": "Both confirmed causes from the initial recovery run are fixed. The bounded helper now works with split development debug symbols, keeping the existing size bound, optimization/assertion settings, and security controls. Explicit local waiting detail formatting replaces the misuse of privacy-redacted Debug text; Debug redaction remains intact. Canonical-02 is green. The earlier 1234/71/5 report and unrecoverable terminal exit remain preserved as initial-run evidence."
+    },
+    {
+      "title": "Published HTTP integration 5f30b5b verified",
+      "detail": "HTTP integration 5f30b5b is published to the public draft PR #4. Exact local/remote tree comparison and hooks pass. Canonical-02 retains its 1305/0/5 Linux pass with frozen Engine/Desktop source/products. Publication does not complete the whole app or release."
+    },
+    {
+      "title": "Frozen-source idle Linux diagnostic/expiry native gate passes",
+      "detail": "The Linux diagnostic/expiry native gate passes against frozen canonical-02 source and binaries. It covers 24 native actions and five owner queries. An expired export is refused after 31.46 seconds with no destination; a fresh export is exactly 3,207 bytes and inspection reports Matching. GUI and Engine exit 0; four screenshots remain private. This is idle-only diagnostic proof, without native audio, Mac, or full T17 qualification."
+    },
+    {
+      "title": "UPnP wire parser passes seven isolated tests",
+      "detail": "The earlier seven-test parser checkpoint remains historical. Corrected U3 now separately passes 62 network tests and isolated canonical03 before its 18-file Root import. No enabled host renderer, LAN/Mac/bridge/audio or strict interoperability follows."
+    },
+    {
+      "title": "Earlier 5f30b5b software CI successes retain their source scope",
+      "detail": "The earlier PR/push CI runs at 5f30b5b succeeded for Linux canonical/Mac software. Latest 07614e5 runs separately succeed in those same software scopes. No isolated protocol/native/physical/release result is inherited."
+    },
+    {
+      "title": "Kotlin baseline02 passes with exact CLI/replay proof",
+      "detail": "Earlier Kotlin baseline02 passes 48 frames, 29 CLI comparisons, and nine replays after the retained readiness failure. That checkpoint is separate from the now-passing generated network03 gate; neither is audio/current Mac Swift/legacy ABI acceptance."
+    },
+    {
+      "title": "Prior 07614e5 publication and software CI retain their scope",
+      "detail": "The 07614e5 PR/push software CI runs succeeded for Linux canonical/Mac software. Those successes do not qualify newer 3af7c71; the latest 3af Mac-software jobs pass while Linux jobs fail."
+    },
+    {
+      "title": "Generated Kotlin network03 preserves revoked authority on exact replay",
+      "detail": "Generated Kotlin network03 passes: 66 frames, 38 exact CLI comparisons, 29 consumers, and 116 guards across nine network commands. Exact old-grant replay preserves revocation, with zero TCP/HTTP fetches. Owner exit is 0 and fresh process absence is verified. Twelve Rust FFI and four startup-parser tests pass separately. No audio, current Mac Swift, or legacy ABI qualification follows."
+    },
+    {
+      "title": "Pure Sendspin parser integrated with scoped producer/review proof",
+      "detail": "The pure Sendspin parser is integrated into Root with five focused tests, an actual pinned Python 10.2.1 producer fixture, and independent review with no findings. This is pure framing/parser proof. It adds no network, crypto/pairing, transport, or source-playback qualification."
+    },
+    {
+      "title": "Approved root spec licence and pure framing now published",
+      "detail": "The approved exact root spec licence and pure framing are published at 3af, with MIT unchanged. The reviewed Noise unit is published in ce0 with passing combined/explicit-peer proof and hosted software CI. The later pure pairing unit is imported after clear independent review; the c8 combined check now passes under its own boundary. There remains no production Sendspin listener/secret backend/full application startup/rehandshake/audio authority."
+    },
+    {
+      "title": "Corrected U3 frozen unit passes canonical03 and is imported",
+      "detail": "Corrected isolated U3 passes 62 network tests, strict Clippy/formatting, and full canonical03 with exit 0. Reported counts are 1,334 passed, zero failed, five ignored, and 149 groups; they include child-process result blocks. Independent correction review has no material findings. Root imports 18 frozen files with guarded lock reconciliation. The receipt binds the corrected unit, not every later combined Root tree. Loopback HTTP/UDP proof does not qualify LAN advertisement, Mac multicast/interface acquisition, actual renderer, gain/bridge/callback/audio, or strict Music Assistant interoperability."
+    },
+    {
+      "title": "Reviewed U1 ownership now has published real Engine worker proof",
+      "detail": "Reviewed U1 real Engine ownership proof passes two parent and 14 child cases, with no material review findings. Actual A and B retirement acknowledgements are required; A acknowledgements cannot settle B, and stale/duplicate acknowledgements reject. Queued B makes no HTTP request; started B connection closes before Applied. Each native file capture is exactly 5,376 bytes matching the A prefix, and owned workers/fixture threads join. Internal deferred_start coverage and already-unmuted B playback remain unproven. Production renderer ingress stays disabled; no physical/LAN/Music Assistant/callback/Mac acceptance is claimed."
+    },
+    {
+      "title": "Earlier overlap deadline failures retained beside later combined pass",
+      "detail": "Earlier overlapping full checks retain existing deadline failures; unchanged focused cases pass alone and the cause remains unproven, with load only a hypothesis. The later combined serialized Linux check now exits 0. That pass does not establish the cause of the old failures. Heavy Linux qualification stays serialized while implementation/review remain parallel."
+    },
+    {
+      "title": "3af7c71 published with exact tree verification",
+      "detail": "Published 3af retains its original exact tree/draft PR proof and hosted Mac2 PASS/Linux2 FAIL results. Replacement ce0 is published and now has four passing software jobs. No old job is relabeled and no shipping-ready claim follows."
+    },
+    {
+      "title": "Combined published Linux check exits 0 with explicit reported-count scope",
+      "detail": "The combined Linux scripts/check exits 0 with 1,369 reported passes, zero failed, five ignored, and 154 groups. Report blocks include child-process results and are not additive unique coverage. Source remains unchanged during the check; Engine/Desktop product build exits 0. Qualified source archive SHA256 is d03fff9007400e9accb6ab0642b10dd2372569604dfc95d1e5e19340c1658e80. Later documentation changes preserve that runtime source. No Mac/physical/protocol/release qualification follows from the Linux pass."
+    },
+    {
+      "title": "U1 retirement and HTTP closure proven with exact native file capture",
+      "detail": "Reviewed U1 real Engine ownership proof passes two parent and 14 child cases, with no material review findings. Actual A and B retirement acknowledgements are required; A acknowledgements cannot settle B, and stale/duplicate acknowledgements reject. Queued B makes no HTTP request; started B connection closes before Applied. Each native file capture is exactly 5,376 bytes matching the A prefix, and owned workers/fixture threads join. Internal deferred_start coverage and already-unmuted B playback remain unproven. Production renderer ingress stays disabled; no physical/LAN/Music Assistant/callback/Mac acceptance is claimed."
+    },
+    {
+      "title": "Kotlin composite04/05 generated control/refusal gate passes",
+      "detail": "The Kotlin composite04/05 gate passes on an earlier 3af snapshot: 13 Rust FFI tests, four startup-parser tests, Clippy/build/generation/Kotlin compilation, and the corrected actual scenario. Runtime05 passes 78 frames, 35 consumers, 44 exact CLI comparisons, 140 guards, nine network commands, and six renderer commands. Disabled grant/revoke capability refusals, untrusted authority denial, exact replay, and unchanged owner state are verified. TCP/HTTP/audio counts stay zero; owner exits 0 with fresh absence, and six frozen products remain stable. Original04 retains its EEXIST receipt-label collision. Only StateLabel changes for05; build phases are not repeated. Later fixture fixes lie outside this boundary, and renderer enablement/native/Mac/legacy ABI are not qualified."
+    },
+    {
+      "title": "Sendspin Noise unit has actual cross-language proof and clear review",
+      "detail": "The reviewed ten-file Noise unit is now inside the passing corrective combined source archive. Standard tests and the explicitly executed independent peer have distinct pass evidence. The explicit independent aiosendspin 10.2.1 NoiseSession peer passes exit 0 in all 11 live modes using the existing pinned environment through offline uv, with no sync/downloads, operator credentials, network connections, or audio. The public sanitized receipt binds actual integrated source, review, and peer log. This is bounded client encrypted-record library proof; pairing records/token finalization/persistence, full application sequence, fragmentation, rehandshake, and SourceAudio authority remain open."
+    },
+    {
+      "title": "Hosted Linux CI corrections preserve production policies",
+      "detail": "Reviewed peer-EOF and SSDP test corrections now pass inside the full combined suite, including bounded actual socket cases and diagnostics. The EOF observer awaits the real peer before retirement adoption. Discovery probes retain the original two-second bound and exact error/join checks. Production retirement/SSDP policy is unchanged. Earlier missing datagram cause remains unmeasured; the failed hosted run is not relabeled as a production outage or a green run."
+    },
+    {
+      "title": "Corrective combined check joins 0 with unchanged 1,921-file source",
+      "detail": "The corrective combined Linux scripts/check fully joins with exit 0 and source unchanged. Standard result blocks report 1,385 passed, zero failed, six ignored, and 156 groups, including child-process results. Engine/Desktop product build exits 0. The sixth ignored case is the independent Python peer, explicitly run afterward as one passing test with 11 live modes through offline uv. These are separate scoped results, not an additive unique-test total. Qualified archive SHA256 is d3590c91773afc8652f4c5b629af4f175a75fa1ade1ba129ced13396be802b33 across 1,921 files."
+    },
+    {
+      "title": "EOF and SSDP corrections pass in the full combined source",
+      "detail": "Reviewed peer-EOF and SSDP test corrections now pass inside the full combined suite, including bounded actual socket cases and diagnostics. The EOF observer awaits the real peer before retirement adoption. Discovery probes retain the original two-second bound and exact error/join checks. Production retirement/SSDP policy is unchanged. Earlier missing datagram cause remains unmeasured; the failed hosted run is not relabeled as a production outage or a green run."
+    },
+    {
+      "title": "Independent Python peer actually executed after standard tests",
+      "detail": "The explicit independent aiosendspin 10.2.1 NoiseSession peer passes exit 0 in all 11 live modes using the existing pinned environment through offline uv, with no sync/downloads, operator credentials, network connections, or audio. The public sanitized receipt binds actual integrated source, review, and peer log. This is bounded client encrypted-record library proof; pairing records/token finalization/persistence, full application sequence, fragmentation, rehandshake, and SourceAudio authority remain open."
+    },
+    {
+      "title": "Corrective ce0 publication and draft PR verified",
+      "detail": "Published ce0be5b now has fresh GitHub readback of all four software jobs succeeding: Linux and Apple Silicon Mac software in both push and PR runs. Push run 44797313595 and PR run 44797328655 remain bound to ce0. Draft PR #4 stays open. Old 3af Linux failures remain preserved under their original jobs. This does not qualify later uncommitted work, native Mac/audio, interop, or release."
+    },
+    {
+      "title": "ce0 hosted Linux and Mac software jobs succeed",
+      "detail": "Published ce0be5b now has fresh GitHub readback of all four software jobs succeeding: Linux and Apple Silicon Mac software in both push and PR runs. Push run 44797313595 and PR run 44797328655 remain bound to ce0. Draft PR #4 stays open. Old 3af Linux failures remain preserved under their original jobs. This does not qualify later uncommitted work, native Mac/audio, interop, or release."
+    },
+    {
+      "title": "Pure pairing unit has portable and explicit Python peer passes",
+      "detail": "Root imports the eleven-file pure pairing unit after independent read-only review finds no material issues. The unit retains its scoped 54 portable passes, zero failures, four ignored cases, and four explicit Python peer passes, including the 11 existing Noise modes. Persistence remains fixture-only. No production secret backend, listener, application startup, or completed full rehandshake follows from this unit."
+    },
+    {
+      "title": "Generated Kotlin volume gate passes without audio or network traffic",
+      "detail": "The actual generated Kotlin volume gate passes with exit 0: 94 frames, 43 consumers, 52 exact CLI comparisons, 172 guards, and 48 guarded JVMs. It covers nine network, six renderer, and eight volume commands with zero TCP/HTTP, no audio, and an unopened, unconsented fixture output. The owner exits 0 and is freshly absent. The gate preserves its 489 source inputs and HEAD. Six products are frozen after the gate; only two runtime hashes are checked through the scenario. This is not a six-product before/after claim."
+    },
+    {
+      "title": "U2 and pure pairing receive clear independent reviews",
+      "detail": "Root imports 37 U2 files and eleven pure pairing files after both independent reviews find no material issues. Sixteen Root network integration tests pass, including real HTTP acceptance of 30700 and refusal of 30701. These units are now published in c8 with the separate completed combined check. Fixture-only pairing persistence does not qualify production secrets, listeners, startup, or full rehandshake."
+    },
+    {
+      "title": "c8 publishes reviewed volume and pairing with completed qualification",
+      "detail": "Checkpoint c8d7d7dbbd5d602f83904f195c1a324391668f0e is published with verified remote/local tree c9cb16c3a940e8b044d632af5e7b9ab1f323f89a and a clean Root checkout. The 62-file publication and normal hooks complete. Draft PR #4 has an updated, freshly read body. c8’s own Linux/Mac software push and PR jobs now pass. a302’s four jobs also pass. d2fa9f7 has a separate new Swift gate still running. The current combined check joins with exit 0 at 19:43 UTC. Standard result blocks report 1,454 passes, zero failures, nine ignored cases, and 161 groups, including child results. All four explicit Python peer tests pass separately. Counts are not an additive unique-test total. The 1,935 frozen source files retain their code hashes; archive SHA256 is 2dc7ab29e61eea6533968693a2ddeb7fbeda72417e473d6cba947d9300c0919b."
+    },
+    {
+      "title": "Native software-only active graph and exact export workflow pass",
+      "detail": "The native software-only Linux operator passes its full fifth-version workflow: 24 native actions, 52 actual CLI calls, and 107 D-Bus calls. A real graph and active exact-zero diagnostics produce 83,968 captured bytes, all zero, while mute is false and retained gain is −12 dB. All 109,975 exported bytes match the exact GUI text and Matching inspection. GUI, owner, and reader exit 0. All 48 recorded process identities across four attempts are freshly absent. Three failed operator attempts remain retained. Operator view/revision fences change; application source does not. This proves no physical/acoustic output, Mac/Wayland/HTTP path, or ramp shape. The sanitized scoped proof is published in a302 and remains bound to those earlier products."
+    },
+    {
+      "title": "All eight c8 and a302 hosted software jobs pass",
+      "detail": "All eight Linux and Mac software jobs for c8 and a302 pass, verified by fresh job reads. These earlier commits keep their own qualification. They do not qualify d2fa9f7’s new Swift gate, direct Mac SSH, Mac GUI/physical output, or release."
+    },
+    {
+      "title": "d2fa9f7 publishes the actual generated Swift CI gate",
+      "detail": "Published d2fa9f7 introduced the actual hosted Swift gate. All four d2fa9f7 push/PR software jobs now pass, including actual generated Swift owner/CLI gates in both Mac jobs. The Swift scenario reports 94 frames and 52 exact CLI comparisons across nine network, six disabled-renderer, and eight volume commands. Fixture connections/requests stay zero; output is neither consented nor opened; the owner exits 0. The exact Swift compiler version is unknown in that log. Version printing is added for the next checkpoint. Earlier c8/a302 passes keep their original source scope."
+    },
+    {
+      "title": "Reviewed session/DSD combined source qualifies locally",
+      "detail": "The reviewed Sendspin session and DSD codec integrations pass the combined Linux gate with exit 0 and source unchanged. Standard result blocks report 1,530 passes, zero failures, 11 ignored cases, and 169 groups, including child results. These are reported blocks, not a unique-test total. All six explicit Sendspin Python peer tests pass separately. The frozen 1,955-file archive SHA256 is ba0bd7a3c8cdc9366fa2becfbc78115ec9672aa6affd35c7d1fe935be1fe21e8. New Engine/Desktop products are Linux builds; they have no fresh native GUI or hardware proof. That earlier session/DSD source was subsequently published at 371. Its products and proof remain separate from the newer Core/package source and current hosted CI."
+    },
+    {
+      "title": "Actual hosted Swift gates pass on both d2 Mac jobs",
+      "detail": "All four d2fa9f7 push/PR software jobs now pass, including actual generated Swift owner/CLI gates in both Mac jobs. The Swift scenario reports 94 frames and 52 exact CLI comparisons across nine network, six disabled-renderer, and eight volume commands. Fixture connections/requests stay zero; output is neither consented nor opened; the owner exits 0. The exact Swift compiler version is unknown in that log. Version printing is added for the next checkpoint. Earlier c8/a302 passes keep their original source scope."
+    },
+    {
+      "title": "Reviewed Core authority and package construction are published",
+      "detail": "Published draft PR #4 head is 486760081d49a4bcd7500f13400a50369a6ded42. Core callback/graph authority and package construction/verification are published after clear independent reviews. Core exact graph replay’s review finding is fixed. Root verifies publication and a clean checkout. All four earlier 371 software jobs pass under their own source scope. The current combined Linux gate reports 1,584 passes, zero failures, 11 ignored cases, and 171 groups, including child-result blocks. Six explicit actual Sendspin Python peer tests pass separately. Counts are not an additive unique-test total. The exact 1,966-file archive SHA256 is 0f48896e200ebbfd79910e5e758bc767b31bfada083667428937e274a5f85fba. Its hosted jobs subsequently finish three pass/one fail; the reviewed local proxy fix subsequently passes 266’s combined gate."
+    },
+    {
+      "title": "Packaged GUI accepts exact software data with retained startup refusal",
+      "detail": "The packaged software-native GUI proof uses older session/DSD products and archive ba0bd7, separate from the newer Core/package source. It passes 24 interactions, 52 requests including one pre-ready failure, 108 scenario D-Bus calls, and 97,375 exact preview/export bytes. All 83,968 captured software PCM bytes are zero. The 28 package files stay unchanged and 12 owned process identities are freshly absent. It proves no physical/native Mac/Wayland/HTTP path, acoustic result, ramp shape, installation, signing, or release."
+    },
+    {
+      "title": "Actual disconnect proxy failure reproduced and corrected under clear review",
+      "detail": "486 hosted CI finishes with three passes and one failure. Push Mac, PR Linux, and PR Mac pass. Push Linux fails in the real-disconnect test proxy during intentional owner restart. Root reproduces the proxy panic and fixes the test proxy without changing the application. Independent review is clear; all 27 workflow tests and 239 reported Desktop tests pass locally. The correction subsequently passes 266’s combined gate. The failed hosted job remains failed; no unchanged CI rerun or later qualification is asserted."
+    },
+    {
+      "title": "Corrected advertised event routes pass independent Network review",
+      "detail": "The corrected thirteen-path Network renderer unit is imported after clear independent review and 93 local passes. Real advertised plural /events routes are tested. The later corrected Engine unit is now imported after its own targeted review; joint U5 and combined qualification remain pending."
+    },
+    {
+      "title": "Roleless transport and credential document receive clear review",
+      "detail": "Roleless driver freeze 03 clears its two targeted review findings with 208 focused passes and eighteen actual pinned-peer scenarios. Root now imports its sixteen paths with explicit lock reconciliation and regenerated inventory/notices. The earlier credential document retains 119 portable passes and clear review. Native store/helper implementation is a separate synthetic-only unit with no claimed native pass."
+    },
+    {
+      "title": "Paused/staged source and closing-worker authority fixes clear review",
+      "detail": "Independent Engine review found paused-source A/staged-source B Play routing was wrong. A real SOAP RED exposes that defect; the correction then exposes lost Core waiting authority while A closes. The narrow eight-path unit fixes both while blocking new execution until the old worker joins. Sixty Core tests and three actual SOAP child scenarios pass, with strict Clippy/format checks. Targeted independent review clears all eight owned paths and thirteen borrowed Network paths; Root imports the corrected unit. No joint U5 acceptance follows."
+    },
+    {
+      "title": "Roleless import preserves explicit dependency reconciliation",
+      "detail": "The final roleless Sendspin driver passes targeted independent review with 208 focused passes and 18 actual pinned-peer scenarios. Root imports its sixteen files. An explicit lock merge preserves only the codec serde edge; dependency inventory and notices regenerate successfully. The reviewed thirteen-path Network renderer unit is also imported. These imports are now published in 266 after the passing combined gate; they do not establish production startup, player, clock, or output qualification."
+    },
+    {
+      "title": "266 publishes the completed combined renderer/runtime gate",
+      "detail": "Checkpoint 266a6b86b973997ab24fb911ee4d934c43eb6f08 is published with verified tree 0cb8ed9b9ed404d806f7361af2e099b910039e21, parent 486, and a clean Root checkout. The 56-file publication has zero privacy candidates and normal hooks. Draft PR #4 remains open. All four current push/PR Linux/Mac software jobs subsequently complete successfully, verified by fresh GitHub reads. Earlier 486’s three-pass/one-fail result stays historical; its proxy panic is fixed, reviewed, and included in 266’s passing local gate. The combined renderer/runtime gate passes with 1,660 reported passes, zero failures, 14 ignored cases, and 180 groups. Counts include child blocks and are not unique-test totals. All six Session peer tests and three Network peer groups covering 18 scenarios pass separately. Source is unchanged. The exact 1,994-file archive SHA256 is d3c186401b9b4438bf1f496e8c1b7cdad33c3f081646c4ef736d27a9123bc45a."
+    },
+    {
+      "title": "Current exact package candidate passes real owner/CLI checks",
+      "detail": "The current exact package candidate passes construction, verification, real packaged owner/CLI State, and normal shutdown. All 28 package files stay unchanged. This is not a new GUI or hardware result. The older packaged GUI proof retains its older session/DSD products and archive. No installation, signing, or release is qualified."
+    },
+    {
+      "title": "Actual public-API controller fixture compiles without startup",
+      "detail": "The production public-API Engine fixture compiles. All 238 shared dependency versions, sources, and checksums match Root’s lock. Source and Git provenance match before and after. No startup runs. Loader/runtime controller U5 remains pending with the same pinned Music Assistant and GUPnP images. Earlier generated private-route traffic remains separate from actual controller interoperability. Default production startup, player/clock integration, DSD worker/native routes, and release remain unfinished. A later actual U5 attempt starts Earph but stops during Music Assistant startup; it does not qualify controller interoperability."
+    },
+    {
+      "title": "266 hosted Linux and Mac software jobs all complete successfully",
+      "detail": "Checkpoint 266a6b86b973997ab24fb911ee4d934c43eb6f08 now has four successful hosted jobs, confirmed by fresh GitHub reads: Linux and Mac software in both push and PR runs. All jobs complete successfully under 266’s source scope. Draft PR #4 remains open. Earlier 486’s failed proxy job stays historical; its reviewed correction is included in 266’s passing combined gate."
+    },
+    {
+      "title": "Native credential directory-sync review and seventeen-path import verify",
+      "detail": "The corrected seventeen-path native credential-store unit clears independent review of its directory-sync fix and is imported into Root. Fresh import receipt confirms all seventeen installed paths verified. The merged lock retains the reviewed reconciliation. Earlier Linux private Secret Service, ordinary-process, strict lint/format, and inventory proof stays scoped to the isolated unit. Root’s combined checks, peer gates, private Linux provider, directory-sync cases, and corrected completion subsequently pass; publication and Mac execution remain pending. The unit is now published in b693; its own hosted CI and Keychain outcomes remain pending."
+    },
+    {
+      "title": "Native-store combined software checks and separate peer gates pass",
+      "detail": "Root’s native-store combined scripts/check passes with exit 0: 1,662 reported passes, zero failures, 15 ignored cases, and 185 groups. Counts include child-result blocks and are not unique-test totals. Product builds pass. Six Session peers and three Network peer groups covering 18 scenarios pass separately. The completion-only operator subsequently joins exit 0 with qualified true and source unchanged."
+    },
+    {
+      "title": "Qualification runner issue is retained; corrected completion passes",
+      "detail": "The original qualification runner stops after a successful native build because its selector finds both a helper and test harness where it expects one binary. No application failure occurs and that qualified-false outcome stays retained. The corrected completion-only operator selects the non-test helper, verifies the same source/HEAD and five passing log hashes, and reuses successful checks. It completes qualified true with source unchanged; both the private-provider and directory-sync qualifiers pass."
+    },
+    {
+      "title": "Actual private Linux credential provider and four directory-sync cases pass",
+      "detail": "Actual Linux private credential-provider qualification passes; all three provider child processes exit 0. Four directory-synchronization cases pass. The exact 2,013-file source archive verifies before and after, SHA256 d10d32b5a68148847e83fddc841d49a4d426ce6a8bc54e4c3dc1718b7ee7440a. Three native products are retained. This uses only the synthetic private provider, with no workstation store, native Mac, hardware, or production application-storage qualification. The safe native receipt is now published in b693."
+    },
+    {
+      "title": "b693 publishes the qualified Linux native receipt",
+      "detail": "Published checkpoint b69366c7d2e59b322bc825a0a9270d699910bf34 has verified tree 4a972496f06fdabd04ab435dc35b19638dc65768, parent 266, and a clean Root checkout. The 24-file publication has zero privacy candidates and normal hooks. Draft PR #4 has a freshly verified head and body. The public Linux native-credential receipt is now published. Fresh GitHub reads show all four b693 push/PR Linux/Mac jobs running. Old 266’s four successes keep their original source scope. The published merged qualification completes with qualified true: 1,662 reported passes, zero failures, 15 ignored cases, and separate successful Session/Network peer gates. Child-result blocks are included, not unique-test totals. Actual Linux private-provider qualification and all four directory-sync cases pass. The earlier helper/test-harness selector issue and qualified-false outcome remain retained; corrected completion passes with source unchanged. This adds no Mac native or hardware proof."
+    },
+    {
+      "title": "Actual U5 attempt retires all resources after mDNS startup failure",
+      "detail": "The first actual private U5 run starts Earph’s owner, production SSDP, generated media service, and software-output helper. Output listing/inspection/selection, consent, and caps reach Applied. The original pinned Music Assistant container then exits 1 at startup: AsyncZeroconf multicast membership returns errno 19 because the private SSDP-only route does not cover mDNS. No synthetic account, DLNA provider, grants, remote playback, GUPnP, or PCM qualification is reached. The operator joins exit 1. All five exact containers are freshly stopped; four exit 0 and Music Assistant exits 1. Owned capture/controller processes are absent and the test network has no live endpoints. This is not controller interoperability or AC-15 acceptance. Renderer CLI default startup remains disabled."
+    },
+    {
+      "title": "Pure timing review clears with bounded mapping proof",
+      "detail": "The pure timing unit is complete and independently reviewed clear. It has 147 package passes and six existing Python ignores, with 26 math/lifecycle and two real in-process pipeline cases scoped separately. Strict Clippy and formatting pass. Root imports five reviewed files, but whole-candidate qualification now passes, while timing publication remains pending. This is pure mapping proof, with no precision output, live ASRC, or AC-17 acceptance."
+    },
+    {
+      "title": "Private Linux bridge native E2E passes with clear review",
+      "detail": "The local Sendspin bridge is complete and independent review is clear. Engine tests report 187 passes and one ignore. Actual pinned authenticated transport and gated-helper success/uncertainty cases pass, alongside process/compile/helper/lint/format/inventory checks. Real Linux native E2E now passes in a fresh private environment: all three children exit 0, with no production store or output. The bridge is now integrated into Root; whole-candidate qualification now passes and publication remains pending. Provisioning, startup, recovery acknowledgement, player, clocks, and output remain unfinished."
+    },
+    {
+      "title": "Second controller attempt retires cleanly with partial source-bound observations",
+      "detail": "The second bounded controller run retires at 720 seconds; all six exact containers are freshly stopped with exit 0, host processes join, and the network is empty. Root independently rehashes the evidence and captures. Actual Music Assistant discovery, exact zero/25/50/100 volume, mute/pause/stop/cap behavior, and early-Unmute SOAP 501 refusals are observed. Resume has no dedicated receipt. Music Assistant’s actual FFmpeg path takes 24-bit input to 16-bit FLAC output; the cause is unproven and no S24 PCM qualification follows. GUPnP independently discovers three services and initial events. Mutations remain unobserved because scoped dumps may omit modal errors. No Earph bug is proven and AC-15 remains false."
+    },
+    {
+      "title": "Scoped reference-only Mac test correction is published",
+      "detail": "The scoped Mac test correction is published as dbc19169b66ea89ebd93a38bab696d142c24706d and changes one test file. An explicit Keychain reference-only search avoids an unnecessary secret reread while retaining corruption and locked-state assertions. The new CI native result is pending. Both earlier a654 Mac jobs failed after readback-confirmed: create/update and exact helper readback passed, but the complete native test did not. This does not qualify the whole Mac adapter."
+    },
+    {
+      "title": "Actual GUPnP read calls succeed and mutation errors are captured",
+      "detail": "The focused GUPnP-only session finishes normally with exit 0. Actual native GetProtocolInfo and GetTransportInfo calls succeed. SetAVTransportURI and GetMute return captured Error 402 InvalidArgs, with no stage/source increment. The agent is diagnosing multiargument interoperability; argument ordering remains a hypothesis, not a proven cause. Normal explicit revokes and joins are observed, but final object proof remains pending. This does not complete U5 or establish a new playback/capture qualification."
+    },
+    {
+      "title": "Both dbc isolated hosted Mac native gates pass",
+      "detail": "All four dbc1916 hosted jobs finish successfully, confirmed by fresh GitHub reads: push and PR Linux canonical plus both Mac jobs. Both Mac build/component and generated Swift steps pass. Retained allowlisted native summaries preserve the locked-refused stage, five successful operations, and exact helper/test hashes. Earlier a654 failures stay preserved; this is scoped hosted software/private-Keychain proof, not physical output or whole-product acceptance."
+    },
+    {
+      "title": "Integrated timing and bridge pass scripts/check",
+      "detail": "The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained. The qualified snapshot and reviewed safe runtime/timing/native receipt are now published in 2aa. Current 2aa has four successful hosted jobs; prior dbc retains its own successful scope. Its two isolated hosted Mac native summaries qualify dbc’s source only; they do not alone qualify the bridge on Mac. Catalog SRC-03 stays partial, with no full clock/player acceptance."
+    },
+    {
+      "title": "Focused GUPnP retirement and evidence hashes verify",
+      "detail": "The focused GUPnP session finishes normally, with all three containers freshly stopped at exit 0, the network empty, and 26 evidence hashes verified by Root. Native GetProtocolInfo/GetTransportInfo succeed; SetAVTransportURI/GetMute retain captured Error 402 InvalidArgs and no stage/source increment. Strict parsing stays intact. Universal Control Point 0.12.4 and current master have identical argument code; no fixed candidate is found. Wire-order causation remains inferred. This is not U5 acceptance."
+    },
+    {
+      "title": "dbc completes all four hosted jobs successfully",
+      "detail": "All four dbc1916 hosted jobs finish successfully, confirmed by fresh GitHub reads: push and PR Linux canonical plus both Mac jobs. Both Mac build/component and generated Swift steps pass. Retained allowlisted native summaries preserve the locked-refused stage, five successful operations, and exact helper/test hashes. Earlier a654 failures stay preserved; this is scoped hosted software/private-Keychain proof, not physical output or whole-product acceptance."
+    },
+    {
+      "title": "Network timeout fixture bug reproduces RED then test-only GREEN",
+      "detail": "The first combined run is not qualified after its Network write_timeout fixture failure. The test-only explicit-case correction retains the 100 ms write deadline and passes all three groups. A later full second run qualifies with source unchanged; the earlier failure stays retained."
+    },
+    {
+      "title": "Second full combined run qualifies source unchanged with an exact archive",
+      "detail": "The second combined run joins exit 0 with qualified true and source unchanged across 2,030 files. Scripts/check reports 1,700 passes, zero failures, 16 ignored cases, and 188 groups, including child results rather than unique-test totals. Six Session peers, three Network peer groups, bridge transport, private native provider, four directory-sync cases, and native bridge E2E pass; each native run’s three children exit 0. Archive SHA256 is 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f. The earlier first-run Network fixture failure and test-only correction remain retained. The safe combined receipt is now published in 2aa."
+    },
+    {
+      "title": "Finite old-fixture MA S24 comparison is exact without a new runtime",
+      "detail": "The fresh explicit TRACK software run reaches 48 kHz/24-bit input, native ALSA S24 with six bytes per stereo frame, and GraphReady while muted. Explicit Unmute, Pause, and Stop pass. The original measurement guard mixes absolute source position with an epoch-relative native counter. Retained equal paused cuts, capture, and final drain support an offline exact check: 2,048 stereo S24 frames at source offset 153,792 and capture-byte offset 922,752, gain 0.5/0 dB, have zero LSB error. The offline verifier joins exit 0 without search, stripping, or a new runtime. This is the older Engine 36ac/fixture 8d30 scope, not the new qualified products, physical output, or full AC-15. The bounded MA attempt retires all five objects at exit 0 with three Applied revokes and an empty network. The original tool-handle gap stays retained separately from actual process joins; the offline verifier’s handle joins exit 0. Resume, the new matrix/cap cases, and independent GUPnP interoperability remain pending. The sanitized MA receipt is now published in 2aa, retaining the same older single-segment scope."
+    },
+    {
+      "title": "Exact published app builds on the chosen Apple Silicon Mac",
+      "detail": "First listen is now the priority. Exact published 2aa sources compile on Doctor Biz’s chosen Apple Silicon Mac using Rust 1.98.1. Locked desktop/Engine/harness builds and app construction/verification pass, alongside plist, system-linkage, and fifteen MPL checksum checks. It is an unsigned debug package with declared-unverified structural metadata. Its separate exact Git source archive is not the Linux-qualified archive."
+    },
+    {
+      "title": "Chosen Mac GUI-controller launch is observed without Engine startup",
+      "detail": "Root’s exact-package GUI-controller launch succeeds without Engine or audio startup. Doctor Biz subsequently confirms window visibility and closes it intentionally. No audible playback is confirmed."
+    },
+    {
+      "title": "2aa publishes scoped receipts and all four hosted jobs pass",
+      "detail": "Checkpoint 2aa09906fa79f26c9f6419a953ad2b75d5eb3156 is published with verified tree cda9427605969789506c554cd5a10e6d1fb8fed1 and a clean Root checkout. Twenty-nine files pass privacy review and normal hooks. PR #4 stays open/draft with a verified body. Fresh GitHub reads confirm all four current Linux/Mac software jobs succeed. Earlier dbc jobs retain their own scope. The combined runtime/timing/native receipt and finite MA S24 receipt are now published. The qualified Linux source keeps archive 7800a7d4b650e1d7b7e34e760020acb94563d4db3893508cf1b881c129eaf47f and its 1700 reported passes, zero failures, sixteen ignores, separate peer/native gates, and child-count caveat. The MA proof remains only one exact 2048-frame software segment on older Engine 36ac/fixture 8d30. SRC-03 is partial; AC-15/16/17 are not complete."
+    },
+    {
+      "title": "Doctor Biz confirms the Mac window and an intentional close",
+      "detail": "Doctor Biz confirms he saw Earph’s window on the chosen Mac, then closed it himself. That close is intentional, not a crash. Root did not start the Engine or audio, and no audible playback is confirmed. This replaces the earlier unconfirmed-visibility snapshot; a launch process alone was not treated as proof."
+    },
+    {
+      "title": "DoP imports and live-clock review clears under separate remaining gates",
+      "detail": "Seven reviewed DoP paths and 27 clear-reviewed live-clock paths are now imported into Root. Combined canonical qualification is pending with native units. These imports do not qualify full player/output or physical Engine DSD."
+    },
+    {
+      "title": "Native text-view component proves private Unicode/multiline paste and standard editing",
+      "detail": "The old preview’s paste cause is confirmed: its configured clipboard feature was disabled. The real native text-view component on the chosen Mac passes strict compilation and runtime checks for selection, exact Unicode/multiline private copy/paste, and standard editing responders. This is component proof, not acceptance of the complete replacement window. The general clipboard, TCC, audio, and permissions are not changed."
+    },
+    {
+      "title": "Actual Swift presentation check passes exact values and capture basis",
+      "detail": "The separate Swift presentation check passes with exact UInt64 values and capture-basis handling. It does not establish full-window, Rust-link, real-owner, or audio acceptance."
+    },
+    {
+      "title": "Sealed fifteen-file native Swift unit imports with prior paths preserved",
+      "detail": "Root imports fifteen sealed Swift files with prior paths preserved. Nine sealed sources pass actual Mac strict typecheck and NativeControls/Presentation runtime checks. A later integrated candidate passes static linking, owned-view rendering, and real-owner/lifecycle checks. Main-window/manual acceptance and final corrected-source canonical remain pending."
+    },
+    {
+      "title": "Rust bridge checkpoint has real scoped test passes before sealing",
+      "detail": "The earlier bridge checkpoint passes fourteen focused cases and 253 reported desktop passes across 35 executions, with strict Clippy. A later integrated native candidate passes static Swift/Rust linking and five actual checks, including real Engine lifecycle. The corrected candidate and final current-source canonical remain pending."
+    },
+    {
+      "title": "Integrated native candidate passes strict build, actual checks, and packaging",
+      "detail": "The first integrated native Mac candidate passes the strict static Swift/Rust build and all five actual checks: private clipboard, exact JSON, pending/refused shutdown plus dismiss/recovery lifecycle, native hosting-view rendering, and real Engine queue/close/reattach/shutdown. Its app package, verification, plist, and fifteen MPL archive checks pass. It remains unsigned and unreleased. That first candidate was not opened at its initial checkpoint; the later final candidate is now open with manual paste confirmed. No physical audio or permission change occurs."
+    },
+    {
+      "title": "Clean Mac link becomes warning-free after duplicate-library correction",
+      "detail": "The duplicate-library correction yields a warning-free clean Mac link. The later final candidate passes all six actual checks, and all seven current Swift compile logs are empty."
+    },
+    {
+      "title": "Final native candidate passes all six checks and exact package/source verification",
+      "detail": "All six current native Mac checks pass, including the actual profile-reload and combined file-batch regressions. Both earlier medium-priority findings have targeted independent source clearance and genuine runtime GREENs. All seven Swift compile logs are empty and warning-free. The final arm64 app package, verification, plist, system-library linkage, and exact private modes pass. The 2,064 source files remain unchanged before and after, and all test Engine processes retire. Root’s Git source matches those Mac sources exactly. These are UI/control checks; subsequent actual Play is blocked by FORMAT_UNSUPPORTED at native output open."
+    },
+    {
+      "title": "Manual native paste works in the open final app",
+      "detail": "The final native Mac app is open and usable for Doctor Biz’s requested native UI workflow. Doctor Biz directly confirms paste works in the new Advanced Runtime field. Root opens the exact verified final package after fresh product/manifest checks; no Engine is observed at launch. There is no audio or heard-sound report yet. The native UI/paste delivery is distinct from completion of the whole Earph release. The subsequent first actual Play is rejected at Core Audio open; no audio is confirmed."
+    },
+    {
+      "title": "Read-only live diagnosis identifies the first actual playback blocker",
+      "detail": "AUDIO BLOCKED: Doctor Biz clicks Play in the open native app and receives RequestRejected. Read-only live State/Queue, existing owner stderr, and selected-output inspection confirm FORMAT_UNSUPPORTED at Core Audio open. Playback remains muted and failed, with no audio/heard-sound report. The native app stays open and the user’s Engine is preserved. The source is decoded and ready at 44.1 kHz, signed 16-bit stereo. The approved software output is −30 dB. The selected output actually runs 48 kHz with 512 callback frames, while the UI requests 64, on one interleaved Float32 stereo stream. The current System compatibility route requires exact matches and has no resampling. This first real native-device open exposes a coverage gap beyond the source/protocol fixtures."
+    },
+    {
+      "title": "Native UI/control checks remain valid with final canonical exit 0",
+      "detail": "The native UI remains usable: Doctor Biz confirms manual paste, all six current Mac checks pass, and both reproduced view corrections retain targeted independent clearance. Final current-source Linux canonical joins exit 0 with child exit 0 and all checks. These are valid UI/control results, not playback qualification. That verified native UI milestone is now published in 2318253 before the new audio correction."
+    },
+    {
+      "title": "Native UI, typed ALSA DoP, and live Sendspin clock checkpoint publishes",
+      "detail": "Checkpoint 23182537de3e5a0497c8ba560dd14a437dc34ba9 is published with native UI, typed ALSA DoP, and live Sendspin clock work. All 81 manifest files match exactly, normal hooks pass, final Linux canonical exits 0, and fresh remote/branch/PR reads verify a clean Root checkout. PR #4 stays draft. Its body records manual paste success and the real playback blocker. Publication does not complete the whole release or qualify the failed macOS audio path."
     }
   ],
   "active": [
     {
-      "title": "Validate and fix PR #2 review findings",
-      "detail": "CodeRabbit requested changes. Concurrency/state, shutdown ownership, and wire precision are being reviewed and fixed before merge. T10 remains active."
+      "title": "Continue the whole Earph build after native app delivery",
+      "detail": "The exact qualified native app is copied into Doctor Biz’s Applications folder, opened, and revealed in Finder. Fresh bundle hashes, package verification, and plist checks pass. The delivery operator exits 0. Existing Engine and GUI processes remain unchanged. This is an unsigned development app; delivery starts no audio and grants no new permissions. Root keeps implementing the remaining specification; app delivery does not finish the whole job."
     },
     {
-      "title": "Start T11 DSP-node work",
-      "detail": "PEQ kernel implementation and SRC source proof run in parallel in the DSP-node branch. The branch baseline canonical check passes; no T11 production qualification is claimed."
+      "title": "Prepare bounded Sendspin PCM player and DSD Engine units",
+      "detail": "Separate implementation contracts are being prepared. Existing clock, codec, and typed-submission evidence keeps its original scope. No new player integration, DSD Engine wiring, physical carriage, or listening result is claimed."
     },
     {
-      "title": "Broader qualification remains open",
-      "detail": "M2, GUI, full-worker real-time, DAC/acoustic, and release gates remain incomplete. Historical selected-route receipts retain their original measurement boundaries."
+      "title": "Preserve playback proof and complete remaining release gates",
+      "detail": "The earlier selected-file run retains its own evidence: Playing with advancing frames and nonzero software PCM, then Idle/muted with all selected-file frames accepted/submitted and output closure confirmed. One SDK Start occurs, with no Engine error or repeated mutation. Hearing and acoustic presentation remain unconfirmed. Signing, wider platform and protocol coverage, and whole-release qualification remain open."
     }
   ],
   "pending": [
     {
-      "title": "Approved: hardware playback and evidence",
-      "detail": "Doctor Biz granted approval. Mac and Linux physical routes have now been exercised; each result retains its own boundary."
+      "title": "Hearing and acoustic confirmation remain unknown",
+      "detail": "The earlier selected-file run retains its own evidence: Playing with advancing frames and nonzero software PCM, then Idle/muted with all selected-file frames accepted/submitted and output closure confirmed. One SDK Start occurs, with no Engine error or repeated mutation. Hearing and acoustic presentation remain unconfirmed."
     },
     {
-      "title": "Exercised: selected graph routes passed",
-      "detail": "One attenuated graph signal passed on each selected route. Linux submitted 48,007 frames; Mac submitted 24,003. Sources and recorded device state stayed unchanged. Mac also passed the separate zero-signal muted transaction check."
+      "title": "Physical preservation, interoperability, and whole release remain open",
+      "detail": "App delivery and scoped software/native proofs do not qualify DAC preservation, every output, complete protocol interoperability, physical DSD, signing, or release."
     },
     {
-      "title": "Measured: client boundaries; DAC unknown",
-      "detail": "Linux reports client-estimated consumption, delay zero, and saturation zero. Mac submitted frames are known while consumption/audible fields remain null. These boundaries do not establish physical consumption, DAC preservation, or acoustic qualification."
+      "title": "Native, platform, and browser qualification remain open",
+      "detail": "Earlier software/native proofs do not qualify physical routes, native clocks, further native playback/legacy ABI, protocol interop, DSD device carriage, or release. Strict configured SSH to the chosen Mac works; the native package has been built and launched without access changes. The qualified development app is now delivered to the user Applications folder and opened. Signing and release remain open. Playwright is absent; fresh API equality and seven Node checks are separate from browser/visual verification."
     }
   ],
   "activity": [
     {
-      "title": "CodeRabbit requested changes on PR #2",
-      "detail": "The pushed graph PR remains unmerged. Concurrency/state, shutdown ownership, and wire-precision findings are being validated and fixed before merge."
+      "title": "Qualified native app delivered and opened",
+      "detail": "The exact qualified native app is copied into Doctor Biz’s Applications folder, opened, and revealed in Finder. Fresh bundle hashes, package verification, and plist checks pass. The delivery operator exits 0. Existing Engine and GUI processes remain unchanged. This is an unsigned development app; delivery starts no audio and grants no new permissions."
     },
     {
-      "title": "T11 worktree and parallel work started",
-      "detail": "The new DSP-node branch starts at the pushed graph head with a passing baseline canonical check. PEQ kernel work and SRC source proof run in parallel; production qualification has not been claimed."
+      "title": "One Start/Unmute yields Playing and nonzero software PCM",
+      "detail": "Fresh read-only observations confirm Playing and advancing submitted frames, with 44.1 kHz source/client against the 48 kHz device, one SDK Start, and no Engine error. Nonzero software input/output PCM is independently observed mid-track. This is software/native-entry evidence, not confirmed acoustics or heard sound."
     },
     {
-      "title": "T10 pushed at ced9ae2",
-      "detail": "PR #2 contains the saved graph integration and dashboard checkpoint. Shipping and merge remain pending review resolution."
+      "title": "Full-track submission and output closure independently verified",
+      "detail": "Final independent read-only observations confirm Idle after all selected-file frames: Idle, muted, no error, session cleared, and submitted/accepted/source-position counts equal all selected-file frames. SDK Start count stays one, close is confirmed, and no counter overflow occurs. The full-track submission and output closure passes without further mutations or repeats."
     },
     {
-      "title": "Historical native graph checkpoints preserved",
-      "detail": "Selected Linux and Mac graph procedures passed on the recorded frozen source. All prior artifacts remain preserved; these receipts do not qualify forthcoming fixes."
-    },
-    {
-      "title": "Milestone and release gates stay open",
-      "detail": "T10 and T11 remain active. M0, M1, M2, full-worker real-time, and release qualification remain incomplete."
+      "title": "Whole-project implementation continues",
+      "detail": "Root continues the remaining Earph build. Bounded Sendspin PCM player and DSD Engine contracts are being prepared. Existing full-track submission/output-closure proof remains valid under its original scope; hearing and whole release remain open."
     }
   ]
 }

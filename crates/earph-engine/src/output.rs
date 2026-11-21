@@ -23,12 +23,19 @@ pub(crate) trait Output {
     fn audio_storage_bytes(&self) -> Result<u64, EngineError>;
     fn is_running(&self) -> bool;
     fn observation(&self) -> Result<BackendObservation, EngineError>;
+    fn activity(&self) -> Option<earph_core::session::OutputActivity> {
+        None
+    }
     fn write(
         &mut self,
         block: &PcmBlock,
         offset: usize,
         frames: usize,
     ) -> Result<Option<usize>, EngineError>;
+    /// True only while CoreAudio awaits its first valid client clock within its startup deadline.
+    fn initial_restart_cursor_pending(&self) -> bool {
+        false
+    }
     fn progress(&mut self) -> Result<Counters, EngineError>;
     fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError>;
     fn finish(&mut self) -> Result<Option<Counters>, EngineError>;
@@ -129,6 +136,7 @@ impl Output for earph_alsa::AlsaOutput {
         let format = ObservedStreamFormat::from(report.observed.format);
         Ok(BackendObservation {
             backend: OutputBackend::Alsa,
+            device_identity_sha256: None,
             audio_storage_bytes: self.audio_storage_bytes().map_err(error)?,
             client_format: format.clone(),
             device_format: (report.requested.route == earph_alsa::Route::DirectHardware)

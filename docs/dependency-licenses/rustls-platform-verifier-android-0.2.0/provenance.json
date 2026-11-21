@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/rustls/rustls-platform-verifier",
+  "revision": "252e25161a91af476cbea620e29d277592d27ec7",
+  "version": "0.2.0",
+  "packages": [
+    "rustls-platform-verifier-android"
+  ],
+  "license_expression": "MIT OR Apache-2.0",
+  "license_file": "LICENSE-MIT",
+  "license_sha256": "1c7cf76689c837a68ed8d704994e52a0f2940c087958f860d17f3186afbdcc0c",
+  "source_url": "https://raw.githubusercontent.com/rustls/rustls-platform-verifier/252e25161a91af476cbea620e29d277592d27ec7/LICENSE-MIT",
+  "verified_on": "2026-11-19",
+  "distribution_status": "MIT license selected; copyright and permission notice retained"
+}

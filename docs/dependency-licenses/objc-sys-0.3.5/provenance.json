@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "objc-sys"
+  ],
+  "version": "0.3.5",
+  "repository": "https://github.com/madsmtm/objc2",
+  "revision": "4fc083f1c6d6784577e38b0ee8dbd344481e2fd2",
+  "license_expression": "MIT",
+  "license_file": "LICENSE.txt",
+  "license_sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5",
+  "source_url": "https://github.com/madsmtm/objc2/blob/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt",
+  "verified_on": "2026-11-18",
+  "sources": [
+    {
+      "repository": "madsmtm/objc2",
+      "revision": "4fc083f1c6d6784577e38b0ee8dbd344481e2fd2",
+      "path": "LICENSE.txt",
+      "git_blob_sha1": "e9ab3babc0d8602b83dccde8a462f8f3dc1e52ad",
+      "sha256": "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5",
+      "source_url": "https://github.com/madsmtm/objc2/blob/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt"
+    }
+  ]
+}

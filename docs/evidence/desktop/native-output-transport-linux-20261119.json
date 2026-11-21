@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-11-19",
+  "scope": "native Linux output, safety, transport and discovery controller",
+  "status": "pass",
+  "source": {
+    "base_commit": "5bb8e8eeaea21e5e1827807c35c2d491a3c45b9c",
+    "dirty_precommit": true,
+    "files": 1786,
+    "checksum_text_manifest_sha256": "3630b03f3ede9a9d69c4e8278e6c16830c51585768004fdc3b5ae9556f3e53ec",
+    "unchanged_during_native_and_canonical": true,
+    "post_check_changes": [
+      "this evidence document",
+      "two source-specific Mac evidence documents",
+      "desktop and profile plan checkpoints",
+      "desktop state machine notes",
+      "actionable gotchas"
+    ]
+  },
+  "products": [
+    {
+      "artifact": "earph-desktop",
+      "sha256": "2dbacd2ef47152f13e7f6b031a5967f3b3960a7aaedad7e41611d3dfaf9f463b"
+    },
+    {
+      "artifact": "earph-engine",
+      "sha256": "5131001e510b2c173d78c5dcc92ac05eb47b846d4710cb9b203c7f14528072fb"
+    }
+  ],
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "passed": 959,
+    "failed": 0,
+    "ignored": 5,
+    "groups": 108,
+    "log_sha256": "40cccae8d610fb8b626c75e01ea92c0041e7df06bc5234f6d9eb31666c5dba9e"
+  },
+  "native": {
+    "exit": 0,
+    "harness_sha256": "2281a9aec4a6b1608160dc5f022656902b1239a339f1c3fe7f1fd7193053ca8f",
+    "binding_sha256": "3f2dea159de55a09adc263cfe4c7777c8a1459b259f5ab0b6fcf1ebd42b80b58",
+    "root_proof_sha256": "7348e2227a9912cab03d97d4702aff618a6788bbedf6bc64065b892c3443c426",
+    "gui_exits": [
+      0,
+      0
+    ],
+    "consumer_exits": [
+      0,
+      0
+    ],
+    "owner_exit_code": null,
+    "owner_exit_limit": "GUI owned its child handle; fresh absence verified.",
+    "owner_fresh_absence": true,
+    "owned_processes_remaining": 0,
+    "fixtures_configuration_tools_products_unchanged": true,
+    "capture": {
+      "all_samples_zero": true,
+      "bytes": 3772928,
+      "frames": 943232,
+      "scope": "owned ALSA file sink; no physical output",
+      "sha256": "6ea05d9ac2b347f33d7e3db5c689cdbe600631868d79718c463bb4a39a6a90cd"
+    },
+    "exact_receipts": [
+      {
+        "method": "sessions.resume",
+        "status": "accepted",
+        "evidence_sha256": "239e781761d4c02c0154455b4a27d9673d3c64dc8faced857d66c432108439fc"
+      },
+      {
+        "method": "sessions.stop",
+        "status": "applied",
+        "evidence_sha256": "efd51a59e1a49273011f4dbaedac0937102ad1d4a957ae7d85edcb62fbe83e58"
+      }
+    ],
+    "images": [
+      {
+        "theme": "light",
+        "sha256": "abbe9c6b0f51bdf3913f94ebe31b3a0d4676520913440f44759a93702240b1a6",
+        "opaque": true,
+        "root_viewed": true,
+        "scope": "owned X11 window"
+      },
+      {
+        "theme": "dark",
+        "sha256": "52f2f8c63b0a7ac7c7c027c3764e1d44492b9a6a2b34027381532e004417f249",
+        "opaque": true,
+        "root_viewed": true,
+        "scope": "owned X11 window"
+      }
+    ],
+    "private_corpus_used": false,
+    "physical_output_used": false
+  },
+  "verified": [
+    "Owner-bound discovery rejects replacement owners before dispatching native work.",
+    "Output drafts, discovery, selection, consent, caps, level, fixed arming, Start and Unmute remain separate actions.",
+    "Native actions cover discovery, inspection, explicit software setup, muted Start/Pause/Seek/Resume, zero-PCM Unmute, Mute, Stop and shutdown.",
+    "Accepted Resume and Applied Stop evidence match their exact new request identities.",
+    "Internal successful observations retire without evicting user actions or hiding uncertain requests.",
+    "Expanded request details retain identity while delivery and receipt status change."
+  ],
+  "fixture_failure": {
+    "original_canonical_failure": "DeviceUnavailable replaced expected OperationCancelled; original OS cause was not retained.",
+    "matching_reproduction": "Safe spawn diagnostics captured OS error26 (ETXTBSY) in the same cancellation test.",
+    "fix": "Publish fixture executables through an isolated child; keep parent writer descriptors outside concurrent spawn inheritance.",
+    "production_retries_added": false,
+    "test_threads_or_timeouts_changed": false,
+    "repeated_engine_unit_runs": 20,
+    "passed_per_run": 149,
+    "failed_per_run": 0,
+    "ignored_per_run": 1,
+    "root_stress_proof_sha256": "f0595445663051a3cbce50fbb35432088ec44518be023c181865d76cc048fbbe",
+    "independent_review_sha256": "f2d2fa72f2b61cbebce2e2f750e6e21c339ad1f10b001b71f6d63c392c8d5fb3"
+  },
+  "limits": {
+    "known_low_severity_ux": "Final screenshots retain recovered background queue warning; fix passes isolated Profiles workflow tests but is not yet integrated.",
+    "prior_failed_native_attempts_preserved": 6,
+    "mac_gui_qualified": false,
+    "physical_playback_qualified": false,
+    "fixed_or_hardware_playback_qualified": false,
+    "profiles_dsp_gui_integrated": false,
+    "full_desktop_parity": false
+  }
+}

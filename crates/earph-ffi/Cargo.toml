@@ -1,0 +1,25 @@
+# ABOUTME: Exposes the existing private owner request contract through native bindings.
+# ABOUTME: Keeps foreign clients separate from engine ownership and safety policy.
+[package]
+name = "earph-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+earph-core = { path = "../earph-core" }
+earph-engine = { path = "../earph-engine" }
+serde_json.workspace = true
+uniffi = { version = "=0.32.2", default-features = false }
+
+[[bin]]
+name = "earph-bindgen"
+path = "src/bin/earph-bindgen.rs"
+required-features = ["bindgen"]

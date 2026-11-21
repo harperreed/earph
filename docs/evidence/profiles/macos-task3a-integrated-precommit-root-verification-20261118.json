@@ -1,0 +1,26 @@
+{
+  "status": "pass",
+  "candidate_sha256": "623781e7f9e5a3dedf7262d6a8ff422f9a0383d2442bdedc993ff09d8a7982fb",
+  "raw_files": 503,
+  "source_files": 1566,
+  "source_phases": 10,
+  "fresh_source_readback": true,
+  "owner_exits": [
+    0,
+    0,
+    0
+  ],
+  "owner_fresh_absence": true,
+  "observed_producer_writes": 0,
+  "settings_unchanged": true,
+  "source_dirty": true,
+  "profile": "debug",
+  "preserved_tooling_failures": 2,
+  "source_sha256": "ca46ef4020a3f59c3ce7f92f15f8c688b7afbbec3dacc95da4aae6b9dff9f8bd",
+  "limits": [
+    "Dirty precommit debug snapshot; not clean release or full Mac canonical qualification.",
+    "The original Engine profiles invocation passed15 cases and failed1 missing CLI prerequisite; only that exact case was rerun.",
+    "Private arming and owner callback counters are unavailable on the wire.",
+    "Muted control evidence does not qualify emitted profile PCM, DAC, acoustic, fixed/hardware, fidelity transitions, native associations, or full Task3."
+  ]
+}

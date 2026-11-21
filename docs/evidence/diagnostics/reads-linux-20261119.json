@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-11-19",
+  "scope": "Shared bounded diagnostic reads and real compiler/client/owner contracts; no full T17 or native diagnostic GUI qualification",
+  "status": "pass",
+  "methods": [
+    "signal_path.get",
+    "metrics.get"
+  ],
+  "result_bound_bytes": 65536,
+  "source": {
+    "base_commit": "b77a79b863f3442bb4bc38b34f0331f351197614",
+    "dirty_precommit": true,
+    "files": 1820,
+    "checksum_text_manifest_sha256": "b4ea82720d0ef55090af6b7617d2449c82b7cb0921da94997e15e78a750fb197",
+    "unchanged_during_canonical": true,
+    "post_check_changes": [
+      "this evidence document",
+      "shared diagnostic guide",
+      "state machine notes"
+    ]
+  },
+  "products": [
+    {
+      "artifact": "earph-engine",
+      "sha256": "4c8090de19af69ec23ac784323531bea2778155584d299d9e4d3432d0ac85f0b"
+    },
+    {
+      "artifact": "earph-desktop",
+      "sha256": "c65540a4a222135b9177addc7cafe315b4b55eb8a4f4a4df6a3ba1459736ff04"
+    }
+  ],
+  "canonical": {
+    "command": "scripts/check",
+    "passed": 1071,
+    "failed": 0,
+    "ignored": 5,
+    "groups": 121,
+    "log_sha256": "8e090b4b9d139bc83f08f26c9e1fe86ba0f6451f4433fe08fd8d981890523e42",
+    "exit": 0,
+    "strict_clippy_exit": 0,
+    "products_build_exit": 0,
+    "products_build_log_sha256": "c54bca416b8a09e3c2018b0ada16771065b3b9b5469242539af42bc53077e2cf"
+  },
+  "proof_sha256": "270f9bbb9f66e1d2c11dfe1219d90dce633fbda7941165bf0ebd24c83977d46b",
+  "review": {
+    "source": "64a0be1966322eb9a36d402f83bbe1e86f367fa1b8dc5fb6721fa045c7654487",
+    "corrections": "9c56f7a64f1fe7d9961ba84ae9a2d91f629adf653779d375dd8e5d1736c75e96",
+    "root_overlays": "393eec19722cc57574ccab203b6e0ad9de413da019ad9f4904fddf4127ccfd44"
+  },
+  "contracts": {
+    "existing_envelope_and_exact_replay": true,
+    "private_local_binding_separate": true,
+    "shareable_report_has_no_freeform_identities": true,
+    "private_activation_fingerprint_omitted": true,
+    "requested_resolved_observed_unknown_separate": true,
+    "compiler_schedule_and_stage_facts": true,
+    "configured_only_graph_not_active": true,
+    "unknown_sample_origins_remain_null": true,
+    "unavailable_aggregate_metrics_remain_null": true,
+    "hardware_caps_use_existing_policy_domain": true,
+    "outer_format_contract_shared_with_graph_preview": true,
+    "graph_inspection_wire_preserved": true
+  },
+  "actual_checks": [
+    "Core producer, validator, replay, budget and redaction cases",
+    "Actual same-rate and streaming compiler facts",
+    "Actual GraphService and Session activation with independently varied private route inputs",
+    "Core and desktop rejection of four isolated outer-format corruptions",
+    "Real Session hardware-cap boundaries and checkpoint restoration",
+    "Real owner CLI, Rust FFI, shared client and standalone replay with output unopened"
+  ],
+  "retained_failed_attempts": [
+    {
+      "stage": "strict Clippy Core nested guard; before workspace tests",
+      "exit": 101
+    },
+    {
+      "stage": "strict Clippy desktop capability storage; before workspace tests",
+      "exit": 101
+    }
+  ],
+  "unsupported_metrics": [
+    "underruns",
+    "deadline_misses",
+    "cpu_load",
+    "queue_depth_frames"
+  ],
+  "limits": [
+    "Compiler facts do not prove a per-node execution trace or physical presentation.",
+    "Session does not retain original playback sample epochs or timestamps.",
+    "Per-node implementation versions remain null/not_observed.",
+    "No event cursors, preview/export, cancellation, build provenance or release-evidence aggregation.",
+    "No current-source Mac, foreign diagnostic read, native diagnostic GUI, or full T17 acceptance claim."
+  ]
+}

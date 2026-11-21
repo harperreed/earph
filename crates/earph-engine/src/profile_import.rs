@@ -80,7 +80,7 @@ fn context(value: ImportContext) -> ProfileCorrectionContext {
         quantum_frames: value.quantum_frames,
     }
 }
-fn preview(
+pub(super) fn preview(
     context: ProfileCorrectionContext,
     preamp_db: FiniteGraphScalar,
     bounds: Vec<f64>,
@@ -219,26 +219,51 @@ pub(super) fn load(
     if profile.corrections.is_empty() {
         return Ok((Arc::new(Vec::new()), None));
     }
+    io_admission(retained, profile.latency.max_preparation_bytes)?;
+    let directory = directory(runtime, false)?;
+    let (objects, context) = reconstruct(
+        profile,
+        graph,
+        |hash, kind, limit| read_object(&directory, hash, kind, limit),
+        |reference| {
+            let (correction, size) = assets::resolve_with_size(runtime, reference)?;
+            drop(correction);
+            Ok(size)
+        },
+    )?;
+    let bounds = validate_intent(runtime, profile, graph, retained, cancel)?;
+    Ok((
+        objects,
+        context
+            .map(|(context, preamp)| preview(context, preamp, bounds))
+            .transpose()?,
+    ))
+}
+type ReconstructedCorrection = (
+    Arc<Vec<ProfileCorrectionObject>>,
+    Option<(ProfileCorrectionContext, FiniteGraphScalar)>,
+);
+pub(super) fn reconstruct(
+    profile: &ProfileDocument,
+    graph: &GraphIntent,
+    mut read: impl FnMut(ProfileObjectHash, &str, usize) -> Result<Vec<u8>, EngineError>,
+    mut verify_fir: impl FnMut(&FirAssetReference) -> Result<usize, EngineError>,
+) -> Result<ReconstructedCorrection, EngineError> {
+    if profile.corrections.is_empty() {
+        return Ok((Arc::new(Vec::new()), None));
+    }
     if profile.corrections.len() != 1 {
         return Err(EngineError::new(
             ErrorCode::CapabilityUnsupported,
             "one imported correction chain is supported per profile",
         ));
     }
-    io_admission(retained, profile.latency.max_preparation_bytes)?;
     let reference = &profile.corrections[0];
-    let directory = directory(runtime, false)?;
     let (bytes, expected, context, preamp) = match reference.kind {
         ProfileCorrectionKind::TextReport => {
-            let bytes = read_object(
-                &directory,
-                reference.object_sha256,
-                "text-report",
-                MAX_REPORT_BYTES,
-            )?;
+            let bytes = read(reference.object_sha256, "text-report", MAX_REPORT_BYTES)?;
             let report = read_correction_report(&bytes).map_err(import_error)?;
-            let source = read_object(
-                &directory,
+            let source = read(
                 ProfileObjectHash::try_from(report.source.sha256.clone())?,
                 "text-source",
                 MAX_CORRECTION_BYTES,
@@ -252,15 +277,13 @@ pub(super) fn load(
             )
         }
         ProfileCorrectionKind::FirManifest => {
-            let bytes = read_object(
-                &directory,
+            let bytes = read(
                 reference.object_sha256,
                 "fir-manifest",
                 MAX_FIR_MANIFEST_BYTES,
             )?;
             let manifest = read_fir_manifest(&bytes)?;
-            let (correction, size) = assets::resolve_with_size(runtime, &manifest.asset)?;
-            drop(correction);
+            let size = verify_fir(&manifest.asset)?;
             if size != manifest.source_bytes {
                 return Err(INVALID);
             }
@@ -275,12 +298,8 @@ pub(super) fn load(
     if expected.as_ref() != graph {
         return Err(INVALID);
     }
-    let bounds = validate_intent(runtime, profile, graph, retained, cancel)?;
     let object = json_object(reference.kind, &bytes)?;
-    Ok((
-        Arc::new(vec![object]),
-        Some(preview(context, preamp, bounds)?),
-    ))
+    Ok((Arc::new(vec![object]), Some((context, preamp))))
 }
 
 #[cfg(test)]

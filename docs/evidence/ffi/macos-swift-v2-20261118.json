@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "reviewed_dirty_ffi_foundation_actual_swift_owner_and_cli",
+  "source": {
+    "baseline_commit": "29a50ddf94e87369ad9f66ac3b3066615618bbeb",
+    "source_dirty": true,
+    "runtime_source_sha256": "1f3cf8abf52bb33b9bb5d570381c51237cb547922851c2abbd67efc6eb3328c0",
+    "dependency_lock_sha256": "eb80c2bae7a4dbab47d02836a9f13b3eda25254f07dc7df46e6b63316ce14fa8",
+    "patch_sha256": "de87f9f4e2edac0ec010a30cade9bb560f189243dfad873529d9b1d12612ec6b",
+    "source_manifest_sha256": "7e4abb0e5eb896c763593e2d4e909ed5b36af33553660f80913f29ed1ae9939b",
+    "source_files": 1562,
+    "source_phases": 2,
+    "fresh_source_verification": true
+  },
+  "build": {
+    "commit": "29a50ddf94e87369ad9f66ac3b3066615618bbeb",
+    "dependency_lock_sha256": "eb80c2bae7a4dbab47d02836a9f13b3eda25254f07dc7df46e6b63316ce14fa8",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "1f3cf8abf52bb33b9bb5d570381c51237cb547922851c2abbd67efc6eb3328c0",
+    "target": "aarch64-apple-darwin"
+  },
+  "foreign_compiler": "Apple Swift 6.4.2",
+  "macos_sdk": "27.2",
+  "sdk_selection": "child-only SDKROOT from selected installed SDK",
+  "runtime_library_loading": "child-only exact private FFI dylib directory; no LLVM toolchain loader override",
+  "engine_sha256": "b580a708ad06b62b59578801115490a26a52bdee8e517d79dd8af63964bd88f4",
+  "ffi_library_sha256": "204e4d2ee0175307739b9a90615ba965bd398f75156b863cb7d582a9812271c8",
+  "generator_sha256": "15940657005a997c6c4074ac6c28af7b0887bb3f0a16703a53ce893f92356b5e",
+  "swift_executable_sha256": "8acfc3b21bf48d072b39c4eafae52a7c7f101058d3bc556fa8092dc5dd654d87",
+  "swift_executable_hash_boundary": "observed after the complete actual gate; fresh remote readback follows",
+  "generated": [
+    {
+      "name": "earph_ffi.swift",
+      "bytes": 26035,
+      "sha256": "24e40eeefd5390c73efb7c5d579dd63b7d2b27a997afee14c1fca6b848d7e123"
+    },
+    {
+      "name": "earph_ffiFFI.h",
+      "bytes": 20881,
+      "sha256": "543fc88fa0945a6bb9dea56dc4296de44497e65662e7ff11ac2e6ba66874bd98"
+    },
+    {
+      "name": "earph_ffiFFI.modulemap",
+      "bytes": 134,
+      "sha256": "defae014a523c246523ef0c711015b7e87bee744fd75f2cf357678c779ecc030"
+    }
+  ],
+  "actual_foreign_commands": 10,
+  "exact_cli_comparisons": 10,
+  "typed_local_failures": 4,
+  "owner_survives_handle_release": true,
+  "reported_safety_unchanged": true,
+  "owner_exit_code": 0,
+  "owner_signal": null,
+  "fresh_owned_process_lookup_absent": true,
+  "native_output_opened": false,
+  "device_operations": 0,
+  "signal_exercises": 0,
+  "kotlin_or_jna_executed_on_mac": false,
+  "cancellation_qualified": false,
+  "subscriptions_qualified": false,
+  "compiler_warnings_or_errors": 0,
+  "consumer_stderr_bytes": 0,
+  "evidence_artifacts_verified": 73,
+  "evidence_archive_sha256": "fc162ea8f0f8307d8df576340833a05031e20631c6beef342f29bbc227e8320b",
+  "evidence_manifest_sha256": "014417284202064bd40ace9e80f446199b3c6980f17bc08f8f52f4ea1a879e32",
+  "limits": [
+    "Dirty precommit foundation, not a clean shipped build or full T13 qualification",
+    "No desktop UI, async cancellation, subscriptions, PCM, hardware, DAC, or acoustic qualification",
+    "Reported snapshot safety fields only; private fixed-output arming is not directly observed",
+    "Historical v1 SDK and weak-variable failures remain preserved",
+    "The separate original default-JNA cleanup uncertainty is not resolved by this Swift gate"
+  ]
+}

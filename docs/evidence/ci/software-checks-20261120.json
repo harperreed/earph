@@ -1,0 +1,51 @@
+{
+  "recorded_at": "2026-11-20T15:55:14.840Z",
+  "repository": "harperreed/earph",
+  "head_sha": "5f30b5b5db9444eb2181a7af2c2ca875e6401c04",
+  "scope": "Full Linux canonical and explicitly limited Apple Silicon Mac software checks",
+  "runs": [
+    {
+      "id": 44764992342,
+      "event": "pull_request",
+      "head_sha": "5f30b5b5db9444eb2181a7af2c2ca875e6401c04",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/harperreed/earph/actions/runs/44764992342",
+      "jobs": [
+        {
+          "id": 136387103283,
+          "name": "Linux canonical",
+          "conclusion": "success"
+        },
+        {
+          "id": 136387103925,
+          "name": "Mac software only",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 44764988199,
+      "event": "push",
+      "head_sha": "5f30b5b5db9444eb2181a7af2c2ca875e6401c04",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/harperreed/earph/actions/runs/44764988199",
+      "jobs": [
+        {
+          "id": 136387088904,
+          "name": "Mac software only",
+          "conclusion": "success"
+        },
+        {
+          "id": 136387089294,
+          "name": "Linux canonical",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "No native Core Audio, GUI, physical playback, or release qualification."
+  ]
+}

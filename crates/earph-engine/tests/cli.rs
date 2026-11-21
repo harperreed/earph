@@ -63,6 +63,78 @@ fn state(runtime: &Path, id: &str) -> Value {
 }
 
 #[test]
+fn cli_renderer_query_replays_exactly_while_host_authority_remains_disabled() {
+    let runtime = runtime();
+    let mut host = start(&runtime);
+    let initial = state(&runtime, "renderer-initial");
+    let query = envelope(
+        "cli-renderer",
+        initial["owner_id"].clone(),
+        0,
+        json!({"method":"renderer.get"}),
+    );
+    let first = call(&runtime, &query);
+    assert!(first.status.success());
+    assert_eq!(call(&runtime, &query).stdout, first.stdout);
+    let value: Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(value["receipt"]["result"]["kind"], "renderer");
+    let renderer: earph_core::renderer::RendererSnapshot =
+        serde_json::from_value(value["receipt"]["result"]["value"].clone()).unwrap();
+    assert!(!renderer.enabled);
+    assert_eq!(renderer.controller_count, 0);
+    let grant = call(
+        &runtime,
+        &envelope(
+            "cli-disabled-renderer",
+            initial["owner_id"].clone(),
+            0,
+            json!({
+                "method":"renderer.grants.replace","expected_generation":0,"lifetime_ms":100,
+                "grants":{"controllers":[{"id":"controller-a","peers":["192.168.1.2"],"playback":null,"rights":["stage","transport"]}]}
+            }),
+        ),
+    );
+    assert_eq!(grant.status.code(), Some(1));
+    let rejected: Value = serde_json::from_slice(&grant.stdout).unwrap();
+    assert_eq!(
+        rejected["receipt"]["error"]["code"],
+        "CAPABILITY_UNSUPPORTED"
+    );
+    let untrusted = call(
+        &runtime,
+        &envelope(
+            "cli-untrusted-renderer",
+            initial["owner_id"].clone(),
+            0,
+            json!({
+                "method":"renderer.request","controller_id":"controller-a","grant_generation":1,
+                "action":{"operation":"stage_uri","expected_staging_generation":0,"uri":"untrusted:metadata","metadata":"private"}
+            }),
+        ),
+    );
+    assert_eq!(untrusted.status.code(), Some(1));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&untrusted.stdout).unwrap()["receipt"]["error"]["code"],
+        "AUTH_DENIED"
+    );
+    assert_eq!(state(&runtime, "renderer-after"), initial);
+    assert!(
+        call(
+            &runtime,
+            &envelope(
+                "renderer-shutdown",
+                initial["owner_id"].clone(),
+                0,
+                json!({"method":"owner.shutdown"})
+            )
+        )
+        .status
+        .success()
+    );
+    assert!(host.0.wait().unwrap().success());
+}
+
+#[test]
 fn executable_attaches_and_recovers_after_owner_process_crash() {
     let runtime = runtime();
     let mut host = start(&runtime);
@@ -192,5 +264,142 @@ fn engine_cli_handles_file_limit_signal_and_continues_real_owner_requests() {
         .status
         .success()
     );
+    assert!(host.0.wait().unwrap().success());
+}
+
+#[test]
+fn cli_stages_and_clears_unadmitted_metadata_without_persisting_private_input() {
+    let runtime = runtime();
+    let mut host = start(&runtime);
+    let initial = state(&runtime, "staging-initial");
+    let stage = envelope(
+        "cli-stage-uri",
+        initial["owner_id"].clone(),
+        initial["revision"].as_u64().unwrap(),
+        json!({"method":"sources.stage_uri","uri":"http://example.invalid/?token=private-fixture","metadata":"private metadata"}),
+    );
+    let applied = call(&runtime, &stage);
+    assert!(applied.status.success());
+    let value: Value = serde_json::from_slice(&applied.stdout).unwrap();
+    assert_eq!(value["receipt"]["result"]["kind"], "sources");
+    assert_eq!(
+        value["receipt"]["result"]["value"]["staged"]["admission"],
+        "unadmitted"
+    );
+    assert_eq!(call(&runtime, &stage).stdout, applied.stdout);
+    assert!(
+        !String::from_utf8(applied.stdout)
+            .unwrap()
+            .contains("private")
+    );
+    let checkpoint = std::fs::read_to_string(runtime.join("queue.json")).unwrap();
+    assert!(!checkpoint.contains("private-fixture"));
+    assert!(!checkpoint.contains("private metadata"));
+    let query = call(
+        &runtime,
+        &envelope(
+            "cli-sources",
+            Value::Null,
+            0,
+            json!({"method":"sources.get"}),
+        ),
+    );
+    assert!(query.status.success());
+    let query: Value = serde_json::from_slice(&query.stdout).unwrap();
+    assert_eq!(query["receipt"]["result"], value["receipt"]["result"]);
+    let after = state(&runtime, "staging-after");
+    let mut expected = initial;
+    expected["revision"] = json!(1);
+    expected["event_sequence"] = json!(1);
+    assert_eq!(after, expected);
+    let clear = call(
+        &runtime,
+        &envelope(
+            "cli-clear-uri",
+            after["owner_id"].clone(),
+            1,
+            json!({"method":"sources.stage_uri","uri":"","metadata":""}),
+        ),
+    );
+    assert!(clear.status.success());
+    let clear: Value = serde_json::from_slice(&clear.stdout).unwrap();
+    assert_eq!(
+        clear["receipt"]["result"]["value"],
+        json!({"generation":2,"staged":null})
+    );
+    host.0.kill().unwrap();
+    host.0.wait().unwrap();
+    let _replacement = start(&runtime);
+    let query = call(
+        &runtime,
+        &envelope(
+            "cli-sources-restored",
+            Value::Null,
+            0,
+            json!({"method":"sources.get"}),
+        ),
+    );
+    assert!(query.status.success());
+    let query: Value = serde_json::from_slice(&query.stdout).unwrap();
+    assert_eq!(
+        query["receipt"]["result"]["value"],
+        json!({"generation":0,"staged":null})
+    );
+}
+
+#[test]
+fn cli_diagnostic_reads_use_actual_owner_and_preserve_unavailable_metrics() {
+    let runtime = runtime();
+    let mut host = start(&runtime);
+    let before = state(&runtime, "diagnostic-before");
+    for (method, kind) in [
+        ("signal_path.get", "signal_path"),
+        ("metrics.get", "metrics"),
+        ("events.get", "events"),
+        ("diagnostics.preview", "diagnostic_preview"),
+    ] {
+        let payload = if method == "events.get" {
+            json!({"method":method,"cursor":null})
+        } else {
+            json!({"method":method})
+        };
+        let command = envelope(method, Value::Null, 0, payload);
+        let output = call(&runtime, &command);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value["receipt"]["result"]["kind"], kind);
+        let body = serde_json::to_vec(&value["receipt"]["result"]["value"]).unwrap();
+        if kind == "signal_path" {
+            let read = earph_core::diagnostics::SignalPathRead::decode(&body).unwrap();
+            assert!(read.report.resolved.is_none() && read.report.observed.is_none());
+        } else if kind == "metrics" {
+            let read = earph_core::diagnostics::MetricsRead::decode(&body).unwrap();
+            assert!(read.report.underruns.value.is_none());
+        } else if kind == "events" {
+            let read = earph_core::diagnostics::EventsRead::decode(&body).unwrap();
+            assert!(read.report.events.is_empty());
+            assert!(!read.report.complete_audit_log);
+        } else {
+            let read = earph_core::diagnostics::PreviewRead::decode(&body).unwrap();
+            let bundle =
+                earph_core::diagnostics::DiagnosticBundle::decode(read.report.bytes.as_bytes())
+                    .unwrap();
+            assert_eq!(bundle.running_build, *earph_engine::build_provenance());
+            assert!(bundle.running_build.record.is_some());
+        }
+        assert_eq!(call(&runtime, &command).stdout, output.stdout);
+    }
+    assert_eq!(state(&runtime, "diagnostic-after"), before);
+    let stop = envelope(
+        "diagnostic-shutdown",
+        before["owner_id"].clone(),
+        before["revision"].as_u64().unwrap(),
+        json!({"method":"owner.shutdown"}),
+    );
+    assert!(call(&runtime, &stop).status.success());
     assert!(host.0.wait().unwrap().success());
 }
