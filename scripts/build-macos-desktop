@@ -33,6 +33,13 @@ export CARGO_CACHE_AUTO_CLEAN_FREQUENCY=never
 export CARGO_INCREMENTAL=0
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1}
 export SDKROOT=${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}
+source "$repo_root/scripts/macos-deployment-target.sh"
+configure_macos_target "$(uname -m)"
+printf '%s\n' "$MACOSX_DEPLOYMENT_TARGET" > "$output/deployment-target.txt"
+printf '%s\n' "$swift_target" > "$output/swift-target.txt"
+compile_swift() {
+  "$swiftc" -target "$swift_target" "$@"
+}
 run() {
   local label=$1
   shift
@@ -94,7 +101,7 @@ for module in "$output"/generated/*.modulemap; do
   test -f "$module"
   module_arguments+=(-Xcc "-fmodule-map-file=$module")
 done
-run swift-compile "$swiftc" -parse-as-library -warnings-as-errors -I "$output/generated" \
+run swift-compile compile_swift -parse-as-library -warnings-as-errors -I "$output/generated" \
   "${module_arguments[@]}" "$output"/generated/*.swift macos/Sources/Earph/*.swift \
   -Xlinker "$output/bridge/libearph_desktop.a" "${native_links[@]}" \
   -o "$output/products/earph-desktop"
@@ -108,18 +115,18 @@ cp "$CARGO_TARGET_DIR/debug/earph-harness" "$output/products/earph-harness"
 run linked-libraries otool -L "$output/products/earph-desktop"
 run architecture file "$output/products/earph-desktop" "$output/products/earph-engine"
 shasum -a 256 "$output"/products/* "$output"/generated/* "$output"/bridge/* > "$output/product.hashes"
-shasum -a 256 Cargo.toml Cargo.lock macos/Sources/Earph/*.swift scripts/build-macos-desktop > "$output/source.hashes"
+shasum -a 256 Cargo.toml Cargo.lock macos/Sources/Earph/*.swift scripts/build-macos-desktop scripts/macos-deployment-target.sh > "$output/source.hashes"
 printf '%s\n' "$CARGO_TARGET_DIR" > "$output/cargo-target.txt"
 if $check; then
   mkdir "$output/tests"
-  run controls-build "$swiftc" -parse-as-library -warnings-as-errors -framework AppKit -framework SwiftUI \
+  run controls-build compile_swift -parse-as-library -warnings-as-errors -framework AppKit -framework SwiftUI \
     macos/Sources/Earph/NativeTextEditor.swift macos/Tests/NativeControlsTests.swift -o "$output/tests/controls"
   run controls "$output/tests/controls"
-  run presentation-build "$swiftc" -parse-as-library -warnings-as-errors \
+  run presentation-build compile_swift -parse-as-library -warnings-as-errors \
     macos/Sources/Earph/Presentation.swift macos/Tests/PresentationTests.swift -o "$output/tests/presentation"
   run presentation "$output/tests/presentation"
   for scenario in ControllerLifecycle OwnerIntegration; do
-    run "$scenario-build" "$swiftc" -parse-as-library -warnings-as-errors -I "$output/generated" \
+    run "$scenario-build" compile_swift -parse-as-library -warnings-as-errors -I "$output/generated" \
       "${module_arguments[@]}" "$output"/generated/*.swift macos/Sources/Earph/Presentation.swift \
       macos/Sources/Earph/ControllerStore.swift "macos/Tests/${scenario}Tests.swift" \
       -Xlinker "$output/bridge/libearph_desktop.a" "${native_links[@]}" \
@@ -130,7 +137,7 @@ if $check; then
   for source in macos/Sources/Earph/*.swift; do
     if [[ "$source" != */EarphApp.swift ]]; then view_sources+=("$source"); fi
   done
-  run view-build "$swiftc" -parse-as-library -warnings-as-errors -I "$output/generated" \
+  run view-build compile_swift -parse-as-library -warnings-as-errors -I "$output/generated" \
     "${module_arguments[@]}" "$output"/generated/*.swift "${view_sources[@]}" macos/Tests/ViewPresentationTests.swift \
     -Xlinker "$output/bridge/libearph_desktop.a" "${native_links[@]}" -o "$output/tests/view"
   run view "$output/tests/view" "$output/tests/native-window.png"
@@ -138,7 +145,7 @@ if $check; then
   test_parent=$(mktemp -d /private/tmp/earph-native.XXXXXX)
   printf '%s\n' "$test_parent" > "$output/test-runtime-parent.txt"
   run owner-integration "$output/tests/OwnerIntegration" "$test_parent/owner" "$output/products/earph-engine" "$test_parent/artifacts"
-  run regression-build "$swiftc" -parse-as-library -warnings-as-errors -I "$output/generated" \
+  run regression-build compile_swift -parse-as-library -warnings-as-errors -I "$output/generated" \
     "${module_arguments[@]}" "$output"/generated/*.swift "${view_sources[@]}" macos/Tests/BatchIntegrationTests.swift \
     -Xlinker "$output/bridge/libearph_desktop.a" "${native_links[@]}" -o "$output/tests/regressions"
   regression_parent=$(mktemp -d /private/tmp/earph-native.XXXXXX)

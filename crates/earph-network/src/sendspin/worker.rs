@@ -282,12 +282,20 @@ use super::{
     ClockConfiguration, ClockObservation, DriverError, DriverLimits, Operation,
     SendspinConnectPermit, SendspinServices, clock::ClockDriver,
 };
+use super::{
+    PlayerObservation,
+    player::{PlayerMetadata, Profile, StateUpdate, metadata_capacity_bytes},
+};
 use earph_sendspin::{
     pairing::{AttemptId, Candidate, CommitOutcome},
     session::{
         AdmissionId, ApplicationMessage, ClientSession, SessionConfig, SessionError, SessionEvent,
         SessionPhase, WriteResult,
     },
+};
+use earph_sendspin::{
+    player::{PlayerEvent, PlayerState, PlayerSupport},
+    timing::UsableMapping,
 };
 use futures_util::Stream;
 use std::{
@@ -341,14 +349,40 @@ pub struct Observation {
     pub received_messages: u64,
     pub last_arrival: Option<ReceiveStamp>,
     pub clock: Option<ClockObservation>,
+    pub player: Option<PlayerObservation>,
+}
+struct QueuedEvent {
+    event: SessionEvent,
+    player: Option<PlayerObservation>,
+    player_metadata: Option<PlayerMetadata>,
 }
 struct State {
     observation: Observation,
     commands: VecDeque<Command>,
-    events: VecDeque<SessionEvent>,
+    events: VecDeque<QueuedEvent>,
     cancelled: bool,
 }
 impl State {
+    fn revoke_player(&mut self) {
+        if let Some(player) = &mut self.observation.player {
+            player.participating = false;
+            player.state_sent = false;
+            player.available = false;
+            let mut entries = 0;
+            let mut bytes = 0;
+            self.events.retain(|queued| {
+                if matches!(&queued.event, SessionEvent::Message(message) if message.id == 4) {
+                    entries += 1;
+                    bytes += event_bytes(&queued.event);
+                    false
+                } else {
+                    true
+                }
+            });
+            self.observation.event_entries -= entries;
+            self.observation.event_bytes -= bytes;
+        }
+    }
     fn discard_commands(&mut self) {
         let bytes = self
             .commands
@@ -356,6 +390,7 @@ impl State {
             .map(|command| match command {
                 Command::Send(message) => message.body.capacity(),
                 Command::CancelPairing => 0,
+                Command::PlayerState(_) => 0,
             })
             .sum::<usize>();
         self.observation.producer_bytes -= bytes;
@@ -380,17 +415,21 @@ impl Drop for ProducerAdmission<'_> {
 struct Shared {
     state: Mutex<State>,
     limits: DriverLimits,
+    domain: super::MonotonicDomain,
 }
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|p| p.into_inner())
     }
     fn cancel(&self) {
-        self.lock().cancelled = true;
+        let mut state = self.lock();
+        state.cancelled = true;
+        state.revoke_player();
     }
     fn terminal(&self, error: DriverError) {
         let mut s = self.lock();
         s.observation.terminal.get_or_insert(error);
+        s.revoke_player();
     }
     fn admit_producer(&self, bytes: usize) -> Result<ProducerAdmission<'_>, DriverError> {
         let mut state = self.lock();
@@ -421,6 +460,7 @@ impl Shared {
         let bytes = match &command {
             Command::Send(message) => message.body.capacity(),
             Command::CancelPairing => 0,
+            Command::PlayerState(_) => 0,
         };
         Some((
             command,
@@ -442,6 +482,13 @@ impl Shared {
         Ok(())
     }
     fn publish(&self, event: SessionEvent) -> Result<(), DriverError> {
+        self.publish_player(event, None)
+    }
+    fn publish_player(
+        &self,
+        event: SessionEvent,
+        player_metadata: Option<PlayerMetadata>,
+    ) -> Result<(), DriverError> {
         let bytes = event_bytes(&event);
         let mut s = self.lock();
         let n = s
@@ -455,7 +502,12 @@ impl Shared {
         s.observation.event_bytes = n;
         s.observation.event_entries += 1;
         s.observation.event_high_water = s.observation.event_high_water.max(n);
-        s.events.push_back(event);
+        let player = s.observation.player;
+        s.events.push_back(QueuedEvent {
+            event,
+            player,
+            player_metadata,
+        });
         Ok(())
     }
 }
@@ -478,10 +530,29 @@ pub struct EventLease {
     event: SessionEvent,
     shared: Arc<Shared>,
     bytes: usize,
+    player: Option<PlayerObservation>,
+    player_metadata: Option<PlayerMetadata>,
 }
 impl EventLease {
     pub fn event(&self) -> &SessionEvent {
         &self.event
+    }
+    /// Decode while retaining this lease, so its payload stays charged to Network.
+    pub fn player_event(&self) -> Option<PlayerEvent<'_>> {
+        let SessionEvent::Message(message) = &self.event else {
+            return None;
+        };
+        self.player_metadata
+            .map(|metadata| metadata.borrow(message))
+    }
+    pub fn player_activation_generation(&self) -> Option<u64> {
+        self.player.map(|p| p.activation_generation)
+    }
+    /// Captured delivery fact only. Engine must recheck current authority and output readiness.
+    /// When false, retain timeline accounting through `apply(..., accept_audio=false, ...)`.
+    pub fn player_available(&self) -> bool {
+        self.player
+            .is_some_and(|p| p.participating && p.state_sent && p.available)
     }
 }
 impl std::fmt::Debug for EventLease {
@@ -504,6 +575,7 @@ pub struct ProducerRejected {
 enum Command {
     Send(ApplicationMessage),
     CancelPairing,
+    PlayerState(StateUpdate),
 }
 struct Job {
     shared: Arc<Shared>,
@@ -527,10 +599,53 @@ impl SendspinWorker {
         &mut self,
         permit: SendspinConnectPermit,
         current: &SendspinConnectPermit,
+        config: SessionConfig,
+        clock: ClockConfiguration,
+        services: Box<dyn SendspinServices>,
+        limits: DriverLimits,
+    ) -> Result<SendspinHandle, DriverError> {
+        self.start_profile(
+            permit,
+            current,
+            config,
+            clock,
+            services,
+            limits,
+            Profile::Core,
+        )
+    }
+    /// Engine must prepare its bounded player implementation before offering this profile.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_player(
+        &mut self,
+        permit: SendspinConnectPermit,
+        current: &SendspinConnectPermit,
+        config: SessionConfig,
+        clock: ClockConfiguration,
+        services: Box<dyn SendspinServices>,
+        limits: DriverLimits,
+        support: PlayerSupport,
+    ) -> Result<SendspinHandle, DriverError> {
+        self.start_profile(
+            permit,
+            current,
+            config,
+            clock,
+            services,
+            limits,
+            Profile::Player(support),
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn start_profile(
+        &mut self,
+        permit: SendspinConnectPermit,
+        current: &SendspinConnectPermit,
         mut config: SessionConfig,
         clock: ClockConfiguration,
         services: Box<dyn SendspinServices>,
         limits: DriverLimits,
+        profile: Profile,
     ) -> Result<SendspinHandle, DriverError> {
         if self.active.is_some() {
             return Err(DriverError::Busy);
@@ -545,18 +660,24 @@ impl SendspinWorker {
             return Err(DriverError::Expired);
         }
         limits.validate(config.limits)?;
-        if config
-            .hello
-            .get("supported_roles")
-            .and_then(serde_json::Value::as_array)
-            .is_none_or(|r| !r.is_empty())
-            || config
-                .hello
-                .as_object()
-                .is_some_and(|hello| hello.keys().any(|key| key.ends_with("_support")))
-        {
-            return Err(DriverError::Admission);
+        let events = if matches!(profile, Profile::Player(_)) {
+            let events = VecDeque::with_capacity(limits.events);
+            let metadata = metadata_capacity_bytes(events.capacity(), limits.events)
+                .ok_or(DriverError::Budget)?;
+            limits.validate_with_metadata(config.limits, metadata)?;
+            events
+        } else {
+            VecDeque::new()
+        };
+        if let Profile::Player(support) = profile {
+            if support.buffer_capacity() > limits.event_bytes {
+                return Err(DriverError::Budget);
+            }
+            if !services.playback_authorized() {
+                return Err(DriverError::Admission);
+            }
         }
+        profile.hello(&mut config.hello)?;
         if config.catalog.capacity() != 5
             || config.catalog.records().len() > 5
             || config.catalog.superseded_ids().len() > 5
@@ -570,9 +691,10 @@ impl SendspinWorker {
             ClientSession::new(config, clock.domain.milliseconds()).map_err(session_error)?;
         let shared = Arc::new(Shared {
             limits,
+            domain: clock.domain.clone(),
             state: Mutex::new(State {
                 commands: VecDeque::new(),
-                events: VecDeque::new(),
+                events,
                 cancelled: false,
                 observation: Observation {
                     connection_generation: permit.connection,
@@ -599,6 +721,7 @@ impl SendspinWorker {
                     received_messages: 0,
                     last_arrival: None,
                     clock: None,
+                    player: matches!(profile, Profile::Player(_)).then(PlayerObservation::default),
                 },
             }),
         });
@@ -618,6 +741,7 @@ impl SendspinWorker {
                         ClockDriver::new(clock),
                         services,
                         owned.clone(),
+                        profile,
                     ))
                 }));
                 if !matches!(result, Ok(Ok(()))) {
@@ -697,7 +821,36 @@ impl SendspinHandle {
     pub fn cancel(&self) {
         self.shared.cancel();
     }
-    /// Only caller-generated core JSON traffic is admitted by this roleless unit.
+    /// Availability is Engine's declaration; this method verifies only current transport facts.
+    pub fn try_player_state(
+        &self,
+        activation_generation: u64,
+        mapping: UsableMapping,
+        state: PlayerState,
+        available: bool,
+    ) -> Result<(), DriverError> {
+        let mut s = self.shared.lock();
+        if s.cancelled || s.observation.terminal.is_some() {
+            return Err(DriverError::Cancelled);
+        }
+        check_player_state(&s.observation, activation_generation, mapping)?;
+        let now = self.shared.domain.sample()?.microseconds();
+        mapping
+            .map_client_time(now, now, mapping.binding())
+            .map_err(|_| DriverError::Clock)?;
+        if s.observation.command_entries >= self.shared.limits.commands {
+            return Err(DriverError::Budget);
+        }
+        s.commands.push_back(Command::PlayerState(StateUpdate {
+            generation: activation_generation,
+            mapping,
+            state,
+            available,
+        }));
+        s.observation.command_entries += 1;
+        Ok(())
+    }
+    /// Only core goodbyes use generic JSON admission.
     pub fn try_send(&self, message: ApplicationMessage) -> Result<(), ProducerRejected> {
         let mut admission = match self.shared.admit_producer(message.body.capacity()) {
             Ok(admission) => admission,
@@ -746,14 +899,44 @@ impl SendspinObserver {
         self.shared.lock().observation.clone()
     }
     pub fn next_event(&self) -> Option<EventLease> {
-        let event = self.shared.lock().events.pop_front()?;
-        let bytes = event_bytes(&event);
+        let queued = self.shared.lock().events.pop_front()?;
+        let bytes = event_bytes(&queued.event);
         Some(EventLease {
-            event,
+            event: queued.event,
             shared: self.shared.clone(),
             bytes,
+            player: queued.player,
+            player_metadata: queued.player_metadata,
         })
     }
+    /// Fixed reserved cache storage, including all possible consumer-held metadata copies.
+    pub fn player_metadata_capacity_bytes(&self) -> usize {
+        let state = self.shared.lock();
+        if state.observation.player.is_none() {
+            return 0;
+        }
+        metadata_capacity_bytes(state.events.capacity(), self.shared.limits.events)
+            .expect("bounded admitted event slots")
+    }
+}
+fn check_player_state(
+    observation: &Observation,
+    generation: u64,
+    mapping: UsableMapping,
+) -> Result<(), DriverError> {
+    let player = observation.player.ok_or(DriverError::Admission)?;
+    if !player.participating || player.activation_generation != generation {
+        return Err(DriverError::Admission);
+    }
+    let clock = observation.clock.ok_or(DriverError::Clock)?;
+    let current = clock.usable_mapping.ok_or(DriverError::Clock)?;
+    if clock.snapshot.count < 1
+        || current.binding() != mapping.binding()
+        || current.mapping_revision() != mapping.mapping_revision()
+    {
+        return Err(DriverError::Clock);
+    }
+    Ok(())
 }
 fn session_error(e: SessionError) -> DriverError {
     match e {
@@ -845,6 +1028,9 @@ struct Pump {
     admission: Option<Service<Result<bool, DriverError>, AdmissionId>>,
     candidate: Option<Service<Result<Candidate, DriverError>, AttemptId>>,
     commit: Option<Service<Result<(), CommitOutcome>, AttemptId>>,
+    profile: Profile,
+    player_stream_active: bool,
+    player_state: Option<StateUpdate>,
 }
 impl Pump {
     fn events(&mut self, events: Vec<SessionEvent>) -> Result<(), DriverError> {
@@ -888,8 +1074,9 @@ impl Pump {
         for event in visible {
             match event {
                 SessionEvent::Admission(proposal) => {
-                    if !proposal.roles().is_empty()
-                        || proposal.activities().iter().any(|a| a != "pairing")
+                    if !self
+                        .profile
+                        .permits(proposal.roles(), proposal.activities())
                     {
                         return Err(DriverError::Admission);
                     }
@@ -918,6 +1105,59 @@ impl Pump {
                     });
                 }
                 SessionEvent::Closed => return Err(DriverError::Protocol),
+                SessionEvent::Unsent(message) => {
+                    if self.player_state.is_some_and(|update| {
+                        message.id == 0 && update.message().body == message.body
+                    }) {
+                        self.player_state = None;
+                    }
+                    self.shared.publish(SessionEvent::Unsent(message))?;
+                }
+                SessionEvent::Activated(notice) => {
+                    if let Some(player) = &mut self.shared.lock().observation.player {
+                        player.activation_generation = player
+                            .activation_generation
+                            .checked_add(1)
+                            .ok_or(DriverError::Budget)?;
+                        player.participating =
+                            notice.roles == ["player@v1"] && notice.activities == ["playback"];
+                        player.state_sent = false;
+                        player.available = false;
+                        if !player.participating {
+                            self.player_stream_active = false;
+                        }
+                    }
+                    self.shared.publish(SessionEvent::Activated(notice))?;
+                }
+                SessionEvent::Message(message) => {
+                    let mut metadata = None;
+                    if matches!(self.profile, Profile::Player(_)) {
+                        let player = self.shared.lock().observation.player.unwrap();
+                        if message.id == 4 && !player.participating {
+                            continue;
+                        }
+                        if let Some(event) = PlayerEvent::decode(&message, player.participating)
+                            .map_err(|_| DriverError::Protocol)?
+                        {
+                            metadata = Some(PlayerMetadata::from(event));
+                            match event {
+                                PlayerEvent::Start { .. } => self.player_stream_active = true,
+                                PlayerEvent::End { .. } => self.player_stream_active = false,
+                                PlayerEvent::Audio { .. } => {
+                                    if !self.player_stream_active {
+                                        return Err(DriverError::Protocol);
+                                    }
+                                    if player.state_sent && player.available {
+                                        self.player_mapping()?;
+                                    }
+                                }
+                                PlayerEvent::Clear { .. } => {}
+                            }
+                        }
+                    }
+                    self.shared
+                        .publish_player(SessionEvent::Message(message), metadata)?;
+                }
                 event => self.shared.publish(event)?,
             }
         }
@@ -927,6 +1167,82 @@ impl Pump {
         let now = self.clock.domain.sample()?;
         let observation = self.clock.advance(self.session.clock_context(), now)?;
         self.shared.lock().observation.clock = observation;
+        let player = self.shared.lock().observation.player;
+        if let Some(player) = player {
+            if !self.services.playback_authorized() {
+                return Err(DriverError::Admission);
+            }
+            if player.state_sent || self.player_state.is_some() {
+                self.player_mapping()?;
+            }
+        }
+        Ok(())
+    }
+    fn player_mapping(&self) -> Result<UsableMapping, DriverError> {
+        if !self.services.playback_authorized() {
+            return Err(DriverError::Admission);
+        }
+        let o = self.shared.lock().observation.clone();
+        let mapping = o
+            .clock
+            .and_then(|c| c.usable_mapping)
+            .ok_or(DriverError::Clock)?;
+        let now = self.clock.domain.sample()?.microseconds();
+        mapping
+            .map_client_time(now, now, mapping.binding())
+            .map_err(|_| DriverError::Clock)?;
+        Ok(mapping)
+    }
+    fn send_player_state(&mut self, update: StateUpdate) -> Result<(), DriverError> {
+        self.player_mapping()?;
+        check_player_state(
+            &self.shared.lock().observation,
+            update.generation,
+            update.mapping,
+        )?;
+        if self.player_state.is_some() {
+            return Err(DriverError::Busy);
+        }
+        if !self.session.probe_write_ready() {
+            return self.shared.publish(SessionEvent::Unsent(update.message()));
+        }
+        match self
+            .session
+            .send(update.message(), self.clock.domain.milliseconds())
+        {
+            Ok(()) => {
+                self.player_state = Some(update);
+                Ok(())
+            }
+            Err(rejected) => self.shared.publish(SessionEvent::Unsent(rejected.message)),
+        }
+    }
+    fn check_pending_player_state(&self) -> Result<(), DriverError> {
+        if let Some(update) = self.player_state {
+            self.player_mapping()?;
+            check_player_state(
+                &self.shared.lock().observation,
+                update.generation,
+                update.mapping,
+            )?;
+        }
+        Ok(())
+    }
+    fn player_state_written(&mut self) -> Result<(), DriverError> {
+        if !self.session.application_pending()
+            && let Some(update) = self.player_state.take()
+        {
+            self.player_mapping()?;
+            let mut s = self.shared.lock();
+            check_player_state(&s.observation, update.generation, update.mapping)?;
+            let player = s
+                .observation
+                .player
+                .as_mut()
+                .ok_or(DriverError::Admission)?;
+            player.state_sent = true;
+            player.available = update.available;
+        }
         Ok(())
     }
     fn update(&self, pending: bool, transport_deadline: Option<Instant>) {
@@ -968,6 +1284,7 @@ async fn run(
     clock: ClockDriver,
     services: Box<dyn SendspinServices>,
     shared: Arc<Shared>,
+    profile: Profile,
 ) -> Result<(), DriverError> {
     let start = Instant::now();
     let l = shared.limits;
@@ -1015,6 +1332,9 @@ async fn run(
         admission: None,
         candidate: None,
         commit: None,
+        profile,
+        player_stream_active: false,
+        player_state: None,
     };
     let mut pending: Option<(PendingWrite, Instant)> = None;
     let mut ping_due = Instant::now() + Duration::from_millis(l.ping_ms);
@@ -1076,6 +1396,7 @@ async fn run(
                     .cancel_pairing(p.clock.domain.milliseconds())
                     .map_err(session_error)
                     .and_then(|e| p.events(e)),
+                Command::PlayerState(update) => p.send_player_state(update),
             };
             drop(credit);
             if let Err(e) = result {
@@ -1083,6 +1404,9 @@ async fn run(
             }
         }
         if let Err(error) = p.sync_clock() {
+            break error;
+        }
+        if let Err(error) = p.check_pending_player_state() {
             break error;
         }
         let timer = tokio::time::sleep(Duration::from_millis(5));
@@ -1172,7 +1496,9 @@ async fn run(
                                 )
                                 .map_err(session_error);
                             shared.lock().observation.writes_completed = count;
-                            events.and_then(|e| p.events(e))
+                            events
+                                .and_then(|e| p.events(e))
+                                .and_then(|()| p.player_state_written())
                         } else {
                             let _ = p.session.complete_write(
                                 w.write.id,
@@ -1332,8 +1658,9 @@ async fn run(
 #[cfg(test)]
 mod resource_tests {
     use super::*;
-    fn shared() -> Arc<Shared> {
+    pub(super) fn shared() -> Arc<Shared> {
         Arc::new(Shared {
+            domain: super::super::MonotonicDomain::new(1).unwrap(),
             limits: DriverLimits {
                 events: 1,
                 event_bytes: 4,
@@ -1368,6 +1695,7 @@ mod resource_tests {
                     received_messages: 0,
                     last_arrival: None,
                     clock: None,
+                    player: None,
                 },
             }),
         })
@@ -1643,3 +1971,7 @@ fn poll_clock_write<S: AsyncRead + AsyncWrite + Unpin>(
 #[cfg(test)]
 #[path = "../../tests/support/sendspin_clock_writer.rs"]
 mod clock_writer_tests;
+
+#[cfg(test)]
+#[path = "worker/player_tests.rs"]
+mod player_transport_tests;

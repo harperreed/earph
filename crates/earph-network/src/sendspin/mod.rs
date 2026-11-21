@@ -1,8 +1,10 @@
-// ABOUTME: Owns explicitly admitted roleless outbound Sendspin transport.
+// ABOUTME: Owns explicitly admitted outbound Sendspin connection profiles.
 // ABOUTME: Keeps credentials, source authority, and output outside application startup.
 mod clock;
 pub use clock::{ClockConfiguration, ClockObservation, MonotonicDomain};
+mod player;
 mod policy;
+pub use player::PlayerObservation;
 mod worker;
 pub use policy::SendspinConnectPermit;
 pub use worker::{
@@ -45,6 +47,10 @@ use std::{future::Future, pin::Pin};
 pub type Operation<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 /// The caller owns native policy and persistence. No production store is selected here.
 pub trait SendspinServices: Send + 'static {
+    /// Current native playback policy only; never source ownership or output readiness.
+    fn playback_authorized(&self) -> bool {
+        false
+    }
     fn admission(&mut self, proposal: AdmissionProposal) -> Operation<Result<bool, DriverError>>;
     fn candidate(&mut self, id: AttemptId) -> Operation<Result<Candidate, DriverError>>;
     /// Once called, this operation stays owned until its exact result returns, even after socket close.
@@ -105,6 +111,14 @@ pub fn roleless_session_limits() -> SessionLimits {
 }
 impl DriverLimits {
     pub fn validate(&self, s: SessionLimits) -> Result<(), DriverError> {
+        self.validate_with_metadata(s, 0)
+    }
+    /// Player cache storage shares the existing total allowance; core-only validation stays unchanged.
+    fn validate_with_metadata(
+        &self,
+        s: SessionLimits,
+        metadata_bytes: usize,
+    ) -> Result<(), DriverError> {
         let d = Self::default();
         for (n, max) in [
             (self.connect_ms, d.connect_ms),
@@ -163,7 +177,7 @@ impl DriverLimits {
             8192,
         ]
         .into_iter()
-        .try_fold(0usize, |sum, n| sum.checked_add(n))
+        .try_fold(metadata_bytes, |sum, n| sum.checked_add(n))
         .ok_or(DriverError::Budget)?;
         if required > self.total_payload_bytes {
             return Err(DriverError::Budget);

@@ -68,10 +68,17 @@ Do not claim any of these gates from source inspection or a software file/null c
 The pure Sendspin timeline is integrated and passes the full repository check.
 Its independent review cleared both findings after focused fixes and failing-baseline regressions.
 See the [scoped evidence](../../evidence/network/sendspin-player-timeline-20261121.json).
-Operational Network admission and Engine scheduling remain the next Sendspin work.
+Typed Network admission and bounded player leases are integrated after independent review.
+Their paired native policy grants no source or output authority.
+See the [transport evidence](../../evidence/network/sendspin-player-transport-20261121.json).
+Engine ownership, scheduling, and actual output qualification remain the next Sendspin work.
 DSD Engine implementation continues in its separate worktree from `4d8f6d5`.
 Native output timing adapters passed source review and the full Linux check; Mac compilation remains pending.
 See the [timing evidence](../../evidence/local-playback/native-timing-observations-20261121.json).
 UPnP's independent SDK passed its native API probe; current-owner controller qualification remains pending.
 Root continues release integration while the dashboard records verified milestones.
 Git commits and scoped evidence record completed work; this document defines the continuing execution boundary.
+
+The native Mac build now shares one deployment target across Rust, C, and Swift.
+The actual CI mismatch remains retained; native compilation must verify the fix.
+See the [build evidence](../../evidence/packaging/macos-deployment-target-20261121.json).

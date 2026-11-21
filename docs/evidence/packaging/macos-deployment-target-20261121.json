@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "scope": "Shared compiler deployment target; actual Mac build remains pending.",
+  "source_parent": "ef8760281e4486f1facf7d3be3be47b8faa918c3",
+  "source_files": [
+    {
+      "file": "scripts/build-macos-desktop",
+      "sha256": "235c55608d961c21a9e7a189d237f7f9b6730345d04ac91db05fcd687e37c5ac"
+    },
+    {
+      "file": "scripts/macos-deployment-target.sh",
+      "sha256": "2eb416b9156148e45b856055cef989fdc36d511493bfebb66cc55b7a86db8208"
+    },
+    {
+      "file": "crates/earph-desktop/tests/macos_build.rs",
+      "sha256": "569fdcd656ac7f9891a322dd1f1fab4915bb752f6cfcd274a4740e30e33fa755"
+    }
+  ],
+  "cause": "Actual CI linked SDK-default 26.5 Rust/C objects against Swift default 26.0.",
+  "baseline": {
+    "run_id": 44921884723,
+    "job_id": 136899508862,
+    "step": "Check standard macOS controls and real controller",
+    "result": "Linker warning gate rejected mismatched deployment versions."
+  },
+  "behavior": "Export one validated deployment version for Rust/C and pass its explicit architecture/version target to every Swift compilation. Preserve explicit overrides and the strict warning gate.",
+  "verification": {
+    "bash_behavior_tests": {
+      "red": {
+        "exit": 101,
+        "log_sha256": "791470785ccd6b554cbd18c00d6c307e094f96fa2264c4dca98fa2a6698dfb87"
+      },
+      "green": {
+        "exit": 0,
+        "log_sha256": "4af7d6b33cdf6b2a6203b4cb2b7812b2b55c567c11896840a201ce341db2d747"
+      }
+    },
+    "canonical": {
+      "exit": 0,
+      "log_sha256": "da2a58bec55187a441c42a7a41ae4ccbbd338c383bc46c1b43e79d9570d1ecad",
+      "source_files_verified": 2088
+    },
+    "native_mac_build": null
+  },
+  "limits": [
+    "Linux tests execute real Bash export and validation behavior.",
+    "No fake Darwin or compiler mode substitutes for actual Mac CI.",
+    "The shared target does not establish a supported OS matrix or signing."
+  ]
+}

@@ -314,3 +314,31 @@ fn another_authenticated_connection_cannot_answer_the_pending_probe() {
     assert_eq!(observed.snapshot.diagnostics.timeouts, 1);
     assert_eq!(observed.snapshot.count, 0);
 }
+
+#[test]
+fn copied_mapping_uses_current_filter_identity_and_expires_without_new_state() {
+    let (mut session, mut peer) = active();
+    let mut clock = clock(1);
+    let observed = map(&mut clock, &mut session, &mut peer);
+    let facts = observed.usable_mapping.unwrap();
+    assert_eq!(facts.binding(), observed.snapshot.binding);
+    assert_eq!(facts.mapping_revision(), observed.snapshot.mapping_revision);
+    assert_eq!(
+        facts
+            .map_server_time(1_020_000, 1_007_105, facts.binding())
+            .unwrap()
+            .time_us,
+        1_010_000
+    );
+    assert!(
+        facts
+            .map_server_time(1_020_000, facts.expires_at_us() + 1, facts.binding())
+            .is_err()
+    );
+    let stale = clock
+        .advance(session.clock_context(), stamp(1_200_106))
+        .unwrap()
+        .unwrap();
+    assert!(stale.usable_mapping.is_none());
+    assert_eq!(stale.snapshot.count, 1);
+}

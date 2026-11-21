@@ -1,4 +1,4 @@
-// ABOUTME: Owns live roleless Sendspin clock probes in the existing Network pump.
+// ABOUTME: Owns live Sendspin clock probes in the existing Network pump.
 // ABOUTME: Binds captured timestamps to authenticated sessions without granting output authority.
 #[cfg(test)]
 #[path = "../../tests/support/sendspin_clock.rs"]
@@ -10,7 +10,7 @@ use earph_sendspin::{
     session::ClockContext,
     timing::{
         Action, Binding, MAX_TIME_US, ProbeToken, ServerTime, Snapshot, TimePolicy, TimeSync,
-        TimingError,
+        TimingError, UsableMapping,
     },
 };
 use std::{fmt, sync::Arc, time::Instant};
@@ -62,6 +62,8 @@ pub struct ClockConfiguration {
 pub struct ClockObservation {
     pub domain_generation: u64,
     pub snapshot: Snapshot,
+    /// Immutable facts from the sole filter; these grant no playback permission.
+    pub usable_mapping: Option<UsableMapping>,
 }
 impl fmt::Debug for ClockObservation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -248,6 +250,7 @@ impl ClockDriver {
                     .map(|snapshot| ClockObservation {
                         domain_generation: self.domain.generation(),
                         snapshot,
+                        usable_mapping: sync.usable_mapping(now.microseconds()).ok(),
                     })
                     .map_err(clock_error)
             })

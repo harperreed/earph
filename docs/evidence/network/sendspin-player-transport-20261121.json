@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "scope": "Explicit typed Sendspin transport and paired native admission. Engine scheduling remains pending.",
+  "source_parent": "ef8760281e4486f1facf7d3be3be47b8faa918c3",
+  "source_files": [
+    {
+      "file": "crates/earph-network/src/sendspin/mod.rs",
+      "sha256": "5f04b34fee89953be8ef7d8f0263e1dd3078a330df31881dd0e8a5f107a2a80c"
+    },
+    {
+      "file": "crates/earph-network/src/sendspin/clock.rs",
+      "sha256": "bfe0c41d279bc683f71bd12fa0e62fcbeee1935c6422fa40f60d2b81e75ad545"
+    },
+    {
+      "file": "crates/earph-network/src/sendspin/player.rs",
+      "sha256": "fa41b4d7ae69bb01347c76a1c618c71183a14cc8ccc106d9ba4274a96746a8f5"
+    },
+    {
+      "file": "crates/earph-network/src/sendspin/worker.rs",
+      "sha256": "351a412799238a48700b0542667a70648368a613b4b475168cf1d1f67ac44732"
+    },
+    {
+      "file": "crates/earph-network/src/sendspin/worker/player_tests.rs",
+      "sha256": "a1c46ea54fe273000981237ed9ec418a7e38a185fc7e0b9d80d3e6f74aa7ea12"
+    },
+    {
+      "file": "crates/earph-network/tests/support/sendspin_clock.rs",
+      "sha256": "dc23baaf8d7c68fa1a39eaa8f9abe607a60c94e6e2c00b3dad124a35221098bf"
+    },
+    {
+      "file": "crates/earph-network/tests/sendspin_player_transport.rs",
+      "sha256": "ec32f5b1b4d7f12c516fd0eb1fd2a1b91d3761739eac8f8c04566e381a503204"
+    },
+    {
+      "file": "crates/earph-engine/src/sendspin_credentials.rs",
+      "sha256": "82f7eecb876c36489a66a517c8b2273211187130c9aa2f1deebe0df1a37b2dab"
+    },
+    {
+      "file": "crates/earph-engine/tests/sendspin_credentials_process.rs",
+      "sha256": "91357631fb48576b94e05d091d789562542c7fa7b168a3a5dc7d4bbbe3c8f22f"
+    },
+    {
+      "file": "crates/earph-sendspin/src/session.rs",
+      "sha256": "86220d42dd9296b9f0c4d3d9789b00bb5df38ec5950e7ec5ac83706c916ac5d9"
+    },
+    {
+      "file": "crates/earph-network/src/upnp/events.rs",
+      "sha256": "a67c7f09f3a0cd4ee107e857d66e99aa18581723b52a5e28e03cbb65a65f87de"
+    },
+    {
+      "file": "crates/earph-network/src/upnp/mod.rs",
+      "sha256": "f239440a66463e715c389340a4334952338db09ca82b0b9352c5a5b6ad2cba77"
+    }
+  ],
+  "verification": {
+    "focused_checks": [
+      {
+        "name": "final-format",
+        "exit": 0,
+        "summaries": []
+      },
+      {
+        "name": "final-clippy",
+        "exit": 0,
+        "summaries": []
+      },
+      {
+        "name": "final-network-unit",
+        "exit": 0,
+        "summaries": [
+          "test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.00s"
+        ]
+      },
+      {
+        "name": "final-network-wire",
+        "exit": 0,
+        "summaries": [
+          "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+          "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+          "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.63s",
+          "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.56s",
+          "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s"
+        ]
+      },
+      {
+        "name": "final-native-unit",
+        "exit": 0,
+        "summaries": [
+          "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 182 filtered out; finished in 0.11s"
+        ]
+      },
+      {
+        "name": "final-native-provider",
+        "exit": 0,
+        "summaries": [
+          "Sendspin credential process checks passed"
+        ]
+      },
+      {
+        "name": "final-native-transport",
+        "exit": 0,
+        "summaries": [
+          "real transport with synthetic helper: gated-transport passed",
+          "real transport with synthetic helper: gated-uncertain-transport passed"
+        ]
+      },
+      {
+        "name": "final-native-provenance",
+        "exit": 0,
+        "summaries": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.74s"
+        ]
+      },
+      {
+        "name": "final-batch",
+        "exit": 0,
+        "summaries": [
+          "test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.00s",
+          "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s",
+          "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 182 filtered out; finished in 0.11s",
+          "Sendspin credential process checks passed",
+          "real transport with synthetic helper: gated-transport passed",
+          "real transport with synthetic helper: gated-uncertain-transport passed",
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.74s"
+        ]
+      }
+    ],
+    "source_manifest_sha256": "377eb5bbc248bdb988988ec1ffc7fce32963d543aca054b84344006036d2111f",
+    "independent_focused_rereview_sha256": "3d04a3910e50de91e5c309fe689a6438122e8c6601f8b7bb51fec73e7bebf6c3",
+    "canonical": {
+      "exit": 0,
+      "log_sha256": "da2a58bec55187a441c42a7a41ae4ccbbd338c383bc46c1b43e79d9570d1ecad",
+      "source_files_verified": 2088
+    }
+  },
+  "contracts": [
+    "One authenticated bounded worker and ordered event lease.",
+    "Retain payload and metadata credits until each lease releases.",
+    "Typed lifecycle consumers allocate no JSON copies.",
+    "Rotation replies cannot acknowledge an unsent player state.",
+    "Paired native policy grants no source or output authority."
+  ],
+  "remaining": [
+    "Engine source takeover and output scheduling",
+    "Output timing, latency ledger, and live correction",
+    "Authenticated producer to actual owner/output qualification",
+    "Independent-clock and physical synchronization"
+  ]
+}

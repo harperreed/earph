@@ -687,6 +687,8 @@ fn chunked_complete(bytes: &[u8], eof: bool) -> Result<bool, RendererDeliveryOut
     }
 }
 #[cfg(test)]
+pub(crate) use tests::trace_allocations;
+#[cfg(test)]
 mod tests {
     use super::*;
     use earph_core::{ids::*, remote_volume::RemoteVolume};
@@ -702,6 +704,32 @@ mod tests {
         overflow: bool,
     }
     thread_local! {static ALLOCATIONS:std::cell::RefCell<AllocationTrace>=const{std::cell::RefCell::new(AllocationTrace{enabled:false,entries:[(0,0);512],live:0,peak:0,overflow:false})};}
+    /// Measure only the current thread, after constructing producer and transport fixtures.
+    pub(crate) fn trace_allocations<T>(operation: impl FnOnce() -> T) -> (T, usize, bool) {
+        ALLOCATIONS.with(|trace| {
+            let mut trace = trace.borrow_mut();
+            assert!(!trace.enabled);
+            trace.entries.fill((0, 0));
+            trace.live = 0;
+            trace.peak = 0;
+            trace.overflow = false;
+            trace.enabled = true;
+        });
+        struct Disable;
+        impl Drop for Disable {
+            fn drop(&mut self) {
+                ALLOCATIONS.with(|trace| trace.borrow_mut().enabled = false);
+            }
+        }
+        let guard = Disable;
+        let result = operation();
+        drop(guard);
+        let (peak, overflow) = ALLOCATIONS.with(|trace| {
+            let trace = trace.borrow();
+            (trace.peak, trace.overflow)
+        });
+        (result, peak, overflow)
+    }
     impl AllocationTrace {
         fn remove(&mut self, pointer: usize) {
             if let Some(entry) = self.entries.iter_mut().find(|(p, _)| *p == pointer) {

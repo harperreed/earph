@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-21T16:23:55.802Z",
-  "headline": "Doctor Biz confirms local PCM audio; the deployed Stop bug is under correction.",
-  "focus": "Fix and verify Stop ownership · Resume Mac delivery when Orbit reconnects · Continue the whole Earph build",
-  "summary": "Doctor Biz confirms “Yes, audio plays” from the installed native app on Orbit. This confirms hearing for that local PCM path only; it does not qualify synchronization, DSD, DAC preservation, or other routes. Doctor Biz then reports that the Stop button does nothing. Root sends one fresh fenced Stop to the deployed owner. The request is accepted, and fresh State confirms Idle, muted, no error, and output closure. The GUI Stop bug is reproduced against a real isolated owner: stale revisions can refuse Stop, and failed safety outcomes can remain silent. An initial correction passes 44 focused tests. Independent review then finds a P1 State-request coalescing and ownership edge. Deterministic overlap and two-Stop regressions are being added before correction. The installed GUI has not been updated; the fix is not yet qualified or delivered. Orbit is currently offline in the device-status readback, and strict SSH times out. Mac build and deployment wait for connectivity; Linux work continues. No access or permission change is made. The reviewed native adapter now has a fresh Linux suite with 105 passes, zero failures, two ignores, and actual exit 0. This separately resolves the earlier missing numeric-exit evidence. Its Mac noStart compile gate has not run. The reviewed pure Sendspin timeline retains its integrated Linux proof. Operational Sendspin, DSD Engine work, controller interoperability, signing, and first-release acceptance remain in progress.",
+  "updated_at": "2026-11-21T17:10:31.048Z",
+  "headline": "Stop fix published and Linux checks pass; Orbit deployment remains pending.",
+  "focus": "Finish Mac build and Stop delivery · Integrate reviewed transport work · Continue DSD and first-release qualification",
+  "summary": "The Stop correction and reviewed native timing adapter sources are pushed in ef87602. Full Linux scripts/check exits 0 with all 2,079 source hashes verified: 1,807 reported passes, zero failures, 22 ignores, and 194 groups. Counts include nested results, not unique tests. The Stop correction is not installed on Orbit. Orbit was last observed offline; Mac build and delivery remain pending. The existing installed GUI must not be treated as corrected. Doctor Biz’s hearing confirmation covers the selected local PCM path only. The final twelve-file Sendspin player transport correction passes 49 Network unit cases, 27 wire cases, and the credential/provider/native-transport batch. Focused independent re-review is clear. Root integration remains pending; this is not operational Sendspin qualification. Root is correcting a Mac CI linker deployment-target mismatch. The strict warning gate remains enabled. No passing current Mac build or Stop deployment is claimed. The DSD reviewer’s P2 ownership correction remains active and incomplete. First release and the whole Earph build continue; operational Sendspin, physical DSD, synchronization, and broader interoperability remain open.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -31,7 +31,7 @@
     },
     "M1": {
       "state": "active",
-      "detail": "Doctor Biz confirms “Yes, audio plays” from the installed native app on Orbit. This confirms hearing for that local PCM path only; it does not qualify synchronization, DSD, DAC preservation, or other routes. Doctor Biz then reports that the Stop button does nothing. Root sends one fresh fenced Stop to the deployed owner. The request is accepted, and fresh State confirms Idle, muted, no error, and output closure. The GUI Stop bug is reproduced against a real isolated owner: stale revisions can refuse Stop, and failed safety outcomes can remain silent. The GUI correction and broader playback qualification remain open."
+      "detail": "Doctor Biz confirms audio on the installed Orbit local PCM path. The Stop correction is published and Linux-qualified, but not installed on Orbit. Mac verification, deployment, and broader playback acceptance remain open."
     },
     "M2": {
       "state": "active",
@@ -136,8 +136,8 @@
       "detail": "Both same-profile reload and stale file-batch receipt defects have genuine Mac REDs, frozen corrections, targeted independent clearance, and actual runtime GREENs inside the final six-check candidate."
     },
     {
-      "title": "Integrated pure player timeline passes full Linux checks",
-      "detail": "The pure Sendspin player timeline is imported into Root after 59 focused tests pass and independent re-review clears both findings. The integrated full scripts/check exits 0, with all 2,078 source hashes verified. It reports 1,802 passes, zero failures, 22 ignores, and 194 groups, including nested results rather than unique-test totals. This is pure timeline proof; operational Sendspin playback, native output, and physical synchronization remain unqualified."
+      "title": "Published Stop and timing sources pass full Linux checks",
+      "detail": "The Stop correction and reviewed native timing adapter sources are pushed in ef87602. Full Linux scripts/check exits 0 with all 2,079 source hashes verified: 1,807 reported passes, zero failures, 22 ignores, and 194 groups. Counts include nested results, not unique tests. The installed Orbit GUI and current Mac build remain outside this qualification."
     },
     {
       "title": "All six current Mac checks pass with both real regressions GREEN",
@@ -1008,48 +1008,48 @@
   ],
   "active": [
     {
-      "title": "Correct and verify Stop before updating the installed GUI",
-      "detail": "Doctor Biz then reports that the Stop button does nothing. Root sends one fresh fenced Stop to the deployed owner. The request is accepted, and fresh State confirms Idle, muted, no error, and output closure. The GUI Stop bug is reproduced against a real isolated owner: stale revisions can refuse Stop, and failed safety outcomes can remain silent. An initial correction passes 44 focused tests. Independent review then finds a P1 State-request coalescing and ownership edge. Deterministic overlap and two-Stop regressions are being added before correction. The installed GUI has not been updated; the fix is not yet qualified or delivered."
+      "title": "Build and deliver the published Stop correction on Mac",
+      "detail": "The Stop correction and reviewed native timing adapter sources are pushed in ef87602. Full Linux scripts/check exits 0 with all 2,079 source hashes verified: 1,807 reported passes, zero failures, 22 ignores, and 194 groups. Counts include nested results, not unique tests. The Stop correction is not installed on Orbit. Orbit was last observed offline; Mac build and delivery remain pending. The existing installed GUI must not be treated as corrected. Doctor Biz’s hearing confirmation covers the selected local PCM path only. Root is correcting a Mac CI linker deployment-target mismatch. The strict warning gate remains enabled. No passing current Mac build or Stop deployment is claimed."
     },
     {
-      "title": "Resume Mac build and delivery after connectivity returns",
-      "detail": "Orbit is currently offline in the device-status readback, and strict SSH times out. Mac build and deployment wait for connectivity; Linux work continues. No access or permission change is made. The reviewed native adapter now has a fresh Linux suite with 105 passes, zero failures, two ignores, and actual exit 0. This separately resolves the earlier missing numeric-exit evidence. Its Mac noStart compile gate has not run."
+      "title": "Integrate the reviewed Sendspin player transport correction",
+      "detail": "The final twelve-file Sendspin player transport correction passes 49 Network unit cases, 27 wire cases, and the credential/provider/native-transport batch. Focused independent re-review is clear. Root integration remains pending; this is not operational Sendspin qualification."
     },
     {
-      "title": "Continue Sendspin, DSD, and whole-project work",
-      "detail": "The pure Sendspin timeline has 59 focused passes, clear independent re-review, and passing integrated scripts/check under its original source scope. Operational Sendspin playback, physical synchronization, DSD Engine integration, actual controller scenarios, signing, and release remain open."
+      "title": "Finish the DSD ownership correction and release work",
+      "detail": "The independent reviewer’s P2 ownership correction is active and not yet complete. DSD Engine integration, physical carriage, protocol interoperability, signing, and whole-release acceptance remain open."
     }
   ],
   "pending": [
     {
-      "title": "The installed Stop button remains unfixed",
-      "detail": "An initial correction passes 44 focused tests. Independent review then finds a P1 State-request coalescing and ownership edge. Deterministic overlap and two-Stop regressions are being added before correction. The installed GUI has not been updated; the fix is not yet qualified or delivered. Root’s one direct fenced Stop safely reaches Idle/muted with confirmed closure; it does not prove the GUI correction."
+      "title": "The installed Orbit GUI still needs the Stop update",
+      "detail": "The Stop correction is not installed on Orbit. Orbit was last observed offline; Mac build and delivery remain pending. The existing installed GUI must not be treated as corrected. Doctor Biz’s hearing confirmation covers the selected local PCM path only. Root’s earlier one direct fenced Stop safely reached Idle/muted with confirmed output closure; it did not update or qualify the GUI."
     },
     {
-      "title": "Orbit connectivity blocks Mac verification and delivery",
-      "detail": "Orbit is currently offline in the device-status readback, and strict SSH times out. Mac build and deployment wait for connectivity; Linux work continues. No access or permission change is made. No Mac noStart compilation or new GUI deployment is claimed."
+      "title": "Mac build, warnings, and deployment remain gated",
+      "detail": "Root is correcting a Mac CI linker deployment-target mismatch. The strict warning gate remains enabled. No passing current Mac build or Stop deployment is claimed. Orbit was last observed offline. No new Mac native timing, noStart, or deployment pass is inferred from Linux checks."
     },
     {
-      "title": "Hearing confirmation is scoped to one local PCM path",
-      "detail": "Doctor Biz confirms “Yes, audio plays” from the installed native app on Orbit. This confirms hearing for that local PCM path only; it does not qualify synchronization, DSD, DAC preservation, or other routes. First release remains in progress. Browser tools remain unavailable; API-byte verification and Node checks are separate from visual testing."
+      "title": "First release remains in progress",
+      "detail": "Hearing is confirmed only for the selected Orbit local PCM path. Reviewed transport source, pure player timing, and software DSD evidence do not qualify operational Sendspin, synchronization, physical DSD, every output, signing, or release."
     }
   ],
   "activity": [
     {
-      "title": "Doctor Biz confirms audio on the installed Orbit app",
-      "detail": "Doctor Biz confirms “Yes, audio plays” from the installed native app on Orbit. This confirms hearing for that local PCM path only; it does not qualify synchronization, DSD, DAC preservation, or other routes."
+      "title": "Stop and native timing source checkpoint is pushed",
+      "detail": "The Stop correction and reviewed native timing adapter sources are pushed in ef87602. Full Linux scripts/check exits 0 with all 2,079 source hashes verified: 1,807 reported passes, zero failures, 22 ignores, and 194 groups. Counts include nested results, not unique tests."
     },
     {
-      "title": "One direct Stop reaches Idle with output closed",
-      "detail": "Doctor Biz then reports that the Stop button does nothing. Root sends one fresh fenced Stop to the deployed owner. The request is accepted, and fresh State confirms Idle, muted, no error, and output closure. The GUI Stop bug is reproduced against a real isolated owner: stale revisions can refuse Stop, and failed safety outcomes can remain silent."
+      "title": "Orbit deployment stays separate from published source",
+      "detail": "The Stop correction is not installed on Orbit. Orbit was last observed offline; Mac build and delivery remain pending. The existing installed GUI must not be treated as corrected. Doctor Biz’s hearing confirmation covers the selected local PCM path only."
     },
     {
-      "title": "Independent review blocks the initial GUI Stop correction",
-      "detail": "An initial correction passes 44 focused tests. Independent review then finds a P1 State-request coalescing and ownership edge. Deterministic overlap and two-Stop regressions are being added before correction. The installed GUI has not been updated; the fix is not yet qualified or delivered."
+      "title": "Transport correction clears focused review before integration",
+      "detail": "The final twelve-file Sendspin player transport correction passes 49 Network unit cases, 27 wire cases, and the credential/provider/native-transport batch. Focused independent re-review is clear. Root integration remains pending; this is not operational Sendspin qualification."
     },
     {
-      "title": "Linux work continues while Orbit is offline",
-      "detail": "Orbit is currently offline in the device-status readback, and strict SSH times out. Mac build and deployment wait for connectivity; Linux work continues. No access or permission change is made. The reviewed native adapter now has a fresh Linux suite with 105 passes, zero failures, two ignores, and actual exit 0. This separately resolves the earlier missing numeric-exit evidence. Its Mac noStart compile gate has not run."
+      "title": "Mac linker and DSD ownership work continue",
+      "detail": "Root is correcting a Mac CI linker deployment-target mismatch. The strict warning gate remains enabled. No passing current Mac build or Stop deployment is claimed. The DSD P2 ownership correction remains active; no final DSD or release claim is made."
     }
   ]
 }

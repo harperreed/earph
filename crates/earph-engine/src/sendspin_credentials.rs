@@ -1,4 +1,4 @@
-// ABOUTME: Bridges explicit native credential ownership to roleless Sendspin services.
+// ABOUTME: Bridges native credential ownership to explicit Sendspin policies.
 // ABOUTME: Retains blocking work and uncertainty outside Network futures and Engine startup.
 use earph_credentials::{CredentialStore, NativeConfig, StoreError};
 use earph_network::sendspin::{DriverError, DriverLimits, Operation, SendspinServices};
@@ -69,6 +69,7 @@ impl std::error::Error for BridgeError {}
 pub struct AdmissionPolicy {
     idle: bool,
     pairing: bool,
+    playback_server: Option<[u8; 32]>,
     expires: Option<Instant>,
     revoked: Arc<AtomicBool>,
 }
@@ -87,6 +88,7 @@ impl AdmissionPolicy {
         Self {
             idle: false,
             pairing: false,
+            playback_server: None,
             expires: None,
             revoked: Arc::new(AtomicBool::new(false)),
         }
@@ -95,6 +97,7 @@ impl AdmissionPolicy {
         Self {
             idle,
             pairing,
+            playback_server: None,
             expires: Some(expires),
             revoked: Arc::new(AtomicBool::new(false)),
         }
@@ -102,15 +105,29 @@ impl AdmissionPolicy {
     pub fn revoke(&self) {
         self.revoked.store(true, Ordering::Release);
     }
+    /// Native policy for one already paired server; grants no source or output authority.
+    pub fn paired_playback(server_public: [u8; 32], expires: Instant) -> Self {
+        Self {
+            idle: true,
+            pairing: false,
+            playback_server: Some(server_public),
+            expires: Some(expires),
+            revoked: Arc::new(AtomicBool::new(false)),
+        }
+    }
     fn live(&self) -> bool {
         !self.revoked.load(Ordering::Acquire) && self.expires.is_some_and(|e| Instant::now() < e)
     }
     fn permits(&self, roles: &[String], activities: &[String]) -> bool {
         self.live()
-            && roles.is_empty()
-            && match activities {
-                [] => self.idle,
-                [activity] if activity == "pairing" => self.pairing,
+            && match (roles, activities) {
+                ([], []) => self.idle,
+                ([], [activity]) if activity == "pairing" => self.pairing,
+                ([], [activity]) if activity == "playback" => self.playback_server.is_some(),
+                ([role], []) if role == "player@v1" => self.idle && self.playback_server.is_some(),
+                ([role], [activity]) if role == "player@v1" && activity == "playback" => {
+                    self.playback_server.is_some()
+                }
                 _ => false,
             }
     }
@@ -254,6 +271,7 @@ struct Completion<T, E> {
     lost: fn() -> Result<T, E>,
     refused: fn(CompletionRefusal) -> Result<T, E>,
     policy: Option<AdmissionPolicy>,
+    playback_lease: Option<Arc<Lease>>,
 }
 impl<T, E> Completion<T, E> {
     fn refusal(&self) -> Option<CompletionRefusal> {
@@ -268,6 +286,12 @@ impl<T, E> Completion<T, E> {
             .as_ref()
             .filter(|policy| !policy.live())
             .map(|_| CompletionRefusal::Policy)
+            .or_else(|| {
+                self.playback_lease
+                    .as_ref()
+                    .filter(|lease| !lease.playback_authorized())
+                    .map(|_| CompletionRefusal::Policy)
+            })
     }
     fn cancel_receiver(&mut self) {
         let reservation = self.reservation.as_ref().unwrap();
@@ -363,6 +387,7 @@ fn completion<T, E>(
             lost,
             refused,
             policy,
+            playback_lease: None,
         },
     )
 }
@@ -370,6 +395,30 @@ struct Lease {
     shared: Arc<Shared>,
     generation: u64,
     policy: AdmissionPolicy,
+    playback_record: Option<([u8; 32], [u8; 32])>,
+}
+impl Lease {
+    fn playback_authorized(&self) -> bool {
+        let state = self.shared.lock();
+        self.policy.live()
+            && self.playback_record.is_some()
+            && state.observation.lease_active
+            && !state.stopping
+            && !state.observation.uncertain
+    }
+    fn permits(&self, proposal: &AdmissionProposal) -> bool {
+        if !self.policy.permits(proposal.roles(), proposal.activities()) {
+            return false;
+        }
+        if proposal.activities() != ["playback"] {
+            return true;
+        }
+        self.playback_authorized()
+            && proposal.connection_generation() == self.generation
+            && proposal.paired_identity().is_some_and(|identity| {
+                self.playback_record == Some((identity.server_public(), identity.credential_id()))
+            })
+    }
 }
 impl Drop for Lease {
     fn drop(&mut self) {
@@ -461,12 +510,15 @@ fn driver_error(error: BridgeError) -> DriverError {
     }
 }
 impl SendspinServices for CredentialServices {
+    fn playback_authorized(&self) -> bool {
+        self.lease.playback_authorized()
+    }
     fn admission(&mut self, proposal: AdmissionProposal) -> Operation<Result<bool, DriverError>> {
         let reservation = match self.lease.shared.reserve(PendingKind::Admission, false) {
             Ok(r) => r,
             Err(e) => return Box::pin(async move { Err(driver_error(e)) }),
         };
-        let (work, future) = completion(
+        let (work, mut future) = completion(
             reservation,
             || Err(DriverError::Internal),
             |refusal| match refusal {
@@ -475,6 +527,9 @@ impl SendspinServices for CredentialServices {
             },
             Some(self.lease.policy.clone()),
         );
+        if proposal.activities() == ["playback"] {
+            future.playback_lease = Some(self.lease.clone());
+        }
         send(
             &self.sender,
             Command::Admission(proposal, self.lease.clone(), work),
@@ -873,6 +928,14 @@ fn supervise(configuration: StoreConfiguration, receiver: Receiver<Command>, sha
                     let lease = Arc::new(Lease {
                         shared: shared.clone(),
                         generation: config.connection_generation,
+                        playback_record: policy.playback_server.and_then(|server| {
+                            document
+                                .catalog()
+                                .records()
+                                .iter()
+                                .find(|record| record.server_public == server)
+                                .map(|record| (record.server_public, record.psk_id()))
+                        }),
                         policy,
                     });
                     Ok(SessionHandoff {
@@ -895,9 +958,7 @@ fn supervise(configuration: StoreConfiguration, receiver: Receiver<Command>, sha
                 let result = if work.reservation.cancel.load(Ordering::Acquire) {
                     Err(DriverError::Cancelled)
                 } else {
-                    Ok(lease
-                        .policy
-                        .permits(proposal.roles(), proposal.activities()))
+                    Ok(lease.permits(&proposal))
                 };
                 drop(lease);
                 work.finish(result, None);
@@ -1099,6 +1160,7 @@ mod tests {
             shared: owner.shared.clone(),
             generation: 1,
             policy: AdmissionPolicy::deny(),
+            playback_record: None,
         });
         let mut services = CredentialServices {
             lease,
@@ -1138,6 +1200,7 @@ mod tests {
             shared: owner.shared.clone(),
             generation: 1,
             policy: AdmissionPolicy::deny(),
+            playback_record: None,
         });
         let mut services = CredentialServices {
             lease,
@@ -1203,6 +1266,7 @@ mod tests {
             shared: owner.shared.clone(),
             generation: 1,
             policy: policy.clone(),
+            playback_record: None,
         });
         let mut services = CredentialServices {
             lease,

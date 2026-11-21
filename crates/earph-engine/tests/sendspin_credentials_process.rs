@@ -114,6 +114,7 @@ fn main() {
         checks();
         commits();
         services();
+        native_playback();
         cancellation();
         println!("Sendspin credential process checks passed");
     }
@@ -518,4 +519,152 @@ fn clock_configuration() -> earph_network::sendspin::ClockConfiguration {
         domain: earph_network::sendspin::MonotonicDomain::new(1).unwrap(),
         policy: earph_sendspin::timing::TimePolicy::new(250_000, 9_000_000, 20_000_000).unwrap(),
     }
+}
+
+fn playback_record() -> earph_sendspin::pairing::PairingRecord {
+    earph_sendspin::pairing::PairingRecord {
+        server_public: earph_sendspin::noise::static_public_key(&[11; 32]).unwrap(),
+        psk: [90; 32],
+        last_used_order: 1,
+    }
+}
+fn playback_proposal(
+    generation: u64,
+    paired: bool,
+) -> Option<earph_sendspin::session::AdmissionProposal> {
+    use earph_sendspin::session::*;
+    let record = playback_record();
+    let catalog = RecordCatalog::from_committed(5, vec![record], vec![]).unwrap();
+    let client = ClientSession::new(
+        SessionConfig {
+            private: [9; 32],
+            pairing_psk: [7; 32],
+            connection_generation: generation,
+            hello: serde_json::json!({"name":"paired fixture","supported_roles":[]}),
+            catalog,
+            protected: vec![],
+            limits: SessionLimits::default(),
+        },
+        0,
+    )
+    .unwrap();
+    let (mut client, mut peer) = session_peer::initial_from(client);
+    if paired {
+        let events = peer
+            .send_json(
+                &mut client,
+                "server/activate",
+                serde_json::json!({"activities":[],"active_roles":[]}),
+                4,
+            )
+            .unwrap();
+        client
+            .admit(session_peer::admission(&events), true, 5)
+            .unwrap();
+        let (handshake, payload) = peer.rotation([90; 32], "lt", None);
+        peer.send_json(&mut client, "noise/handshake", payload, 6)
+            .unwrap();
+        let write = client.next_write(6).unwrap().unwrap();
+        let reply = peer.read_json(&write.bytes);
+        peer.install(handshake, &reply);
+        client
+            .complete_write(write.id, WriteResult::Complete, 6)
+            .unwrap();
+    }
+    let events = peer
+        .send_json(
+            &mut client,
+            "server/activate",
+            serde_json::json!({"activities":["playback"],"active_roles":["player@v1"]}),
+            7,
+        )
+        .unwrap();
+    events.into_iter().find_map(|e| match e {
+        SessionEvent::Admission(p) => Some(p),
+        _ => None,
+    })
+}
+fn native_playback() {
+    use earph_network::sendspin::SendspinServices;
+    let record = playback_record();
+    assert!(playback_proposal(44, false).is_none());
+    let document = CommittedCredentials::new(
+        [17; 32],
+        [29; 32],
+        RecordCatalog::from_committed(5, vec![record.clone()], vec![]).unwrap(),
+        Some(record.server_public),
+    )
+    .unwrap();
+    for case in [
+        "player-current",
+        "player-stale",
+        "player-revoked",
+        "player-expired",
+        "player-expired-after-compute",
+        "player-other-server",
+    ] {
+        std::fs::write(
+            root().join(format!("{case}-document")),
+            serde_json::to_vec(document.encode_secret().unwrap().as_secret_bytes()).unwrap(),
+        )
+        .unwrap();
+        let mut supervisor = owner(case);
+        let server = if case == "player-other-server" {
+            [22; 32]
+        } else {
+            record.server_public
+        };
+        let expires = if case == "player-expired" {
+            Instant::now()
+        } else if case == "player-expired-after-compute" {
+            Instant::now() + Duration::from_secs(3)
+        } else {
+            Instant::now() + Duration::from_secs(30)
+        };
+        let policy = AdmissionPolicy::paired_playback(server, expires);
+        let mut h = wait(supervisor.load(request(44), policy.clone())).unwrap();
+        let p = playback_proposal(if case == "player-stale" { 45 } else { 44 }, true).unwrap();
+        assert_eq!(
+            p.connection_generation(),
+            if case == "player-stale" { 45 } else { 44 }
+        );
+        let result = h.services.admission(p);
+        until(|| supervisor.observation().pending.is_none());
+        if case == "player-revoked" {
+            policy.revoke();
+        }
+        if case == "player-expired-after-compute" {
+            std::thread::sleep(
+                expires.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
+            );
+        }
+        assert_eq!(wait(result), Ok(case == "player-current"), "{case}");
+        assert_eq!(
+            h.services.playback_authorized(),
+            case == "player-current" || case == "player-stale",
+            "{case}"
+        );
+        if case == "player-current" {
+            policy.revoke();
+            assert!(!h.services.playback_authorized());
+        }
+        drop(h);
+        supervisor.retire(Duration::from_secs(1)).unwrap();
+    }
+    let mut supervisor = owner("player-missing-record");
+    let mut h = wait(supervisor.load(
+        request(44),
+        AdmissionPolicy::paired_playback(
+            record.server_public,
+            Instant::now() + Duration::from_secs(30),
+        ),
+    ))
+    .unwrap();
+    assert!(!h.services.playback_authorized());
+    assert_eq!(
+        wait(h.services.admission(playback_proposal(44, true).unwrap())),
+        Ok(false)
+    );
+    drop(h);
+    supervisor.retire(Duration::from_secs(1)).unwrap();
 }

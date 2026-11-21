@@ -229,11 +229,16 @@ impl fmt::Debug for PairedIdentity {
 }
 pub struct AdmissionProposal {
     id: AdmissionId,
+    connection_generation: u64,
     activities: Vec<String>,
     roles: Vec<String>,
     identity: Option<PairedIdentity>,
 }
 impl AdmissionProposal {
+    /// Connection generation differs from the private, globally allocated admission owner ID.
+    pub fn connection_generation(&self) -> u64 {
+        self.connection_generation
+    }
     pub fn id(&self) -> AdmissionId {
         self.id
     }
@@ -496,6 +501,10 @@ impl ClientSession {
             && self.queue.is_empty()
             && self.current.is_none()
             && self.application.is_none()
+    }
+    /// Includes every fragment until its final complete write acknowledgment.
+    pub fn application_pending(&self) -> bool {
+        self.application.is_some()
     }
     /// Call only at transport readiness. Serialization and encryption use this exact sampled T1.
     pub fn time_probe_write(
@@ -888,6 +897,7 @@ impl ClientSession {
                 let identity = self.identity();
                 let proposal = AdmissionProposal {
                     id,
+                    connection_generation: self.connection_generation,
                     activities: checked.activities,
                     roles: checked.roles,
                     identity,

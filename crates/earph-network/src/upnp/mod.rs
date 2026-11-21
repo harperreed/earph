@@ -89,5 +89,7 @@ pub use ssdp::{
 mod budget;
 pub use budget::EventLease;
 mod events;
+#[cfg(test)]
+pub(crate) use events::trace_allocations;
 pub use events::{CallbackAttempt, CallbackPermit, DeliveryCompletion};
 pub use http::{IncomingRequest, PendingSubscription, SubscriptionResponseCompletion};
