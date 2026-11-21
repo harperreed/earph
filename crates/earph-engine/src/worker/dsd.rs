@@ -19,7 +19,7 @@ const UNQUALIFIED: EngineError = EngineError::new(
 
 /// No production constructor exists until concrete endpoint qualification is implemented.
 pub(super) enum SubmissionAuthority {
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     SoftwareCapture,
 }
 fn public_submission_authority(_: &SessionSnapshot) -> Result<SubmissionAuthority, EngineError> {

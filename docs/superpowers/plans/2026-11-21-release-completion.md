@@ -22,7 +22,8 @@ The full repository check and six native Mac control checks pass for their recor
 The selected local track submitted all frames and closed output without an Engine error.
 Doctor Biz later confirmed audible local PCM playback from the installed Orbit app.
 He reported that Stop did nothing; a fresh fenced owner command stopped playback and confirmed output closure.
-The controller fix passes independent review and the full Linux check; its Mac build and installation remain pending.
+The controller fix passes independent review, the full Linux check, and hosted native Mac UI checks.
+Its installation on offline Orbit remains pending.
 See the [Stop evidence](../../evidence/local-playback/controller-stop-20261121.json).
 
 The same unsigned Mac development app now occupies the user's `Applications/Earph.app` path.
@@ -76,12 +77,16 @@ Typed DSD software ownership is integrated after independent review and focused 
 The combined source passes the full Linux canonical check with the published Stop fix preserved.
 See the [retirement evidence](../../evidence/dsd/engine-retirement-linux-20261121.json).
 Public DSD submission and Core Audio DSD remain unavailable pending their release gates.
-Native output timing adapters passed source review and the full Linux check; Mac compilation remains pending.
+Native output timing adapters pass source review, the full Linux check, and hosted Mac compilation.
 See the [timing evidence](../../evidence/local-playback/native-timing-observations-20261121.json).
-UPnP's independent SDK passed its native API probe; current-owner controller qualification remains pending.
+UPnP's independent SDK passes a native GetMute against interim source `ef87602` and clean scoped retirement.
+See the [scoped controller evidence](../../evidence/network/upnp-native-getmute-20261121.json).
+The full controller matrix and qualification against the later DSD source remain pending.
 Root continues release integration while the dashboard records verified milestones.
 Git commits and scoped evidence record completed work; this document defines the continuing execution boundary.
 
 The native Mac build now shares one deployment target across Rust, C, and Swift.
-The actual CI mismatch remains retained; native compilation must verify the fix.
+Hosted Linux and Mac checks pass for source `6318d6a`, including strict linking and native controls.
+The later DSD source exposed a Linux-only test variant in the Mac test build.
+Its conditional build boundary now matches its Linux-only consumer; fresh Mac verification remains required.
 See the [build evidence](../../evidence/packaging/macos-deployment-target-20261121.json).

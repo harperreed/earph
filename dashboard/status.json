@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-21T17:56:36.142Z",
-  "headline": "Transport checkpoint published; DSD review clears before its combined check.",
-  "focus": "Complete current Mac CI gates · Qualify integrated DSD software · Finish controller and output-clock integration",
-  "summary": "Typed Sendspin transport and the shared Mac deployment target are published in 6318d6a with normal hooks and clean local/remote readbacks. Full Linux scripts/check exits 0 with all 2,088 source hashes verified. The same-source hosted Linux job succeeds. The hosted Mac keychain gate and workspace build/Clippy/CoreDSP step succeed. Generated Swift is still running; the native UI/build-target step is pending. The deployment-target correction has no final Mac pass yet. Orbit was last observed offline, and its installed GUI still lacks the Stop correction. The final DSD software unit clears independent review after direct-close, cancel-before-dequeue, and acknowledgement-role corrections. Its scoped Engine suite has 309 passes and one ignore; strict Clippy, build, and formatting pass. Root integrates 48 files with preserved backups and reviewed desktop merges retaining Stop. The 2,093-file source is frozen for a combined check after the controller smoke test. This DSD unit is not published or combined-qualified. Public DSD Unmute stays blocked; Core Audio DSD remains unsupported. Output-clock integration and the controller smoke test remain in progress. Doctor Biz’s audible confirmation retains its selected local PCM scope; that playback was stopped. Operational Sendspin, physical synchronization, DSD carriage, broad interoperability, signing, and first release remain open.",
+  "updated_at": "2026-11-21T18:49:47.242Z",
+  "headline": "DSD software checkpoint published; scoped Mac and silent GetMute gates pass.",
+  "focus": "Finish output-clock and correction integration · Extend controller qualification · Deliver Stop when Orbit reconnects",
+  "summary": "The DSD typed software ownership and retained failed-retirement work is published in clean checkpoint 0d65805. Root’s full Linux scripts/check joins exit 0 with all 2,093 source hashes verified: 1,850 reported passes, zero failures, 22 ignores, and 197 groups. Counts include nested results rather than unique tests. The earlier 6318d6a hosted run now passes both Linux and Mac. The Mac checkout has the exact published tree; native Swift/linking and all six UI/owner checks pass. This validates the shared deployment target under that source scope, without physical output, installation, or new DSD compilation. One silent read-only native SDK GetMute passes on the interim ef87602 Engine fixture. Complete SDK and owner joins, stopped containers, and an empty bridge are verified. No live owner remains. This is not the controller matrix, current 0d65805 qualification, audio, or AC-15 acceptance. Output-clock, projection, and correction units continue under separate qualification. Orbit remains last observed offline; the installed app still lacks the Stop update. Doctor Biz confirms hearing only for the selected local PCM path, which was stopped. Public DSD Unmute remains blocked and Core Audio DSD is unsupported. Operational Sendspin, physical synchronization, DSD carriage, signing, and first release remain open.",
   "task_states": {
     "T01": "done",
     "T02": "done",
@@ -39,7 +39,7 @@
     },
     "M3": {
       "state": "active",
-      "detail": "The typed transport checkpoint is published and Linux-qualified. Output-clock validator and projection checks pass, but operational wiring, scheduler, latency, correction, and history compaction remain open. DSD software is reviewed and integrated but awaits combined qualification. No operational Sendspin, physical synchronization, DSD device carriage, or whole-release acceptance is added."
+      "detail": "Published DSD software ownership passes full Linux checks, with public DSD Unmute still blocked and Core Audio DSD unsupported. Clock wrapper, projection, and correction qualification continues. Silent interim GetMute passes with clean retirement. No full controller matrix, operational Sendspin, physical synchronization, DSD device carriage, or whole-release acceptance is added."
     },
     "M4": {
       "state": "planned",
@@ -64,8 +64,8 @@
       "detail": "The actual generated Kotlin volume gate passes with exit 0: 94 frames, 43 consumers, 52 exact CLI comparisons, 172 guards, and 48 guarded JVMs. It covers nine network, six renderer, and eight volume commands with zero TCP/HTTP, no audio, and an unopened, unconsented fixture output. The owner exits 0 and is freshly absent. The gate preserves its 489 source inputs and HEAD. Six products are frozen after the gate; only two runtime hashes are checked through the scenario. This is not a six-product before/after claim. Reviewed U2/pairing is now published in c8 with its separate completed combined check. The current native workflow has its own software-only scope."
     },
     {
-      "title": "Reviewed DSD software integrates before combined qualification",
-      "detail": "The final DSD software unit clears independent review after direct-close, cancel-before-dequeue, and acknowledgement-role corrections. Its scoped Engine suite has 309 passes and one ignore; strict Clippy, build, and formatting pass. Root integrates 48 files with preserved backups and reviewed desktop merges retaining Stop. The 2,093-file source is frozen for a combined check after the controller smoke test. This DSD unit is not published or combined-qualified. Public DSD Unmute stays blocked; Core Audio DSD remains unsupported."
+      "title": "Published DSD software ownership passes full Linux checks",
+      "detail": "The DSD typed software ownership and retained failed-retirement work is published in clean checkpoint 0d65805. Root’s full Linux scripts/check joins exit 0 with all 2,093 source hashes verified: 1,850 reported passes, zero failures, 22 ignores, and 197 groups. Counts include nested results rather than unique tests. Public DSD Unmute remains blocked, Core Audio DSD is unsupported, and physical carriage is unqualified."
     },
     {
       "title": "Reviewed renderer/runtime and Engine fixes are imported",
@@ -88,8 +88,8 @@
       "detail": "The local Sendspin bridge is complete and independent review is clear. Engine tests report 187 passes and one ignore. Actual pinned authenticated transport and gated-helper success/uncertainty cases pass, alongside process/compile/helper/lint/format/inventory checks. Real Linux native E2E now passes in a fresh private environment: all three children exit 0, with no production store or output. The bridge is now integrated into Root; whole-candidate qualification now passes; the current candidate’s live handover remains pending. Provisioning, startup, recovery acknowledgement, player, clocks, and output remain unfinished."
     },
     {
-      "title": "Focused GUPnP reads succeed; InvalidArgs blocks mutation qualification",
-      "detail": "The focused GUPnP session finishes normally, with all three containers freshly stopped at exit 0, the network empty, and 26 evidence hashes verified by Root. Native GetProtocolInfo/GetTransportInfo succeed; SetAVTransportURI/GetMute retain captured Error 402 InvalidArgs and no stage/source increment. Strict parsing stays intact. Universal Control Point 0.12.4 and current master have identical argument code; no fixed candidate is found. Wire-order causation remains inferred. This is not U5 acceptance."
+      "title": "Interim native GetMute and complete retirement pass",
+      "detail": "One silent read-only native SDK GetMute passes on the interim ef87602 Engine fixture. Complete SDK and owner joins, stopped containers, and an empty bridge are verified. No live owner remains. This is not the controller matrix, current 0d65805 qualification, audio, or AC-15 acceptance."
     },
     {
       "title": "Integrated timing/bridge scripts/check passes; full qualification pending",
@@ -136,8 +136,8 @@
       "detail": "Both same-profile reload and stale file-batch receipt defects have genuine Mac REDs, frozen corrections, targeted independent clearance, and actual runtime GREENs inside the final six-check candidate."
     },
     {
-      "title": "Published typed transport passes full and hosted Linux checks",
-      "detail": "Typed Sendspin transport and the shared Mac deployment target are published in 6318d6a with normal hooks and clean local/remote readbacks. Full Linux scripts/check exits 0 with all 2,088 source hashes verified. The same-source hosted Linux job succeeds. The hosted Mac keychain gate and workspace build/Clippy/CoreDSP step succeed. Generated Swift is still running; the native UI/build-target step is pending. The deployment-target correction has no final Mac pass yet. Orbit was last observed offline, and its installed GUI still lacks the Stop correction."
+      "title": "Latest published checkpoint passes full Linux canonical checks",
+      "detail": "The DSD typed software ownership and retained failed-retirement work is published in clean checkpoint 0d65805. Root’s full Linux scripts/check joins exit 0 with all 2,093 source hashes verified: 1,850 reported passes, zero failures, 22 ignores, and 197 groups. Counts include nested results rather than unique tests."
     },
     {
       "title": "All six current Mac checks pass with both real regressions GREEN",
@@ -1008,48 +1008,48 @@
   ],
   "active": [
     {
-      "title": "Complete Mac CI and deliver Stop when Orbit reconnects",
-      "detail": "The hosted Mac keychain gate and workspace build/Clippy/CoreDSP step succeed. Generated Swift is still running; the native UI/build-target step is pending. The deployment-target correction has no final Mac pass yet. Orbit was last observed offline, and its installed GUI still lacks the Stop correction. No new Orbit deployment or audio Start is claimed."
+      "title": "Finish output-clock, projection, and correction units",
+      "detail": "The output-clock wrapper has 26 targeted passes, including the independent tracker-binding regression. A full Engine repeat on final source is running. The pure projection unit passes 20 tests and clears review but is not integrated. Correction work has more than 15 tests and actual software PCM with bounded multi-edit ±51 ms recovery. None of this adds a public operational runtime claim."
     },
     {
-      "title": "Qualify the integrated DSD software unit",
-      "detail": "The final DSD software unit clears independent review after direct-close, cancel-before-dequeue, and acknowledgement-role corrections. Its scoped Engine suite has 309 passes and one ignore; strict Clippy, build, and formatting pass. Root integrates 48 files with preserved backups and reviewed desktop merges retaining Stop. The 2,093-file source is frozen for a combined check after the controller smoke test. This DSD unit is not published or combined-qualified. Public DSD Unmute stays blocked; Core Audio DSD remains unsupported."
+      "title": "Extend controller qualification beyond silent GetMute",
+      "detail": "One silent read-only native SDK GetMute passes on the interim ef87602 Engine fixture. Complete SDK and owner joins, stopped containers, and an empty bridge are verified. No live owner remains. This is not the controller matrix, current 0d65805 qualification, audio, or AC-15 acceptance. Broader action, audio-format, and interoperability scenarios remain pending."
     },
     {
-      "title": "Finish output-clock and controller integration",
-      "detail": "Output-clock validation has 11 focused passes, including a real ALSA null producer/consumer with 64 zero frames. Pure projection has 12 passes; both pass strict Clippy and formatting. Actual output-timing and native-identity integration is underway. Scheduler, latency, correction, and projection history compaction remain pending; these parts are not operationally wired. Interim controller fixtures build with verified provenance, and two exact loader binaries resolve native dependencies. A missing-ALSA image and a later empty-address-range preflight rejection remain retained. Schema-correct narrow guards are being prepared. No owner/controller runtime, GetMute scenario, audio, or AC-15 acceptance is claimed."
+      "title": "Deliver Stop and finish first-release gates",
+      "detail": "The earlier 6318d6a hosted run now passes both Linux and Mac. The Mac checkout has the exact published tree; native Swift/linking and all six UI/owner checks pass. This validates the shared deployment target under that source scope, without physical output, installation, or new DSD compilation. Orbit is last observed offline, and the installed app has not received the Stop correction. Whole-project implementation continues."
     }
   ],
   "pending": [
     {
-      "title": "Current Mac target verification and Orbit Stop update remain pending",
-      "detail": "The hosted Mac keychain gate and workspace build/Clippy/CoreDSP step succeed. Generated Swift is still running; the native UI/build-target step is pending. The deployment-target correction has no final Mac pass yet. Orbit was last observed offline, and its installed GUI still lacks the Stop correction."
+      "title": "Orbit Stop delivery remains blocked by connectivity",
+      "detail": "The Stop fix is published, but the installed Orbit app is unchanged. The wake question remains pending. No new installation or audio Start is claimed."
     },
     {
-      "title": "DSD operational and physical gates remain closed",
-      "detail": "The reviewed software unit awaits its combined Root check and publication. Public DSD Unmute is blocked and Core Audio DSD is unsupported. No physical DSD result is inferred."
+      "title": "DSD physical and operational routes remain gated",
+      "detail": "Published typed software ownership passes Linux checks. Public DSD Unmute is blocked; Core Audio DSD is unsupported. Earlier Mac UI gates do not compile or qualify this new DSD unit."
     },
     {
-      "title": "Operational Sendspin, controller interoperability, and release remain open",
-      "detail": "Pure validator/projection and loader metadata do not qualify operational playback, physical synchronization, the actual controller matrix, or release. Hearing remains confirmed only for the selected Orbit local PCM path. Browser tools remain unavailable."
+      "title": "Operational Sendspin, controller matrix, and release remain open",
+      "detail": "Clock wrapper, projection, and correction checks retain separate incomplete integration scopes. Silent interim GetMute does not establish full controller interoperability. Hearing is confirmed only for the selected Orbit local PCM path. Signing, physical synchronization, broader routes, and release remain open."
     }
   ],
   "activity": [
     {
-      "title": "Typed transport and deployment-target source checkpoint published",
-      "detail": "Typed Sendspin transport and the shared Mac deployment target are published in 6318d6a with normal hooks and clean local/remote readbacks. Full Linux scripts/check exits 0 with all 2,088 source hashes verified. The same-source hosted Linux job succeeds."
+      "title": "Reviewed DSD software checkpoint is published",
+      "detail": "The DSD typed software ownership and retained failed-retirement work is published in clean checkpoint 0d65805. Root’s full Linux scripts/check joins exit 0 with all 2,093 source hashes verified: 1,850 reported passes, zero failures, 22 ignores, and 197 groups. Counts include nested results rather than unique tests."
     },
     {
-      "title": "Hosted Mac gates remain partly in progress",
-      "detail": "The hosted Mac keychain gate and workspace build/Clippy/CoreDSP step succeed. Generated Swift is still running; the native UI/build-target step is pending. The deployment-target correction has no final Mac pass yet. Orbit was last observed offline, and its installed GUI still lacks the Stop correction."
+      "title": "Earlier exact-source Mac UI and deployment-target checks pass",
+      "detail": "The earlier 6318d6a hosted run now passes both Linux and Mac. The Mac checkout has the exact published tree; native Swift/linking and all six UI/owner checks pass. This validates the shared deployment target under that source scope, without physical output, installation, or new DSD compilation."
     },
     {
-      "title": "DSD review clears and Root integrates the frozen software unit",
-      "detail": "The final DSD software unit clears independent review after direct-close, cancel-before-dequeue, and acknowledgement-role corrections. Its scoped Engine suite has 309 passes and one ignore; strict Clippy, build, and formatting pass. Root integrates 48 files with preserved backups and reviewed desktop merges retaining Stop. The 2,093-file source is frozen for a combined check after the controller smoke test. This DSD unit is not published or combined-qualified. Public DSD Unmute stays blocked; Core Audio DSD remains unsupported."
+      "title": "Silent interim GetMute retires cleanly",
+      "detail": "One silent read-only native SDK GetMute passes on the interim ef87602 Engine fixture. Complete SDK and owner joins, stopped containers, and an empty bridge are verified. No live owner remains. This is not the controller matrix, current 0d65805 qualification, audio, or AC-15 acceptance."
     },
     {
-      "title": "Clock integration and controller preparation continue",
-      "detail": "Output-clock validation has 11 focused passes, including a real ALSA null producer/consumer with 64 zero frames. Pure projection has 12 passes; both pass strict Clippy and formatting. Actual output-timing and native-identity integration is underway. Scheduler, latency, correction, and projection history compaction remain pending; these parts are not operationally wired. Interim controller fixtures build with verified provenance, and two exact loader binaries resolve native dependencies. A missing-ALSA image and a later empty-address-range preflight rejection remain retained. Schema-correct narrow guards are being prepared. No owner/controller runtime, GetMute scenario, audio, or AC-15 acceptance is claimed."
+      "title": "Clock and correction qualification continues",
+      "detail": "The output-clock wrapper has 26 targeted passes, including the independent tracker-binding regression. A full Engine repeat on final source is running. The pure projection unit passes 20 tests and clears review but is not integrated. Correction work has more than 15 tests and actual software PCM with bounded multi-edit ±51 ms recovery. None of this adds a public operational runtime claim."
     }
   ]
 }

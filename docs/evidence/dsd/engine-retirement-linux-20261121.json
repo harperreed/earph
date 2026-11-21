@@ -43,6 +43,15 @@
     "independent_review": {
       "sha256": "24d54351cd4a4c5b11b5fb44a35ec3ac26d5ec9daae35b4e7eaafcf840df1a6e",
       "remaining_findings": 0
+    },
+    "macos_test_build": {
+      "failed_source": "0d658053f05bb12ab950b17aa9a5ceac788ad8e1",
+      "job_id": 136944407478,
+      "exit": 101,
+      "log_sha256": "55aa5e062a5ce43841e3af7fbf6c1db83a89a66567b7115681addc554c6eb6b7",
+      "cause": "SoftwareCapture was compiled for all tests, while its actual consumers are Linux-only.",
+      "fix": "Compile SoftwareCapture only for Linux tests, matching the real native DSD test module.",
+      "fixed_native_verification": null
     }
   },
   "behavior": [
