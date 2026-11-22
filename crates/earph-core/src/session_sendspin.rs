@@ -176,7 +176,11 @@ impl Session {
         };
         connection.open = false;
         if let Some(observation) = &mut connection.observation {
+            // Core refuses the worker's closed observation once this session ends,
+            // so Core drops the anchor here as the worker does when it closes.
             observation.phase = SendspinTransportPhase::Closed;
+            observation.timing.anchored = false;
+            observation.timing.start_error_us = None;
             self.state.observation = (*observation).into();
         }
         // A shutdown keeps other sessions. This source loses its connection now.

@@ -564,6 +564,39 @@ fn a_restored_owner_has_no_sendspin_session_and_a_disconnected_source() {
     assert!(restored.sendspin_connection().is_none());
 }
 
+/// The worker's own closed observation arrives after Core released the session, so Core refuses it.
+#[test]
+fn a_stopped_stream_reports_a_closed_source_without_an_anchor() {
+    use earph_core::sendspin_source::SendspinTiming;
+    let mut session = started();
+    report(&mut session, SendspinTransportPhase::Streaming, 960, None);
+    let generation = session.sendspin_connection().unwrap().generation;
+    let mut streaming = SendspinSourceObservation::new(SendspinTransportPhase::Streaming, 4800);
+    streaming.timing = SendspinTiming {
+        anchored: true,
+        start_error_us: Some(-40),
+        last_error_us: Some(125),
+        max_abs_error_us: 125,
+        inserted_silence_frames: 480,
+        ..SendspinTiming::UNANCHORED
+    };
+    session.observe_sendspin(generation, streaming).unwrap();
+    applied(
+        &mut session,
+        "stop",
+        Some("player-1"),
+        json!({"method":"sessions.stop"}),
+    );
+    let playback = serde_json::to_value(session.snapshot()).unwrap()["sendspin_playback"].clone();
+    assert_eq!(playback["phase"], "closed");
+    assert_eq!(playback["timing"]["anchored"], false);
+    assert_eq!(playback["timing"]["start_error_us"], Value::Null);
+    // Cumulative facts stay readable.
+    assert_eq!(playback["submitted_frames"], 4800);
+    assert_eq!(playback["timing"]["last_error_us"], 125);
+    assert_eq!(playback["timing"]["inserted_silence_frames"], 480);
+}
+
 #[test]
 fn pause_ends_a_streaming_session_like_stop() {
     let mut session = started();
