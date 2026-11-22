@@ -169,13 +169,59 @@ The footer now separates playback preparation from ordinary background reads.
 Its four-file snapshot passes six native Mac checks and the full Linux canonical check.
 Independent delivery review caught an owner-launch fallback during normal GUI startup.
 Explicit attach-only startup now passes the actual failing-baseline regression, six native checks, and independent source review.
-The replacement package must forward that startup mode and pass its separate delivery review before activation.
-The earlier package remains retained and uninstalled.
+The replacement package passed delivery review and installed with explicit attach-only startup.
+Fresh reads verify the new GUI, all 27 files, the original Engine, and all 12 queue entries.
+The installer preserved the observed Idle/muted state and sent no playback or volume mutation.
+Its wrapper used the wrong receipt path after successful activation; read-only recovery verified the actual result without replay.
+See the [attach-only delivery evidence](../../evidence/packaging/macos-attach-only-delivery-20261122.json).
 See the [native status and startup evidence](../../evidence/local-playback/native-status-20261122.json).
 
-## Product decision to revisit
+Doctor Biz's next Play attempt exposed an existing AudioQueue startup clock failure in the unchanged Engine.
+The native call succeeded but returned a discontinuous negative sample before any accepted clock origin.
+The narrow correction keeps that reading unknown under the existing five-second deadline.
+It preserves faults after an established origin and does not retire payload from the invalid reading.
+The actual regression fails before the correction; all 56 CoreAudio unit tests pass afterward.
+Independent review and the full Linux canonical check pass for this correction.
+The same 2,107 source files remained unchanged throughout that check.
+The replacement Mac Engine passes its build, 32 pure clock tests, strict CoreAudio Clippy, and control-only owner integration.
+The replacement remains uninstalled. Real playback recovery remains unverified.
 
-Doctor Biz deferred the default quit and background-playback policy.
-The current app disconnects its controller and leaves the shared Engine running.
-Revisit whether Quit stops playback and whether background playback needs an explicit option.
-Do not change that policy as part of the Open-to-Play simplification.
+Hosted checks for `2d37afe` pass on Mac but fail one Linux Pause-to-Play scenario.
+Core accepts Pause before the worker acknowledges it. The controller previously enabled Resume during that interval.
+The controller now derives its waiting state from the exact accepted Pause receipt and current owner and session.
+Ordinary controls wait for acknowledgement. Stop and Mute retain their safety paths.
+Four model tests pass through real Core receipts and the reply decoder.
+All 19 real-owner playback cases pass, including the previously failing Pause-to-Play scenario.
+Independent review clears the exact-owner predicate, receipt polling, and Stop and Mute safety paths.
+Combined canonical checks and native delivery remain pending for this change.
+
+## Running clock retreat on headphones
+
+Doctor Biz reported that playback through his headphones failed.
+The native queue clock read one to two frames behind its last accepted reading during ordinary playback.
+The strict validator treated that reading as a backward clock and faulted the output.
+Two retained failures show the same shape after substantial playback.
+The cause being the headphone route or the 44.1 kHz to 48 kHz conversion remains unproved.
+
+The correction keeps the strict validator.
+For ordinary running progress reads only, a retreat of at most one whole coordinate stays unknown.
+It retires no payload, releases no enqueue credit, and keeps the existing five-second deadline.
+Pause, drain, cancellation, a finished source, discontinuities, and larger retreats stay strict.
+This is Earph policy, not an Apple guarantee.
+
+Both regression tests fail on the Mac before the correction for the intended assertions.
+All 62 CoreAudio unit tests, every CoreAudio test target, and strict Clippy pass on the Mac afterward.
+Independent review found no defect.
+The macOS wiring that selects the progress purpose has no direct test; the pure decision does.
+A retreat after the source finishes still faults, as the policy states.
+The corrected Engine is installed on Orbit, paused and muted, with the queue and volume preserved.
+Real headphone playback remains unverified.
+See the [running-retreat evidence](../../evidence/local-playback/coreaudio-running-retreat-20261122.json).
+
+## Product decision: Quit stops playback
+
+Doctor Biz decided the quit and background-playback policy on November 21, 2026.
+Quit stops playback and shuts down the Engine. Earph offers no background-playback service.
+See [the quit decision](../../adr/0007-quit-stops-playback.md).
+The current app still disconnects its controller and leaves the Engine running.
+Implement the decision as its own task.

@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-22T03:01:46.267Z",
+  "scope": "UI-only app bundle update with explicit attach-only GUI startup",
+  "result": "verified_after_read_only_recovery",
+  "products": {
+    "desktop_sha256": "2ad7837f6a6b06a11023464a22fa3dd2a8e328a2f3aab1cfe04fa363d6b09765",
+    "engine_sha256": "b76cdbeff4bc99eec8c3a11beab7b8ac49c7c174a5bedf3f816646358631d347",
+    "engine_reused_unchanged": true,
+    "rust_component_provenance": "Retained qualified original700dirty components",
+    "rust_inputs_matching_original_qualified_source": 449,
+    "qualified_swift_inputs": 15,
+    "swift_target": "arm64-apple-macosx26.0"
+  },
+  "package": {
+    "manifest_sha256": "922a353aa119fa1f66e5978410f855be625647c0a6f918420d1e3773fe03e5ea",
+    "archive_sha256": "4e3812aa6086b72f6a3e59c05d4b0ecd3b779a2e269c892f071861b9ab611367",
+    "source_archive_sha256": "c58d36d732548a9aa18b1a2078bcb0bb1c7b2d46500215340769b1eb085caa35",
+    "declared_source_commit": null,
+    "product_provenance": "declared-unverified",
+    "files": 27,
+    "package_verifier_exit": 0,
+    "archive_producer_consumer_exit": 0,
+    "native_uid_length_hash_mode_verification": true,
+    "declared_signing": "unsigned",
+    "product_signatures": "not-inspected",
+    "source_files": 2105
+  },
+  "native_tests": {
+    "red": {
+      "raw_exit": 133,
+      "intended_failure": "Attach-only startup must never launch an Engine",
+      "accidentally_started_test_owner_actually_retired": true
+    },
+    "green": {
+      "exit": 0,
+      "checks": [
+        "controls",
+        "presentation",
+        "lifecycle",
+        "view construction",
+        "real owner integration",
+        "full regressions"
+      ],
+      "compiler_linker_warnings": 0,
+      "absent_owner_refused_without_owned_launch": true,
+      "existing_owner_attached_without_owned_launch": true
+    },
+    "physical_audio": false,
+    "composited_visuals": false
+  },
+  "delivery": {
+    "native_activation_exit": 0,
+    "original_owner_process_identity_preserved": true,
+    "existing_gui_processes_preserved": true,
+    "previous_bundle_preserved": true,
+    "new_gui_process_and_birth_verified": true,
+    "new_gui_argument": "--attach-only",
+    "new_gui_argv_verified": true,
+    "queue_entries_preserved": 12,
+    "gain_mute_and_silence_observations_unchanged": true,
+    "output_observation_unchanged": true,
+    "installed_and_preserved_file_sets_verified": true,
+    "control_requests": [
+      "state.get",
+      "queue.get"
+    ],
+    "installer_audio_mutations": 0,
+    "runtime_files_written_by_installer": 0,
+    "observed_before_and_recovery": {
+      "transport": "idle",
+      "muted": true,
+      "source_active": false,
+      "session_active": false
+    },
+    "audio_restart_requested": false
+  },
+  "readback_recovery": {
+    "wrapper_exit": 1,
+    "cause": "The wrapper read activate-evidence/result.json; the native producer wrote activation-evidence/result.json.",
+    "native_activation_already_succeeded": true,
+    "recovery_read_only": true,
+    "recovery_exit": 0,
+    "activation_replayed": false,
+    "fresh_files_processes_owner_state_queue_verified": true,
+    "original_incomplete_wrapper_outcome_preserved": true,
+    "future_path_resolver_regression": {
+      "old_rule_stage_passed_activation_ENOENT": true,
+      "fixed_tests_passed": 3,
+      "activation_rerun": false
+    }
+  },
+  "historical_hearing": {
+    "confirmed_by": "Doctor Biz",
+    "applies_to_desktop_sha256": "b509ceebb846ef5ab990643c27e0da205e356f49748db1b07ed521812acaa3b8",
+    "applies_to_current_ui_update": false,
+    "confirmation_record_sha256": "7a6c47b49c994cb647d508c2f2d7fe59af8323ee2f3c0cd1131c767809faf20c",
+    "scope": "Earlier explicit hearing confirmation; separate from this UI delivery and its Idle/muted observations."
+  },
+  "limits": [
+    "No continuous audible playback claim.",
+    "No acoustic, physical timing, or compositor qualification.",
+    "No named-current-commit product provenance inferred from component reuse.",
+    "Private media paths, account data, owner identifiers, process identifiers, and private host paths are omitted."
+  ],
+  "supporting_sha256": {
+    "native_qualification_handoff": "c2896cfdf88b54bc1a0a19e9285b3afc38c5d11adfa7e8645556bd70973e4dd9",
+    "native_activation_result": "1fedc54b4b75a3b935396c5578ae0da770a1f89b4916948e13d6762e6e04f776",
+    "read_only_recovery": "52b10b21f1570eb757cdfd819616daaf92d106124b45c3dc181a82814cd71192",
+    "package_outcome": "e1492ce18f9ac0909444d1fc62347acaa21e699a15549482b6777d2a403e6a28"
+  }
+}

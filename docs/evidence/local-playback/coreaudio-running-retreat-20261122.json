@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-22T05:20:00Z",
+  "scope": "CoreAudio system playback keeps a small backward running-clock reading unknown",
+  "result": "software_verified_and_installed_muted",
+  "observed_failure": {
+    "native_error": "AudioQueue clock moved backwards",
+    "occurrences": 2,
+    "shape": "A raw sample time one to two frames behind the last accepted reading, with no discontinuity, after substantial playback",
+    "source_format": "44100 Hz stereo converted by the system queue to a 48000 Hz stereo device",
+    "cause": "unestablished"
+  },
+  "policy": {
+    "strict_validator_unchanged": true,
+    "tolerated_retreat": "floor(last) - floor(sample) <= 1 for ordinary running progress reads",
+    "effect": "The reading stays unknown; no payload retires, no enqueue credit releases, and the five-second deadline still applies",
+    "still_strict": ["pause", "drain", "cancellation", "finished source", "discontinuity", "larger retreat"],
+    "basis": "Earph policy; Apple documents no monotonicity guarantee for this reading"
+  },
+  "verification": {
+    "regression_red": "Both running_clock_retreat tests failed on macOS for their intended assertions before the correction",
+    "macos_coreaudio_unit_tests": {"passed": 62, "failed": 0},
+    "macos_coreaudio_test_targets": "all passed",
+    "macos_strict_clippy": "passed",
+    "linux_coreaudio_unit_tests": {"passed": 58, "failed": 0},
+    "independent_review": "no material findings",
+    "source_archive_sha256": "b7b826fb861e079292a520f63ee93e989622ced68d69b399119c3bb68db23e2a"
+  },
+  "delivery": {
+    "engine_sha256": "bac8af95b952c50281b9233eb7b61bc84c8751e6bc1771316bff7148db41e336",
+    "desktop_sha256": "2ad7837f6a6b06a11023464a22fa3dd2a8e328a2f3aab1cfe04fa363d6b09765",
+    "package_manifest_sha256": "4462bb3205834c91112880ffe5abfc13feb7601e2651800ecf070953747b7d01",
+    "package_archive_sha256": "503e22c919cfffe91fa0b872dfa79f115ee6015e03b43bd4f34399be67336b20",
+    "package_files": 27,
+    "signing": "unsigned",
+    "product_provenance": "declared-unverified",
+    "phases": {
+      "stage": "pass",
+      "isolated_qualification": "pass",
+      "guarded_replacement": "pass"
+    },
+    "failed_source_stop_calls": 1,
+    "source_retirement_verified": true,
+    "previous_bundle_preserved": true,
+    "final_owner_state": {
+      "transport": "paused",
+      "muted": true,
+      "output_consented": false,
+      "software_gain_db": -57.0,
+      "queue_intent_preserved": true
+    },
+    "play_calls": 0,
+    "unmute_calls": 0,
+    "gui_launch_calls": 0
+  },
+  "limits": [
+    "Real headphone playback with the corrected Engine is unverified.",
+    "The macOS wiring that selects the progress purpose has no direct test; only the pure decision is tested.",
+    "A retreat after the source finishes still faults the output.",
+    "No device, timing, or acoustic qualification follows from this record."
+  ]
+}

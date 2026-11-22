@@ -64,6 +64,8 @@ After an owner change, preserve old records and block old-target reconciliation.
 Keep replayed historical reads from replacing newer observations.
 
 Disconnect never stops the owner.
+Quit is a different action: it stops playback and shuts down the owner.
+See [the quit decision](0007-quit-stops-playback.md).
 Stop admission, discard queued work, and let existing IPC calls reach their bounded outcome.
 Return worker ownership so the view can join it off the UI thread.
 RAII drop remains a joining fallback for resource safety.
