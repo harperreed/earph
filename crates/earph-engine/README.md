@@ -1,5 +1,7 @@
 # Local engine owner
 
+To play a file from the command line, see [the `earph` player](PLAYER-CLI.md).
+
 The owner controls one private runtime directory.
 It owns the shared `Session`, queue, revisions, receipts, and operational checkpoint.
 It exposes local playback through the host's available native adapter.

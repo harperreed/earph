@@ -21,6 +21,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 rustix = { version = "=1.1.6", features = ["event", "fs", "net", "process"] }
+signal-hook.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 earph-alsa = { path = "../earph-alsa" }

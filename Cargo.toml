@@ -22,3 +22,7 @@ signal-hook = { version = "=0.4.6", default-features = false }
 [profile.dev]
 # Keep full debug information beside the executable to fit the discovery helper's image budget.
 split-debuginfo = "unpacked"
+
+[profile.dev.package.sha2]
+# An owner hashes its own executable before device discovery. Unoptimized, that costs seconds per start.
+opt-level = 3

@@ -237,3 +237,23 @@ An Engine that refuses or never answers can outlive the application; the applica
 A Quit during Engine launch still leaves that idle Engine running.
 The separate confirmed **Stop Engine and Quit…** control remains.
 The corrected application is not installed on Orbit.
+
+## Command-line player
+
+Doctor Biz chose a command-line player as the main way to exercise playback on November 22, 2026.
+Both headphone faults were Engine faults, and each desktop delivery cost a full package and install.
+The desktop application stays at its current state until the Engine work needs it again.
+
+`earph` plays local files through the same Engine and reports the result by exit status.
+It starts an Engine in its own process when none runs at its runtime directory.
+Its default runtime is separate from the desktop application's runtime.
+Naming an output on the command line approves that output. The volume changes only on request.
+See [the player guide](../../../crates/earph-engine/PLAYER-CLI.md).
+
+Nine process tests run the real binary against a private ALSA capture device.
+They cover finished, refused, failed, stopped, interrupted, attached, and replaced playback.
+Independent review found two cases where `play` stopped playback that it did not start; both are corrected.
+The Mac build passes strict Clippy, and `earph devices` lists outputs through Core Audio.
+Real audio through `earph` on a Mac remains unverified.
+The package does not yet bundle `earph`.
+Use `earph` for the next headphone check and for Engine regression checks.
