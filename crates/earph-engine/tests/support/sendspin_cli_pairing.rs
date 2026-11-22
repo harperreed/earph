@@ -50,6 +50,26 @@ pub fn init_creates_one_identity_and_refuses_every_other_store_state() {
         "init started an Engine"
     );
 
+    // The default lock file lives in the runtime directory, which no Engine has made yet.
+    let helper = std::env::current_exe().unwrap();
+    let store = bench.directory.join("store");
+    let address = format!("fixture:empty-default:{}", store.display());
+    let default_lock = [
+        "sendspin",
+        "init",
+        "--credential-helper",
+        helper.to_str().unwrap(),
+        "--credential-store",
+        &address,
+    ];
+    let defaulted = bench.earph(&default_lock).finish();
+    assert_eq!(defaulted.status.code(), Some(0));
+    let runtime = bench.directory.join("rt");
+    assert!(runtime.join("sendspin-credentials.lock").is_file());
+    let mode = std::os::unix::fs::MetadataExt::mode(&runtime.metadata().unwrap());
+    assert_eq!(mode & 0o777, 0o700, "the runtime directory is private");
+    assert!(bench.stored("empty-default").is_some());
+
     let before = bench.stored_bytes("empty").unwrap();
     let second = bench.sendspin_with("empty", &["init"]).finish();
     assert_eq!(second.status.code(), Some(1));
@@ -148,7 +168,8 @@ fn token_of(bench: &Bench, case: &str) -> ([u8; 32], [u8; 32]) {
     let output = bench.sendspin_with(case, &["token"]).finish_unprinted();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
     let token = earph_sendspin::pairing_token::decode_pairing_token(&text(&output.stdout));
-    let token = token.ok().expect("the printed token decodes");
+    // The decoder's error names a class only, never the input.
+    let token = token.expect("the printed token decodes");
     (token.client_public, token.pairing_psk)
 }
 /// Creates an identity in the `empty` case and returns what its token holds.

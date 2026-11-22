@@ -16,6 +16,7 @@ use std::{
     process::Command,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
+#[allow(dead_code, reason = "this test uses a subset of the shared peer")]
 #[path = "../../tests/support/sendspin_player_peer.rs"]
 mod peer;
 

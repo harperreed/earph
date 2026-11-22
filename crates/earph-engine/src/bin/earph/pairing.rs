@@ -77,10 +77,12 @@ fn bridge_refusal(error: BridgeError) -> Failure {
         _ => Failure::playback("the credential store did not answer"),
     }
 }
-/// Names the store and makes the directory of its lock file when that directory is missing.
+/// Names the store. The default lock file lives in the runtime directory,
+/// so this makes that directory when no Engine has made it yet.
 fn configuration(arguments: &Arguments) -> Outcome<StoreConfiguration> {
     let configuration = store(arguments)?;
     if let Some(directory) = configuration.lock_path.parent()
+        && arguments.credential_lock.is_none()
         && !directory.exists()
     {
         std::fs::DirBuilder::new()
@@ -176,7 +178,12 @@ pub fn init(arguments: &Arguments) -> Outcome<u8> {
     // Release the store lock before the supervisor opens the same store.
     drop(native);
     let mut supervisor = supervisor(configuration)?;
-    let loaded = load(&mut supervisor, 1, AdmissionPolicy::deny())?;
+    let loaded = load(&mut supervisor, 1, AdmissionPolicy::deny()).map_err(|failure| {
+        Failure::playback(format!(
+            "the identity was stored, but the check that it loads failed: {}",
+            failure.message
+        ))
+    })?;
     if loaded.config.private != private || loaded.config.pairing_psk != pairing_psk {
         return Err(Failure::playback(
             "the credential store returned a different identity than the one just stored. Another program changed it",
@@ -265,7 +272,7 @@ fn ending(error: DriverError) -> &'static str {
         DriverError::Admission => {
             "the server asked for something that a pairing connection refuses"
         }
-        DriverError::Deadline => "the server stopped answering",
+        DriverError::Deadline => "the server or the credential store stopped answering",
         DriverError::Service | DriverError::StorageUncertain => {
             "the credential store did not accept the new record"
         }
@@ -374,16 +381,31 @@ pub fn pair(arguments: &Arguments, interrupted: &AtomicBool) -> Outcome<u8> {
     let observed = supervisor.observation();
     uncertain |= observed.uncertain || observer.observation().recovery_required;
     if uncertain {
-        return Err(Failure::playback(format!(
-            "the credential store did not confirm the new pairing record, so the store may or may not hold it. {RECOVERY}"
-        )));
+        return Err(Failure::playback(
+            "the credential store did not confirm the new pairing record, so the store may or may not hold it. A later command says so if the store must be recovered first; Earph has no recovery command yet",
+        ));
     }
     // A fresh load reads what the store holds now.
-    let after = credentials(
-        &load(&mut supervisor, 2, AdmissionPolicy::deny())?
-            .config
-            .catalog,
-    );
+    // The supervisor may still release the last service call of the ended connection.
+    let released = Instant::now() + Duration::from_secs(2);
+    let after = loop {
+        let load = supervisor.load(request(2), AdmissionPolicy::deny());
+        match settle(load, ANSWER_DEADLINE) {
+            Some(Err(BridgeError::Busy)) if Instant::now() < released => {
+                thread::sleep(Duration::from_millis(5));
+            }
+            Some(Ok(loaded)) => break credentials(&loaded.config.catalog),
+            result => {
+                let reason = match result {
+                    Some(Err(error)) => bridge_refusal(error).message,
+                    _ => "the credential store did not answer".to_owned(),
+                };
+                return Err(Failure::playback(format!(
+                    "cannot read the credential store back, so the result of pairing is unknown: {reason}"
+                )));
+            }
+        }
+    };
     let added: Vec<&Credential> = after
         .iter()
         .filter(|credential| !before.contains(credential))
