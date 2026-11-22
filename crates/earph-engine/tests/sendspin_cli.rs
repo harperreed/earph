@@ -10,6 +10,9 @@ fn main() {
 #[path = "support/sendspin_credential_helper.rs"]
 mod helper;
 #[cfg(target_os = "linux")]
+#[path = "support/sendspin_cli_pairing.rs"]
+mod pairing;
+#[cfg(target_os = "linux")]
 #[allow(dead_code, reason = "this test uses a subset of the shared peer")]
 #[path = "support/sendspin_player_peer.rs"]
 mod peer;
@@ -36,7 +39,7 @@ fn document() -> earph_sendspin::credentials::CommittedCredentials {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::{helper, peer};
+    use super::{helper, pairing, peer};
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     use serde_json::{Value, json};
     use std::{
@@ -59,7 +62,7 @@ mod linux {
         if chosen.as_deref() == Some("credential-helper") {
             return helper::run();
         }
-        let cases: [(&str, fn()); 7] = [
+        let cases: [(&str, fn()); 8] = [
             (
                 "plays",
                 plays_the_stream_shows_status_and_exits_when_the_server_closes,
@@ -70,6 +73,10 @@ mod linux {
             ("pause", pause_stops_the_stream_and_ends_the_command),
             ("stop", stop_from_another_terminal_ends_the_command),
             ("quit", quit_from_another_terminal_ends_the_command),
+            (
+                "init",
+                pairing::init_creates_one_identity_and_refuses_every_other_store_state,
+            ),
         ];
         // An argument runs one case: `cargo test --test sendspin_cli -- wrong_key`.
         for (name, case) in cases {
@@ -80,11 +87,11 @@ mod linux {
         }
         println!("Sendspin command line checks passed");
     }
-    fn text(bytes: &[u8]) -> String {
+    pub(super) fn text(bytes: &[u8]) -> String {
         String::from_utf8_lossy(bytes).into_owned()
     }
     /// Every frame differs from every other frame, and the first byte is nonzero.
-    fn pattern() -> Vec<u8> {
+    pub(super) fn pattern() -> Vec<u8> {
         (0..PATTERN_FRAMES as u16)
             .flat_map(|frame| {
                 let left = (frame + 1).to_le_bytes();
@@ -94,7 +101,7 @@ mod linux {
             .collect()
     }
     /// Ends a spawned command if its test fails before the command exits.
-    struct Player(Option<Child>);
+    pub(super) struct Player(pub(super) Option<Child>);
     impl Drop for Player {
         fn drop(&mut self) {
             if let Some(mut child) = self.0.take() {
@@ -107,11 +114,11 @@ mod linux {
         }
     }
     impl Player {
-        fn exited(&mut self) -> bool {
+        pub(super) fn exited(&mut self) -> bool {
             self.0.as_mut().unwrap().try_wait().unwrap().is_some()
         }
         /// Waits for the command with a deadline, so a hung command fails the test.
-        fn finish(mut self) -> Output {
+        pub(super) fn finish(mut self) -> Output {
             let deadline = Instant::now() + DEADLINE;
             while !self.exited() {
                 assert!(Instant::now() < deadline, "the command did not exit");
@@ -124,13 +131,13 @@ mod linux {
     }
 
     /// One private ALSA capture device, one credential fixture, and the listener of the test server.
-    struct Bench {
-        directory: PathBuf,
-        listener: TcpListener,
-        key: String,
+    pub(super) struct Bench {
+        pub(super) directory: PathBuf,
+        pub(super) listener: TcpListener,
+        pub(super) key: String,
     }
     impl Bench {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(0);
             // The Engine needs a short absolute runtime path below a private directory.
             let directory = PathBuf::from("/tmp").join(format!(
@@ -166,11 +173,11 @@ mod linux {
                 key: URL_SAFE_NO_PAD.encode(public),
             }
         }
-        fn url(&self) -> String {
+        pub(super) fn url(&self) -> String {
             let address = self.listener.local_addr().unwrap();
             format!("ws://{}:{}/sendspin", address.ip(), address.port())
         }
-        fn earph(&self, arguments: &[&str]) -> Player {
+        pub(super) fn earph(&self, arguments: &[&str]) -> Player {
             let child = Command::new(env!("CARGO_BIN_EXE_earph"))
                 .args(arguments)
                 .env("EARPH_RUNTIME", self.directory.join("rt"))
@@ -184,11 +191,15 @@ mod linux {
             Player(Some(child))
         }
         /// Runs `earph sendspin` with the fixture credential store, the capture output, and 0 dB.
-        fn sendspin(&self, target: &[&str]) -> Player {
+        pub(super) fn sendspin(&self, target: &[&str]) -> Player {
+            self.sendspin_with("owner", target)
+        }
+        /// Runs `earph sendspin` against one named case of the synthetic credential helper.
+        pub(super) fn sendspin_with(&self, case: &str, target: &[&str]) -> Player {
             let helper = std::env::current_exe().unwrap();
             let store = self.directory.join("store");
-            let address = format!("fixture:owner:{}", store.display());
-            let lock = store.join("owner.lock");
+            let address = format!("fixture:{case}:{}", store.display());
+            let lock = store.join(format!("{case}.lock"));
             let fixed = [
                 "--output",
                 "earph_capture",
@@ -207,7 +218,31 @@ mod linux {
             ];
             self.earph(&[&["sendspin"], target, &fixed].concat())
         }
-        fn state(&self) -> Value {
+        /// The bytes of the document that the synthetic helper holds for one case.
+        pub(super) fn stored_bytes(&self, case: &str) -> Option<Vec<u8>> {
+            let path = self
+                .directory
+                .join("store")
+                .join(format!("{case}-document"));
+            let bytes = fs::read(path).ok()?;
+            Some(serde_json::from_slice(&bytes).unwrap())
+        }
+        pub(super) fn stored(
+            &self,
+            case: &str,
+        ) -> Option<earph_sendspin::credentials::CommittedCredentials> {
+            let bytes = self.stored_bytes(case)?;
+            // A failure here must not print the document.
+            earph_sendspin::credentials::CommittedCredentials::decode_secret(&bytes).ok()
+        }
+        /// True when the helper received a write for this case.
+        pub(super) fn write_issued(&self, case: &str) -> bool {
+            self.directory
+                .join("store")
+                .join(format!("{case}-commit"))
+                .exists()
+        }
+        pub(super) fn state(&self) -> Value {
             // The Engine answers a repeated request ID with its first receipt.
             static NEXT: AtomicU64 = AtomicU64::new(0);
             let id = format!("test-state-{}", NEXT.fetch_add(1, Ordering::Relaxed));
@@ -219,7 +254,12 @@ mod linux {
             reply["receipt"]["result"]["value"].clone()
         }
         /// Serves the peer's clock replies until the Engine reports the wanted fact.
-        fn serve(&self, peer: &mut peer::PlayerPeer, what: &str, done: impl Fn(&Value) -> bool) {
+        pub(super) fn serve(
+            &self,
+            peer: &mut peer::PlayerPeer,
+            what: &str,
+            done: impl Fn(&Value) -> bool,
+        ) {
             let mut checked = Instant::now();
             peer.serve_until(what, || {
                 // An IPC round trip per poll would starve the peer's clock replies.
@@ -231,7 +271,7 @@ mod linux {
             });
         }
         /// Runs a second `earph` to its end while the peer keeps answering the first one.
-        fn meanwhile(&self, peer: &mut peer::PlayerPeer, mut second: Player) -> Output {
+        pub(super) fn meanwhile(&self, peer: &mut peer::PlayerPeer, mut second: Player) -> Output {
             peer.serve_until("a second command exits", || second.exited());
             second.finish()
         }
@@ -267,7 +307,7 @@ mod linux {
             });
             (player, peer, frames)
         }
-        fn no_engine_remains(&self) {
+        pub(super) fn no_engine_remains(&self) {
             let status = self.earph(&["status"]).finish();
             assert_eq!(status.status.code(), Some(3));
             assert!(text(&status.stderr).contains("no Engine is running"));
@@ -281,7 +321,7 @@ mod linux {
             }
         }
     }
-    trait Pending {
+    pub(super) trait Pending {
         fn peek_pending(&self) -> Option<()>;
     }
     impl Pending for TcpListener {

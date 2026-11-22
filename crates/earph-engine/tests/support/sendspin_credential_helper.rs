@@ -29,11 +29,19 @@ pub fn run() {
             std::thread::sleep(Duration::from_millis(2));
         }
     }
+    // An `empty` store holds nothing until a commit creates its document.
+    let absent =
+        !write && case.starts_with("empty") && !root.join(format!("{case}-document")).is_file();
     let error = match case
         .strip_prefix("commit-")
         .filter(|_| write)
-        .unwrap_or(if write { "good" } else { case })
-    {
+        .unwrap_or(if write {
+            "good"
+        } else if absent {
+            "missing"
+        } else {
+            case
+        }) {
         "missing" => Some("Missing"),
         "locked" => Some("Locked"),
         "unavailable" => Some("Unavailable"),

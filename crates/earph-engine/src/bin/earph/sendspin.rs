@@ -3,8 +3,10 @@
 use crate::{
     Arguments, clock, decibel_text,
     link::{Failure, Link, Outcome, Target, text},
+    pairing,
     play::{INTERRUPTED, announce_output, prepare_output, stop_own},
 };
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use earph_credentials::NativeConfig;
 use earph_engine::{SendspinConfiguration, sendspin_credentials::StoreConfiguration};
 use earph_network::sendspin::SendspinConnectPermit;
@@ -25,7 +27,7 @@ const RATE: u64 = 48000;
 const STORE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Reads the server's numeric address, then checks the URL against the Engine's connection rules.
-fn address(server: &str) -> Outcome<IpAddr> {
+pub fn address(server: &str) -> Outcome<IpAddr> {
     if server.starts_with("wss://") {
         return Err(Failure::usage(
             "a wss:// server is refused: this player has no TLS. Use ws://IP:PORT/PATH",
@@ -55,23 +57,15 @@ fn address(server: &str) -> Outcome<IpAddr> {
     Ok(ip)
 }
 /// Decodes a 32-byte key from 43 characters of unpadded URL-safe base64, the form of a Sendspin server ID.
-fn server_key(encoded: &str) -> Option<[u8; 32]> {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let (mut bits, mut count, mut key) = (0u32, 0, Vec::with_capacity(32));
-    for byte in encoded.bytes() {
-        bits = bits << 6 | ALPHABET.iter().position(|letter| *letter == byte)? as u32;
-        count += 6;
-        if count >= 8 {
-            count -= 8;
-            key.push((bits >> count) as u8);
-            bits &= (1 << count) - 1;
-        }
-    }
-    // A canonical encoding leaves its two spare bits zero.
-    key.try_into().ok().filter(|_| bits == 0)
+pub fn decode_key(encoded: &str) -> Option<[u8; 32]> {
+    URL_SAFE_NO_PAD.decode(encoded).ok()?.try_into().ok()
+}
+/// Encodes a public key in the form that `--server-key` accepts.
+pub fn encode_key(key: &[u8; 32]) -> String {
+    URL_SAFE_NO_PAD.encode(key)
 }
 /// Names the credential helper, the native store, and the store's lock file.
-fn store(arguments: &Arguments) -> Outcome<StoreConfiguration> {
+pub fn store(arguments: &Arguments) -> Outcome<StoreConfiguration> {
     let helper = match &arguments.credential_helper {
         Some(path) => PathBuf::from(path),
         // Cargo builds the helper beside this executable.
@@ -121,8 +115,10 @@ fn store(arguments: &Arguments) -> Outcome<StoreConfiguration> {
 }
 
 pub fn run(arguments: &Arguments, interrupted: &AtomicBool) -> Outcome<u8> {
-    if !arguments.positional.is_empty() {
-        return Err(Failure::usage(USAGE));
+    match arguments.positional.as_slice() {
+        [] => {}
+        [step] if step == "init" => return pairing::init(arguments),
+        _ => return Err(Failure::usage(USAGE)),
     }
     let Some(server) = &arguments.server else {
         return Err(Failure::usage(format!("--server is needed\n{USAGE}")));
@@ -132,7 +128,7 @@ pub fn run(arguments: &Arguments, interrupted: &AtomicBool) -> Outcome<u8> {
     let server_public_key = arguments
         .server_key
         .as_deref()
-        .and_then(server_key)
+        .and_then(decode_key)
         .ok_or_else(|| {
             Failure::usage(
                 "--server-key must be the server's public key: 43 characters of URL-safe base64",

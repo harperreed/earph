@@ -2,6 +2,7 @@
 // ABOUTME: Gives people and test scripts a small, direct way to exercise real playback.
 #![forbid(unsafe_code)]
 mod link;
+mod pairing;
 mod play;
 mod sendspin;
 
