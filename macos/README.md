@@ -22,6 +22,10 @@ Connection details, runtime paths, and exact observations sit under **Advanced**
 Closing the window leaves the Engine running. **Stop Engine and Quit…** stops the shared Engine.
 The default quit and background-playback policy remains a deferred product decision.
 
+For interface updates during playback, launch with `open -n ~/Applications/Earph.app --args --attach-only`.
+This mode connects to the existing Engine. If that connection fails, it reports the error without starting another Engine.
+Ordinary launches keep automatic Engine startup.
+
 System output uses macOS format conversion. The default buffer has 4096 frames; the period has 64 frames.
 Keep explicit buffer choices when they suit the selected output.
 

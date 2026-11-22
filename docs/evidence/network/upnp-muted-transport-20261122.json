@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-22",
+  "date_basis": "UTC",
+  "scope": "native muted Pause acknowledgement and resume admission with explicit nonseekable and no-next-URI contracts",
+  "source_head": "fcfc8920a9d7dedc5e3206dc930dd6bcff86ccb2",
+  "frozen_source_files_verified": 2098,
+  "engine_source_inputs_sha256": "f540bce4f5e535ee5d445eff648530a08c8e91f895c1119cc44871c9339a4148",
+  "renderer_fixture_sha256": "0903015b780292ce3f70dc5b74dff8078331d2f0c94696e4364e76ccb3113b42",
+  "device_helper_binary_sha256": "8f44e92406607719ee234d5a850a8b2184b42c227ea42694c6d41c944ee6f3bf",
+  "helper_is_renderer_binary": false,
+  "new_build": false,
+  "named_release_binary": false,
+  "private_result_sha256": "84101b6c6499acb7622b757d66d8d8b226f9d5e494f56503d6446c771cd72f8f",
+  "native_actions": [
+    {
+      "action": "SetAVTransportURI",
+      "argument_names": [
+        "InstanceID",
+        "CurrentURI",
+        "CurrentURIMetaData"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "fault_code": null,
+      "transport_state": null
+    },
+    {
+      "action": "Play",
+      "argument_names": [
+        "InstanceID",
+        "Speed"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "fault_code": null,
+      "transport_state": null
+    },
+    {
+      "action": "GetTransportInfo",
+      "argument_names": [
+        "InstanceID"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "fault_code": null,
+      "transport_state": "TRANSITIONING"
+    },
+    {
+      "action": "GetCurrentTransportActions",
+      "argument_names": [
+        "InstanceID"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "fault_code": null,
+      "transport_state": null
+    },
+    {
+      "action": "GetMediaInfo",
+      "argument_names": [
+        "InstanceID"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "fault_code": null,
+      "transport_state": null
+    },
+    {
+      "action": "Pause",
+      "argument_names": [
+        "InstanceID"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "fault_code": null,
+      "transport_state": null
+    },
+    {
+      "action": "GetTransportInfo",
+      "argument_names": [
+        "InstanceID"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "fault_code": null,
+      "transport_state": "PAUSED_PLAYBACK"
+    },
+    {
+      "action": "Play",
+      "argument_names": [
+        "InstanceID",
+        "Speed"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "fault_code": null,
+      "transport_state": null
+    },
+    {
+      "action": "GetTransportInfo",
+      "argument_names": [
+        "InstanceID"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "fault_code": null,
+      "transport_state": "TRANSITIONING"
+    },
+    {
+      "action": "Seek",
+      "argument_names": [
+        "InstanceID",
+        "Unit",
+        "Target"
+      ],
+      "http_status": 500,
+      "native_success": false,
+      "fault_code": 710,
+      "transport_state": null
+    },
+    {
+      "action": "Next",
+      "argument_names": [
+        "InstanceID"
+      ],
+      "http_status": 500,
+      "native_success": false,
+      "fault_code": 711,
+      "transport_state": null
+    },
+    {
+      "action": "Stop",
+      "argument_names": [
+        "InstanceID"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "fault_code": null,
+      "transport_state": null
+    }
+  ],
+  "pause_settled": true,
+  "resume_admitted_same_source": true,
+  "resume_playing_or_nonzero_progress_qualified": false,
+  "source_epochs": {
+    "session": 1,
+    "stream": 0
+  },
+  "initial_output_epochs": {
+    "session": 1,
+    "stream": 1
+  },
+  "paused_output_epochs": {
+    "session": 1,
+    "stream": 2
+  },
+  "resumed_output_epochs": {
+    "session": 1,
+    "stream": 2
+  },
+  "graph_epoch": 1,
+  "device_epoch": 1,
+  "seek_supported": false,
+  "seek_fault_code": 710,
+  "next_fault_code": 711,
+  "set_next_uri_advertised": false,
+  "next_uri_fields": "NOT_IMPLEMENTED",
+  "native_backend": {
+    "measurement_boundary": "alsa_client_negotiation",
+    "client_format": {
+      "bytes_per_frame": 6,
+      "channels": 2,
+      "interleaved": true,
+      "representation": "signed24",
+      "sample_rate_hz": 48000
+    }
+  },
+  "submitted_audio_frames": 0,
+  "capture_bytes": 0,
+  "capture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "unmute_admitted": false,
+  "sdk_all_joined": true,
+  "sdk_poisoned_after_intentional_browser_retirement": true,
+  "owner_joined": true,
+  "ssdp_closed": true,
+  "media_server_joined": true,
+  "capture_joined": true,
+  "grants_revoked": true,
+  "containers_stopped_pid_zero": true,
+  "bridge_peers_remaining": 0,
+  "operation_exits": {
+    "runtime": 0,
+    "independent_collection": 0
+  },
+  "objects_retained": true,
+  "evidence_boundary": "Actual native GUPnP and owner/backend observations with normalized SOAP and drained private file/null capture; exact outgoing wire bytes and acoustic results remain unqualified",
+  "limits": [
+    "Frozenfcfc renderer fixture; no final named release binary qualification",
+    "Resume admits Buffering/TRANSITIONING while muted; no Playing or nonzero delivery completion claim",
+    "Seek is explicitly unsupported710; Next is711; no SetNextAVTransportURI advertisement",
+    "No subscriptions/events, restart, fault proxy, or Music Assistant rerun",
+    "No physical, acoustic, independent-clock, macOS UPnP, or full AC15 qualification",
+    "Old GTK402 root cause remains unproven"
+  ],
+  "ac15_complete": false,
+  "whole_release_complete": false
+}

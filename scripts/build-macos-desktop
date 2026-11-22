@@ -144,7 +144,7 @@ if $check; then
   # Keep the socket path short and retain this private runtime after the check.
   test_parent=$(mktemp -d /private/tmp/earph-native.XXXXXX)
   printf '%s\n' "$test_parent" > "$output/test-runtime-parent.txt"
-  run owner-integration "$output/tests/OwnerIntegration" "$test_parent/owner" "$output/products/earph-engine" "$test_parent/artifacts"
+  run owner-integration "$output/tests/OwnerIntegration" "$test_parent/owner" "$output/products/earph-engine" "$test_parent/artifacts" --attach-only
   run regression-build compile_swift -parse-as-library -warnings-as-errors -I "$output/generated" \
     "${module_arguments[@]}" "$output"/generated/*.swift "${view_sources[@]}" macos/Tests/BatchIntegrationTests.swift \
     -Xlinker "$output/bridge/libearph_desktop.a" "${native_links[@]}" -o "$output/tests/regressions"

@@ -30,16 +30,38 @@ struct PresentationTests {
                      "Play must retain the exact visible owner basis")
         precondition(snapshot.action("play_local", fields: ["takeover": .bool(false), "entry_id": .string("local-42")])["entry_id"].string == "local-42")
         let playing = try NativeSnapshot(json: """
-        {"version":1,"flags":{},"state":{"owner_id":"owner-a","transport":"playing","muted":false,"active_entry_id":"track-a"}}
+        {"version":1,"flags":{"connected":true,"busy":true},"state":{"owner_id":"owner-a","transport":"playing","muted":false,"active_entry_id":"track-a"}}
         """)
+        precondition(!playing.showsPlaybackProgress, "A background refresh must not animate steady playback")
+        let connecting = try NativeSnapshot(json: """
+        {"version":1,"flags":{"busy":true,"connected":false},"state":null}
+        """)
+        precondition(connecting.showsPlaybackProgress, "An actual connection attempt still shows progress")
+        let preparing = try NativeSnapshot(json: """
+        {"version":1,"flags":{"connected":true,"busy":false},"state":{"transport":"preparing"}}
+        """)
+        precondition(preparing.showsPlaybackProgress, "Native source preparation still shows progress")
+        let buffering = try NativeSnapshot(json: """
+        {"version":1,"flags":{"connected":true},"state":{"transport":"buffering"}}
+        """)
+        precondition(buffering.showsPlaybackProgress, "Actual buffering still shows progress")
+        let disconnected = try NativeSnapshot(json: """
+        {"version":1,"flags":{"connected":false,"busy":false},"state":{"transport":"preparing"}}
+        """)
+        precondition(!disconnected.showsPlaybackProgress, "Disconnected observations must not imply active preparation")
+        let starting = try NativeSnapshot(json: """
+        {"version":1,"flags":{"connected":true,"busy":true,"play_local_pending":true},"state":{"transport":"playing"}}
+        """)
+        precondition(starting.showsPlaybackProgress, "A requested track change still shows progress")
         precondition(playing.pausesPlayback(selectedEntry: .string("track-a"), selectionOwner: .string("owner-a")))
         precondition(!playing.pausesPlayback(selectedEntry: .string("track-b"), selectionOwner: .string("owner-a")),
                      "Selecting another track must offer Play without first pausing the active track")
         precondition(!playing.pausesPlayback(selectedEntry: .string("track-a"), selectionOwner: .string("owner-b")))
         precondition(playing.pausesPlayback(selectedEntry: .null, selectionOwner: .null))
         let paused = try NativeSnapshot(json: """
-        {"version":1,"flags":{},"state":{"owner_id":"owner-a","transport":"paused","muted":false,"active_entry_id":"track-a"}}
+        {"version":1,"flags":{"connected":true,"busy":true},"state":{"owner_id":"owner-a","transport":"paused","muted":false,"active_entry_id":"track-a"}}
         """)
+        precondition(!paused.showsPlaybackProgress, "A background refresh must not animate paused playback")
         precondition(!paused.pausesPlayback(selectedEntry: .string("track-a"), selectionOwner: .string("owner-a")))
         let muted = try NativeSnapshot(json: """
         {"version":1,"flags":{},"state":{"owner_id":"owner-a","transport":"playing","muted":true,"active_entry_id":"track-a"}}

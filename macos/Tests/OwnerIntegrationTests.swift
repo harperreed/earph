@@ -5,9 +5,10 @@ import Foundation
 
 @main
 struct OwnerIntegrationTests {
+    @MainActor
     static func main() throws {
-        guard CommandLine.arguments.count == 4 else {
-            throw CheckFailure.message("usage: owner-integration-tests ABSOLUTE_FRESH_RUNTIME ABSOLUTE_ENGINE ABSOLUTE_NEW_ARTIFACT_DIRECTORY")
+        guard CommandLine.arguments.count == 5 && CommandLine.arguments[4] == "--attach-only" else {
+            throw CheckFailure.message("usage: owner-integration-tests ABSOLUTE_FRESH_RUNTIME ABSOLUTE_ENGINE ABSOLUTE_NEW_ARTIFACT_DIRECTORY --attach-only")
         }
         let runtime = CommandLine.arguments[1]
         let executable = CommandLine.arguments[2]
@@ -42,6 +43,7 @@ struct OwnerIntegrationTests {
             }
         }
         do {
+            try attachOnly(runtime: runtime, executable: executable, ownerID: .null, output: output)
             guard let first = controller else { throw CheckFailure.message("Missing initial controller") }
             launchAttempted = true
             _ = try first.send(actionJson: envelope("launch", fields: ["runtime": .string(runtime), "executable": .string(executable)]).encoded())
@@ -52,6 +54,13 @@ struct OwnerIntegrationTests {
             try write(.object(["owner_id": ownerID, "pid": ownerPID.map(JSONValue.uint) ?? .null, "runtime": .string(runtime)]), to: output.appendingPathComponent("owned-process.json"))
             try write(state.root, to: output.appendingPathComponent("launched.json"))
             try silent(state)
+            try attachOnly(runtime: runtime, executable: executable, ownerID: ownerID, output: output)
+            _ = try first.send(actionJson: envelope("refresh").encoded())
+            let polling = try wait(first) { $0.flag("connected") && $0.flag("busy") }
+            try check(!polling.showsPlaybackProgress, "A real background read must not show playback preparation")
+            try silent(polling)
+            try write(polling.root, to: output.appendingPathComponent("quiet-background-refresh.json"))
+            state = try wait(first) { $0.flag("connected") && $0.flag("queue_edit_available") }
             _ = try first.send(actionJson: state.action("queue_edit", fields: ["command": .object(["method": .string("queue.append"), "path": .string(fixture.path)])]).encoded())
             state = try wait(first) { $0.root["queue"]["entries"].array.count == 1 && $0.flag("queue_edit_available") }
             guard let entry = state.root["queue"]["entries"].array.first?["id"].string else { throw CheckFailure.message("Append must expose the real queue entry") }
@@ -94,6 +103,51 @@ struct OwnerIntegrationTests {
             if let controller, let snapshot = try? controller.snapshot() { try? Data(snapshot.utf8).write(to: output.appendingPathComponent("failure-snapshot.json")) }
             try? Data(String(describing: error).utf8).write(to: output.appendingPathComponent("failure.txt"))
             throw error
+        }
+    }
+    @MainActor
+    static func attachOnly(runtime: String, executable: String, ownerID: JSONValue, output: URL) throws {
+        let store = ControllerStore()
+        store.runtime = runtime
+        store.executable = executable
+        defer {
+            var closed = false
+            store.close { closed = true }
+            let deadline = Date().addingTimeInterval(5)
+            while !closed && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+        }
+        let initialDeadline = Date().addingTimeInterval(5)
+        while store.snapshot == nil && Date() < initialDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+        try check(store.snapshot != nil, "Attach-only Store needs an initial native snapshot")
+        store.connectAutomatically()
+        let deadline = Date().addingTimeInterval(15)
+        while !store.flag("connected") && store.value("error") == .null && store.error == nil && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        guard let snapshot = store.snapshot else { throw CheckFailure.message("Missing attach-only snapshot") }
+        let connected = store.flag("connected")
+        let spawned = store.value("host")["kind"].string == "owned_running"
+        try write(snapshot.root, to: output.appendingPathComponent(ownerID == .null ? "attach-only-absent.json" : "attach-only-existing.json"))
+        if spawned {
+            // Retire an accidentally started test owner before reporting the regression.
+            let cleanup = NativeController()
+            _ = try cleanup.send(actionJson: envelope("attach", fields: ["runtime": .string(runtime)]).encoded())
+            let state = try wait(cleanup) { $0.flag("control_edit_available") }
+            try check(state.state["owner_id"] == snapshot.state["owner_id"], "Cleanup must retain the accidentally started test owner")
+            _ = try cleanup.send(actionJson: state.action("shutdown_and_quit").encoded())
+            let retired = try wait(cleanup) { $0.flag("ready_to_close") }
+            try write(retired.root, to: output.appendingPathComponent("attach-only-regression-cleanup.json"))
+            guard let pid = snapshot.root["host"]["pid"].uint else { throw CheckFailure.message("Started test owner lacks a PID") }
+            let retirementDeadline = Date().addingTimeInterval(15)
+            while Darwin.kill(pid_t(pid), 0) == 0 && Date() < retirementDeadline { Thread.sleep(forTimeInterval: 0.01) }
+            try check(Darwin.kill(pid_t(pid), 0) != 0 && errno == ESRCH, "Accidentally started test owner must actually retire")
+        }
+        try check(!spawned, "Attach-only startup must never launch an Engine")
+        if ownerID == .null {
+            try check(!connected && (snapshot.root["error"] != .null || store.error != nil), "Missing owner must produce a visible connection error")
+        } else {
+            try check(connected && snapshot.state["owner_id"] == ownerID, "Attach-only startup must retain the existing owner")
+            try silent(snapshot)
         }
     }
     static func envelope(_ kind: String, fields: [String: JSONValue] = [:]) -> JSONValue {

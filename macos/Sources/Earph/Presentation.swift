@@ -67,6 +67,10 @@ struct NativeSnapshot: Sendable {
     }
     var state: JSONValue { root["state"] }
     func flag(_ name: String) -> Bool { root["flags"][name].bool }
+    var showsPlaybackProgress: Bool {
+        guard flag("connected") else { return flag("busy") }
+        return flag("play_local_pending") || ["preparing", "buffering"].contains(state["transport"].string ?? "")
+    }
     func pausesPlayback(selectedEntry: JSONValue, selectionOwner: JSONValue) -> Bool {
         guard state["transport"].string == "playing", !state["muted"].bool else { return false }
         guard selectedEntry != .null else { return true }

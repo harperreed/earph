@@ -80,7 +80,7 @@ struct ContentView: View {
                     } else if let transport = store.snapshot?.state["transport"].string {
                         Text(transport.capitalized)
                     }
-                    if store.flag("busy") { ProgressView().controlSize(.small) }
+                    if store.snapshot?.showsPlaybackProgress == true { ProgressView().controlSize(.small) }
                     if let warning = store.value("observation_error").string {
                         Text("Refreshing music…").help(warning)
                     }

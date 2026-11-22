@@ -12,9 +12,10 @@ for argument in "$@"; do
     *) echo 'Usage: scripts/check-progress [--browser] [--publish-verification]' >&2; exit 2 ;;
   esac
 done
-node --test dashboard/model.test.mjs dashboard/build.test.mjs
+node --test dashboard/model.test.mjs dashboard/build.test.mjs dashboard/publication.test.mjs
 node --check dashboard/app.mjs
 node --check dashboard/publish.mjs
+node --check dashboard/publication.mjs
 node --check dashboard/browser-test.mjs
 node scripts/build-progress.mjs
 if "$browser"; then

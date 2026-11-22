@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-22",
+  "scope": "native safe setters through an actual muted renderer source and private ALSA file/null output",
+  "source_head": "fcfc8920a9d7dedc5e3206dc930dd6bcff86ccb2",
+  "frozen_source_files_verified": 2098,
+  "engine_source_inputs_sha256": "f540bce4f5e535ee5d445eff648530a08c8e91f895c1119cc44871c9339a4148",
+  "renderer_fixture_sha256": "0903015b780292ce3f70dc5b74dff8078331d2f0c94696e4364e76ccb3113b42",
+  "device_helper_binary_sha256": "8f44e92406607719ee234d5a850a8b2184b42c227ea42694c6d41c944ee6f3bf",
+  "helper_is_renderer_binary": false,
+  "new_build": false,
+  "named_release_binary": false,
+  "private_result_sha256": "a1e76479e854ad6e4f472ef7dab91cd371f1ed7fda756875f91216f4c4ba7e0f",
+  "failure_baseline_sha256": "dd0acf118b1199ecf54cf1e36c4235eb43cf422687916677b7636cae96173389",
+  "native_actions": [
+    {
+      "action": "SetAVTransportURI",
+      "argument_names": [
+        "InstanceID",
+        "CurrentURI",
+        "CurrentURIMetaData"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": []
+    },
+    {
+      "action": "Play",
+      "argument_names": [
+        "InstanceID",
+        "Speed"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": []
+    },
+    {
+      "action": "GetMute",
+      "argument_names": [
+        "InstanceID",
+        "Channel"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": [
+        {
+          "name": "CurrentMute",
+          "value": true
+        }
+      ]
+    },
+    {
+      "action": "GetVolume",
+      "argument_names": [
+        "InstanceID",
+        "Channel"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": [
+        {
+          "name": "CurrentVolume",
+          "value": 20467
+        }
+      ]
+    },
+    {
+      "action": "SetMute",
+      "argument_names": [
+        "InstanceID",
+        "Channel",
+        "DesiredMute"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": []
+    },
+    {
+      "action": "GetMute",
+      "argument_names": [
+        "InstanceID",
+        "Channel"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": [
+        {
+          "name": "CurrentMute",
+          "value": true
+        }
+      ]
+    },
+    {
+      "action": "SetVolume",
+      "argument_names": [
+        "InstanceID",
+        "Channel",
+        "DesiredVolume"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": []
+    },
+    {
+      "action": "GetVolume",
+      "argument_names": [
+        "InstanceID",
+        "Channel"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": [
+        {
+          "name": "CurrentVolume",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "action": "Stop",
+      "argument_names": [
+        "InstanceID"
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": []
+    }
+  ],
+  "owned_media": {
+    "frames": 96000,
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "representation": "signed24",
+    "private_uri_omitted": true
+  },
+  "source_epochs": {
+    "session": 1,
+    "stream": 0
+  },
+  "output_epochs": {
+    "session": 1,
+    "stream": 1
+  },
+  "graph_epoch": 1,
+  "device_epoch": 1,
+  "native_backend": {
+    "measurement_boundary": "alsa_client_negotiation",
+    "client_format": {
+      "bytes_per_frame": 6,
+      "channels": 2,
+      "interleaved": true,
+      "representation": "signed24",
+      "sample_rate_hz": 48000
+    }
+  },
+  "native_safe_setters_qualified": true,
+  "submitted_audio_frames": 0,
+  "capture_bytes": 0,
+  "capture_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "unmute_admitted": false,
+  "sdk_all_joined": true,
+  "sdk_poisoned_after_intentional_browser_retirement": true,
+  "sdk_shutdown_errors": null,
+  "owner_joined": true,
+  "ssdp_closed": true,
+  "media_server_joined": true,
+  "capture_joined": true,
+  "grants_revoked": true,
+  "containers_stopped_pid_zero": true,
+  "bridge_peers_remaining": 0,
+  "operation_exits": {
+    "first_harness": 1,
+    "corrected_runtime": 0,
+    "independent_collection": 0
+  },
+  "harness_correction": "Poll only original retained devices.list/inspect read receipts until terminal; mutations remain single-send.",
+  "evidence_boundary": "Actual native GUPnP actions, normalized Soup SOAP semantics, real owner/backend observations, and drained private file/null capture; not exact outgoing HTTP bytes or acoustic evidence",
+  "objects_retained": true,
+  "limits": [
+    "Frozenfcfc renderer fixture; no final named release binary qualification",
+    "Muted source readiness and safe setters only; no audible PCM or nonzero sample submission",
+    "No subscriptions/events, seek, restart, next-URI, fault proxy, or Music Assistant rerun",
+    "No physical, acoustic, independent-clock, or macOS UPnP evidence",
+    "Old GTK402 root cause remains unproven"
+  ],
+  "ac15_complete": false,
+  "whole_release_complete": false
+}

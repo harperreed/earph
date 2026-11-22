@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-22",
+  "scope": "Unsigned candidates from the exact qualified simpler-player working snapshot. Package integrity, silent Linux owner lifecycle, and native Mac plist validation only.",
+  "requirement_ids": [
+    "REL-03"
+  ],
+  "acceptance_ids": [
+    "AC-50"
+  ],
+  "source": {
+    "kind": "working_tree_snapshot",
+    "parent_commit": "700ad160c25393b86cd4b21d1d1144c60028ca5d",
+    "source_commit": null,
+    "archive_sha256": "5a4c77a9d94572c37c6defdc022e5add6a55f114d3aa2836ef38fb4d16d3a223",
+    "player_evidence": "../local-playback/simple-player-20261121.json",
+    "note": "The later fcfc892 code checkpoint contains the same player runtime files. Metadata differs; these products are not a named fcfc892 build."
+  },
+  "candidates": [
+    {
+      "target": "x86_64-unknown-linux-gnu",
+      "package_manifest_sha256": "6655d20eca747041a289732618ba2b5e2177180bd00432acf673015b6f9ff36e",
+      "files": 27,
+      "products": [
+        {
+          "name": "earph-engine",
+          "sha256": "8f44e92406607719ee234d5a850a8b2184b42c227ea42694c6d41c944ee6f3bf"
+        },
+        {
+          "name": "earph-desktop",
+          "sha256": "5889fd65280aa97f4749027ab04fa5c88f67f1dbc9c3f3e08d0c380c1fbeb5a3"
+        }
+      ],
+      "verification_exit": 0,
+      "signing": "unsigned",
+      "product_provenance_state": "declared-unverified"
+    },
+    {
+      "target": "aarch64-apple-darwin",
+      "package_manifest_sha256": "c5a3534f431517111e024c8909736ce38cf92c33328456d3f05ddc929162f29b",
+      "files": 27,
+      "products": [
+        {
+          "name": "earph-desktop",
+          "sha256": "b509ceebb846ef5ab990643c27e0da205e356f49748db1b07ed521812acaa3b8"
+        },
+        {
+          "name": "earph-engine",
+          "sha256": "b76cdbeff4bc99eec8c3a11beab7b8ac49c7c174a5bedf3f816646358631d347"
+        }
+      ],
+      "verification_exit": 0,
+      "signing": "unsigned",
+      "product_provenance_state": "declared-unverified"
+    }
+  ],
+  "source_obligations": {
+    "locked_mpl_archives": 15,
+    "index_sha256": "71c427c751d034a128e89beeecc97ad750e76173c2a12bc54e0e345fb5b53840",
+    "archive_hashes_verified": true,
+    "cargo_lock_sha256": "f657ecb87df5669106cb87537f30283c98bf498c9f3ef5fe0bfde60317bb1612",
+    "dependency_inventory_sha256": "92c33531e3b8055073004378a9e8d8cc3076b6f22c840f0b7c620144a27ba939"
+  },
+  "linux_owner": {
+    "actual_exit": 0,
+    "source": null,
+    "output": null,
+    "output_consented": false,
+    "owner_identity_matched": true,
+    "normal_shutdown_exit": 0,
+    "package_and_inputs_unchanged": true,
+    "receipt_sha256": "6397950951af3c12bbd03764f10f3fab9d16f187cbc21a06b603b7ff3d302113"
+  },
+  "macos_plist": {
+    "validator": "plutil -lint",
+    "actual_exit": 0,
+    "sha256": "40c05c5b61bfc653ce7ead716fbfb359aaf4c7d7e6aecdfe547fede5debc6f27",
+    "fresh_copied_hash_matches": true,
+    "receipt_sha256": "1eae7293df54d9be359bebc5ad340cb0f081832e1dfbf3fca4d6c1df6db7cf15"
+  },
+  "package_tool": {
+    "sha256": "c6bf108ff886dea562fe3c244d1aa0cee6f51ec7ba0e51559d6877b2e4b60902",
+    "build_info": {
+      "commit": "700ad160c25393b86cd4b21d1d1144c60028ca5d",
+      "dependency_lock_sha256": "f657ecb87df5669106cb87537f30283c98bf498c9f3ef5fe0bfde60317bb1612",
+      "profile": "debug",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "schema_version": 1,
+      "source_dirty": true,
+      "source_inputs_sha256": "1163d6e962c11df58245fb7d3efbb0e88cb4adaf3f9799c5f7271f04edd92777",
+      "target": "x86_64-unknown-linux-gnu"
+    }
+  },
+  "limits": [
+    "Unsigned, unreleased development candidates.",
+    "No app installation or new GUI launch occurred.",
+    "Native plist validation does not establish app launch or physical output.",
+    "Offline Orbit still has the older app.",
+    "Package declarations remain declared-unverified; exact product qualification stays separately bound.",
+    "AC-50 and the whole first release remain incomplete."
+  ]
+}

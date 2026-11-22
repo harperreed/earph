@@ -38,7 +38,8 @@ final class ControllerStore: ObservableObject {
 
     func connectAutomatically() {
         guard !closing, !flag("attached"), !flag("busy") else { return }
-        if ["owned_running", "attached_existing"].contains(value("host")["kind"].string ?? "") {
+        if CommandLine.arguments.contains("--attach-only")
+            || ["owned_running", "attached_existing"].contains(value("host")["kind"].string ?? "") {
             send("attach", fields: ["runtime": .string(runtime)])
         } else {
             send("launch", fields: ["runtime": .string(runtime), "executable": .string(executable)])

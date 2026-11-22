@@ -23,7 +23,7 @@ The selected local track submitted all frames and closed output without an Engin
 Doctor Biz later confirmed audible local PCM playback from the installed Orbit app.
 He reported that Stop did nothing; a fresh fenced owner command stopped playback and confirmed output closure.
 The controller fix passes independent review, the full Linux check, and hosted native Mac UI checks.
-Its installation on offline Orbit remains pending.
+The later simpler-player installation described below supersedes its pending Orbit delivery.
 See the [Stop evidence](../../evidence/local-playback/controller-stop-20261121.json).
 
 The same unsigned Mac development app now occupies the user's `Applications/Earph.app` path.
@@ -61,6 +61,10 @@ PCM device negotiation cannot establish that qualification.
 Sendspin readiness requires current admission, clock mapping, source ownership, and honest output timing.
 A timestamp queue alone does not meet that contract.
 Independent-clock and acoustic results require the named real setup and capture boundary.
+Doctor Biz confirmed that no calibrated two-output capture setup is available.
+Physical Sendspin sync qualification is blocked until that setup becomes available.
+Keep output timing unqualified; this does not waive the first-release timing requirement.
+Continue independent software integration and controller qualification.
 Signing requires authorized signing material; an unsigned build remains unsigned.
 Do not claim any of these gates from source inspection or a software file/null capture.
 
@@ -127,9 +131,47 @@ Guarded volume preserves its original output, source, consent, policy, mute, and
 An older gesture cannot clear a later repeated Silence.
 The native row intent preserves later selections and follows the actual active entry after Play completes.
 
-Orbit remains offline, so installation and native user acceptance remain pending.
+Orbit returned online. The simpler player is installed at `~/Applications/Earph.app` with all 27 files verified.
+The prior bundle, prior window, and checkpoint backups remain retained.
+Doctor Biz confirmed audible local playback after raising the app volume.
+Keep his current playback, queue, volume, and output untouched during later interface updates.
+See the [delivery and user confirmation](../../evidence/packaging/macos-player-delivery-20261122.json).
 AppKit bitmap and layer captures omit composited SwiftUI content. They do not qualify the visual result.
 These checks do not complete the first release or its physical output gates.
+
+Hosted Linux and Mac software checks pass for `fcfc892` in run `44963876067`.
+Two unsigned candidates now pass package integrity checks with their exact retained products.
+The Linux package passes an actual owner and CLI lifecycle without selecting output.
+The Mac package passes native plist validation and the scoped installation checks recorded above.
+These products retain working-snapshot provenance; they are not named `fcfc892` builds.
+See the [candidate evidence](../../evidence/packaging/simple-player-candidates-20261122.json).
+
+The independent native UPnP SDK now passes rendering reads against frozen clean `fcfc892` source.
+SetMute and SetVolume correctly refuse without an active renderer source.
+The SDK, owner, and discovery tasks join, and the isolated bridge retains no peers.
+See the [current rendering evidence](../../evidence/network/upnp-current-rendering-20261121.json).
+
+The muted active-source scenario now passes all nine native actions with HTTP 200.
+Actual source, output, and graph readiness precede Mute true and volume zero.
+Native Stop retires the source. Submitted frames and captured bytes stay zero.
+All native tasks join, grants are revoked, containers stop, and the bridge retains no peers.
+The earlier harness failure remains retained; its correction polls only original device-read receipts.
+The broader controller matrix remains open.
+See the [muted-source evidence](../../evidence/network/upnp-muted-source-20261122.json).
+
+The independent native controller also passes muted Pause settlement and same-source Resume admission.
+Twelve actions include the declared Seek and Next refusals.
+Resume remains Buffering while muted; resumed audio progress remains unqualified.
+All tasks join, containers stop, and the bridge retains no peers.
+See the [muted transport evidence](../../evidence/network/upnp-muted-transport-20261122.json).
+
+The footer now separates playback preparation from ordinary background reads.
+Its four-file snapshot passes six native Mac checks and the full Linux canonical check.
+Independent delivery review caught an owner-launch fallback during normal GUI startup.
+Explicit attach-only startup now passes the actual failing-baseline regression, six native checks, and independent source review.
+The replacement package must forward that startup mode and pass its separate delivery review before activation.
+The earlier package remains retained and uninstalled.
+See the [native status and startup evidence](../../evidence/local-playback/native-status-20261122.json).
 
 ## Product decision to revisit
 
