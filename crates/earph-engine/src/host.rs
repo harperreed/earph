@@ -38,6 +38,7 @@ pub(crate) fn serve(
     token: String,
     device_helper: Option<crate::DeviceDiscoveryHelper>,
     mut renderer: Option<crate::renderer::RendererRuntime>,
+    mut sendspin: Option<crate::sendspin_runtime::SendspinRuntime>,
 ) -> Result<(), EngineError> {
     let server = ipc::Server::spawn(listener)?;
     let mut graphs = GraphJobs::spawn(directory.clone())?;
@@ -55,6 +56,9 @@ pub(crate) fn serve(
         session.expire_network_authority(monotonic(&clock))?;
         if let Some(renderer) = renderer.as_mut() {
             renderer.poll(&mut session, monotonic(&clock))?;
+        }
+        if let Some(sendspin) = sendspin.as_mut() {
+            sendspin.poll(&mut session, &mut worker, monotonic(&clock));
         }
         synchronize_network(
             &session,
@@ -82,6 +86,11 @@ pub(crate) fn serve(
                 Ok(Event::Network(mut event)) => {
                     event.monotonic_ns = monotonic(&clock);
                     let _ = session.advance_network(event);
+                }
+                Ok(Event::Sendspin(event)) => {
+                    if let Some(sendspin) = sendspin.as_ref() {
+                        sendspin.route(&mut session, event, monotonic(&clock));
+                    }
                 }
                 Ok(Event::NetworkRetired(ack)) => {
                     if session
@@ -195,6 +204,10 @@ pub(crate) fn serve(
                 && renderer
                     .as_ref()
                     .is_none_or(|renderer| renderer.is_idle(&session))
+                // An overdue retirement finishes when the runtime drops and joins its workers.
+                && sendspin
+                    .as_ref()
+                    .is_none_or(|sendspin| sendspin.is_idle() || sendspin.retirement_overdue())
             {
                 return Ok(());
             }
@@ -437,7 +450,7 @@ impl OwnerControl<'_> {
             }
             if matches!(
                 before.source,
-                Some(SourceKind::LocalFile | SourceKind::HttpFlac)
+                Some(SourceKind::LocalFile | SourceKind::HttpFlac | SourceKind::Sendspin)
             ) {
                 let settings = Settings {
                     pcm_processing: staged.has_pcm_processing(),
@@ -541,6 +554,8 @@ impl OwnerControl<'_> {
             && !dispatched_early
             && let Err(error) = if command.payload.activates_graph() {
                 graphs.activate(worker, session)
+            } else if before.source == Some(SourceKind::Sendspin) {
+                dispatch_sendspin(&command, worker, session)
             } else {
                 dispatch_with_network(&command, worker, session, live_binding, clock)
             }
@@ -662,6 +677,19 @@ fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
     if matches!(command, Command::NetworkStartHttpFlac { .. }) {
         return true;
     }
+    if source == Some(SourceKind::Sendspin) {
+        return matches!(
+            command,
+            Command::Stop
+                | Command::OwnerShutdown
+                | Command::Mute { .. }
+                | Command::VolumeSet { .. }
+                | Command::VolumeSetGuarded { .. }
+                | Command::VolumeSilence
+                | Command::VolumeFactoryDefaults
+                | Command::VolumeCaps { .. }
+        );
+    }
     if source == Some(SourceKind::HttpFlac)
         && matches!(
             command,
@@ -767,6 +795,27 @@ fn dispatch(
     }
     Ok(())
 }
+/// The Sendspin source takes settings and one stop. Core refuses its other transport controls.
+fn dispatch_sendspin(
+    command: &CommandEnvelope,
+    worker: &mut Worker,
+    session: &Session,
+) -> Result<(), EngineError> {
+    match command.payload {
+        Command::Stop | Command::OwnerShutdown => worker.send(Action::StopSendspin),
+        Command::Mute { .. }
+        | Command::VolumeSet { .. }
+        | Command::VolumeSetGuarded { .. }
+        | Command::VolumeSilence
+        | Command::VolumeFactoryDefaults
+        | Command::VolumeCaps { .. } => worker.send(Action::Settings(Settings {
+            pcm_processing: false,
+            snapshot: session.snapshot(),
+            playing: true,
+        })),
+        _ => Ok(()),
+    }
+}
 fn synchronize_network(
     session: &Session,
     worker: &mut Worker,
@@ -862,6 +911,29 @@ fn dispatch_with_network(
 }
 fn advance(session: &mut Session, kind: EngineEventKind, epochs: Option<Epochs>, clock: &Instant) {
     if let EngineEventKind::LocalFailed { code } = &kind
+        && let Some(connection) = session.sendspin_connection()
+    {
+        // The Sendspin session fails through its own fenced close event.
+        let frames = session
+            .snapshot()
+            .observation
+            .sendspin()
+            .map_or(0, |observation| observation.submitted_frames);
+        let _ = session.advance_sendspin(
+            connection.generation,
+            earph_core::sendspin_source::SendspinSourceEvent {
+                epochs: connection.epochs,
+                observation: earph_core::sendspin_source::SendspinSourceObservation::new(
+                    earph_core::sendspin_source::SendspinTransportPhase::Closed,
+                    frames,
+                ),
+                error: Some(*code),
+            },
+            monotonic(clock),
+        );
+        return;
+    }
+    if let EngineEventKind::LocalFailed { code } = &kind
         && let Some(context) = session.network_source()
     {
         let snapshot = session.snapshot();
@@ -938,8 +1010,9 @@ fn observation(
         | Event::NetworkGraphFailed { .. } => {
             unreachable!("graph events reconcile with persistence in the owner loop")
         }
-        // No Core session owns a Sendspin source yet, so its events change no session state.
-        Event::Sendspin(_) => {}
+        Event::Sendspin(_) => {
+            unreachable!("Sendspin events route through their runtime in the owner loop")
+        }
         Event::Item { epochs, id, status } => {
             let _ = session.set_queue_preparation(epochs, &id, status);
         }

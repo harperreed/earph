@@ -20,6 +20,8 @@ mod profiles;
 mod render;
 mod renderer;
 pub mod sendspin_credentials;
+mod sendspin_runtime;
+pub use sendspin_runtime::SendspinConfiguration;
 pub mod sendspin_schedule;
 pub use renderer::RendererConfiguration;
 mod runtime;
@@ -64,9 +66,30 @@ pub struct EngineOwner {
     session: Session,
     device_helper: Option<DeviceDiscoveryHelper>,
     renderer: Option<renderer::RendererRuntime>,
+    sendspin: Option<sendspin_runtime::SendspinRuntime>,
 }
 
 impl EngineOwner {
+    /// Enables the Sendspin player source for one server.
+    /// No connection opens until a controller starts a Sendspin session.
+    pub fn with_sendspin(
+        mut self,
+        configuration: SendspinConfiguration,
+    ) -> Result<Self, EngineError> {
+        if self.sendspin.is_some() {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "Sendspin server already configured",
+            ));
+        }
+        let owner = self.session.snapshot().owner_id.ok_or(INVALID)?;
+        self.sendspin = Some(sendspin_runtime::SendspinRuntime::new(
+            configuration,
+            owner,
+        )?);
+        self.session.enable_sendspin();
+        Ok(self)
+    }
     /// Binds trusted ingress before enabling Core admission. Grants remain explicit local commands.
     pub fn with_renderer(
         mut self,
@@ -162,6 +185,7 @@ impl EngineOwner {
             session,
             device_helper: None,
             renderer: None,
+            sendspin: None,
         })
     }
 
@@ -174,9 +198,18 @@ impl EngineOwner {
             session,
             device_helper,
             renderer,
+            sendspin,
         } = self;
         let _owner_lock = _lock;
-        host::serve(session, listener, runtime, token, device_helper, renderer)
+        host::serve(
+            session,
+            listener,
+            runtime,
+            token,
+            device_helper,
+            renderer,
+            sendspin,
+        )
     }
 }
 

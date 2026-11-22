@@ -173,3 +173,30 @@ Full player support, Music Assistant interoperability, output-clock mapping, and
 The dormant Engine [native services bridge](sendspin-native-services.md) connects explicit credential ownership to these services.
 It requires a definitively committed document and explicit activity admission.
 It does not start the transport or provide a player.
+
+## Owner control surface
+
+`EngineOwner::with_sendspin` enables the player source for one server.
+The launch configuration holds the server URL, one pinned address, the server public key, and the credential store.
+IPC never supplies a connection target.
+Capabilities list `sendspin` only for an owner launched with this configuration.
+
+`sources.sendspin.start { device_id }` starts a new muted session.
+It needs an approved matching output, no existing session, no configured or active pipeline, and a disconnected source.
+`sources.sendspin.get {}` reports the phase, the connection generation, the source observation, and the last failure.
+State reports the source as `sendspin_playback` with timing qualification `unqualified` and no audible position.
+
+Unmute waits until the server knows that the player is available.
+The server moves transport between `buffering` and `playing` inside the session.
+It cannot create a session, change epochs, unmute, or change volume.
+Core rejects `sessions.pause`, `sessions.resume`, and seeks for this source; use `sessions.stop`.
+Core ignores a source event whose connection generation or epochs are stale.
+A source that closes with an error fails the session with that error code.
+A clean close or a stop clears the session.
+
+The Host runtime loads credentials, starts Network, and gives the handle to the playback worker.
+Each owner loop iteration polls it, and no step blocks.
+After a stop, a close, or an owner shutdown it joins Network first and then the credential supervisor.
+The phase stays `closing` until both joined; a new start waits for `disconnected`.
+An uncertain credential write refuses later starts in that owner process.
+The permit and the admission policy last 12 hours, and nothing reconnects.

@@ -125,13 +125,6 @@ pub(crate) enum Action {
     },
     Stop(StopRequest),
     /// The caller starts the connection and joins its Network worker after this source closes.
-    #[cfg_attr(
-        not(all(test, target_os = "linux")),
-        expect(
-            dead_code,
-            reason = "the Host sends this action once a Core command exists"
-        )
-    )]
     StartSendspin {
         settings: Settings,
         handle: earph_network::sendspin::SendspinHandle,
@@ -140,13 +133,6 @@ pub(crate) enum Action {
         observation: Arc<Mutex<earph_core::sendspin_source::SendspinSourceObservation>>,
         cancel: Arc<AtomicBool>,
     },
-    #[cfg_attr(
-        not(all(test, target_os = "linux")),
-        expect(
-            dead_code,
-            reason = "the Host sends this action once a Core command exists"
-        )
-    )]
     StopSendspin,
     AcknowledgeSourceTerminal(SourceTerminalToken),
     AcknowledgeDsdRetirement(SourceTerminalToken),
@@ -219,16 +205,7 @@ pub(crate) enum Event {
         observation: Option<LocalPlaybackObservation>,
     },
     DsdRetirementFailed(Arc<DsdRetirementFailure>),
-    Sendspin(
-        #[cfg_attr(
-            not(all(test, target_os = "linux")),
-            expect(
-                dead_code,
-                reason = "the Host reads this event once a Core session owns the source"
-            )
-        )]
-        earph_core::sendspin_source::SendspinSourceEvent,
-    ),
+    Sendspin(earph_core::sendspin_source::SendspinSourceEvent),
     StopFailed {
         request: Box<StopRequest>,
         token: SourceTerminalToken,

@@ -42,5 +42,10 @@ name = "sendspin_credentials_process"
 path = "tests/sendspin_credentials_process.rs"
 harness = false
 
+[[test]]
+name = "sendspin_owner"
+path = "tests/sendspin_owner.rs"
+harness = false
+
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 zbus = "=5.19.0"
