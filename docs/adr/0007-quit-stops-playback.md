@@ -1,7 +1,7 @@
 # Quit stops playback
 
 Date: November 21, 2026.
-Status: Decided by Doctor Biz. Not yet implemented.
+Status: Decided by Doctor Biz. Implemented in the desktop controller on November 22, 2026.
 
 ## Decision
 
@@ -28,9 +28,11 @@ Quit stops the active source, closes the output, and shuts down the Engine owner
 The application then exits.
 Quit follows the existing safe stop path; it adds no new audible policy.
 
-The current app contradicts this decision.
-It disconnects its controller and leaves the shared Engine running.
-Change that behavior in a separate implementation task.
+Quit reads current Engine state, then sends the fenced owner shutdown.
+It retries a stale shutdown twice.
+If the Engine refuses or never confirms within five seconds, the application still exits.
+In that case the Engine can outlive the application; the application never kills a process.
+Both desktop apps exit when their only window closes, so closing that window is Quit.
 
 Disconnecting a controller without quitting is a different action.
 [The desktop controller decision](0006-desktop-controller.md) still governs it.
@@ -45,7 +47,7 @@ These points interpret the decision. Doctor Biz did not state them.
 - The standalone Engine executable and CLI remain, as REL-03 requires.
   The user starts that process and stops it. Earph installs no launchd or systemd unit for it.
 - Quit from the desktop app shuts down the Engine that the app attached to, including one started from the CLI.
-- Closing a window is not Quit.
+- Closing the only window quits the application, so it stops playback.
   [The specification](../SPEC.md) section 3.3 already says quitting the owner stops playback.
   It lets a closed window keep the host alive under a visible preference.
-  This decision leaves that sentence unchanged.
+  No such preference exists. This decision leaves that sentence unchanged.

@@ -54,12 +54,16 @@ The Mac interface follows system appearance and standard Edit menu behavior.
 Linux Light and Dark paint an opaque central panel with a matching clear color.
 No appearance choice changes OS settings.
 
-Closing the controller leaves the local engine running.
+Quit stops playback and shuts down the attached engine, then closes the controller.
+Closing the window is Quit. See [the quit decision](../../docs/adr/0007-quit-stops-playback.md).
+Quit reads current State first, so a changed revision does not block the shutdown.
+Quit retries a stale shutdown twice and closes within five seconds if the engine never confirms.
+If no engine is attached, Quit only closes the controller.
 Disconnect retires client workers without cancelling commands already sent.
-Stop engine and quit requires an explicit confirmation and sends the existing owner command.
+The separate Stop engine and quit control requires an explicit confirmation and sends the existing owner command.
 The controller verifies actual exit only when it owns that same child and owner identity.
 It never kills a process to acquire a runtime or to resolve an uncertain shutdown.
-Rejected or uncertain shutdown ends the active quit workflow and keeps its exact historical receipt.
+For that control, a rejected or uncertain shutdown ends the active quit workflow and keeps its exact historical receipt.
 Refresh, Disconnect, and reattachment remain available.
 An uncertain shutdown requires explicit reconciliation before another shutdown intent.
 Reconciling that historical request does not automatically quit the controller.

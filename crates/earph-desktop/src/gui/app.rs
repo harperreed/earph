@@ -78,8 +78,8 @@ impl GuiApp {
                     ui.heading("Earph");
                     ui.selectable_value(&mut self.dark, false, "Light");
                     ui.selectable_value(&mut self.dark, true, "Dark");
-                    if ui.button("Close controller").clicked() {
-                        self.controller.handle(UiIntent::CloseController);
+                    if ui.button("Quit").clicked() {
+                        self.controller.handle(UiIntent::Quit);
                     }
                 });
                 status::show(ui, &mut self.controller);
@@ -118,7 +118,8 @@ impl eframe::App for GuiApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.controller.tick(Instant::now());
         if ui.ctx().input(|i| i.viewport().close_requested()) && !self.controller.ready_to_close() {
-            self.controller.handle(UiIntent::CloseController);
+            // Closing the only window quits Earph, and Quit stops playback.
+            self.controller.handle(UiIntent::Quit);
             ui.ctx()
                 .send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }

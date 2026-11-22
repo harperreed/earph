@@ -734,3 +734,24 @@ fn confirmed_shutdown_refuses_a_replacement_owner_and_closes_the_rendered_owner(
     wait(&controller, |s| s["flags"]["ready_to_close"] == true);
     assert!(!first.state().shutdown_requested);
 }
+
+#[test]
+fn native_quit_stops_the_attached_engine_before_the_controller_closes() {
+    let runtime = std::path::PathBuf::from("/tmp").join(unique());
+    let owner = earph_engine::EngineOwner::bind(&runtime).unwrap();
+    let serve = std::thread::spawn(move || owner.serve());
+    let controller = NativeController::new();
+    send(
+        &controller,
+        json!({"version":1,"kind":"attach","runtime":runtime.to_str().unwrap()}),
+    );
+    wait(&controller, |s| !s["state"].is_null());
+    send(&controller, json!({"version":1,"kind":"quit"}));
+    wait(&controller, |s| s["flags"]["ready_to_close"] == true);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !serve.is_finished() {
+        assert!(Instant::now() < deadline, "Quit left the Engine serving");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    serve.join().unwrap().unwrap();
+}

@@ -108,6 +108,8 @@ pub enum UiIntent {
     Reconcile(RequestId),
     ShutdownAndQuit,
     CloseController,
+    /// Stops the attached Engine, then closes. Quit never leaves audio playing.
+    Quit,
 }
 pub struct Receipt<'a> {
     pub request: &'a Request,
@@ -284,6 +286,14 @@ impl Task {
         }
     }
 }
+/// Bounds one Quit, including an Engine that never confirms its shutdown.
+const QUIT_LIMIT: Duration = Duration::from_secs(5);
+/// Tracks one Quit: a fresh State read, then the fenced Engine shutdown.
+struct Quit {
+    read: Option<RequestId>,
+    retries: u8,
+    deadline: Instant,
+}
 pub struct GuiController {
     client: Option<DesktopClient>,
     disconnected: Option<PresentationModel>,
@@ -302,6 +312,7 @@ pub struct GuiController {
     discovery: Option<Arc<DeviceQueryResultView>>,
     inspection: Option<Arc<DeviceQueryResultView>>,
     shutdown: Option<RequestId>,
+    quit: Option<Quit>,
     wait_for_child: bool,
     refresh: bool,
     next_poll: Instant,
@@ -354,6 +365,7 @@ impl GuiController {
             discovery: None,
             inspection: None,
             shutdown: None,
+            quit: None,
             wait_for_child: false,
             refresh: false,
             next_poll: Instant::now(),
@@ -1222,6 +1234,7 @@ impl GuiController {
             && !self.queue_edit_pending()
             && !self.closing
             && self.shutdown.is_none()
+            && self.quit.is_none()
             && self.cleanup.is_none()
             && !self.host.launching()
     }
@@ -1287,6 +1300,7 @@ impl GuiController {
             || self.cleanup.is_some()
             || self.host.launching()
             || self.shutdown.is_some()
+            || self.quit.is_some()
     }
     pub fn error(&self) -> Option<&str> {
         self.error.as_deref().or(self.observation_error.as_deref())
@@ -1336,7 +1350,7 @@ impl GuiController {
         }
     }
     fn intent(&mut self, intent: UiIntent) -> Result<(), String> {
-        if self.closing {
+        if self.closing || self.quit.is_some() {
             return Err("Controller cleanup is in progress".into());
         }
         if !matches!(
@@ -1380,6 +1394,21 @@ impl GuiController {
                 self.shutdown = None;
                 self.wait_for_child = false;
                 self.disconnect(true);
+                Ok(())
+            }
+            UiIntent::Quit => {
+                self.cancel_unsent();
+                self.pending = None;
+                self.refresh = false;
+                self.quit = Some(Quit {
+                    read: None,
+                    retries: 2,
+                    deadline: Instant::now() + QUIT_LIMIT,
+                });
+                // An outstanding confirmed shutdown already targets this Engine; Quit adopts it.
+                if self.shutdown.is_none() {
+                    self.read_before_quit();
+                }
                 Ok(())
             }
             UiIntent::Refresh => {
@@ -2116,6 +2145,66 @@ impl GuiController {
         }
         Ok(())
     }
+    /// Reads current State on the safety lane, so the shutdown carries a fresh revision.
+    /// The read also probes reachability. With no observed Engine, the controller only closes.
+    /// A refused admission leaves the read unset; the next tick tries again until the deadline.
+    fn read_before_quit(&mut self) {
+        let Some(state) = self.state_basis().filter(|_| self.client.is_some()) else {
+            self.disconnect(true);
+            return;
+        };
+        let read = request_id()
+            .ok()
+            .and_then(|id| Request::safety_state(id, &state).ok())
+            .and_then(|request| self.submit(request).ok());
+        if let Some(quit) = self.quit.as_mut() {
+            quit.read = read;
+        }
+    }
+    fn advance_quit(&mut self, now: Instant) {
+        let Some(quit) = self.quit.as_mut() else {
+            return;
+        };
+        if now >= quit.deadline {
+            // Quit must finish. An Engine that never confirms cannot hold the application open.
+            self.wait_for_child = false;
+            if !self.closing {
+                self.disconnect(true);
+            }
+            return;
+        }
+        let Some(id) = quit.read.clone() else {
+            if self.shutdown.is_none() && !self.closing {
+                self.read_before_quit();
+            }
+            return;
+        };
+        let shutdown = match self.outcome(&id) {
+            None | Some((Presentation::Queued | Presentation::Accepted, _)) => return,
+            Some((Presentation::Applied, Some(Ok(Reply::Receipt(receipt))))) => {
+                match &receipt.result {
+                    Some(ResultView::State(state)) => request_id().ok().and_then(|id| {
+                        let owned = matches!(&self.host.status, HostStatus::OwnedRunning { owner_id, .. } if state.owner_id.as_ref() == Some(owner_id));
+                        Request::mutation(id, state, Command::OwnerShutdown)
+                            .ok()
+                            .map(|request| (request, owned))
+                    }),
+                    _ => None,
+                }
+            }
+            Some(_) => None,
+        };
+        self.quit.as_mut().unwrap().read = None;
+        let Some((request, owned)) = shutdown else {
+            self.disconnect(true);
+            return;
+        };
+        // A refused admission falls back to a fresh read on the next tick.
+        if let Ok(id) = self.submit(request) {
+            self.shutdown = Some(id);
+            self.wait_for_child = owned;
+        }
+    }
     fn disconnect(&mut self, close: bool) {
         self.cancel_local_play();
         self.invalidate_correction();
@@ -2213,10 +2302,26 @@ impl GuiController {
             }
         }
         self.observe_discovery();
+        self.advance_quit(now);
         if let Some(id) = self.shutdown.clone() {
             match self.outcome(&id) {
                 Some((Presentation::Applied, _)) => {
                     self.disconnect(true);
+                }
+                Some((p, _))
+                    if self.quit.is_some()
+                        && !matches!(p, Presentation::Queued | Presentation::Accepted) =>
+                {
+                    // A stale revision deserves a fresh read. Any other refusal still lets Quit close.
+                    self.shutdown = None;
+                    self.wait_for_child = false;
+                    let quit = self.quit.as_mut().unwrap();
+                    if p == Presentation::Rejected && quit.retries > 0 {
+                        quit.retries -= 1;
+                        self.read_before_quit();
+                    } else {
+                        self.disconnect(true);
+                    }
                 }
                 Some((p, _)) if !matches!(p, Presentation::Queued | Presentation::Accepted) => {
                     self.shutdown = None;

@@ -198,3 +198,22 @@ fn shutdown_of_an_attached_owner_does_not_wait_for_another_owned_process() {
         "attached shutdown waited for a different owned process"
     );
 }
+
+#[test]
+fn quit_stops_the_engine_this_controller_launched() {
+    let runtime = PathBuf::from("/tmp").join(unique());
+    let mut gui = GuiController::new();
+    gui.handle(UiIntent::Launch {
+        runtime: runtime.to_str().unwrap().into(),
+        executable: binary(),
+    });
+    until(&mut gui, |g| {
+        matches!(g.host_status(), HostStatus::OwnedRunning { .. }) && g.connected()
+    });
+    gui.handle(UiIntent::Quit);
+    until(&mut gui, |g| g.ready_to_close());
+    assert!(matches!(
+        gui.host_status(),
+        HostStatus::Exited { success: true, .. }
+    ));
+}

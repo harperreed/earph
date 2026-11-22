@@ -98,7 +98,8 @@ final class ControllerStore: ObservableObject {
         guard !closing else { return }
         closing = true
         pendingFiles.removeAll()
-        driver.close(.object(["version": .uint(1), "kind": .string("close_controller")]))
+        // Quit stops playback: Rust shuts the attached Engine down before it reports ready_to_close.
+        driver.close(.object(["version": .uint(1), "kind": .string("quit")]))
     }
     func shutdownAndQuit(captured: NativeSnapshot? = nil) {
         guard !closing else { return }

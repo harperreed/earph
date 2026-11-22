@@ -1,5 +1,5 @@
 // ABOUTME: Starts Earph in a standard macOS window with system menus, navigation, and appearance.
-// ABOUTME: Delays application termination until Rust finishes bounded controller cleanup.
+// ABOUTME: Delays application termination until Rust stops the Engine and finishes bounded cleanup.
 import AppKit
 import SwiftUI
 

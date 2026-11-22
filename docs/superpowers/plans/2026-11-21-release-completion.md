@@ -223,5 +223,17 @@ See the [running-retreat evidence](../../evidence/local-playback/coreaudio-runni
 Doctor Biz decided the quit and background-playback policy on November 21, 2026.
 Quit stops playback and shuts down the Engine. Earph offers no background-playback service.
 See [the quit decision](../../adr/0007-quit-stops-playback.md).
-The current app still disconnects its controller and leaves the Engine running.
-Implement the decision as its own task.
+Both desktop apps now send Quit when the user quits or closes the only window.
+Quit reads current State on the safety lane, then sends the fenced owner shutdown.
+It retries a stale shutdown twice and closes within five seconds if the Engine never confirms.
+Five regressions fail against the earlier close-only behavior and pass afterward.
+They cover a changed revision, real playback, an owned child, an unconfirmed shutdown, and the native action.
+A sixth regression covers the deadline while the Engine holds its reply.
+The Mac owner integration test now quits through the Swift store and checks that the Engine process exits.
+Independent review found no path that holds the application open.
+Its four findings about closing without a shutdown are corrected.
+The full Linux canonical check and the native Mac check pass on the same unchanged source.
+An Engine that refuses or never answers can outlive the application; the application never kills a process.
+A Quit during Engine launch still leaves that idle Engine running.
+The separate confirmed **Stop Engine and Quit…** control remains.
+The corrected application is not installed on Orbit.

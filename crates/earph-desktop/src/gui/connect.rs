@@ -70,7 +70,7 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut GuiApp) {
     if let Some(runtime) = app.controller.runtime() {
         ui.label(format!("Attached path: {runtime}"));
     }
-    ui.label("Closing Earph leaves the local engine running.");
+    ui.label("Quitting Earph stops playback and the local engine.");
     ui.label("Disconnect does not cancel a command already sent to the owner.");
     if ui
         .add_enabled(

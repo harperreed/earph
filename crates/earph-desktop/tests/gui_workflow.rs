@@ -1149,3 +1149,73 @@ fn uncertain_background_read_cancels_local_edit_before_observation_recovers() {
         "failed background observation let local intent reach the owner later"
     );
 }
+
+#[test]
+fn quit_shuts_down_the_engine_after_another_control_advanced_its_revision() {
+    let runtime = std::path::PathBuf::from("/tmp").join(unique());
+    let owner = earph_engine::EngineOwner::bind(&runtime).unwrap();
+    let serve = thread::spawn(move || owner.serve());
+    let mut gui = attached(&runtime);
+    let old = gui.state().unwrap().clone();
+    earph_desktop::OwnerClient::attach(runtime.to_str().unwrap().into())
+        .unwrap()
+        .request(
+            &Request::mutation(
+                earph_core::ids::RequestId::new(unique()).unwrap(),
+                &old,
+                Command::QueueAppend {
+                    path: "/quit-revision-change.wav".into(),
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    gui.handle(UiIntent::Quit);
+    until(&mut gui, |g| g.ready_to_close());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !serve.is_finished() {
+        assert!(Instant::now() < deadline, "Quit left the Engine serving");
+        thread::sleep(Duration::from_millis(2));
+    }
+    serve.join().unwrap().unwrap();
+}
+
+#[test]
+fn quit_closes_when_the_engine_never_confirms_shutdown() {
+    let owner = receipt_fixture::RealOwner::start();
+    let transport = receipt_fixture::ReceiptTransport::drop_shutdown(owner.runtime.clone());
+    let mut gui = attached(&transport.runtime);
+    gui.handle(UiIntent::Quit);
+    until(&mut gui, |g| g.ready_to_close());
+    assert!(gui.receipts().any(|r| {
+        matches!(r.request.envelope().payload, Command::OwnerShutdown)
+            && r.presentation == Presentation::Uncertain
+    }));
+}
+
+#[test]
+fn quit_without_an_attached_engine_closes_the_controller() {
+    let mut gui = GuiController::new();
+    gui.handle(UiIntent::Quit);
+    until(&mut gui, |g| g.ready_to_close());
+    assert!(gui.receipts().next().is_none());
+}
+
+#[test]
+fn quit_closes_at_its_deadline_while_the_engine_holds_its_reply() {
+    let owner = receipt_fixture::RealOwner::start();
+    let transport = receipt_fixture::ReceiptTransport::observation(owner.runtime.clone());
+    let mut gui = attached(&transport.runtime);
+    until(&mut gui, |g| !g.busy());
+    transport.hold_next_state();
+    gui.handle(UiIntent::Quit);
+    assert!(!gui.ready_to_close());
+    gui.tick(Instant::now() + Duration::from_secs(6));
+    transport.release_state();
+    until(&mut gui, |g| g.ready_to_close());
+    assert!(
+        !gui.receipts()
+            .any(|r| matches!(r.request.envelope().payload, Command::OwnerShutdown))
+    );
+    assert!(!owner.state().shutdown_requested);
+}

@@ -1,5 +1,5 @@
 // ABOUTME: Exercises generated Swift bindings against a real standalone Engine without selecting output or starting sources.
-// ABOUTME: Retains fresh owner identity, exact snapshots, fixture bytes, and explicit shutdown cleanup results.
+// ABOUTME: Retains fresh owner identity, exact snapshots, fixture bytes, and Quit cleanup results.
 import Darwin
 import Foundation
 
@@ -85,20 +85,33 @@ struct OwnerIntegrationTests {
             try check(state.root["queue"]["selected"].string == entry, "Reattachment must retain actual queue intent")
             try silent(state)
             try write(state.root, to: output.appendingPathComponent("reattached.json"))
-            _ = try second.send(actionJson: state.action("shutdown_and_quit").encoded())
-            state = try wait(second) { $0.flag("ready_to_close") }
+            _ = try second.send(actionJson: state.action("close_controller").encoded())
+            _ = try wait(second) { $0.flag("ready_to_close") }
+            // Application termination calls Store close. It must stop the attached Engine.
+            let quitting = ControllerStore()
+            quitting.runtime = runtime
+            quitting.executable = executable
+            let quitDeadline = Date().addingTimeInterval(15)
+            while quitting.snapshot == nil && Date() < quitDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+            quitting.connectAutomatically()
+            while !quitting.flag("connected") && Date() < quitDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+            try check(quitting.flag("connected") && quitting.snapshot?.state["owner_id"] == ownerID, "The quitting Store must attach the same Engine")
+            var quit = false
+            quitting.close { quit = true }
+            while !quit && Date() < quitDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+            try check(quit, "Quit must finish its bounded cleanup")
             if let ownerPID {
                 let deadline = Date().addingTimeInterval(15)
                 while Darwin.kill(pid_t(ownerPID), 0) == 0 && Date() < deadline {
                     _ = try first.tick()
                     Thread.sleep(forTimeInterval: 0.01)
                 }
-                try check(Darwin.kill(pid_t(ownerPID), 0) != 0 && errno == ESRCH, "Explicit shutdown must retire the actual owned process")
+                try check(Darwin.kill(pid_t(ownerPID), 0) != 0 && errno == ESRCH, "Quit must retire the actual owned process")
             }
             shutdownFinished = true
             try check(try Data(contentsOf: fixture) == fixtureBytes, "Generated media bytes must stay unchanged")
             try write(.object(["status": .string("pass"), "owner_id": ownerID, "pid": ownerPID.map(JSONValue.uint) ?? .null, "output_selected": .bool(false), "source_started": .bool(false), "controller_close_kept_owner": .bool(true), "explicit_shutdown": .bool(true)]), to: output.appendingPathComponent("result.json"))
-            print("PASS real Swift/Rust/Engine launch, queue append/select, close, reattach, explicit shutdown")
+            print("PASS real Swift/Rust/Engine launch, queue append/select, close, reattach, Quit")
         } catch {
             if let controller, let snapshot = try? controller.snapshot() { try? Data(snapshot.utf8).write(to: output.appendingPathComponent("failure-snapshot.json")) }
             try? Data(String(describing: error).utf8).write(to: output.appendingPathComponent("failure.txt"))
@@ -111,6 +124,12 @@ struct OwnerIntegrationTests {
         store.runtime = runtime
         store.executable = executable
         defer {
+            // Store close is Quit, which stops an attached Engine. Detach first; this probe must leave it running.
+            if store.flag("attached") {
+                store.send("disconnect")
+                let detached = Date().addingTimeInterval(5)
+                while store.flag("attached") && Date() < detached { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+            }
             var closed = false
             store.close { closed = true }
             let deadline = Date().addingTimeInterval(5)

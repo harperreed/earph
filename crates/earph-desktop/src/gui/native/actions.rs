@@ -109,6 +109,7 @@ pub(super) enum NativeAction {
         basis_token: String,
     },
     CloseController {},
+    Quit {},
     GraphReset {},
     GraphLoadProfile {
         basis_token: String,
@@ -317,6 +318,7 @@ impl NativeState {
                 UiIntent::ShutdownAndQuit
             }
             NativeAction::CloseController {} => UiIntent::CloseController,
+            NativeAction::Quit {} => UiIntent::Quit,
             NativeAction::GraphReset {} => {
                 self.graph = GraphIntentEditor::default();
                 UiIntent::DiscardPreparedGraph

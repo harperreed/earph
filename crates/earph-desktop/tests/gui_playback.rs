@@ -1175,3 +1175,29 @@ fn stop_after_mute_targets_the_same_source_during_native_transport_changes() {
     assert!(p.gui.error().is_none(), "{:?}", p.gui.error());
     p.close();
 }
+
+#[test]
+fn quit_during_playback_stops_the_source_and_the_engine_exits() {
+    let mut p = Playback::with_frames(true, 48000 * 60);
+    p.play();
+    until(&mut p.gui, |g| {
+        !g.play_local_pending()
+            && g.state()
+                .is_some_and(|s| s.transport == TransportView::Playing && !s.muted)
+    });
+    p.gui.handle(UiIntent::Quit);
+    until(&mut p.gui, GuiController::ready_to_close);
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let status = loop {
+        if let Some(status) = p.owner.child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "Quit left the Engine playing");
+        thread::sleep(Duration::from_millis(2));
+    };
+    assert!(status.success(), "Engine exit after Quit: {status}");
+    assert!(
+        fs::metadata(&p.capture).unwrap().len() < u64::from(p.frames) * 4,
+        "the whole source played before the Engine exited"
+    );
+}

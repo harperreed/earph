@@ -130,7 +130,7 @@ fn disconnected_window_exposes_labeled_connect_actions_without_playback_controls
         "Owner executable",
         "Attach",
         "Start local engine",
-        "Close controller",
+        "Quit",
     ] {
         assert!(
             labels.contains(&label),
