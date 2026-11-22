@@ -21,6 +21,7 @@ pub mod remote_volume;
 pub mod renderer;
 pub mod renderer_events;
 pub mod safety;
+pub mod sendspin_control;
 pub mod sendspin_source;
 mod serde_helpers;
 pub mod session;

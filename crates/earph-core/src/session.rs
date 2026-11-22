@@ -31,6 +31,8 @@ mod network;
 mod renderer;
 #[path = "session_renderer_events.rs"]
 mod renderer_events;
+#[path = "session_sendspin.rs"]
+mod sendspin;
 #[path = "session_sources.rs"]
 mod sources;
 
@@ -195,6 +197,7 @@ impl LocalPlaybackObservation {
 pub enum CurrentPlaybackObservation {
     Local(LocalPlaybackObservation),
     Network(Box<crate::network_source::NetworkPlaybackObservation>),
+    Sendspin(crate::sendspin_source::SendspinSourceObservation),
 }
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct PlaybackState(pub Option<CurrentPlaybackObservation>);
@@ -213,7 +216,18 @@ impl From<crate::network_source::NetworkPlaybackObservation> for PlaybackState {
         Self(Some(CurrentPlaybackObservation::Network(Box::new(value))))
     }
 }
+impl From<crate::sendspin_source::SendspinSourceObservation> for PlaybackState {
+    fn from(value: crate::sendspin_source::SendspinSourceObservation) -> Self {
+        Self(Some(CurrentPlaybackObservation::Sendspin(value)))
+    }
+}
 impl PlaybackState {
+    pub fn sendspin(&self) -> Option<&crate::sendspin_source::SendspinSourceObservation> {
+        match &self.0 {
+            Some(CurrentPlaybackObservation::Sendspin(value)) => Some(value),
+            _ => None,
+        }
+    }
     pub fn local(&self) -> Option<&LocalPlaybackObservation> {
         match &self.0 {
             Some(CurrentPlaybackObservation::Local(value)) => Some(value),
@@ -262,6 +276,9 @@ impl Serialize for PlaybackState {
         }
         if let Some(value) = self.dsd() {
             map.serialize_entry("dsd_playback", value)?;
+        }
+        if let Some(value) = self.sendspin() {
+            map.serialize_entry("sendspin_playback", value)?;
         }
         map.end()
     }
@@ -595,6 +612,7 @@ pub struct Session {
     devices: DeviceControl,
     sources: crate::source::SourceStaging,
     network: crate::network_source::NetworkSources,
+    sendspin: crate::sendspin_control::SendspinControl,
     renderer: crate::renderer::RendererControl,
     diagnostics: diagnostics::DiagnosticState,
 }
@@ -649,6 +667,7 @@ impl Session {
             devices: DeviceControl::default(),
             sources: crate::source::SourceStaging::default(),
             network: crate::network_source::NetworkSources::default(),
+            sendspin: crate::sendspin_control::SendspinControl::default(),
             renderer: crate::renderer::RendererControl::default(),
             diagnostics: diagnostics::DiagnosticState::default(),
         }
@@ -868,6 +887,9 @@ impl Session {
                     | Command::NetworkGrantsRevoke { .. } => {
                         Some(QueryResult::Network(self.network_snapshot()))
                     }
+                    Command::SendspinGet {} => {
+                        Some(QueryResult::Sendspin(self.sendspin_snapshot()))
+                    }
                     Command::SourcesGet {} | Command::SourceStageUri { .. } => {
                         Some(QueryResult::Sources(self.sources.snapshot()))
                     }
@@ -891,11 +913,14 @@ impl Session {
                         devices: Arc::new(self.device_capabilities()),
                         schema_version: 1,
                         sources: if self.local_playback_enabled {
+                            let mut sources = vec![SourceKind::LocalFile];
                             if self.network.enabled {
-                                vec![SourceKind::LocalFile, SourceKind::HttpFlac]
-                            } else {
-                                vec![SourceKind::LocalFile]
+                                sources.push(SourceKind::HttpFlac);
                             }
+                            if self.sendspin.configured {
+                                sources.push(SourceKind::Sendspin);
+                            }
+                            sources
                         } else if self.state.owner_id.is_some() {
                             vec![]
                         } else {
@@ -1369,6 +1394,8 @@ impl Session {
             Command::Start { .. }
                 | Command::NetworkStartHttpFlac { .. }
                 | Command::NetworkGet {}
+                | Command::SendspinStart { .. }
+                | Command::SendspinGet {}
                 | Command::NetworkGrantsReplace { .. }
                 | Command::NetworkGrantsRevoke { .. }
                 | Command::Mute { .. }
@@ -1484,6 +1511,9 @@ impl Session {
                 "refresh expected revision",
             ));
         }
+        if self.state.source == Some(SourceKind::Sendspin) {
+            self.validate_sendspin_control(&command.payload)?;
+        }
         if let Command::SourceStageUri { uri, metadata } = &command.payload {
             return self.stage_uri(command, uri, metadata);
         }
@@ -1496,13 +1526,19 @@ impl Session {
         if self.network.closing.is_some()
             && matches!(
                 command.payload,
-                Command::Start { .. } | Command::Resume | Command::OutputSelect { .. }
+                Command::Start { .. }
+                    | Command::SendspinStart { .. }
+                    | Command::Resume
+                    | Command::OutputSelect { .. }
             )
         {
             return Err(EngineError::new(
                 ErrorCode::SourceBusy,
                 "network retirement awaits worker acknowledgement",
             ));
+        }
+        if let Command::SendspinStart { device_id } = &command.payload {
+            return self.apply_sendspin_start(command, device_id);
         }
         if self.state.source == Some(SourceKind::HttpFlac) {
             self.validate_network_control(&command.payload, now_ns)?;
@@ -1990,6 +2026,12 @@ impl Session {
                             "activate an explicit network graph before unmuting",
                         ));
                     }
+                    if next.source == Some(SourceKind::Sendspin) && !self.sendspin_prepared() {
+                        return Err(EngineError::new(
+                            ErrorCode::SafetyPolicyBlocked,
+                            "wait for the Sendspin source to prepare before unmuting",
+                        ));
+                    }
                     self.validate_graph_unmute(&next)?;
                     Self::validate_local_unmute(&next)?;
                 }
@@ -2074,6 +2116,9 @@ impl Session {
             next.observation = Default::default();
         }
         self.state = next;
+        if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
+            self.release_sendspin();
+        }
         self.cancel_profile_work();
         if self.state.shutdown_requested {
             self.cancel_artifact_work();
@@ -2294,7 +2339,10 @@ impl Session {
         Ok(())
     }
     pub fn advance(&mut self, event: EngineEvent) -> Result<(), EngineError> {
-        if self.state.source == Some(SourceKind::HttpFlac) {
+        if matches!(
+            self.state.source,
+            Some(SourceKind::HttpFlac | SourceKind::Sendspin)
+        ) {
             return Err(STALE);
         }
         if event.epochs != self.state.epochs {

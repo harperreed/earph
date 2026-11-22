@@ -36,6 +36,7 @@ pub enum SourceKind {
     Virtual,
     LocalFile,
     HttpFlac,
+    Sendspin,
 }
 
 /// Captures the authority and safety facts behind one absolute software-volume gesture.
@@ -223,6 +224,11 @@ pub enum Command {
         device_id: DeviceId,
         takeover: bool,
     },
+    /// Starts the player connection to the server from the owner's launch configuration.
+    #[serde(rename = "sources.sendspin.start")]
+    SendspinStart { device_id: DeviceId },
+    #[serde(rename = "sources.sendspin.get")]
+    SendspinGet {},
     #[serde(rename = "graph.inspect")]
     GraphInspect {},
     #[serde(rename = "profiles.list")]
@@ -472,6 +478,7 @@ impl Command {
                 | Self::SourcesGet { .. }
                 | Self::RendererGet {}
                 | Self::NetworkGet {}
+                | Self::SendspinGet {}
                 | Self::GraphInspect { .. }
                 | Self::ProfilesList { .. }
                 | Self::ProfilesGet { .. }
@@ -685,6 +692,8 @@ impl CommandEnvelope {
                 | Command::DiagnosticsExport { .. }
                 | Command::DiagnosticsInspect { .. }
                 | Command::DiagnosticsCancel { .. }
+                | Command::SendspinStart { .. }
+                | Command::SendspinGet {}
         ) && [
             self.request_id.capacity_bytes(),
             self.zone_id.capacity_bytes(),
@@ -827,6 +836,7 @@ pub enum QueryResult {
     DiagnosticCancel(Arc<crate::diagnostics::DiagnosticCancelReceipt>),
     Sources(crate::source::SourceStagingSnapshot),
     Network(crate::network_source::NetworkSnapshot),
+    Sendspin(crate::sendspin_control::SendspinSnapshot),
     Renderer(crate::renderer::RendererSnapshot),
     Devices(Arc<crate::devices::DeviceQueryResult>),
     State(Box<crate::session::SessionSnapshot>),
