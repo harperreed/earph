@@ -239,7 +239,11 @@ fn macos_layout_and_linux_final_prefix_are_explicit() {
     package::verify(&no_entry).unwrap();
     assert!(!no_entry.join("share/applications").exists());
     request.target = "aarch64-apple-darwin".into();
-    for product in [&mut request.engine, &mut request.desktop, &mut request.player] {
+    for product in [
+        &mut request.engine,
+        &mut request.desktop,
+        &mut request.player,
+    ] {
         let mut bytes = vec![0u8; 32];
         bytes[..4].copy_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
         bytes[4..8].copy_from_slice(&0x0100000cu32.to_le_bytes());
