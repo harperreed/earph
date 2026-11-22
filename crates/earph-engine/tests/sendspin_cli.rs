@@ -62,7 +62,7 @@ mod linux {
         if chosen.as_deref() == Some("credential-helper") {
             return helper::run();
         }
-        let cases: [(&str, fn()); 9] = [
+        let cases: [(&str, fn()); 13] = [
             (
                 "plays",
                 plays_the_stream_shows_status_and_exits_when_the_server_closes,
@@ -81,6 +81,22 @@ mod linux {
                 "token",
                 pairing::token_prints_the_stored_pairing_token_to_standard_output_only,
             ),
+            (
+                "pair",
+                pairing::pair_stores_one_record_and_prints_the_server_key,
+            ),
+            (
+                "pair_incomplete",
+                pairing::an_incomplete_pairing_fails_and_leaves_the_store_unchanged,
+            ),
+            (
+                "pair_uncertain",
+                pairing::an_unconfirmed_store_write_reports_that_recovery_is_required,
+            ),
+            (
+                "pair_refuses",
+                pairing::pair_refuses_bad_arguments_and_a_missing_identity,
+            ),
         ];
         // An argument runs one case: `cargo test --test sendspin_cli -- wrong_key`.
         for (name, case) in cases {
@@ -89,13 +105,19 @@ mod linux {
                 case();
             }
         }
+        // This test target has no harness, so no `#[ignore]` exists. This case runs only by name.
+        // It needs `EARPH_SENDSPIN_PEER`, the launcher of the pinned Python peer.
+        if chosen.as_deref() == Some("pair_python") {
+            println!("case pair_python");
+            pairing::pair_completes_against_the_pinned_python_server();
+        }
         println!("Sendspin command line checks passed");
     }
     pub(super) fn text(bytes: &[u8]) -> String {
         String::from_utf8_lossy(bytes).into_owned()
     }
     /// Every frame differs from every other frame, and the first byte is nonzero.
-    pub(super) fn pattern() -> Vec<u8> {
+    fn pattern() -> Vec<u8> {
         (0..PATTERN_FRAMES as u16)
             .flat_map(|frame| {
                 let left = (frame + 1).to_le_bytes();
@@ -283,23 +305,29 @@ mod linux {
             peer.serve_until("a second command exits", || second.exited());
             second.finish()
         }
-        /// Starts the command, connects the peer, and streams the pattern once the command unmuted.
-        fn streaming(&self) -> (Player, peer::PlayerPeer, u64) {
-            let mut player = self.sendspin(&["--server", &self.url(), "--server-key", &self.key]);
+        /// Waits for the command to connect. The peer's accept blocks, so a command that exits early fails here first.
+        pub(super) fn await_connection(&self, player: &mut Player) {
             self.listener.set_nonblocking(true).unwrap();
             let deadline = Instant::now() + DEADLINE;
-            // The peer's accept blocks, so a command that exits early must fail here first.
             while self.listener.peek_pending().is_none() {
                 assert!(!player.exited(), "the command exited before it connected");
                 assert!(Instant::now() < deadline, "the command never connected");
                 std::thread::sleep(Duration::from_millis(5));
             }
             self.listener.set_nonblocking(false).unwrap();
+        }
+        /// Starts the command, connects the peer, and streams the pattern once the command unmuted.
+        fn streaming(&self) -> (Player, peer::PlayerPeer, u64) {
+            let mut player = self.sendspin(&["--server", &self.url(), "--server-key", &self.key]);
+            self.await_connection(&mut player);
             let mut peer = peer::PlayerPeer::accept(&self.listener);
+            let frames = self.stream_pattern(&mut peer);
+            (player, peer, frames)
+        }
+        /// Activates the player and streams the pattern once the command unmuted. Returns the sent frames.
+        pub(super) fn stream_pattern(&self, peer: &mut peer::PlayerPeer) -> u64 {
             peer.activate_player();
-            self.serve(&mut peer, "the command unmutes", |state| {
-                state["muted"] == false
-            });
+            self.serve(peer, "the command unmutes", |state| state["muted"] == false);
             peer.start_stream();
             let sent = [vec![0; PREAMBLE_FRAMES * 4], pattern()].concat();
             let first = peer.server_now_us() + 200_000;
@@ -310,10 +338,29 @@ mod linux {
                 peer.serve_until("chunk pacing", || Instant::now() >= paced);
             }
             let frames = (sent.len() / 4) as u64;
-            self.serve(&mut peer, "the output accepts every sent frame", |state| {
+            self.serve(peer, "the output accepts every sent frame", |state| {
                 state["sendspin_playback"]["submitted_frames"].as_u64() >= Some(frames)
             });
-            (player, peer, frames)
+            frames
+        }
+        /// Checks that the capture holds the anchor silence, then exactly the sent pattern.
+        pub(super) fn capture_is_exact(&self) {
+            // Nothing else writes this output.
+            let capture = fs::read(self.directory.join("capture.pcm")).unwrap();
+            let pattern = pattern();
+            let audible = capture.iter().position(|byte| *byte != 0).unwrap();
+            let pad = audible - PREAMBLE_FRAMES * 4;
+            println!("anchor silence: {} frames", pad / 4);
+            assert!(
+                pad.is_multiple_of(4) && pad < 4800 * 4,
+                "anchor silence: {pad} bytes"
+            );
+            assert!(
+                capture[audible..] == pattern,
+                "captured {} bytes after {audible} zeros; sent {}",
+                capture.len() - audible,
+                pattern.len()
+            );
         }
         pub(super) fn no_engine_remains(&self) {
             let status = self.earph(&["status"]).finish();
@@ -384,22 +431,7 @@ mod linux {
         assert!(!stdout.contains("audible"), "{stdout}");
         let last = stdout.lines().last().unwrap();
         assert!(last.starts_with("result   ended"), "{last}");
-        // Nothing else writes this output, so the capture holds the anchor silence and the sent bytes.
-        let capture = fs::read(bench.directory.join("capture.pcm")).unwrap();
-        let pattern = pattern();
-        let audible = capture.iter().position(|byte| *byte != 0).unwrap();
-        let pad = audible - PREAMBLE_FRAMES * 4;
-        println!("anchor silence: {} frames", pad / 4);
-        assert!(
-            pad.is_multiple_of(4) && pad < 4800 * 4,
-            "anchor silence: {pad} bytes"
-        );
-        assert!(
-            capture[audible..] == pattern,
-            "captured {} bytes after {audible} zeros; sent {}",
-            capture.len() - audible,
-            pattern.len()
-        );
+        bench.capture_is_exact();
         bench.no_engine_remains();
     }
     fn refuses_bad_arguments_before_it_starts_anything() {

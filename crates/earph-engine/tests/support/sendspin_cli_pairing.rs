@@ -1,6 +1,9 @@
 // ABOUTME: Checks the `earph sendspin` setup commands: init, token, pair, and play on the stored record.
 // ABOUTME: Uses the synthetic credential helper and local test peers, and never prints a secret.
-use super::linux::{Bench, text};
+use super::{
+    linux::{Bench, Pending, Player, text},
+    peer::{self, PlayerPeer},
+};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use std::process::Output;
 
@@ -138,4 +141,275 @@ pub fn token_prints_the_stored_pairing_token_to_standard_output_only() {
             "{case}: token wrote to the store"
         );
     }
+}
+
+/// The public key and the pairing secret that a server reads from the printed token.
+fn token_of(bench: &Bench, case: &str) -> ([u8; 32], [u8; 32]) {
+    let output = bench.sendspin_with(case, &["token"]).finish_unprinted();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let token = earph_sendspin::pairing_token::decode_pairing_token(&text(&output.stdout));
+    let token = token.ok().expect("the printed token decodes");
+    (token.client_public, token.pairing_psk)
+}
+/// Creates an identity in the `empty` case and returns what its token holds.
+fn provisioned(bench: &Bench) -> ([u8; 32], [u8; 32]) {
+    let created = bench.sendspin_with("empty", &["init"]).finish();
+    assert_eq!(created.status.code(), Some(0), "{}", text(&created.stderr));
+    token_of(bench, "empty")
+}
+/// Starts `earph sendspin pair` and accepts its connection as a server that holds the token.
+fn pairing(bench: &Bench, case: &str, extra: &[&str]) -> (Player, PlayerPeer) {
+    let (client, secret) = token_of(bench, case);
+    let url = bench.url();
+    let mut player = bench.sendspin_with(case, &[&["pair", "--server", &url], extra].concat());
+    bench.await_connection(&mut player);
+    (
+        player,
+        PlayerPeer::connect(&bench.listener, client, secret, "pr"),
+    )
+}
+/// Completes the Pairing PSK flow as a server does, then waits for the client's goodbye.
+/// Returns the long-term secret that the client delivered.
+fn complete(peer: &mut PlayerPeer) -> [u8; 32] {
+    let long_term = peer.receive_pairing();
+    peer.acknowledge_pairing();
+    peer.rotate(long_term, "lt");
+    peer.activate_idle();
+    long_term
+}
+
+pub fn pair_stores_one_record_and_prints_the_server_key() {
+    let bench = Bench::new();
+    provisioned(&bench);
+    let identity = bench.stored("empty").unwrap();
+    let (player, mut peer) = pairing(&bench, "empty", &[]);
+    let long_term = complete(&mut peer);
+    assert_eq!(peer.await_goodbye()["reason"], "restart");
+    let output = player.finish();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let stdout = text(&output.stdout);
+    let mut lines = stdout.lines();
+    assert_eq!(lines.next(), Some("paired"));
+    let key = lines
+        .next()
+        .and_then(|line| line.strip_prefix("server key  "));
+    assert_eq!(key, Some(bench.key.as_str()), "{stdout}");
+    let stored = bench.stored("empty").unwrap();
+    let server = earph_sendspin::noise::static_public_key(&peer::SERVER_PRIVATE).unwrap();
+    let records = stored.catalog().records();
+    assert_eq!(records.len(), 1, "the store holds one record");
+    assert_eq!(records[0].server_public, server);
+    assert!(records[0].psk == long_term, "the stored secret differs");
+    assert!(
+        stored.static_private() == identity.static_private()
+            && stored.pairing_psk() == identity.pairing_psk(),
+        "pairing changed the identity"
+    );
+    assert_holds_no(
+        &output,
+        &[stored.static_private(), stored.pairing_psk(), &long_term],
+        "pair",
+    );
+    assert!(
+        !bench.directory.join("rt").exists(),
+        "pair started an Engine"
+    );
+}
+
+pub fn an_incomplete_pairing_fails_and_leaves_the_store_unchanged() {
+    let bench = Bench::new();
+    provisioned(&bench);
+    let before = bench.stored_bytes("empty").unwrap();
+    let unchanged = |what: &str| {
+        assert!(
+            bench.stored_bytes("empty").unwrap() == before,
+            "{what} changed the store"
+        );
+    };
+
+    // The server takes the new secret and never acknowledges it.
+    let (player, mut peer) = pairing(&bench, "empty", &["--timeout", "3"]);
+    let started = std::time::Instant::now();
+    let unacknowledged = peer.receive_pairing();
+    peer.serve_to_close("the command gives up");
+    let output = player.finish();
+    let failure = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{failure}");
+    assert!(failure.contains("timed out"), "{failure}");
+    assert!(failure.contains("Nothing was stored"), "{failure}");
+    assert!(started.elapsed() >= std::time::Duration::from_secs(2));
+    assert!(!text(&output.stdout).contains("paired"));
+    assert_holds_no(&output, &[&unacknowledged], "a timed out pair");
+    unchanged("a timed out pair");
+
+    // The server stores its record, then the acknowledgement is lost with the connection.
+    let (player, mut peer) = pairing(&bench, "empty", &[]);
+    peer.receive_pairing();
+    peer.abandon();
+    let output = player.finish();
+    let failure = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{failure}");
+    assert!(failure.contains("Nothing was stored"), "{failure}");
+    unchanged("a lost acknowledgement");
+
+    // Control-C while the server holds the attempt open.
+    let (player, mut peer) = pairing(&bench, "empty", &[]);
+    peer.receive_pairing();
+    rustix::process::kill_process(
+        rustix::process::Pid::from_child(player.0.as_ref().unwrap()),
+        rustix::process::Signal::INT,
+    )
+    .unwrap();
+    peer.serve_to_close("the interrupted command exits");
+    let output = player.finish();
+    assert_eq!(output.status.code(), Some(130), "{}", text(&output.stderr));
+    assert!(text(&output.stderr).contains("Nothing was stored"));
+    unchanged("an interrupted pair");
+}
+
+/// The synthetic helper answers a write in this case with an unknown outcome.
+pub fn an_unconfirmed_store_write_reports_that_recovery_is_required() {
+    let bench = Bench::new();
+    let case = "uncertain-pair";
+    let (player, mut peer) = pairing(&bench, case, &[]);
+    peer.receive_pairing();
+    peer.acknowledge_pairing();
+    let output = player.finish();
+    let failure = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{failure}");
+    assert!(failure.contains("recovered"), "{failure}");
+    assert!(!failure.contains("Nothing was stored"), "{failure}");
+    assert!(!text(&output.stdout).contains("paired"));
+    // The store lock keeps the unknown outcome, so a later command refuses the store.
+    let later = bench.sendspin_with(case, &["token"]).finish_unprinted();
+    assert_eq!(later.status.code(), Some(1));
+    assert!(later.stdout.is_empty(), "a refused store printed a token");
+    assert!(text(&later.stderr).contains("recovered"));
+}
+
+pub fn pair_refuses_bad_arguments_and_a_missing_identity() {
+    let bench = Bench::new();
+    let url = bench.url();
+    let cases: [(&str, &[&str], i32, &str); 6] = [
+        ("owner", &["pair"], 2, "--server is needed"),
+        (
+            "owner",
+            &["pair", "--server", "wss://10.1.2.3:8927/sendspin"],
+            2,
+            "wss",
+        ),
+        (
+            "owner",
+            &["pair", "--server", "ws://127.0.0.1:8927/sendspin"],
+            2,
+            "loopback",
+        ),
+        (
+            "owner",
+            &["pair", "--server", &url, "--timeout", "0"],
+            2,
+            "--timeout",
+        ),
+        ("owner", &["pair", "extra", "--server", &url], 2, "usage"),
+        (
+            "empty",
+            &["pair", "--server", &url],
+            1,
+            "earph sendspin init",
+        ),
+    ];
+    for (case, arguments, code, problem) in cases {
+        let output = bench.sendspin_with(case, arguments).finish();
+        let refusal = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(code), "{arguments:?}: {refusal}");
+        assert!(refusal.contains(problem), "{arguments:?}: {refusal}");
+        assert!(
+            bench.listener.peek_pending().is_none(),
+            "{arguments:?} opened a connection"
+        );
+        assert!(
+            !bench.write_issued(case),
+            "{arguments:?} wrote to the store"
+        );
+    }
+}
+
+/// Ends the Python peer if its test fails first.
+struct Reaped(std::process::Child);
+impl Drop for Reaped {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// Runs only by name, with `EARPH_SENDSPIN_PEER` set to the launcher of the pinned Python peer.
+pub fn pair_completes_against_the_pinned_python_server() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+    let launcher = std::env::var_os("EARPH_SENDSPIN_PEER")
+        .expect("set EARPH_SENDSPIN_PEER to the pinned Python peer launcher");
+    let bench = Bench::new();
+    let created = bench.sendspin_with("empty", &["init"]).finish();
+    assert_eq!(created.status.code(), Some(0), "{}", text(&created.stderr));
+    let token = bench.sendspin_with("empty", &["token"]).finish_unprinted();
+    assert_eq!(token.status.code(), Some(0));
+    let interface = bench.listener.local_addr().unwrap().ip();
+    let mut server = Reaped(
+        Command::new(launcher)
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/support/sendspin_pairing_server.py"
+            ))
+            .arg(interface.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(std::fs::File::create(bench.directory.join("python-stderr.log")).unwrap())
+            .spawn()
+            .unwrap(),
+    );
+    // The pinned Python decoder reads the token exactly as the command printed it.
+    server
+        .0
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&token.stdout)
+        .unwrap();
+    let mut lines = BufReader::new(server.0.stdout.take().unwrap()).lines();
+    let mut stage = |name: &str| {
+        let line = lines.next().expect("the Python peer ended early").unwrap();
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(value["stage"], name, "inspect python-stderr.log");
+        value
+    };
+    let ready = stage("ready");
+    assert_eq!(ready["source_hashes"].as_object().unwrap().len(), 9);
+    let url = format!("ws://{interface}:{}/sendspin", ready["port"]);
+    let player = bench.sendspin_with("empty", &["pair", "--server", &url, "--timeout", "20"]);
+    let paired = stage("paired");
+    assert_eq!(stage("goodbye")["reason"], "restart");
+    let output = player.finish();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let server_id = ready["server_id"].as_str().unwrap();
+    let printed = text(&output.stdout);
+    assert!(
+        printed
+            .lines()
+            .eq(["paired", &format!("server key  {server_id}")]),
+        "{printed}"
+    );
+    let stored = bench.stored("empty").unwrap();
+    let records = stored.catalog().records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(URL_SAFE_NO_PAD.encode(records[0].server_public), server_id);
+    // Both sides hold the same long-term secret.
+    assert_eq!(
+        URL_SAFE_NO_PAD.encode(records[0].psk_id()),
+        paired["psk_id"]
+    );
+    assert!(
+        server.0.wait().unwrap().success(),
+        "inspect python-stderr.log"
+    );
 }

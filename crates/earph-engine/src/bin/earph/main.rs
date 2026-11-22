@@ -57,6 +57,8 @@ pub struct Arguments {
     pub credential_helper: Option<String>,
     pub credential_store: Option<String>,
     pub credential_lock: Option<String>,
+    /// How long `sendspin pair` waits for the server.
+    pub timeout: Option<Duration>,
 }
 
 fn decibels(value: &str) -> Outcome<i64> {
@@ -100,6 +102,7 @@ fn parse(mut raw: impl Iterator<Item = String>) -> Outcome<Arguments> {
         credential_helper: None,
         credential_store: None,
         credential_lock: None,
+        timeout: None,
     };
     let mut options_ended = false;
     while let Some(argument) = raw.next() {
@@ -129,6 +132,13 @@ fn parse(mut raw: impl Iterator<Item = String>) -> Outcome<Arguments> {
             }
             "--credential-store" => arguments.credential_store = Some(value("--credential-store")?),
             "--credential-lock" => arguments.credential_lock = Some(value("--credential-lock")?),
+            "--timeout" => {
+                let seconds = value("--timeout")?.parse::<u64>().ok();
+                let seconds = seconds.filter(|seconds| (1..=3600).contains(seconds));
+                arguments.timeout = Some(Duration::from_secs(seconds.ok_or_else(|| {
+                    Failure::usage("--timeout must be a whole number of seconds from 1 to 3600")
+                })?));
+            }
             "--replace-queue" => arguments.replace_queue = true,
             "--json" => arguments.json = true,
             "--help" | "-h" => arguments.command = "help".into(),

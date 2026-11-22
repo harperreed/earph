@@ -32,10 +32,54 @@ pub struct PlayerPeer {
     channel: session_fixture::Peer,
     reader: Reassembler,
     origin: Instant,
+    client_public: [u8; 32],
+}
+/// Builds the server's first Noise message for one client and one secret.
+fn offer(
+    client_public: &[u8; 32],
+    psk: &[u8; 32],
+    category: &str,
+    prologue: &[u8],
+) -> (snow::HandshakeState, Value) {
+    let mut handshake = snow::Builder::new(PATTERN.parse().unwrap())
+        .local_private_key(&SERVER_PRIVATE)
+        .unwrap()
+        .remote_public_key(client_public)
+        .unwrap()
+        .psk(2, psk)
+        .unwrap()
+        .prologue(prologue)
+        .unwrap()
+        .build_initiator()
+        .unwrap();
+    let payload = serde_json::to_vec(
+        &json!({"psk_id":URL_SAFE_NO_PAD.encode(psk_id(psk)),"psk_category":category}),
+    )
+    .unwrap();
+    let mut record = vec![0; payload.len() + 48];
+    let n = handshake.write_message(&payload, &mut record).unwrap();
+    (
+        handshake,
+        json!({"data":URL_SAFE_NO_PAD.encode(&record[..n])}),
+    )
 }
 impl PlayerPeer {
     /// Accepts one client, authenticates on the pairing secret, then rotates to the record.
     pub fn accept(listener: &TcpListener) -> Self {
+        let client = noise::static_public_key(&CLIENT_PRIVATE).unwrap();
+        let mut peer = Self::connect(listener, client, PAIRING_PSK, "pr");
+        peer.activate_idle();
+        peer.rotate(RECORD_PSK, "lt");
+        peer
+    }
+    /// Accepts one client, authenticates it on one secret, and exchanges hellos. Sends no activation.
+    /// The client must present the expected identity, as a server checks a pairing token.
+    pub fn connect(
+        listener: &TcpListener,
+        client_public: [u8; 32],
+        psk: [u8; 32],
+        category: &str,
+    ) -> Self {
         let (stream, _) = listener.accept().unwrap();
         // Timed chunks must leave at once. Batching would add tens of milliseconds of transit.
         stream.set_nodelay(true).unwrap();
@@ -48,27 +92,17 @@ impl PlayerPeer {
             .unwrap();
         let origin = Instant::now();
         let init = text(&mut socket, origin);
+        let presented: Value = serde_json::from_str(&init).unwrap();
+        assert!(
+            presented["payload"]["client_id"] == URL_SAFE_NO_PAD.encode(client_public),
+            "the client presented another identity"
+        );
         let public = noise::static_public_key(&SERVER_PRIVATE).unwrap();
         let server = serde_json::to_string(&json!({"type":"server/init","payload":{"version":1,"server_id":URL_SAFE_NO_PAD.encode(public)}})).unwrap();
         socket.send(server.clone().into()).unwrap();
-        let mut handshake = snow::Builder::new(PATTERN.parse().unwrap())
-            .local_private_key(&SERVER_PRIVATE)
-            .unwrap()
-            .remote_public_key(&noise::static_public_key(&CLIENT_PRIVATE).unwrap())
-            .unwrap()
-            .psk(2, &PAIRING_PSK)
-            .unwrap()
-            .prologue(&[init.as_bytes(), server.as_bytes()].concat())
-            .unwrap()
-            .build_initiator()
-            .unwrap();
-        let payload = serde_json::to_vec(
-            &json!({"psk_id":URL_SAFE_NO_PAD.encode(psk_id(&PAIRING_PSK)),"psk_category":"pr"}),
-        )
-        .unwrap();
-        let mut record = vec![0; payload.len() + 48];
-        let n = handshake.write_message(&payload, &mut record).unwrap();
-        let offer = json!({"type":"noise/handshake","payload":{"data":URL_SAFE_NO_PAD.encode(&record[..n])}});
+        let prologue = [init.as_bytes(), server.as_bytes()].concat();
+        let (mut handshake, payload) = offer(&client_public, &psk, category, &prologue);
+        let offer = json!({"type":"noise/handshake","payload":payload});
         socket.send(offer.to_string().into()).unwrap();
         let reply: Value = serde_json::from_str(&text(&mut socket, origin)).unwrap();
         let record = URL_SAFE_NO_PAD
@@ -86,22 +120,79 @@ impl PlayerPeer {
             },
             reader: Reassembler::new(MessageLimits::default()),
             origin,
+            client_public,
         };
         peer.send_json("server/hello", json!({"name":"Server"}));
         peer.await_json("client/hello", false);
-        peer.send_json(
-            "server/activate",
-            json!({"activities":[],"active_roles":[]}),
-        );
-        let (rotation, offer) = peer.channel.rotation(RECORD_PSK, "lt", None);
-        peer.send_json("noise/handshake", offer);
+        peer
+    }
+    /// Re-handshakes inside the current channel onto another secret.
+    pub fn rotate(&mut self, psk: [u8; 32], category: &str) {
+        let (rotation, offer) = offer(&self.client_public, &psk, category, &self.channel.hash);
+        self.send_json("noise/handshake", offer);
         // Replies to earlier probes would use keys that this rotation retires.
-        let payload = peer.await_json("noise/handshake", false);
-        peer.channel.install(
+        let payload = self.await_json("noise/handshake", false);
+        self.channel.install(
             rotation,
             &json!({"type":"noise/handshake","payload":payload}),
         );
-        peer
+    }
+    pub fn activate_idle(&mut self) {
+        self.send_json(
+            "server/activate",
+            json!({"activities":[],"active_roles":[]}),
+        );
+    }
+    /// Runs the server side of the Pairing PSK flow up to the client's finalize.
+    /// Returns the long-term secret that the client delivered. The caller acknowledges it.
+    pub fn receive_pairing(&mut self) -> [u8; 32] {
+        self.send_json(
+            "server/activate",
+            json!({"activities":["pairing"],"active_roles":[],"pairing":{"method":"pairing_psk"}}),
+        );
+        let init = self.await_json("client/pair-init", true);
+        assert_eq!(init["pairing_index"], 1);
+        let finalize = self.await_json("client/pair-finalize", true);
+        URL_SAFE_NO_PAD
+            .decode(finalize["long_term_psk"].as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap()
+    }
+    /// Tells the client that the server stored the pairing record.
+    pub fn acknowledge_pairing(&mut self) {
+        self.send_json("server/pair-finalize", json!({}));
+    }
+    /// Returns the payload of the client's goodbye.
+    pub fn await_goodbye(&mut self) -> Value {
+        self.await_json("client/goodbye", true)
+    }
+    /// Serves clock probes until the client ends the connection.
+    pub fn serve_to_close(mut self, what: &str) {
+        let deadline = Instant::now() + STAGE;
+        loop {
+            assert!(Instant::now() < deadline, "peer stage deadline: {what}");
+            match self.socket.read() {
+                Ok(Message::Binary(record)) => {
+                    let plain = self.channel.read(&record);
+                    if let Some(message) = self.reader.push(&plain, stamp(self.origin)).unwrap() {
+                        self.application(&message, true);
+                    }
+                }
+                Ok(Message::Close(_)) | Err(Error::ConnectionClosed | Error::AlreadyClosed) => {
+                    return;
+                }
+                Ok(_) => {}
+                Err(Error::Io(error)) if idle(&error) => {}
+                // A cancelled client may reset the socket.
+                Err(Error::Io(_) | Error::Protocol(_)) => return,
+                Err(error) => panic!("peer read failed: {error}"),
+            }
+        }
+    }
+    /// Drops the connection without a closing handshake.
+    pub fn abandon(self) {
+        let _ = self.socket.get_ref().shutdown(std::net::Shutdown::Both);
     }
     pub fn server_now_us(&self) -> i64 {
         i64::try_from(self.origin.elapsed().as_micros()).unwrap() + SERVER_CLOCK_OFFSET_US
