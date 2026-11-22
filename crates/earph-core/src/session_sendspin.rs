@@ -16,6 +16,11 @@ impl Session {
     pub fn enable_sendspin(&mut self) {
         self.sendspin.configured = true;
     }
+    /// Records that the Host latched an uncertain credential outcome.
+    /// This is a diagnostic fact, so it changes no revision.
+    pub fn require_sendspin_credential_recovery(&mut self) {
+        self.sendspin.credential_recovery_required = true;
+    }
     pub fn sendspin_snapshot(&self) -> SendspinSnapshot {
         self.sendspin.snapshot()
     }
@@ -41,13 +46,13 @@ impl Session {
             .as_ref()
             .is_some_and(|connection| connection.open && connection.prepared)
     }
-    /// The worker closes this source on a pause, so Core refuses every positioning control.
+    /// This source cannot hold a stream. Pause stays a safety control and ends the session.
     pub(super) fn validate_sendspin_control(&self, command: &Command) -> Result<(), EngineError> {
         match command {
-            Command::Pause | Command::Resume | Command::Seek { .. } | Command::SeekDsd { .. } => {
+            Command::Resume | Command::Seek { .. } | Command::SeekDsd { .. } => {
                 Err(EngineError::new(
                     ErrorCode::CapabilityUnsupported,
-                    "Sendspin cannot pause, resume, or seek; stop the session instead",
+                    "Sendspin cannot resume or seek; start a new session instead",
                 ))
             }
             Command::Start { .. }
@@ -158,7 +163,8 @@ impl Session {
         self.log(Some(command.request_id.clone()));
         Ok(ReceiptStatus::Accepted)
     }
-    /// Ends session ownership after a stop or an owner shutdown. The Host retires the workers.
+    /// Ends session ownership after a stop, a pause, or an owner shutdown.
+    /// The Host retires the workers.
     pub(super) fn release_sendspin(&mut self) {
         let Some(connection) = self
             .sendspin

@@ -40,6 +40,9 @@ pub struct SendspinSnapshot {
     pub observation: Option<SendspinSourceObservation>,
     /// Why the latest connection failed. A new start clears it.
     pub error: Option<ErrorCode>,
+    /// A credential operation ended with an unknown outcome, so every start fails.
+    /// Only a restarted owner clears this fact.
+    pub credential_recovery_required: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +62,7 @@ pub(crate) struct SendspinControl {
     pub generation: u64,
     pub connection: Option<ActiveConnection>,
     pub error: Option<ErrorCode>,
+    pub credential_recovery_required: bool,
 }
 impl SendspinControl {
     pub fn phase(&self) -> SendspinPhase {
@@ -91,6 +95,7 @@ impl SendspinControl {
                 .as_ref()
                 .and_then(|connection| connection.observation),
             error: self.error,
+            credential_recovery_required: self.credential_recovery_required,
         }
     }
 }

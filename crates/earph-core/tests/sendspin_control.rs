@@ -472,11 +472,10 @@ fn a_clean_close_clears_the_session_and_a_failed_close_fails_it() {
 }
 
 #[test]
-fn pause_resume_and_seek_are_rejected_while_mute_and_volume_still_apply() {
+fn resume_and_seek_are_rejected_while_mute_and_volume_still_apply() {
     let mut session = started();
     report(&mut session, SendspinTransportPhase::Streaming, 0, None);
     for (id, payload) in [
-        ("pause", json!({"method":"sessions.pause"})),
         ("resume", json!({"method":"sessions.resume"})),
         (
             "seek",
@@ -557,4 +556,91 @@ fn a_restored_owner_has_no_sendspin_session_and_a_disconnected_source() {
     assert_eq!(view["value"]["phase"], "disconnected");
     assert_eq!(view["value"]["configured"], true);
     assert!(restored.sendspin_connection().is_none());
+}
+
+#[test]
+fn pause_ends_a_streaming_session_like_stop() {
+    let mut session = started();
+    report(
+        &mut session,
+        SendspinTransportPhase::AwaitingStream,
+        0,
+        None,
+    );
+    applied(
+        &mut session,
+        "unmute",
+        Some("player-1"),
+        json!({"method":"mute.set","muted":false}),
+    );
+    report(&mut session, SendspinTransportPhase::Streaming, 960, None);
+    let before = session.snapshot();
+    let generation = session.sendspin_connection().unwrap().generation;
+    let pause = json!({"method":"sessions.pause"});
+    // Pause keeps its ordinary fences: the exact session and the exact revision.
+    rejected(
+        &mut session,
+        "other-session",
+        Some("player-9"),
+        pause.clone(),
+        ErrorCode::StaleSession,
+    );
+    let mut stale = wire(&session, "old-revision", Some("player-1"), pause.clone());
+    stale.expected_revision = Some(before.revision - 1);
+    let receipt = session.submit(stale);
+    assert_eq!(
+        receipt.error.map(|error| error.code),
+        Some(ErrorCode::StaleRevision)
+    );
+    assert_eq!(session.snapshot(), before);
+    applied(&mut session, "pause", Some("player-1"), pause);
+    let state = session.snapshot();
+    assert_eq!((state.session_id.clone(), state.source), (None, None));
+    assert_eq!(state.transport, TransportState::Idle);
+    assert!(state.muted);
+    assert_eq!(state.error, None);
+    assert_eq!(state.epochs.session, before.epochs.session);
+    assert_eq!(state.epochs.stream, before.epochs.stream + 1);
+    assert!(session.sendspin_connection().is_none());
+    assert_eq!(session.retiring_sendspin_connection(), Some(generation));
+    assert_eq!(
+        sendspin(&mut session, "closing")["value"]["phase"],
+        "closing"
+    );
+}
+
+#[test]
+fn the_credential_recovery_fact_latches_until_the_owner_restarts() {
+    let mut session = started();
+    assert_eq!(
+        sendspin(&mut session, "clear")["value"]["credential_recovery_required"],
+        false
+    );
+    let revision = session.snapshot().revision;
+    session.require_sendspin_credential_recovery();
+    assert_eq!(session.snapshot().revision, revision);
+    report(
+        &mut session,
+        SendspinTransportPhase::Closed,
+        0,
+        Some(ErrorCode::AuthDenied),
+    );
+    assert_eq!(
+        sendspin(&mut session, "latched")["value"]["credential_recovery_required"],
+        true
+    );
+    let checkpoint: SessionCheckpoint =
+        serde_json::from_slice(&serde_json::to_vec(&session.checkpoint()).unwrap()).unwrap();
+    let mut restored = Session::restore_owner(
+        ZoneId::new("main").unwrap(),
+        OwnerId::new(OWNER).unwrap(),
+        ControlLimits::default(),
+        checkpoint,
+    )
+    .unwrap();
+    restored.enable_sendspin();
+    assert_eq!(
+        sendspin(&mut restored, "restarted")["value"]["credential_recovery_required"],
+        false
+    );
 }

@@ -1895,6 +1895,17 @@ impl Session {
                     ReceiptStatus::Applied
                 }
             }
+            // A Sendspin source cannot hold a stream, so Pause ends the session as Stop does.
+            Command::Pause if next.source == Some(SourceKind::Sendspin) => {
+                next.epochs = next.epochs.next_stream()?;
+                next.muted = true;
+                cancel_previous = true;
+                next.transport = TransportState::Idle;
+                next.session_id = None;
+                next.source = None;
+                next.seekable = false;
+                ReceiptStatus::Applied
+            }
             Command::Pause
                 if matches!(
                     next.source,
@@ -2116,7 +2127,11 @@ impl Session {
             next.observation = Default::default();
         }
         self.state = next;
-        if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
+        // Only a Sendspin session holds an open connection, so other pauses release nothing.
+        if matches!(
+            command.payload,
+            Command::Stop | Command::Pause | Command::OwnerShutdown
+        ) {
             self.release_sendspin();
         }
         self.cancel_profile_work();
