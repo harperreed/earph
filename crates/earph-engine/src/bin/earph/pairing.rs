@@ -11,7 +11,12 @@ use earph_engine::sendspin_credentials::{
     StoreConfiguration,
 };
 use earph_network::sendspin::{Operation, roleless_session_limits};
-use earph_sendspin::{credentials::CommittedCredentials, noise, pairing::RecordCatalog};
+use earph_sendspin::{
+    credentials::CommittedCredentials,
+    noise,
+    pairing::RecordCatalog,
+    pairing_token::{PairingToken, encode_pairing_token},
+};
 use std::{
     os::unix::fs::DirBuilderExt,
     sync::atomic::AtomicBool,
@@ -163,5 +168,22 @@ pub fn init(arguments: &Arguments) -> Outcome<u8> {
     println!("created a Sendspin identity");
     println!("player ID  {}", encode_key(&public));
     println!("next       earph sendspin token");
+    Ok(0)
+}
+
+/// Prints the version-zero pairing token. Standard output is the only place that receives it.
+pub fn token(arguments: &Arguments) -> Outcome<u8> {
+    let mut supervisor = supervisor(configuration(arguments)?)?;
+    let loaded = load(&mut supervisor, 1, AdmissionPolicy::deny())?;
+    let client_public = noise::static_public_key(&loaded.config.private)
+        .map_err(|_| Failure::engine("cannot derive the player ID"))?;
+    let token = encode_pairing_token(&PairingToken {
+        client_public,
+        pairing_psk: loaded.config.pairing_psk,
+    });
+    println!("{token}");
+    eprintln!(
+        "This token is a permanent secret: anyone who holds it can pair a server with this player. Paste it only into the server's player setup."
+    );
     Ok(0)
 }

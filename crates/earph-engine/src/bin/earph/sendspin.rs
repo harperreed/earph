@@ -118,6 +118,7 @@ pub fn run(arguments: &Arguments, interrupted: &AtomicBool) -> Outcome<u8> {
     match arguments.positional.as_slice() {
         [] => {}
         [step] if step == "init" => return pairing::init(arguments),
+        [step] if step == "token" => return pairing::token(arguments),
         _ => return Err(Failure::usage(USAGE)),
     }
     let Some(server) = &arguments.server else {

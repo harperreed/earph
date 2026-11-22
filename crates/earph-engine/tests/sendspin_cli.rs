@@ -62,7 +62,7 @@ mod linux {
         if chosen.as_deref() == Some("credential-helper") {
             return helper::run();
         }
-        let cases: [(&str, fn()); 8] = [
+        let cases: [(&str, fn()); 9] = [
             (
                 "plays",
                 plays_the_stream_shows_status_and_exits_when_the_server_closes,
@@ -76,6 +76,10 @@ mod linux {
             (
                 "init",
                 pairing::init_creates_one_identity_and_refuses_every_other_store_state,
+            ),
+            (
+                "token",
+                pairing::token_prints_the_stored_pairing_token_to_standard_output_only,
             ),
         ];
         // An argument runs one case: `cargo test --test sendspin_cli -- wrong_key`.
@@ -118,15 +122,19 @@ mod linux {
             self.0.as_mut().unwrap().try_wait().unwrap().is_some()
         }
         /// Waits for the command with a deadline, so a hung command fails the test.
-        pub(super) fn finish(mut self) -> Output {
+        pub(super) fn finish(self) -> Output {
+            let output = self.finish_unprinted();
+            println!("{}{}", text(&output.stdout), text(&output.stderr));
+            output
+        }
+        /// Waits as `finish` does. Keeps output that holds a secret out of the test log.
+        pub(super) fn finish_unprinted(mut self) -> Output {
             let deadline = Instant::now() + DEADLINE;
             while !self.exited() {
                 assert!(Instant::now() < deadline, "the command did not exit");
                 std::thread::sleep(Duration::from_millis(10));
             }
-            let output = self.0.take().unwrap().wait_with_output().unwrap();
-            println!("{}{}", text(&output.stdout), text(&output.stderr));
-            output
+            self.0.take().unwrap().wait_with_output().unwrap()
         }
     }
 
