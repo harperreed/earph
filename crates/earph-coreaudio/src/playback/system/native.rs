@@ -20,6 +20,10 @@ struct Context {
     buffers: Box<[AtomicPtr<aq::AudioQueueBuffer>]>,
     drain: Drain,
 }
+enum ClockReadPurpose {
+    Progress,
+    Pause,
+}
 unsafe extern "C-unwind" fn released(
     context: *mut c_void,
     _: aq::AudioQueueRef,
@@ -575,9 +579,12 @@ impl Registration {
         Ok(())
     }
     pub(in crate::playback) fn restart_cursor_frames(&self) -> Result<Option<u64>, CoreAudioError> {
-        Ok(self.fresh_queue_read()?.restart)
+        Ok(self.fresh_queue_read(ClockReadPurpose::Progress)?.restart)
     }
-    fn fresh_queue_read(&self) -> Result<FreshQueueRead, CoreAudioError> {
+    fn fresh_queue_read(
+        &self,
+        purpose: ClockReadPurpose,
+    ) -> Result<FreshQueueRead, CoreAudioError> {
         self.check()?;
         if !self.started {
             return Ok(FreshQueueRead::pending(Some(0)));
@@ -670,13 +677,40 @@ impl Registration {
             .then_some(timestamp.mSampleTime);
         if self
             .readiness
-            .pre_origin_pending(sample, discontinuity != 0, elapsed, !self.paused)
+            .pre_origin_pending(
+                sample,
+                discontinuity != 0,
+                self.clock.raw_last.get().is_some(),
+                elapsed,
+                !self.paused,
+            )
             .map_err(|failure| self.readiness_error(failure))?
         {
             return Ok(FreshQueueRead {
                 clock: Some(read),
                 running_before: Some(queue_running(running)),
                 ..FreshQueueRead::pending(None)
+            });
+        }
+        if self
+            .readiness
+            .backward_pending(
+                sample,
+                self.clock.raw_last.get(),
+                discontinuity != 0,
+                matches!(purpose, ClockReadPurpose::Progress)
+                    && self.started
+                    && !self.paused
+                    && queue_running(running)
+                    && !self.context().ring.finished.load(Ordering::Acquire)
+                    && self.context().drain.bits.load(Ordering::Acquire) & 10 == 0,
+                elapsed,
+            )
+            .map_err(|failure| self.readiness_error(failure))?
+        {
+            return Ok(FreshQueueRead {
+                running_before: Some(true),
+                ..FreshQueueRead::pending(Some(self.schedule.borrow().retired))
             });
         }
         let frame = self
@@ -712,7 +746,7 @@ impl Registration {
                 "timing span destination is too small",
             ));
         }
-        let fresh = self.fresh_queue_read()?;
+        let fresh = self.fresh_queue_read(ClockReadPurpose::Progress)?;
         let running_after = if fresh.clock.is_some() {
             Some(queue_running(
                 self.property(aq::kAudioQueueProperty_IsRunning, 0_u32)?,
@@ -777,13 +811,16 @@ impl Registration {
     }
     pub(in crate::playback) fn pause(&mut self) -> Result<(), CoreAudioError> {
         self.check()?;
-        let frontier = self.restart_cursor_frames()?.ok_or_else(|| {
-            self.fail(
-                OutputFaultReason::NativePresentation,
-                "paused AudioQueue has no validated restart frontier",
-                None,
-            )
-        })?;
+        let frontier = self
+            .fresh_queue_read(ClockReadPurpose::Pause)?
+            .restart
+            .ok_or_else(|| {
+                self.fail(
+                    OutputFaultReason::NativePresentation,
+                    "paused AudioQueue has no validated restart frontier",
+                    None,
+                )
+            })?;
         self.context().drain.cancel();
         // SAFETY: Pause preserves buffers. Publish the proven running prefix only after this call succeeds.
         self.checked(

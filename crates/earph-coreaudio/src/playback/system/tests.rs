@@ -786,7 +786,7 @@ fn observed_negative_first_clock_waits_unknown_then_accepts_zero_and_positive_fr
     clock.record_read(observed, 7, false, 256);
     assert!(
         readiness
-            .pre_origin_pending(Some(observed), false, Duration::from_millis(1), true)
+            .pre_origin_pending(Some(observed), false, false, Duration::from_millis(1), true)
             .unwrap()
     );
     assert!(!readiness.ready.get());
@@ -801,7 +801,13 @@ fn observed_negative_first_clock_waits_unknown_then_accepts_zero_and_positive_fr
         let elapsed = Duration::from_millis(millis);
         assert!(
             !readiness
-                .pre_origin_pending(Some(sample), false, elapsed, true)
+                .pre_origin_pending(
+                    Some(sample),
+                    false,
+                    clock.raw_last.get().is_some(),
+                    elapsed,
+                    true
+                )
                 .unwrap()
         );
         let frontier = clock
@@ -817,7 +823,7 @@ fn observed_negative_first_clock_waits_unknown_then_accepts_zero_and_positive_fr
     assert_eq!(enqueue_credit(256, schedule.retired, 256).unwrap(), 64);
     assert!(
         !readiness
-            .pre_origin_pending(Some(-1.0), false, Duration::from_millis(4), true)
+            .pre_origin_pending(Some(-1.0), false, true, Duration::from_millis(4), true)
             .unwrap()
     );
     assert_eq!(
@@ -827,13 +833,92 @@ fn observed_negative_first_clock_waits_unknown_then_accepts_zero_and_positive_fr
     assert_eq!(clock.raw_last.get(), Some(64.0));
 }
 #[test]
+fn discontinuous_negative_first_clock_waits_without_retiring_payload_or_extending_deadline() {
+    use std::time::Duration;
+    let readiness = Readiness::new();
+    let clock = Clock::new();
+    let epochs = Epochs::default();
+    let mut schedule = Schedule::new(4096, epochs);
+    schedule.append(epochs, 0, 4096, 0.0, 1).unwrap();
+    clock.record_read(-515.0, 7, true, 4096);
+    assert!(
+        readiness
+            .pre_origin_pending(
+                Some(-515.0),
+                true,
+                clock.raw_last.get().is_some(),
+                Duration::from_millis(1),
+                true
+            )
+            .unwrap(),
+        "A discontinuous negative first reading must stay unknown before any clock origin"
+    );
+    assert_eq!(clock.raw_last.get(), None);
+    assert!(!readiness.ready.get());
+    assert_eq!(readiness.advanced_at.get(), Duration::ZERO);
+    assert_eq!(enqueue_credit(4096, schedule.retired, 4096).unwrap(), 0);
+    assert_eq!(
+        clock.diagnostics(QueueDiagnostics::default()).discontinuity,
+        Some(true)
+    );
+    let expired = Readiness::new();
+    assert!(
+        expired
+            .pre_origin_pending(Some(-1.0), true, false, Duration::from_secs(5), true)
+            .is_err(),
+        "Startup discontinuities must not extend the existing deadline"
+    );
+    assert!(
+        !readiness
+            .pre_origin_pending(Some(0.0), false, false, Duration::from_millis(2), true)
+            .unwrap()
+    );
+    let first = clock
+        .validate_read(ClockRead {
+            sample_bits: 0.0_f64.to_bits(),
+            flags: 7,
+            discontinuity: false,
+            enqueued: 4096,
+        })
+        .unwrap()
+        .map(|frame| schedule.retire(epochs, frame).unwrap());
+    assert_eq!(
+        readiness
+            .sample(first, Duration::from_millis(2), true)
+            .unwrap(),
+        Some(0)
+    );
+    readiness.begin(0);
+    assert!(
+        !readiness
+            .pre_origin_pending(
+                Some(-515.0),
+                true,
+                clock.raw_last.get().is_some(),
+                Duration::from_millis(1),
+                true
+            )
+            .unwrap(),
+        "Resume must retain the established origin even before it becomes ready again"
+    );
+    assert!(clock.observe(Some(-515.0), true).is_err());
+    assert_eq!(clock.raw_last.get(), Some(0.0));
+}
+
+#[test]
 fn advancing_negative_startup_samples_never_extend_the_deadline_or_bypass_other_guards() {
     use std::time::Duration;
     let readiness = Readiness::new();
     for (sample, millis) in [(-522.0, 1), (-20.0, 1000), (-0.25, 4999)] {
         assert!(
             readiness
-                .pre_origin_pending(Some(sample), false, Duration::from_millis(millis), true)
+                .pre_origin_pending(
+                    Some(sample),
+                    false,
+                    false,
+                    Duration::from_millis(millis),
+                    true
+                )
                 .unwrap()
         );
         assert_eq!(readiness.advanced_at.get(), Duration::ZERO);
@@ -841,7 +926,7 @@ fn advancing_negative_startup_samples_never_extend_the_deadline_or_bypass_other_
     }
     assert!(
         readiness
-            .pre_origin_pending(Some(-0.125), false, Duration::from_secs(5), true)
+            .pre_origin_pending(Some(-0.125), false, false, Duration::from_secs(5), true)
             .is_err()
     );
     for (sample, discontinuity, startup) in [
@@ -855,7 +940,7 @@ fn advancing_negative_startup_samples_never_extend_the_deadline_or_bypass_other_
     ] {
         assert!(
             !Readiness::new()
-                .pre_origin_pending(sample, discontinuity, Duration::ZERO, startup)
+                .pre_origin_pending(sample, discontinuity, true, Duration::ZERO, startup)
                 .unwrap()
         );
     }
@@ -875,7 +960,13 @@ fn pre_origin_resume_wait_keeps_the_previous_valid_client_origin_strict() {
     readiness.begin(128);
     assert!(
         readiness
-            .pre_origin_pending(Some(-522.0), false, Duration::from_millis(1), true)
+            .pre_origin_pending(
+                Some(-522.0),
+                false,
+                clock.raw_last.get().is_some(),
+                Duration::from_millis(1),
+                true
+            )
             .unwrap()
     );
     assert_eq!(clock.raw_last.get(), Some(128.0));
@@ -889,7 +980,13 @@ fn pre_origin_resume_wait_keeps_the_previous_valid_client_origin_strict() {
     );
     assert!(
         !readiness
-            .pre_origin_pending(Some(0.0), false, Duration::from_millis(2), true)
+            .pre_origin_pending(
+                Some(0.0),
+                false,
+                clock.raw_last.get().is_some(),
+                Duration::from_millis(2),
+                true
+            )
             .unwrap()
     );
     assert!(clock.observe(Some(0.0), false).is_err());
@@ -899,5 +996,159 @@ fn pre_origin_resume_wait_keeps_the_previous_valid_client_origin_strict() {
             .sample(frame, Duration::from_millis(3), true)
             .unwrap(),
         Some(129)
+    );
+}
+
+#[test]
+fn running_clock_retreat_holds_only_proven_credit_and_no_fresh_timing() {
+    use std::time::Duration;
+    for (last, observed) in [
+        (1447879.0_f64, 1447878.0_f64),
+        (1447879.75, 1447878.0),
+        (1604050.999, 1604049.0),
+        (129.75, 129.5),
+    ] {
+        let readiness = Readiness::new();
+        let clock = Clock::new();
+        let epochs = Epochs::default();
+        let retired = (last.floor() as u64 / 64) * 64;
+        let mut schedule = Schedule::new(4096, epochs);
+        for start in (0..retired).step_by(4096) {
+            let frames = (retired - start).min(4096) as u32;
+            schedule
+                .append(epochs, start, frames, start as f64, 7)
+                .unwrap();
+            schedule.retire(epochs, start + u64::from(frames)).unwrap();
+        }
+        schedule
+            .append(epochs, retired, 4096, retired as f64, 7)
+            .unwrap();
+        readiness
+            .sample(Some(retired), Duration::from_secs(30), true)
+            .unwrap();
+        clock.observe(Some(last), false).unwrap();
+        clock.record_read(observed, 7, false, schedule.enqueued);
+        assert!(
+            readiness
+                .backward_pending(
+                    Some(observed),
+                    clock.raw_last.get(),
+                    false,
+                    true,
+                    Duration::from_millis(30001)
+                )
+                .unwrap(),
+            "A small running clock retreat must retain proven progress without accepting the reading"
+        );
+        let pending = FreshQueueRead::pending(Some(schedule.retired));
+        assert_eq!(pending.restart, Some(retired));
+        assert!(pending.clock.is_none());
+        assert!(pending.running_before.is_none());
+        assert_eq!(clock.raw_last.get(), Some(last));
+        assert_eq!(readiness.frame.get(), retired);
+        assert_eq!(readiness.advanced_at.get(), Duration::from_secs(30));
+        assert!(readiness.ready.get());
+        assert_eq!(
+            enqueue_credit(schedule.enqueued, schedule.retired, 4096).unwrap(),
+            0
+        );
+        assert_eq!(
+            clock.diagnostics(QueueDiagnostics::default()).sample_finite,
+            Some(observed)
+        );
+        assert!(
+            clock.observe(Some(observed), false).is_err(),
+            "The strict validator must still reject this reading"
+        );
+        let valid = clock
+            .observe(Some(schedule.enqueued as f64), false)
+            .unwrap()
+            .unwrap();
+        let frontier = schedule.retire(epochs, valid).unwrap();
+        readiness
+            .sample(Some(frontier), Duration::from_millis(30002), true)
+            .unwrap();
+        assert_eq!(
+            enqueue_credit(schedule.enqueued, schedule.retired, 4096).unwrap(),
+            4096
+        );
+    }
+}
+
+#[test]
+fn running_clock_retreat_keeps_its_deadline_and_rejects_other_clock_failures() {
+    use std::time::Duration;
+    let readiness = Readiness::new();
+    readiness
+        .sample(Some(128), Duration::from_millis(1), true)
+        .unwrap();
+    for millis in [2, 1000, 5000] {
+        assert!(
+            readiness
+                .backward_pending(
+                    Some(128.0),
+                    Some(129.999),
+                    false,
+                    true,
+                    Duration::from_millis(millis)
+                )
+                .unwrap()
+        );
+        assert_eq!(readiness.advanced_at.get(), Duration::from_millis(1));
+    }
+    assert!(
+        readiness
+            .backward_pending(
+                Some(128.0),
+                Some(129.999),
+                false,
+                true,
+                Duration::from_millis(5001)
+            )
+            .is_err()
+    );
+    for (sample, last, discontinuity, active) in [
+        (None, Some(129.75), false, true),
+        (Some(f64::NAN), Some(129.75), false, true),
+        (Some(f64::INFINITY), Some(129.75), false, true),
+        (Some(-1.0), Some(0.0), false, true),
+        (Some(128.0), None, false, true),
+        (Some(128.0), Some(f64::INFINITY), false, true),
+        (
+            Some(9007199254740991.0),
+            Some(9007199254740992.0),
+            false,
+            true,
+        ),
+        (Some(127.999), Some(129.75), false, true),
+        (Some(129.75), Some(129.75), false, true),
+        (Some(130.0), Some(129.75), false, true),
+        (Some(128.0), Some(129.75), true, true),
+        (Some(128.0), Some(129.75), false, false),
+    ] {
+        assert!(
+            !readiness
+                .backward_pending(
+                    sample,
+                    last,
+                    discontinuity,
+                    active,
+                    Duration::from_millis(2)
+                )
+                .unwrap()
+        );
+    }
+    readiness.begin(128);
+    assert!(
+        !readiness
+            .backward_pending(
+                Some(128.0),
+                Some(129.75),
+                false,
+                true,
+                Duration::from_millis(2)
+            )
+            .unwrap(),
+        "Resume preparation must not use running-clock holds"
     );
 }

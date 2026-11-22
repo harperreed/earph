@@ -297,13 +297,13 @@ struct ClockRead {
     discontinuity: bool,
     enqueued: u64,
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 struct FreshQueueRead {
     restart: Option<u64>,
     clock: Option<ClockRead>,
     running_before: Option<bool>,
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 impl FreshQueueRead {
     fn pending(restart: Option<u64>) -> Self {
         Self {
@@ -564,13 +564,41 @@ impl Readiness {
         &self,
         sample: Option<f64>,
         discontinuity: bool,
+        has_origin: bool,
         elapsed: std::time::Duration,
         startup: bool,
     ) -> Result<bool, CoreAudioError> {
+        // An unusable pre-start sample cannot break an origin that has not been established.
+        // Waiting neither retires payload nor extends the existing startup deadline.
         if startup
             && !self.ready.get()
-            && !discontinuity
+            && (!discontinuity || !has_origin)
             && sample.is_some_and(|sample| sample.is_finite() && sample < 0.0)
+        {
+            self.deadline(elapsed)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    fn backward_pending(
+        &self,
+        sample: Option<f64>,
+        last: Option<f64>,
+        discontinuity: bool,
+        active: bool,
+        elapsed: std::time::Duration,
+    ) -> Result<bool, CoreAudioError> {
+        // A one-coordinate retreat can be almost two raw frames.
+        // It stays unknown and cannot advance retirement or refresh progress.
+        if active
+            && self.ready.get()
+            && !discontinuity
+            && sample.zip(last).is_some_and(|(sample, last)| {
+                (0.0..9007199254740992.0).contains(&sample)
+                    && (0.0..9007199254740992.0).contains(&last)
+                    && sample < last
+                    && last.floor() - sample.floor() <= 1.0
+            })
         {
             self.deadline(elapsed)?;
             return Ok(true);
