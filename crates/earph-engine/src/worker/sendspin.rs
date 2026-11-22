@@ -1,8 +1,12 @@
 // ABOUTME: Plays one Sendspin player connection into the worker's native output.
-// ABOUTME: Writes received PCM contiguously; timing stays unscheduled and unqualified.
+// ABOUTME: Anchors each stream to its server timestamps and reports the measured, unqualified timing error.
 use super::*;
+use crate::sendspin_schedule::{
+    ChunkFacts, Correction, Decision, MonotonicClamp, Qualification, Scheduler,
+};
 use earph_core::{
     audio::{ChannelLayout, PcmRepresentation},
+    control::OutputBackend,
     sendspin_source::*,
 };
 use earph_network::sendspin::{
@@ -17,9 +21,19 @@ use earph_sendspin::{
     timing::{TimingError, UsableMapping},
 };
 
-/// The declared player state and the timeline must use one constant output delay.
-/// No scheduler exists yet, so the player reports no delay, lead time, or buffer need.
+/// The declared player state, the timeline, and the scheduler use one constant external output delay.
+/// No measurement of the path after the backend exists, so this delay is zero.
 const OUTPUT_DELAY_MS: u32 = 0;
+/// The server must send each chunk this far ahead of its timestamp. Admitted, not measured.
+const REQUIRED_LEAD_TIME_MS: u64 = 150;
+/// The server should keep this much audio queued at the player. Admitted, not measured.
+const MIN_BUFFER_MS: u32 = 200;
+const SAMPLE_RATE_HZ: u32 = 48000;
+/// A scheduling fault means a timestamp or counter left the checked integer range.
+const SCHEDULE: EngineError = EngineError::new(
+    ErrorCode::AssetInvalid,
+    "Sendspin schedule arithmetic exceeds its range",
+);
 const BUDGET: EngineError = EngineError::new(
     ErrorCode::ResourceBudgetExceeded,
     "Sendspin source preparation exceeds memory admission",
@@ -50,20 +64,6 @@ fn transport_error(error: DriverError) -> EngineError {
         "Sendspin player connection failed",
     )
 }
-fn closed_event(
-    epochs: Epochs,
-    submitted_frames: u64,
-    error: Option<EngineError>,
-) -> SendspinSourceEvent {
-    SendspinSourceEvent {
-        epochs,
-        observation: SendspinSourceObservation::new(
-            SendspinTransportPhase::Closed,
-            submitted_frames,
-        ),
-        error: error.map(|error| error.code),
-    }
-}
 /// Returns the gain target and ramp length that the session's mute and volume facts require.
 fn gain_target(snapshot: &SessionSnapshot) -> (Option<f64>, u32) {
     let zero = snapshot.software_gain_zero;
@@ -77,7 +77,12 @@ pub(super) fn refuse_start(
     error: EngineError,
     events: &SyncSender<Event>,
 ) {
-    report_closed(shared, closed_event(epochs, 0, Some(error)), events);
+    let event = SendspinSourceEvent {
+        epochs,
+        observation: SendspinSourceObservation::new(SendspinTransportPhase::Closed, 0),
+        error: Some(error.code),
+    };
+    report_closed(shared, event, events);
 }
 /// Records the closed source for readers of the shared observation and of worker events.
 fn report_closed(
@@ -101,7 +106,7 @@ struct Reducer {
     declared: Option<u64>,
     /// The activation generation whose available state reached the socket.
     available: Option<u64>,
-    server_now: Option<ServerPosition>,
+    server_now: MonotonicClamp,
 }
 impl Reducer {
     fn new(binding: PlayerBinding) -> Self {
@@ -110,7 +115,7 @@ impl Reducer {
             timeline: PlayerTimeline::new(binding, TimelineLimits::default()),
             declared: None,
             available: None,
-            server_now: None,
+            server_now: MonotonicClamp::default(),
         }
     }
     fn activated(&mut self, participating: bool) -> Result<(), EngineError> {
@@ -129,13 +134,10 @@ impl Reducer {
     }
     /// The timeline rejects a regressing clock, so a later mapping revision cannot step back.
     fn advance(&mut self, server_us: i64) -> Result<(), EngineError> {
-        let now = ServerPosition::new(server_us, 0).map_err(player_error)?;
-        let now = self.server_now.map_or(now, |last| last.max(now));
+        let now = ServerPosition::new(self.server_now.clamp(server_us), 0).map_err(player_error)?;
         self.timeline
             .advance_server_time(now, OUTPUT_DELAY_MS)
-            .map_err(player_error)?;
-        self.server_now = Some(now);
-        Ok(())
+            .map_err(player_error)
     }
     /// Returns the activation generation that still needs an available declaration.
     fn undeclared(&self, player: Option<PlayerObservation>) -> Option<u64> {
@@ -168,6 +170,8 @@ struct Held {
     lease: PcmChunk,
     samples: Vec<i16>,
     offset: usize,
+    /// Whether the scheduler decided to write this chunk. `offset` then skips its late frames.
+    scheduled: bool,
 }
 
 pub(super) struct SendspinPlayback {
@@ -184,6 +188,17 @@ pub(super) struct SendspinPlayback {
     /// The frame range of `period` that the output has not accepted yet.
     pending: Option<(usize, usize)>,
     held: Option<Held>,
+    scheduler: Scheduler,
+    /// Where the last scheduled chunk ends on the server timeline.
+    previous_end: Option<ServerPosition>,
+    /// Scheduled silence frames that precede the held chunk's samples.
+    silence: u64,
+    /// Whether the output accepted frames since it was last prepared.
+    /// ALSA fails a delay query on an output that holds none.
+    primed: bool,
+    /// Whether the backend reports a delay. Then an unprimed output has a known delay of zero.
+    reports_delay: bool,
+    delay_basis: Option<&'static str>,
     gain: GainRamp,
     sequence: u64,
     submitted_frames: u64,
@@ -229,13 +244,19 @@ impl SendspinPlayback {
     ) -> Result<Self, EngineError> {
         let epochs = settings.snapshot.epochs;
         let config = settings.snapshot.output.as_ref().ok_or(FAILED)?;
-        let format = PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16)?;
+        let format = PcmFormat::new(
+            SAMPLE_RATE_HZ,
+            ChannelLayout::Stereo,
+            PcmRepresentation::Signed16,
+        )?;
         let reducer = Reducer::new(binding);
         // Every fallible step precedes the source, whose drop reports a clean close.
         let mut gain = GainRamp::new(format)?;
         let (target, ramp) = gain_target(&settings.snapshot);
         gain.set_target(target, ramp)?;
-        let state = PlayerState::new(OUTPUT_DELAY_MS, 0, 0).map_err(player_error)?;
+        let state = PlayerState::new(OUTPUT_DELAY_MS, REQUIRED_LEAD_TIME_MS, MIN_BUFFER_MS)
+            .map_err(player_error)?;
+        let scheduler = Scheduler::new(SAMPLE_RATE_HZ).map_err(|_| SCHEDULE)?;
         let output = output::open(config, format, epochs)?;
         let retained = settings
             .snapshot
@@ -274,6 +295,13 @@ impl SendspinPlayback {
             period,
             pending: None,
             held: None,
+            scheduler,
+            previous_end: None,
+            silence: 0,
+            primed: false,
+            // ALSA reports a client delay estimate. Core Audio reports none.
+            reports_delay: config.backend == OutputBackend::Alsa,
+            delay_basis: None,
             gain,
             sequence: 0,
             submitted_frames: 0,
@@ -339,14 +367,36 @@ impl SendspinPlayback {
         }
         self.handle.cancel();
         let stopped = self.output.stop();
-        let event = closed_event(
-            self.settings.snapshot.epochs,
-            self.submitted_frames,
-            error.or(stopped.err()),
-        );
-        self.published = event.observation;
+        // A closed source holds no anchor. Its cumulative timing facts stay readable.
+        self.scheduler.reset();
+        self.published = self.observed(SendspinTransportPhase::Closed);
+        let event = self.event(error.or(stopped.err()).map(|error| error.code));
         report_closed(&self.shared, event, &self.events);
         stopped
+    }
+    fn observed(&self, phase: SendspinTransportPhase) -> SendspinSourceObservation {
+        let facts = self.scheduler.snapshot();
+        SendspinSourceObservation {
+            phase,
+            submitted_frames: self.submitted_frames,
+            timing: SendspinTiming {
+                qualification: match facts.qualification {
+                    Qualification::Unqualified => SendspinTimingQualification::Unqualified,
+                },
+                correction: match facts.correction {
+                    Correction::None => SendspinTimingCorrection::None,
+                },
+                anchored: facts.anchored,
+                start_error_us: facts.start_error_us,
+                last_error_us: facts.last_error_us,
+                max_abs_error_us: facts.max_abs_error_us,
+                inserted_silence_frames: facts.inserted_silence_frames,
+                dropped_frames: facts.dropped_frames,
+                mapping_revision: facts.mapping_revision,
+                backend_delay_known: facts.delay_known,
+                backend_delay_basis: self.delay_basis,
+            },
+        }
     }
     /// Runs one bounded tick. Returns true when the connection ended without a fault.
     pub(super) fn step(&mut self) -> Result<bool, EngineError> {
@@ -364,7 +414,8 @@ impl SendspinPlayback {
         }
         // The event queue has no backpressure, so every tick drains it before any wait.
         self.drain()?;
-        if let Some(mapping) = observed.clock.and_then(|clock| clock.usable_mapping) {
+        let mapping = observed.clock.and_then(|clock| clock.usable_mapping);
+        if let Some(mapping) = mapping {
             self.advance(mapping)?;
             if let Some(generation) = self.reducer.undeclared(observed.player)
                 && self
@@ -375,9 +426,11 @@ impl SendspinPlayback {
                 self.reducer.declared = Some(generation);
             }
         }
-        let busy = self.write()?;
+        let busy = self.write(mapping)?;
         self.publish(observed.player)?;
         if !busy {
+            // This sleep also bounds a scheduled wait, so the next tick drains events on time.
+            // It is shorter than the anchor pad window, which absorbs the late wake as silence.
             thread::sleep(Duration::from_millis(1));
         }
         Ok(false)
@@ -393,8 +446,10 @@ impl SendspinPlayback {
                 SessionEvent::Unsent(_) => self.reducer.declared = None,
                 _ => {}
             }
-            if let Some(event) = lease.player_event() {
-                self.reducer.player(event, lease.player_available())?;
+            if let Some(event) = lease.player_event()
+                && self.reducer.player(event, lease.player_available())? == TimelineAction::Started
+            {
+                self.unanchor();
             }
             // A stream end or a lost player role stops the stream. Neither drains audio.
             if streaming && !self.reducer.timeline.stream_active() {
@@ -417,9 +472,17 @@ impl SendspinPlayback {
     fn halt(&mut self) -> Result<(), EngineError> {
         self.pending = None;
         self.release()?;
+        self.unanchor();
+        self.primed = false;
         self.output
             .suspend(self.settings.snapshot.epochs)
             .map(|_| ())
+    }
+    /// Makes the next chunk anchor to its own timestamp.
+    fn unanchor(&mut self) {
+        self.scheduler.reset();
+        self.previous_end = None;
+        self.silence = 0;
     }
     fn release(&mut self) -> Result<(), EngineError> {
         let Some(held) = self.held.take() else {
@@ -432,32 +495,120 @@ impl SendspinPlayback {
             .release_chunk(held.lease)
             .map_err(player_error)
     }
-    /// Moves the next span of received samples through gain into the period.
-    fn fill(&mut self) -> Result<bool, EngineError> {
-        if self.held.as_ref().is_some_and(|held| {
-            held.offset == held.samples.len() || !self.reducer.timeline.is_current(&held.lease)
-        }) {
-            self.release()?;
+    /// Returns the frames that the backend still holds, or `None` when it reports no delay.
+    fn backend_delay(&mut self) -> Result<Option<u64>, EngineError> {
+        if !self.primed {
+            return Ok(self.reports_delay.then_some(0));
         }
-        if self.held.is_none() {
-            let Some(mut lease) = self.reducer.timeline.take_chunk() else {
-                return Ok(false);
-            };
-            let samples = lease.take_samples().ok_or(FAILED)?;
-            self.held = Some(Held {
-                lease,
-                samples,
-                offset: 0,
-            });
+        let counters = self.output.progress()?;
+        if counters.delay.is_some() {
+            self.delay_basis = Some(counters.basis);
         }
-        let held = self.held.as_mut().ok_or(FAILED)?;
-        let scalars = (held.samples.len() - held.offset).min(self.period.capacity_frames() * 2);
-        let span = &held.samples[held.offset..held.offset + scalars];
-        for (index, sample) in span.iter().enumerate() {
-            self.period.set_integer_sample(index, i64::from(*sample))?;
+        Ok(counters.delay)
+    }
+    /// Asks the scheduler what to do with the unscheduled head chunk.
+    /// Returns `None` while no usable clock mapping places the chunk.
+    fn decide(&mut self, mapping: Option<UsableMapping>) -> Result<Option<Decision>, EngineError> {
+        let (Some(mapping), Some(held)) = (mapping, self.held.as_ref()) else {
+            return Ok(None);
+        };
+        let position = held.lease.position();
+        let frames = held.samples.len() as u64 / 2;
+        let now_us = self.clock.sample().map_err(transport_error)?.microseconds();
+        let target = match mapping.port_target(
+            position.microseconds_floor(),
+            OUTPUT_DELAY_MS,
+            now_us,
+            self.reducer.binding.clock(),
+        ) {
+            Ok(target) => target,
+            Err(TimingError::BindingMismatch) => {
+                return Err(player_error(PlayerError::BindingMismatch));
+            }
+            // The transport ends a connection whose estimate expired; hold the chunk this tick.
+            Err(_) => return Ok(None),
+        };
+        // Whole frames between the previous chunk and this one. An overlap counts as no gap.
+        let gap_ticks = self
+            .previous_end
+            .map_or(0, |end| position.ticks() - end.ticks());
+        let facts = ChunkFacts {
+            target_us: target.time_us,
+            mapping_revision: target.mapping_revision,
+            frames,
+            now_us,
+            delay_frames: self.backend_delay()?,
+            gap_frames: u64::try_from(gap_ticks / ServerPosition::TICKS_PER_FRAME).unwrap_or(0),
+        };
+        self.scheduler.decide(facts).map(Some).map_err(|_| SCHEDULE)
+    }
+    /// Takes and schedules chunks until one has samples or silence to write.
+    /// Returns false while the head chunk waits for its target or no chunk is queued.
+    fn schedule(&mut self, mapping: Option<UsableMapping>) -> Result<bool, EngineError> {
+        loop {
+            if self.held.as_ref().is_some_and(|held| {
+                (held.scheduled && held.offset == held.samples.len())
+                    || !self.reducer.timeline.is_current(&held.lease)
+            }) {
+                self.release()?;
+            }
+            if self.held.is_none() {
+                let Some(mut lease) = self.reducer.timeline.take_chunk() else {
+                    return Ok(false);
+                };
+                let samples = lease.take_samples().ok_or(FAILED)?;
+                self.held = Some(Held {
+                    lease,
+                    samples,
+                    offset: 0,
+                    scheduled: false,
+                });
+            }
+            if self.held.as_ref().is_some_and(|held| held.scheduled) {
+                return Ok(true);
+            }
+            match self.decide(mapping)? {
+                None | Some(Decision::Wait { .. }) => return Ok(false),
+                Some(Decision::DropChunk) => self.release()?,
+                Some(Decision::Write {
+                    prepend_silence_frames,
+                    skip_frames,
+                }) => {
+                    let held = self.held.as_mut().ok_or(FAILED)?;
+                    held.offset = usize::try_from(skip_frames).map_err(|_| SCHEDULE)? * 2;
+                    held.scheduled = true;
+                    self.previous_end = Some(held.lease.end_position());
+                    self.silence = prepend_silence_frames;
+                    if self.silence > 0 {
+                        return Ok(true);
+                    }
+                }
+            }
         }
-        held.offset += scalars;
-        let frames = scalars / 2;
+    }
+    /// Moves the next span of scheduled silence or received samples through gain into the period.
+    fn fill(&mut self, mapping: Option<UsableMapping>) -> Result<bool, EngineError> {
+        if self.silence == 0 && !self.schedule(mapping)? {
+            return Ok(false);
+        }
+        let capacity = self.period.capacity_frames();
+        let frames = if self.silence > 0 {
+            let frames = usize::try_from(self.silence).map_or(capacity, |left| left.min(capacity));
+            for index in 0..frames * 2 {
+                self.period.set_integer_sample(index, 0)?;
+            }
+            self.silence -= frames as u64;
+            frames
+        } else {
+            let held = self.held.as_mut().ok_or(FAILED)?;
+            let scalars = (held.samples.len() - held.offset).min(capacity * 2);
+            let span = &held.samples[held.offset..held.offset + scalars];
+            for (index, sample) in span.iter().enumerate() {
+                self.period.set_integer_sample(index, i64::from(*sample))?;
+            }
+            held.offset += scalars;
+            scalars / 2
+        };
         self.period.set_span(
             self.settings.snapshot.epochs,
             self.sequence,
@@ -465,19 +616,21 @@ impl SendspinPlayback {
             frames as u64,
         )?;
         self.sequence += 1;
+        // Silence passes the gain too, so a ramp advances with output time.
         self.gain.process(&mut self.period)?;
         self.pending = Some((0, frames));
         Ok(true)
     }
-    /// Writes at most one span. Returns false when no audio waits.
-    fn write(&mut self) -> Result<bool, EngineError> {
-        if self.pending.is_none() && !self.fill()? {
+    /// Writes at most one span. Returns false when no audio is due.
+    fn write(&mut self, mapping: Option<UsableMapping>) -> Result<bool, EngineError> {
+        if self.pending.is_none() && !self.fill(mapping)? {
             return Ok(false);
         }
         let (offset, end) = self.pending.ok_or(FAILED)?;
         match self.output.write(&self.period, offset, end - offset)? {
             Some(frames) => {
                 self.submitted_frames += frames as u64;
+                self.primed = true;
                 self.pending = (offset + frames < end).then_some((offset + frames, end));
             }
             None => self.output.wait()?,
@@ -485,8 +638,8 @@ impl SendspinPlayback {
         Ok(true)
     }
     fn publish(&mut self, player: Option<PlayerObservation>) -> Result<(), EngineError> {
-        let observation =
-            SendspinSourceObservation::new(self.reducer.phase(player), self.submitted_frames);
+        let phase = self.reducer.phase(player);
+        let observation = self.observed(phase);
         if observation == self.published {
             return Ok(());
         }
@@ -648,15 +801,10 @@ mod tests {
     fn server_time_never_regresses_across_mapping_revisions() {
         let mut reducer = reducer();
         reducer.advance(5000).unwrap();
+        // The timeline refuses a lower time, so this success proves the clamp.
         reducer.advance(4000).unwrap();
-        assert_eq!(
-            reducer.server_now,
-            Some(ServerPosition::new(5000, 0).unwrap())
-        );
+        assert_eq!(reducer.server_now.clamp(0), 5000);
         reducer.advance(6000).unwrap();
-        assert_eq!(
-            reducer.server_now,
-            Some(ServerPosition::new(6000, 0).unwrap())
-        );
+        assert_eq!(reducer.server_now.clamp(0), 6000);
     }
 }

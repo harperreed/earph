@@ -37,6 +37,8 @@ impl PlayerPeer {
     /// Accepts one client, authenticates on the pairing secret, then rotates to the record.
     pub fn accept(listener: &TcpListener) -> Self {
         let (stream, _) = listener.accept().unwrap();
+        // Timed chunks must leave at once. Batching would add tens of milliseconds of transit.
+        stream.set_nodelay(true).unwrap();
         stream.set_read_timeout(Some(STAGE)).unwrap();
         let mut socket = accept(stream).unwrap();
         // A short timeout turns every later read into a poll.
@@ -105,7 +107,8 @@ impl PlayerPeer {
         i64::try_from(self.origin.elapsed().as_micros()).unwrap() + SERVER_CLOCK_OFFSET_US
     }
     /// Activates the player role, then serves clock probes until the client reports availability.
-    pub fn activate_player(&mut self) {
+    /// Returns the player state that the client declared.
+    pub fn activate_player(&mut self) -> Value {
         self.send_json(
             "server/activate",
             json!({"activities":["playback"],"active_roles":["player@v1"]}),
@@ -113,7 +116,7 @@ impl PlayerPeer {
         loop {
             let state = self.await_json("client/state", true);
             if state["player"]["available"] == json!(true) {
-                return;
+                return state["player"].clone();
             }
         }
     }
