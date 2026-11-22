@@ -103,7 +103,9 @@ struct Connection {
     /// The latest progress that Core adopted.
     adopted: Option<SendspinSourceObservation>,
     retiring_since: Option<Instant>,
-    /// Network or the supervisor left a credential write with an unknown outcome.
+    /// Network kept an unresolved commit, or the supervisor reported an unknown outcome.
+    /// The supervisor reports one for a native operation that outlived its timeout,
+    /// for a lost completion, and for a failed supervisor thread.
     uncertain: bool,
 }
 
@@ -111,8 +113,8 @@ pub(crate) struct SendspinRuntime {
     configuration: SendspinConfiguration,
     owner: OwnerId,
     connection: Option<Connection>,
-    /// An uncertain credential write refuses every later start in this owner.
-    /// Explicit storage recovery is separate work.
+    /// An uncertain credential outcome refuses every later start in this owner process.
+    /// Explicit storage recovery is separate work, so only a restart clears this latch.
     recovery_required: bool,
 }
 impl SendspinRuntime {
@@ -173,6 +175,10 @@ impl SendspinRuntime {
             }
         }
         let Some(connection) = self.connection.as_mut() else {
+            // A session that ended before this poll left no workers to join.
+            if let Some(generation) = session.retiring_sendspin_connection() {
+                let _ = session.complete_sendspin_retirement(generation, now_ns);
+            }
             return;
         };
         let fence = connection.fence;
@@ -223,7 +229,10 @@ impl SendspinRuntime {
             }
         }
         if session.sendspin_connection() != Some(fence) && connection.retire() {
-            self.recovery_required |= connection.uncertain;
+            if connection.uncertain {
+                self.recovery_required = true;
+                session.require_sendspin_credential_recovery();
+            }
             let _ = session.complete_sendspin_retirement(fence.generation, now_ns);
             self.connection = None;
         }
@@ -414,9 +423,8 @@ mod tests {
         let receipt = session.submit(decode_command(&bytes, &ControlLimits::default()).unwrap());
         assert_ne!(receipt.status, ReceiptStatus::Rejected, "{id}: {receipt:?}");
     }
-    /// A helper that cannot run fails the load. No Network connection and no worker action exist.
-    #[test]
-    fn unavailable_credentials_fail_the_session_and_retire_without_a_connection() {
+    /// Returns an owner with an approved output, and a runtime whose credential helper is missing.
+    fn fixture() -> (Session, SendspinRuntime) {
         let owner = OwnerId::new("owner").unwrap();
         let mut session = Session::new_owner(
             ZoneId::new("main").unwrap(),
@@ -426,7 +434,7 @@ mod tests {
         session.enable_local_playback();
         session.enable_sendspin();
         let directory = std::env::temp_dir().join(format!("earph-sendspin-{}", std::process::id()));
-        let mut runtime = SendspinRuntime::new(
+        let runtime = SendspinRuntime::new(
             SendspinConfiguration {
                 server_url: "ws://10.1.2.3:9876/sendspin".into(),
                 pinned_address: "10.1.2.3".parse().unwrap(),
@@ -458,31 +466,117 @@ mod tests {
             None,
             json!({"method":"output.consent","device_id":"dac","profile_id":"profile"}),
         );
+        (session, runtime)
+    }
+    fn start(session: &mut Session, id: &str) {
         submit(
-            &mut session,
-            "start",
-            Some("player"),
+            session,
+            id,
+            Some(id),
             json!({"method":"sources.sendspin.start","device_id":"dac"}),
         );
-        let mut worker = Worker::spawn();
+    }
+    /// Polls as the owner loop does until Core reports a disconnected source.
+    /// No poll may ever start a Network connection in these tests.
+    fn settle(session: &mut Session, runtime: &mut SendspinRuntime, worker: &mut Worker) {
         let deadline = Instant::now() + Duration::from_secs(10);
-        while !runtime.is_idle() || session.sendspin_connection().is_some() {
+        while session.sendspin_snapshot().phase != SendspinPhase::Disconnected {
             assert!(Instant::now() < deadline, "the runtime never retired");
             let now = session.snapshot().monotonic_ns + 1;
-            runtime.poll(&mut session, &mut worker, now);
+            runtime.poll(session, worker, now);
+            assert!(!matches!(
+                runtime
+                    .connection
+                    .as_ref()
+                    .map(|connection| &connection.stage),
+                Some(Stage::Running { .. })
+            ));
             std::thread::sleep(Duration::from_millis(1));
         }
-        let state = session.snapshot();
-        assert_eq!(state.transport, TransportState::Failed);
-        assert_eq!(state.error, Some(ErrorCode::AuthDenied));
-        assert_eq!(state.session_id, None);
-        assert_eq!(
-            session.sendspin_snapshot().phase,
-            SendspinPhase::Disconnected
-        );
+        assert!(runtime.is_idle());
         assert!(
             worker.events.try_recv().is_err(),
             "the worker saw no action"
         );
+    }
+    /// Puts the runtime in its loading stage without a poll that could finish the load.
+    fn loading(session: &Session, runtime: &mut SendspinRuntime) {
+        let fence = session.sendspin_connection().unwrap();
+        runtime.connection = Some(runtime.begin(fence).unwrap());
+        assert!(matches!(
+            runtime.connection.as_ref().unwrap().stage,
+            Stage::Loading { .. }
+        ));
+    }
+
+    /// A helper that cannot run fails the load. No Network connection and no worker action exist.
+    #[test]
+    fn unavailable_credentials_fail_the_session_and_retire_without_a_connection() {
+        let (mut session, mut runtime) = fixture();
+        start(&mut session, "player");
+        let mut worker = Worker::spawn();
+        settle(&mut session, &mut runtime, &mut worker);
+        let state = session.snapshot();
+        assert_eq!(state.transport, TransportState::Failed);
+        assert_eq!(state.error, Some(ErrorCode::AuthDenied));
+        assert_eq!(state.session_id, None);
+        assert!(!session.sendspin_snapshot().credential_recovery_required);
+    }
+    #[test]
+    fn a_stop_during_the_credential_load_drops_the_load_and_disconnects() {
+        let (mut session, mut runtime) = fixture();
+        start(&mut session, "player");
+        loading(&session, &mut runtime);
+        submit(
+            &mut session,
+            "stop",
+            Some("player"),
+            json!({"method":"sessions.stop"}),
+        );
+        let mut worker = Worker::spawn();
+        settle(&mut session, &mut runtime, &mut worker);
+        let state = session.snapshot();
+        assert_eq!(state.transport, TransportState::Idle);
+        assert_eq!(state.error, None, "a dropped load reports no failure");
+        assert_eq!(state.session_id, None);
+    }
+    /// The owner loop polls between commands. Core must still disconnect without that poll.
+    #[test]
+    fn a_session_that_ends_before_any_poll_still_disconnects() {
+        let (mut session, mut runtime) = fixture();
+        start(&mut session, "player");
+        submit(
+            &mut session,
+            "stop",
+            Some("player"),
+            json!({"method":"sessions.stop"}),
+        );
+        let mut worker = Worker::spawn();
+        settle(&mut session, &mut runtime, &mut worker);
+    }
+    /// The test sets the uncertain outcome that a real supervisor or Network join reports.
+    #[test]
+    fn an_uncertain_credential_outcome_latches_recovery_and_refuses_later_starts() {
+        let (mut session, mut runtime) = fixture();
+        start(&mut session, "player-1");
+        loading(&session, &mut runtime);
+        runtime.connection.as_mut().unwrap().uncertain = true;
+        submit(
+            &mut session,
+            "stop",
+            Some("player-1"),
+            json!({"method":"sessions.stop"}),
+        );
+        let mut worker = Worker::spawn();
+        settle(&mut session, &mut runtime, &mut worker);
+        assert!(session.sendspin_snapshot().credential_recovery_required);
+        start(&mut session, "player-2");
+        let now = session.snapshot().monotonic_ns + 1;
+        runtime.poll(&mut session, &mut worker, now);
+        // The latch refuses the start before any supervisor exists.
+        assert!(runtime.is_idle());
+        assert_eq!(session.snapshot().error, Some(ErrorCode::AuthDenied));
+        settle(&mut session, &mut runtime, &mut worker);
+        assert!(session.sendspin_snapshot().credential_recovery_required);
     }
 }

@@ -189,14 +189,27 @@ State reports the source as `sendspin_playback` with timing qualification `unqua
 Unmute waits until the server knows that the player is available.
 The server moves transport between `buffering` and `playing` inside the session.
 It cannot create a session, change epochs, unmute, or change volume.
-Core rejects `sessions.pause`, `sessions.resume`, and seeks for this source; use `sessions.stop`.
+`sessions.pause` is a safety control and ends the session exactly as `sessions.stop` does.
+This source cannot hold a stream, so nothing resumes it; start a new session instead.
+Pause keeps its ordinary fences: the owner, the exact session, and the exact expected revision.
+Stop alone accepts an older revision for the observed session.
+The Host sends the worker its stop before it persists the pause.
+Core rejects `sessions.resume` and seeks for this source with `CAPABILITY_UNSUPPORTED`.
 Core ignores a source event whose connection generation or epochs are stale.
 A source that closes with an error fails the session with that error code.
-A clean close or a stop clears the session.
+A clean close, a stop, or a pause clears the session.
 
 The Host runtime loads credentials, starts Network, and gives the handle to the playback worker.
 Each owner loop iteration polls it, and no step blocks.
-After a stop, a close, or an owner shutdown it joins Network first and then the credential supervisor.
+After a stop, a pause, a close, or an owner shutdown it joins Network first and then the credential supervisor.
 The phase stays `closing` until both joined; a new start waits for `disconnected`.
-An uncertain credential write refuses later starts in that owner process.
+The joins do not wait for the playback worker to close its output.
+
+A credential operation can end with an unknown outcome.
+The supervisor reports one when a native operation outlives its timeout, including a load.
+It also reports one for a lost completion or a failed supervisor thread.
+Network reports one when it joins with an unresolved commit.
+After any of these, every later start in that owner process fails with `AUTH_DENIED`.
+`sources.sendspin.get` then reports `credential_recovery_required: true`.
+Only a restarted owner clears that fact; the credential store keeps its own pending marker.
 The permit and the admission policy last 12 hours, and nothing reconnects.

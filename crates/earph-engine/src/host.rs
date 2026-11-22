@@ -458,6 +458,12 @@ impl OwnerControl<'_> {
                     playing: staged.wants_playback(),
                 };
                 let safety_action = match command.payload {
+                    // Pause ends a Sendspin session. A generic pause would fail a worker
+                    // that has not received this source yet.
+                    Command::Pause if before.source == Some(SourceKind::Sendspin) => {
+                        worker.cancel_active();
+                        Some(Action::StopSendspin)
+                    }
                     Command::Pause => Some(Action::Pause(settings)),
                     Command::Mute { muted: true }
                     | Command::VolumeSilence
@@ -681,6 +687,7 @@ fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
         return matches!(
             command,
             Command::Stop
+                | Command::Pause
                 | Command::OwnerShutdown
                 | Command::Mute { .. }
                 | Command::VolumeSet { .. }
@@ -795,7 +802,7 @@ fn dispatch(
     }
     Ok(())
 }
-/// The Sendspin source takes settings and one stop. Core refuses its other transport controls.
+/// The Sendspin source takes settings and one stop. Pause reaches the worker before the commit.
 fn dispatch_sendspin(
     command: &CommandEnvelope,
     worker: &mut Worker,

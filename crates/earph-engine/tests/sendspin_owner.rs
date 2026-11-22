@@ -56,6 +56,8 @@ mod linux {
     const PREAMBLE_FRAMES: usize = 4800;
     const PATTERN_FRAMES: usize = 43200;
     const DEADLINE: Duration = Duration::from_secs(15);
+    /// Half of the runtime's retirement fallback, so a fallback exit fails the test.
+    const EXIT_DEADLINE: Duration = Duration::from_secs(5);
 
     pub fn server_public() -> [u8; 32] {
         earph_sendspin::noise::static_public_key(&peer::SERVER_PRIVATE).unwrap()
@@ -68,6 +70,7 @@ mod linux {
             _ => {
                 plays_the_stream_and_reports_unqualified_timing();
                 stop_retires_the_connection_and_a_second_start_plays();
+                pause_stops_the_stream_and_leaves_the_owner_reusable();
                 a_wrong_server_key_is_denied_without_audio();
                 shutdown_during_a_stream_exits_cleanly();
                 println!("Sendspin owner process checks passed");
@@ -126,6 +129,7 @@ mod linux {
         directory: PathBuf,
         listener: TcpListener,
         owner: Child,
+        exited: bool,
         next: Cell<u64>,
     }
     impl Bench {
@@ -176,6 +180,7 @@ mod linux {
                 directory,
                 listener,
                 owner,
+                exited: false,
                 next: Cell::new(0),
             };
             println!("Sendspin owner artifacts: {}", bench.directory.display());
@@ -317,8 +322,9 @@ mod linux {
             });
             frames
         }
-        fn stop(&self) {
-            self.apply(json!({"method":"sessions.stop"}));
+        /// Ends the session with `sessions.stop` or `sessions.pause` and waits for retirement.
+        fn end(&self, method: &str) {
+            self.apply(json!({"method":method}));
             self.wait("the connection retires", |bench| {
                 bench.phase() == "disconnected"
             });
@@ -329,7 +335,9 @@ mod linux {
             assert_eq!(state["muted"], true);
         }
         /// Nothing else writes this output, so the capture holds exactly the sent bytes.
+        /// The owner has exited, so the playback worker has closed and flushed the file.
         fn assert_capture_is_exact(&self) {
+            assert!(self.exited, "read the capture only after the owner exits");
             let capture = fs::read(self.directory.join("capture.pcm")).unwrap();
             let pattern = pattern();
             let audible = capture.iter().position(|byte| *byte != 0).unwrap();
@@ -341,25 +349,25 @@ mod linux {
                 pattern.len()
             );
         }
-        /// Waits for the owner process with a deadline, so a hung thread fails the test.
-        fn exit(mut self) -> std::process::ExitStatus {
-            let deadline = Instant::now() + DEADLINE;
-            loop {
+        /// Shuts the owner down and waits for its exit.
+        /// A clean retirement ends far sooner than the runtime's ten second fallback.
+        fn shutdown(&mut self) {
+            let receipt = self.command(json!({"method":"owner.shutdown"}), None);
+            assert_eq!(receipt["status"], "applied", "{receipt}");
+            let asked = Instant::now();
+            let status = loop {
                 if let Some(status) = self.owner.try_wait().unwrap() {
-                    return status;
+                    break status;
                 }
                 assert!(
-                    Instant::now() < deadline,
-                    "the owner did not exit: {}",
+                    asked.elapsed() < EXIT_DEADLINE,
+                    "the owner did not exit promptly: {}",
                     fs::read_to_string(self.directory.join("owner.log")).unwrap()
                 );
                 std::thread::sleep(Duration::from_millis(5));
-            }
-        }
-        fn shutdown(self) {
-            let receipt = self.command(json!({"method":"owner.shutdown"}), None);
-            assert_eq!(receipt["status"], "applied", "{receipt}");
-            assert!(self.exit().success());
+            };
+            assert!(status.success(), "{status:?}");
+            self.exited = true;
         }
     }
     impl Drop for Bench {
@@ -374,7 +382,7 @@ mod linux {
     }
 
     fn plays_the_stream_and_reports_unqualified_timing() {
-        let bench = Bench::launch(server_public());
+        let mut bench = Bench::launch(server_public());
         let capabilities = bench.query("capabilities.get");
         assert!(
             capabilities["sources"]
@@ -394,8 +402,11 @@ mod linux {
             state["sendspin_playback"],
             json!({"phase":"streaming","submitted_frames":frames,"timing":{"qualification":"unqualified"}})
         );
-        let pause = bench.command(json!({"method":"sessions.pause"}), None);
-        assert_eq!(pause["error"]["code"], "CAPABILITY_UNSUPPORTED", "{pause}");
+        let resume = bench.command(json!({"method":"sessions.resume"}), None);
+        assert_eq!(
+            resume["error"]["code"], "CAPABILITY_UNSUPPORTED",
+            "{resume}"
+        );
         peer.end_stream();
         bench.serve(&mut peer, "the stream end returns to buffering", |bench| {
             bench.state()["transport"] == "buffering"
@@ -408,14 +419,14 @@ mod linux {
         assert_eq!(state["transport"], "idle");
         assert_eq!(state["session_id"], Value::Null);
         assert_eq!(state["error"], Value::Null);
-        bench.assert_capture_is_exact();
         bench.shutdown();
+        bench.assert_capture_is_exact();
     }
     fn stop_retires_the_connection_and_a_second_start_plays() {
-        let bench = Bench::launch(server_public());
+        let mut bench = Bench::launch(server_public());
         let mut peer = bench.connect("player-1");
         bench.stream(&mut peer);
-        bench.stop();
+        bench.end("sessions.stop");
         // The owner cancelled the connection, so the peer's socket has ended.
         drop(peer);
         // The file device truncates on open, so this capture belongs to the second session only.
@@ -425,13 +436,28 @@ mod linux {
             2
         );
         bench.stream(&mut peer);
-        bench.stop();
+        bench.end("sessions.stop");
         drop(peer);
-        bench.assert_capture_is_exact();
         bench.shutdown();
+        bench.assert_capture_is_exact();
+    }
+    fn pause_stops_the_stream_and_leaves_the_owner_reusable() {
+        let mut bench = Bench::launch(server_public());
+        let mut peer = bench.connect("player-1");
+        let frames = bench.stream(&mut peer);
+        bench.end("sessions.pause");
+        assert_eq!(
+            bench.state()["sendspin_playback"],
+            json!({"phase":"closed","submitted_frames":frames,"timing":{"qualification":"unqualified"}})
+        );
+        drop(peer);
+        let mut peer = bench.connect("player-2");
+        bench.stream(&mut peer);
+        bench.shutdown();
+        bench.assert_capture_is_exact();
     }
     fn a_wrong_server_key_is_denied_without_audio() {
-        let bench = Bench::launch([22; 32]);
+        let mut bench = Bench::launch([22; 32]);
         assert_eq!(bench.start("player-1")["status"], "accepted");
         bench.wait("the denied start fails the session", |bench| {
             bench.state()["transport"] == "failed"
@@ -448,12 +474,12 @@ mod linux {
             bench.listener.accept().is_err(),
             "a denied start opens no connection"
         );
+        bench.shutdown();
         let capture = fs::read(bench.directory.join("capture.pcm")).unwrap_or_default();
         assert!(capture.is_empty(), "a denied start writes no audio");
-        bench.shutdown();
     }
     fn shutdown_during_a_stream_exits_cleanly() {
-        let bench = Bench::launch(server_public());
+        let mut bench = Bench::launch(server_public());
         let mut peer = bench.connect("player-1");
         bench.stream(&mut peer);
         assert_eq!(bench.state()["transport"], "playing");
