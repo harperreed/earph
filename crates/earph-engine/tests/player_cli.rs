@@ -448,3 +448,49 @@ fn play_uses_a_running_engine_and_replaces_its_playback_only_on_request() {
     bench.succeed("quit");
     assert!(finish(engine).status.success());
 }
+
+#[test]
+fn seek_moves_running_playback_and_rejects_bad_positions() {
+    let (bench, _pacer) = Bench::new(true);
+    assert_eq!(bench.run(&["seek", "soon"]).status.code(), Some(2));
+    let tone = bench.tone("long.wav", 48000 * 120);
+    let play = bench.spawn(&["play", tone.to_str().unwrap(), "-o", "earph_capture"]);
+    bench.until_status("playing");
+    let seek = bench.run(&["seek", "1:30"]);
+    assert_eq!(seek.status.code(), Some(0), "{}", text(&seek.stderr));
+    assert!(text(&seek.stdout).contains("1:30"));
+    bench.until_status("playing   1:3");
+    let past = bench.run(&["seek", "500"]);
+    assert_eq!(past.status.code(), Some(1), "{}", text(&past.stderr));
+    bench.until_status("playing   1:3");
+    bench.succeed("stop");
+    assert_eq!(finish(play).status.code(), Some(0));
+    assert_eq!(bench.run(&["seek", "10"]).status.code(), Some(3));
+}
+
+#[test]
+fn play_warns_when_the_volume_is_too_low_to_hear_on_speakers() {
+    let (bench, _) = Bench::new(false);
+    let tone = bench.tone("tone.wav", 4800);
+    let quiet = bench.run(&["play", tone.to_str().unwrap(), "-o", "earph_capture"]);
+    assert_eq!(quiet.status.code(), Some(0), "{}", text(&quiet.stderr));
+    assert!(
+        text(&quiet.stdout).contains("--volume"),
+        "{}",
+        text(&quiet.stdout)
+    );
+    let loud = bench.run(&[
+        "play",
+        tone.to_str().unwrap(),
+        "-o",
+        "earph_capture",
+        "-v",
+        "-20",
+    ]);
+    assert_eq!(loud.status.code(), Some(0), "{}", text(&loud.stderr));
+    assert!(
+        !text(&loud.stdout).contains("--volume"),
+        "{}",
+        text(&loud.stdout)
+    );
+}

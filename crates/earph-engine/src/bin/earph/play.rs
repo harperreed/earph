@@ -14,6 +14,8 @@ use std::{
 };
 
 const INTERRUPTED: u8 = 130;
+/// At or below this level, quiet music is inaudible on laptop speakers.
+const QUIET_DB: f64 = -30.0;
 
 pub fn run(arguments: &Arguments, interrupted: &AtomicBool) -> Outcome<u8> {
     if arguments.positional.is_empty() {
@@ -73,7 +75,7 @@ fn idle(state: &Value) -> bool {
             Some("idle" | "failed" | "suspended")
         )
 }
-fn queue(link: &mut Link) -> Outcome<Vec<Value>> {
+pub fn queue(link: &mut Link) -> Outcome<Vec<Value>> {
     let mut entries = Vec::new();
     loop {
         let page =
@@ -238,6 +240,14 @@ fn play(
         text(&state["output"]["endpoint"]),
         decibel_text(&state["software_gain_db"])
     );
+    if state["software_gain_db"]
+        .as_f64()
+        .is_some_and(|decibels| decibels <= QUIET_DB)
+    {
+        println!(
+            "hint     this volume is hard to hear on speakers; pass --volume DB or run `earph volume DB`"
+        );
+    }
     link.mutate(
         json!({
             "method": "sessions.start",

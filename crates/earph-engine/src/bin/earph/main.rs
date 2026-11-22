@@ -24,6 +24,7 @@ usage: earph [--runtime DIRECTORY] COMMAND
   status [--json]  Show what the Engine is doing.
   pause | resume | stop | mute | unmute
   volume DB      Set the volume, for example: earph volume -30
+  seek POSITION  Jump to SECONDS or M:SS in the playing file.
   quit           Stop playback and the Engine.
 
 Naming an output with --output (or EARPH_OUTPUT) approves audio on that output.
@@ -52,6 +53,16 @@ fn decibels(value: &str) -> Outcome<i64> {
         return Err(Failure::usage("volume must be between -120 and 0 dB"));
     }
     Ok((decibels * 1000.0).round() as i64)
+}
+/// Reads a position as whole seconds or as minutes and seconds.
+fn seconds(value: &str) -> Outcome<u64> {
+    let (minutes, seconds) = value.rsplit_once(':').unwrap_or(("0", value));
+    match (minutes.parse::<u64>(), seconds.parse::<u64>()) {
+        (Ok(minutes), Ok(seconds)) => Ok(minutes.saturating_mul(60).saturating_add(seconds)),
+        _ => Err(Failure::usage(format!(
+            "a position is SECONDS or M:SS, not `{value}`"
+        ))),
+    }
 }
 fn parse(mut raw: impl Iterator<Item = String>) -> Outcome<Arguments> {
     let home = std::env::var_os("HOME").map(PathBuf::from);
@@ -174,7 +185,10 @@ pub fn progress_line(state: &Value, total_frames: Option<u64>) -> String {
     if let Some(total) = total_frames {
         line.push_str(&format!(" / {}", clock(total, rate)));
     }
-    let device_rate = playback["backend"]["device_format"]["sample_rate_hz"].as_u64();
+    // Core Audio reports its device rate as a fraction.
+    let device_rate = playback["backend"]["device_format"]["sample_rate_hz"]
+        .as_f64()
+        .map(|rate| rate.round() as u64);
     match device_rate {
         Some(device) if rate != 0 && device != rate => {
             line.push_str(&format!("  {rate} Hz -> {device} Hz"))
@@ -330,6 +344,35 @@ fn run(arguments: Arguments, interrupted: Arc<AtomicBool>) -> Outcome<u8> {
             || Target::Current,
             "Engine stopped",
         ),
+        "seek" => {
+            let [value] = arguments.positional.as_slice() else {
+                return Err(Failure::usage("usage: earph seek SECONDS or M:SS"));
+            };
+            let seconds = seconds(value)?;
+            let mut link = Link::open(&arguments.runtime, false)?;
+            let state = link.state()?;
+            let rate = state["playback"]["format"]["sample_rate_hz"].as_u64();
+            let (Some(rate), false) = (rate, state["session_id"].is_null()) else {
+                return Err(Failure::playback("nothing is playing"));
+            };
+            let total = play::queue(&mut link)?
+                .iter()
+                .find(|entry| entry["id"] == state["active_entry_id"])
+                .and_then(|entry| entry["status"]["total_frames"].as_u64());
+            let position = seconds.saturating_mul(rate);
+            if let Some(total) = total.filter(|total| position >= *total) {
+                return Err(Failure::playback(format!(
+                    "this file ends at {}",
+                    clock(total, rate)
+                )));
+            }
+            link.complete(
+                json!({"method": "sessions.seek", "position_frames": position}),
+                Target::Current,
+            )?;
+            println!("seek {}", clock(position, rate));
+            Ok(0)
+        }
         "volume" => {
             let [value] = arguments.positional.as_slice() else {
                 return Err(Failure::usage("usage: earph volume DB"));

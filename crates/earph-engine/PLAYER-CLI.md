@@ -20,6 +20,8 @@ Press Control-C to stop.
 
 The volume changes only when you pass `--volume`, in dB from -120 to 0.
 A new Engine starts at -40 dB.
+That level suits headphones. It is hard to hear on speakers, and `play` prints a hint at -30 dB or lower.
+On speakers, try `--volume -10`.
 
 `play` ends with one `result` line and an exit status.
 
@@ -28,7 +30,7 @@ A new Engine starts at -40 dB.
 | `finished`: the last file reached its end | 0 |
 | `stopped`: another command stopped playback | 0 |
 | playback failed, the Engine rejected a file, or nothing is playing | 1 |
-| wrong usage, unreadable path, or no output named | 2 |
+| wrong usage, unreadable path, or no output chosen | 2 |
 | the Engine refused a command or is unreachable | 3 |
 | `interrupted` by Control-C or SIGTERM | 130 |
 
@@ -41,13 +43,15 @@ earph status
 earph pause
 earph resume
 earph volume -30
+earph seek 1:30
 earph mute
 earph unmute
 earph stop
 earph quit
 ```
 
-`pause`, `resume`, and `stop` return after the playback worker acknowledges the change.
+`seek` takes whole seconds or `M:SS` and refuses a position past the end of the file.
+`pause`, `resume`, `stop`, and `seek` return after the playback worker acknowledges the change.
 `status --json` prints the complete Engine state.
 
 ## Which Engine it uses
