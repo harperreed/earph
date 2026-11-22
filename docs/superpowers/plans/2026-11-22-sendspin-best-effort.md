@@ -70,7 +70,7 @@ ALSA reports a client delay estimate. Core Audio reports none; treat it as zero 
 | U4 | `earph sendspin` and the success-criterion process test | 260 / 300 | U2, U3 |
 | U5 | Clears, re-activation, starvation | 300 / 400 | U2 |
 | U6 | Pinned Python peer and documents | 0 / 250 | U4 |
-| U7 | Credential provisioning and pairing, for real Music Assistant use | not yet sized | U4 |
+| U7 | Credential provisioning and pairing, for real Music Assistant use | 870 / 1130 | U4 |
 
 ### U1: thinnest sample path
 
@@ -131,9 +131,35 @@ The missing parts are:
 6. Player commands. The player advertises none, so server volume and mute do nothing.
 7. Formats. Only 48 kHz stereo 16-bit PCM is offered.
 
-These server facts are unverified against Doctor Biz's installation:
-whether it offers pairing-token entry, accepts a player without a volume command, and serves this PCM format.
 Root does not connect to, pair with, or change that server; Doctor Biz runs those steps from written instructions.
+
+Read-only research on November 22, 2026 found no protocol blocker.
+It read the pinned spec, aiosendspin 10.2.1, and Music Assistant 2.10.12 source. It ran nothing.
+
+- Music Assistant stable 2.10.12 and 2.10.13 bundle aiosendspin 10.2.1, the peer that Earph pins.
+  Beta 2.11 bundles 10.3.0, which Earph has never tested. Test against stable.
+- The server listens on port 8927 at path `/sendspin`, so Earph's outbound connection fits.
+  U7 needs no listener, no mDNS, and no change to `earph-sendspin` or `earph-network`.
+- The player generates the pairing token. The operator pastes it into the server's player setup.
+  The source offers that paste step when the player offers only a pairing secret, as Earph does.
+  The token never expires; treat it as a password.
+- Volume and mute commands are optional. A player that lists only 48 kHz stereo 16-bit PCM receives that format.
+- The server address must pass `permitted_address`. A 100.64.0.0/10 address is refused, and so is `wss`.
+  Use the server's local network address.
+
+Unverified until run: the player role against a real 10.2.1 server, the setup location in the web interface,
+and a roleless pairing followed by a player connection under the same identity.
+
+| Unit | Work | Estimated size (source / test lines) |
+|---|---|---|
+| U7a | `earph sendspin init`: create the identity and pairing secret in an empty store; refuse any other store state | 180 / 220 |
+| U7b | `earph sendspin token`: print the pairing token to standard output only | 60 / 90 |
+| U7c | `earph sendspin pair --server URL`: run a roleless pairing connection and store the record | 350 / 450 |
+| U7d | Play without `--server-key` when exactly one record is stored | 80 / 120 |
+| U7e | Reconnect with backoff, with a new permit and fresh credentials for each attempt | 200 / 250 |
+| U7f | Owner instructions | documents only |
+
+Pairing and playback use two connections. One connection for both stays deferred.
 
 ## Known risks
 
