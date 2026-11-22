@@ -21,7 +21,7 @@ use std::{
 const USAGE: &str = "usage: earph sendspin --server ws://IP:PORT/PATH --server-key KEY [--output NAME] [--volume DB]";
 /// This player offers one format: 48 kHz, stereo, 16-bit.
 const RATE: u64 = 48000;
-/// The credential store bounds each native operation at 30 seconds.
+/// Each credential store operation gets this long before it counts as failed.
 const STORE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Reads the server's numeric address, then checks the URL against the Engine's connection rules.

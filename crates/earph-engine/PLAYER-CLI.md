@@ -90,7 +90,7 @@ If an Engine already runs at the runtime directory, `sendspin` refuses; run `ear
 
 From another terminal, `status`, `stop`, `mute`, `unmute`, `volume`, and `quit` work.
 A live stream cannot pause, so `pause` stops a Sendspin stream, as `stop` does.
-An Engine that cannot do that refuses the pause; then use `stop` or `mute`.
+It prints `stopped (a Sendspin stream cannot pause)`, and the `sendspin` command ends with exit status 0.
 `resume` and `seek` are not supported for a Sendspin stream.
 
 `sendspin` ends with one `result` line and an exit status.

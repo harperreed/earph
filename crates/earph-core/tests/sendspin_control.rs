@@ -298,9 +298,15 @@ fn server_streams_move_transport_inside_the_session_without_new_epochs_or_author
         applied(&mut session, method, None, json!({"method":method}));
     }
     let value = serde_json::to_value(&after).unwrap();
+    // No chunk was scheduled, so the whole block is the unanchored, unqualified observation.
+    let waiting = SendspinSourceObservation::new(SendspinTransportPhase::AwaitingStream, 4800);
     assert_eq!(
         value["sendspin_playback"],
-        json!({"phase":"awaiting_stream","submitted_frames":4800,"timing":{"qualification":"unqualified"}})
+        serde_json::to_value(waiting).unwrap()
+    );
+    assert_eq!(
+        value["sendspin_playback"]["timing"]["qualification"],
+        "unqualified"
     );
     assert_eq!(
         sendspin(&mut session, "get-waiting")["value"]["phase"],

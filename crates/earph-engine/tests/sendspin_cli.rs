@@ -59,7 +59,7 @@ mod linux {
         if chosen.as_deref() == Some("credential-helper") {
             return helper::run();
         }
-        let cases: [(&str, fn()); 6] = [
+        let cases: [(&str, fn()); 7] = [
             (
                 "plays",
                 plays_the_stream_shows_status_and_exits_when_the_server_closes,
@@ -67,7 +67,8 @@ mod linux {
             ("refuses", refuses_bad_arguments_before_it_starts_anything),
             ("wrong_key", a_wrong_server_key_fails_without_audio),
             ("interrupt", an_interrupt_stops_the_stream_and_the_engine),
-            ("pause", pause_gets_a_plain_answer_and_stop_ends_the_command),
+            ("pause", pause_stops_the_stream_and_ends_the_command),
+            ("stop", stop_from_another_terminal_ends_the_command),
             ("quit", quit_from_another_terminal_ends_the_command),
         ];
         // An argument runs one case: `cargo test --test sendspin_cli -- wrong_key`.
@@ -357,7 +358,7 @@ mod linux {
         let bench = Bench::new();
         let url = bench.url();
         let cases: [(&[&str], &str); 5] = [
-            (&["--server-key", &bench.key], "--server"),
+            (&["--server-key", &bench.key], "--server is needed"),
             (
                 &[
                     "--server",
@@ -422,31 +423,36 @@ mod linux {
         assert!(text(&output.stdout).contains("result   interrupted"));
         bench.no_engine_remains();
     }
-    fn pause_gets_a_plain_answer_and_stop_ends_the_command() {
+    fn pause_stops_the_stream_and_ends_the_command() {
         let bench = Bench::new();
         let (player, mut peer, _) = bench.streaming();
         let mute = bench.meanwhile(&mut peer, bench.earph(&["mute"]));
         assert_eq!(mute.status.code(), Some(0), "{}", text(&mute.stderr));
         let status = text(&bench.meanwhile(&mut peer, bench.earph(&["status"])).stdout);
         assert!(status.contains("muted"), "{status}");
-        for (command, message) in [
-            ("resume", "resume is not supported for a Sendspin stream"),
-            ("seek", "seek is not supported for a Sendspin stream"),
-            ("pause", "a Sendspin stream cannot pause; use stop or mute"),
-        ] {
-            let arguments: &[&str] = if command == "seek" {
-                &["seek", "10"]
-            } else {
-                &[command]
-            };
+        for arguments in [&["resume"][..], &["seek", "10"]] {
             let refused = bench.meanwhile(&mut peer, bench.earph(arguments));
             let refusal = text(&refused.stderr);
-            assert_eq!(refused.status.code(), Some(1), "{command}: {refusal}");
-            assert!(refusal.contains(message), "{command}: {refusal}");
+            assert_eq!(refused.status.code(), Some(1), "{arguments:?}: {refusal}");
+            let message = format!("{} is not supported for a Sendspin stream", arguments[0]);
+            assert!(refusal.contains(&message), "{arguments:?}: {refusal}");
         }
-        // The stop cancels the connection, so the peer has nothing left to answer.
+        assert_eq!(bench.state()["transport"], "playing");
+        // The pause cancels the connection, so the peer has nothing left to answer.
+        let pause = bench.earph(&["pause"]).finish();
+        assert_eq!(pause.status.code(), Some(0), "{}", text(&pause.stderr));
+        assert!(text(&pause.stdout).contains("stopped (a Sendspin stream cannot pause)"));
+        let output = player.finish();
+        assert_eq!(output.status.code(), Some(0));
+        assert!(text(&output.stdout).contains("result   ended"));
+        bench.no_engine_remains();
+    }
+    fn stop_from_another_terminal_ends_the_command() {
+        let bench = Bench::new();
+        let (player, _peer, _) = bench.streaming();
         let stop = bench.earph(&["stop"]).finish();
         assert_eq!(stop.status.code(), Some(0), "{}", text(&stop.stderr));
+        assert!(text(&stop.stdout).contains("stopped"));
         let output = player.finish();
         assert_eq!(output.status.code(), Some(0));
         assert!(text(&output.stdout).contains("result   ended"));

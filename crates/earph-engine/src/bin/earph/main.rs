@@ -320,19 +320,12 @@ fn run(arguments: Arguments, interrupted: Arc<AtomicBool>) -> Outcome<u8> {
         if sendspin && arguments.command == "resume" {
             return Err(sendspin::unsupported("resume"));
         }
-        if sendspin && arguments.command == "pause" {
-            // A live stream cannot pause. The Engine either stops the stream or refuses.
-            return match link.complete(payload, target()) {
-                Ok(()) => {
-                    println!("stopped (a Sendspin stream cannot pause)");
-                    Ok(0)
-                }
-                Err(refusal) if refusal.message.contains("CAPABILITY_UNSUPPORTED") => Err(
-                    Failure::playback("a Sendspin stream cannot pause; use stop or mute"),
-                ),
-                Err(failure) => Err(failure),
-            };
-        }
+        // A live stream cannot pause, so the Engine stops a Sendspin stream on a pause.
+        let done = if sendspin && arguments.command == "pause" {
+            "stopped (a Sendspin stream cannot pause)"
+        } else {
+            done
+        };
         if payload["method"] == "owner.shutdown" {
             // The Engine stops answering once it shuts down.
             link.mutate(payload, target())?;

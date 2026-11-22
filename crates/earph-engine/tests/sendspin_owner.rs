@@ -58,6 +58,8 @@ mod linux {
     const DEADLINE: Duration = Duration::from_secs(15);
     /// Half of the runtime's retirement fallback, so a fallback exit fails the test.
     const EXIT_DEADLINE: Duration = Duration::from_secs(5);
+    /// The scheduler waits until a chunk is at most 5 ms early, then fills that lead with silence.
+    const ANCHOR_PAD_FRAMES: u64 = 240;
 
     pub fn server_public() -> [u8; 32] {
         earph_sendspin::noise::static_public_key(&peer::SERVER_PRIVATE).unwrap()
@@ -305,8 +307,9 @@ mod linux {
             self.apply(unmute);
             peer
         }
-        /// Sends a zero preamble and the pattern as 25 ms chunks. Returns the frame count.
-        fn stream(&self, peer: &mut peer::PlayerPeer) -> u64 {
+        /// Sends a zero preamble and the pattern as 25 ms chunks, 200 ms ahead of the server clock.
+        /// Returns the sent frame count and the anchor silence that the scheduler placed before it.
+        fn stream(&self, peer: &mut peer::PlayerPeer) -> (u64, u64) {
             peer.start_stream();
             let sent = [vec![0; PREAMBLE_FRAMES * 4], pattern()].concat();
             let first = peer.server_now_us() + 200_000;
@@ -317,10 +320,27 @@ mod linux {
                 peer.serve_until("chunk pacing", || Instant::now() >= paced);
             }
             let frames = (sent.len() / 4) as u64;
-            self.serve(peer, "the output accepts every sent frame", |bench| {
-                bench.state()["sendspin_playback"]["submitted_frames"] == frames
+            let count = |playback: &Value, key: &str| playback[key].as_u64().unwrap();
+            // The output accepts every sent frame that was not dropped, plus the inserted silence.
+            self.serve(peer, "the output accepts every scheduled frame", |bench| {
+                let playback = bench.state()["sendspin_playback"].take();
+                let timing = &playback["timing"];
+                playback["submitted_frames"].is_u64()
+                    && count(&playback, "submitted_frames") + count(timing, "dropped_frames")
+                        == frames + count(timing, "inserted_silence_frames")
             });
-            frames
+            let playback = self.state()["sendspin_playback"].take();
+            let timing = &playback["timing"];
+            // An early stream loses nothing, so the output accepted exactly the pad and the sent frames.
+            assert_eq!(timing["dropped_frames"], 0, "{playback}");
+            let pad = count(timing, "inserted_silence_frames");
+            assert!(pad <= ANCHOR_PAD_FRAMES, "anchor pad {pad}");
+            assert_eq!(playback["submitted_frames"], frames + pad, "{playback}");
+            assert_eq!(timing["qualification"], "unqualified");
+            assert_eq!(timing["correction"], "none");
+            assert_eq!(timing["anchored"], true);
+            assert!(timing["start_error_us"].is_i64(), "{playback}");
+            (frames, pad)
         }
         /// Ends the session with `sessions.stop` or `sessions.pause` and waits for retirement.
         fn end(&self, method: &str) {
@@ -334,18 +354,24 @@ mod linux {
             assert_eq!(state["source"], Value::Null);
             assert_eq!(state["muted"], true);
         }
-        /// Nothing else writes this output, so the capture holds exactly the sent bytes.
+        /// Nothing else writes this output, so the capture holds the anchor pad and the sent bytes.
         /// The owner has exited, so the playback worker has closed and flushed the file.
-        fn assert_capture_is_exact(&self) {
+        /// The comparison is exact, so a dropped, repeated, or moved pattern frame fails it.
+        fn assert_capture_is_exact(&self, pad: u64) {
             assert!(self.exited, "read the capture only after the owner exits");
             let capture = fs::read(self.directory.join("capture.pcm")).unwrap();
             let pattern = pattern();
-            let audible = capture.iter().position(|byte| *byte != 0).unwrap();
-            assert_eq!(audible, PREAMBLE_FRAMES * 4);
+            let silence = (pad as usize + PREAMBLE_FRAMES) * 4;
+            assert!(capture.len() >= silence, "captured {} bytes", capture.len());
+            let (silence, audible) = capture.split_at(silence);
             assert!(
-                capture[audible..] == pattern,
-                "captured {} bytes after {audible} zeros; sent {}",
-                capture.len() - audible,
+                silence.iter().all(|byte| *byte == 0),
+                "the pad and the preamble are silence"
+            );
+            assert!(
+                audible == pattern,
+                "captured {} bytes after the silence; sent {}",
+                audible.len(),
                 pattern.len()
             );
         }
@@ -391,17 +417,14 @@ mod linux {
                 .contains(&json!("sendspin"))
         );
         let mut peer = bench.connect("player-1");
-        let frames = bench.stream(&mut peer);
+        let (_, pad) = bench.stream(&mut peer);
         let state = bench.state();
         assert_eq!(state["source"], "sendspin");
         assert_eq!(state["session_id"], "player-1");
         assert_eq!(state["transport"], "playing");
         assert_eq!(state["seekable"], false);
         assert_eq!(state["audible_position_frames"], Value::Null);
-        assert_eq!(
-            state["sendspin_playback"],
-            json!({"phase":"streaming","submitted_frames":frames,"timing":{"qualification":"unqualified"}})
-        );
+        assert_eq!(state["sendspin_playback"]["phase"], "streaming");
         let resume = bench.command(json!({"method":"sessions.resume"}), None);
         assert_eq!(
             resume["error"]["code"], "CAPABILITY_UNSUPPORTED",
@@ -420,7 +443,7 @@ mod linux {
         assert_eq!(state["session_id"], Value::Null);
         assert_eq!(state["error"], Value::Null);
         bench.shutdown();
-        bench.assert_capture_is_exact();
+        bench.assert_capture_is_exact(pad);
     }
     fn stop_retires_the_connection_and_a_second_start_plays() {
         let mut bench = Bench::launch(server_public());
@@ -435,26 +458,27 @@ mod linux {
             bench.query("sources.sendspin.get")["connection_generation"],
             2
         );
-        bench.stream(&mut peer);
+        let (_, pad) = bench.stream(&mut peer);
         bench.end("sessions.stop");
         drop(peer);
         bench.shutdown();
-        bench.assert_capture_is_exact();
+        bench.assert_capture_is_exact(pad);
     }
     fn pause_stops_the_stream_and_leaves_the_owner_reusable() {
         let mut bench = Bench::launch(server_public());
         let mut peer = bench.connect("player-1");
-        let frames = bench.stream(&mut peer);
+        let (frames, pad) = bench.stream(&mut peer);
         bench.end("sessions.pause");
-        assert_eq!(
-            bench.state()["sendspin_playback"],
-            json!({"phase":"closed","submitted_frames":frames,"timing":{"qualification":"unqualified"}})
-        );
+        // The closed source keeps its cumulative facts.
+        let playback = bench.state()["sendspin_playback"].take();
+        assert_eq!(playback["phase"], "closed");
+        assert_eq!(playback["submitted_frames"], frames + pad, "{playback}");
+        assert_eq!(playback["timing"]["qualification"], "unqualified");
         drop(peer);
         let mut peer = bench.connect("player-2");
-        bench.stream(&mut peer);
+        let (_, pad) = bench.stream(&mut peer);
         bench.shutdown();
-        bench.assert_capture_is_exact();
+        bench.assert_capture_is_exact(pad);
     }
     fn a_wrong_server_key_is_denied_without_audio() {
         let mut bench = Bench::launch([22; 32]);
