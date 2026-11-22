@@ -23,6 +23,7 @@ The request uses this JSON shape:
   "target": "x86_64-unknown-linux-gnu",
   "desktop": {"path": "products/earph-desktop", "byte_length": 123, "sha256": "<64 lowercase hex digits>"},
   "engine": {"path": "products/earph-engine", "byte_length": 456, "sha256": "<64 lowercase hex digits>"},
+  "player": {"path": "products/earph", "byte_length": 789, "sha256": "<64 lowercase hex digits>"},
   "workspace_manifest": "Cargo.toml",
   "cargo_lock": "Cargo.lock",
   "dependency_inventory": "docs/dependency-lock.json",
@@ -73,7 +74,8 @@ The manifest records the package tool's own embedded build provenance separately
 Packaging older qualified products does not make them products of the tool's current source revision.
 Do not infer source identity from binary strings or invent a desktop build-info command.
 
-Linux candidates contain adjacent `bin/earph-desktop` and `bin/earph-engine` products.
+Linux candidates contain adjacent `bin/earph-desktop`, `bin/earph-engine`, and `bin/earph` products.
+`earph` is the command-line player; see [its guide](../crates/earph-engine/PLAYER-CLI.md).
 Notices, canonical manifests, source archives, and declared provenance live under `share/earph`.
 A non-null `linux_final_prefix` creates `share/applications/earph.desktop`.
 Its quoted `Exec` names that absolute final prefix and escapes desktop-entry special characters.
@@ -83,7 +85,7 @@ Set the prefix to `null` to omit the desktop entry and register it separately la
 The package tool does not install or register it.
 Linux runtime dependencies remain external and incompletely enumerated.
 
-macOS candidates contain `Earph.app/Contents/MacOS/earph-desktop` and the adjacent engine.
+macOS candidates contain `Earph.app/Contents/MacOS/earph-desktop`, the adjacent engine, and the adjacent `earph` player.
 Resources live under `Earph.app/Contents/Resources`.
 The native Mac controller uses SwiftUI and standard AppKit text editing.
 Build it against the generated desktop bindings and Rust static library:
@@ -97,7 +99,7 @@ It retains compiler logs, generated bindings, native link arguments, tests, and 
 Its owner integration uses a separate private runtime without selecting output or starting playback.
 It retains that runtime after the check.
 It never changes the general clipboard or grants system permissions.
-Use its `products/earph-desktop` and `products/earph-engine` as the package inputs.
+Use its `products/earph-desktop`, `products/earph-engine`, and `products/earph` as the package inputs.
 The Swift product statically links the Rust controller; no extra runtime bridge library is bundled.
 Build and package checks do not establish native user acceptance or physical audio delivery.
 

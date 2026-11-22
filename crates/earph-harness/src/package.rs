@@ -25,6 +25,7 @@ pub struct PackageRequest {
     pub target: String,
     pub desktop: Product,
     pub engine: Product,
+    pub player: Product,
     pub workspace_manifest: PathBuf,
     pub cargo_lock: PathBuf,
     pub dependency_inventory: PathBuf,
@@ -548,6 +549,13 @@ fn build_new(request: &PackageRequest, output: &Path) -> Result<(), String> {
             "engine",
             Some(&request.target),
         )?,
+        copy(
+            output,
+            &format!("{bin}/earph"),
+            &request.player,
+            "player",
+            Some(&request.target),
+        )?,
     ];
     let paths = [
         &request.license,
@@ -646,7 +654,11 @@ fn build_new(request: &PackageRequest, output: &Path) -> Result<(), String> {
 fn expected(manifest: &Manifest, index: &Sources) -> Result<BTreeMap<String, String>, String> {
     let (bin, resources) = layout(&manifest.target)?;
     let mut result = BTreeMap::new();
-    for (name, kind) in [("earph-desktop", "desktop"), ("earph-engine", "engine")] {
+    for (name, kind) in [
+        ("earph-desktop", "desktop"),
+        ("earph-engine", "engine"),
+        ("earph", "player"),
+    ] {
         result.insert(format!("{bin}/{name}"), kind.into());
     }
     for (name, _) in canonical() {
@@ -717,7 +729,7 @@ fn scan(
 }
 fn verify_entry(root: &Path, entry: &Entry, target_name: &str) -> Result<(), String> {
     relative(&entry.path)?;
-    let executable = matches!(entry.kind.as_str(), "desktop" | "engine");
+    let executable = matches!(entry.kind.as_str(), "desktop" | "engine" | "player");
     if !hex(&entry.sha256, 64)
         || entry.byte_length
             > if executable {

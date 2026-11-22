@@ -23,7 +23,7 @@ On macOS, build the native controller and run its software checks:
 scripts/check-macos-desktop --output /absolute/new-native-build
 ```
 
-Use the resulting `products/earph-desktop` and adjacent engine for native packaging.
+Use the resulting `products/earph-desktop`, adjacent engine, and adjacent `earph` player for native packaging.
 The Cargo desktop executable provides the egui development renderer, rather than the packaged Mac interface.
 See [native packaging](../../docs/native-packaging.md) for candidate construction and qualification limits.
 

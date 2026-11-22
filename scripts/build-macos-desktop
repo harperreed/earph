@@ -56,7 +56,7 @@ run rust-version rustc -vV
 run swift-version "$swiftc" --version
 run bindings-tool cargo build --locked -p earph-ffi --features bindgen --bin earph-bindgen
 run desktop-library cargo build --locked -p earph-desktop --lib
-run products cargo build --locked -p earph-engine --bin earph-engine -p earph-harness --bin earph-harness
+run products cargo build --locked -p earph-engine --bin earph-engine --bin earph -p earph-harness --bin earph-harness
 run native-link-info cargo rustc --locked -p earph-desktop --lib -- --print=native-static-libs
 cp "$CARGO_TARGET_DIR/debug/libearph_desktop.a" "$output/bridge/libearph_desktop.a"
 cp "$CARGO_TARGET_DIR/debug/libearph_desktop.dylib" "$output/bridge/libearph_desktop.dylib"
@@ -111,9 +111,10 @@ if grep -q 'warning:' "$output/swift-compile.log"; then
   exit 1
 fi
 cp "$CARGO_TARGET_DIR/debug/earph-engine" "$output/products/earph-engine"
+cp "$CARGO_TARGET_DIR/debug/earph" "$output/products/earph"
 cp "$CARGO_TARGET_DIR/debug/earph-harness" "$output/products/earph-harness"
 run linked-libraries otool -L "$output/products/earph-desktop"
-run architecture file "$output/products/earph-desktop" "$output/products/earph-engine"
+run architecture file "$output/products/earph-desktop" "$output/products/earph-engine" "$output/products/earph"
 shasum -a 256 "$output"/products/* "$output"/generated/* "$output"/bridge/* > "$output/product.hashes"
 shasum -a 256 Cargo.toml Cargo.lock macos/Sources/Earph/*.swift scripts/build-macos-desktop scripts/macos-deployment-target.sh > "$output/source.hashes"
 printf '%s\n' "$CARGO_TARGET_DIR" > "$output/cargo-target.txt"

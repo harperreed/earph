@@ -62,6 +62,7 @@ fn request(root: &Path) -> PackageRequest {
         target: "x86_64-unknown-linux-gnu".into(),
         desktop: product(root, "desktop"),
         engine: product(root, "engine"),
+        player: product(root, "player"),
         workspace_manifest: workspace.join("Cargo.toml"),
         cargo_lock: workspace.join("Cargo.lock"),
         dependency_inventory: workspace.join("docs/dependency-lock.json"),
@@ -74,7 +75,7 @@ fn request(root: &Path) -> PackageRequest {
     }
 }
 #[test]
-fn package_preserves_both_explicit_executable_bytes() {
+fn package_preserves_every_explicit_executable_bytes() {
     let root = directory();
     let request = request(&root);
     let output = root.join("candidate");
@@ -91,6 +92,10 @@ fn package_preserves_both_explicit_executable_bytes() {
     assert_eq!(
         fs::read(output.join("bin/earph-engine")).unwrap(),
         fs::read(&request.engine.path).unwrap()
+    );
+    assert_eq!(
+        fs::read(output.join("bin/earph")).unwrap(),
+        fs::read(&request.player.path).unwrap()
     );
     assert!(
         !output
@@ -234,7 +239,7 @@ fn macos_layout_and_linux_final_prefix_are_explicit() {
     package::verify(&no_entry).unwrap();
     assert!(!no_entry.join("share/applications").exists());
     request.target = "aarch64-apple-darwin".into();
-    for product in [&mut request.engine, &mut request.desktop] {
+    for product in [&mut request.engine, &mut request.desktop, &mut request.player] {
         let mut bytes = vec![0u8; 32];
         bytes[..4].copy_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
         bytes[4..8].copy_from_slice(&0x0100000cu32.to_le_bytes());
@@ -257,6 +262,7 @@ fn macos_layout_and_linux_final_prefix_are_explicit() {
             .join("Earph.app/Contents/MacOS/earph-engine")
             .is_file()
     );
+    assert!(output.join("Earph.app/Contents/MacOS/earph").is_file());
     let plist = fs::read_to_string(output.join("Earph.app/Contents/Info.plist")).unwrap();
     assert!(plist.contains("<string>0.1.0</string>"));
     assert!(plist.contains("com.harperreed.earph"));
