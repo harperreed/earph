@@ -1183,6 +1183,7 @@ dependencies = [
  "signal-hook",
  "snow",
  "tokio",
+ "tokio-tungstenite",
  "zbus",
 ]
 

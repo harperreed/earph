@@ -938,6 +938,8 @@ fn observation(
         | Event::NetworkGraphFailed { .. } => {
             unreachable!("graph events reconcile with persistence in the owner loop")
         }
+        // No Core session owns a Sendspin source yet, so its events change no session state.
+        Event::Sendspin(_) => {}
         Event::Item { epochs, id, status } => {
             let _ = session.set_queue_preparation(epochs, &id, status);
         }

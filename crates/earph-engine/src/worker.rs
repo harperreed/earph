@@ -26,6 +26,10 @@ mod dsd;
 #[path = "worker/dsd_tests.rs"]
 mod dsd_tests;
 mod network;
+mod sendspin;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "worker/sendspin_tests.rs"]
+mod sendspin_tests;
 use network::{HttpSource, NetworkPreparation, Reader};
 use std::{
     path::Path,
@@ -120,6 +124,30 @@ pub(crate) enum Action {
         position_bits: u64,
     },
     Stop(StopRequest),
+    /// The caller starts the connection and joins its Network worker after this source closes.
+    #[cfg_attr(
+        not(all(test, target_os = "linux")),
+        expect(
+            dead_code,
+            reason = "the Host sends this action once a Core command exists"
+        )
+    )]
+    StartSendspin {
+        settings: Settings,
+        handle: earph_network::sendspin::SendspinHandle,
+        clock: earph_network::sendspin::MonotonicDomain,
+        binding: earph_sendspin::player::PlayerBinding,
+        observation: Arc<Mutex<earph_core::sendspin_source::SendspinSourceObservation>>,
+        cancel: Arc<AtomicBool>,
+    },
+    #[cfg_attr(
+        not(all(test, target_os = "linux")),
+        expect(
+            dead_code,
+            reason = "the Host sends this action once a Core command exists"
+        )
+    )]
+    StopSendspin,
     AcknowledgeSourceTerminal(SourceTerminalToken),
     AcknowledgeDsdRetirement(SourceTerminalToken),
     Shutdown,
@@ -128,7 +156,11 @@ impl Action {
     fn is_safety(&self) -> bool {
         matches!(
             self,
-            Self::Pause(_) | Self::Stop(_) | Self::Shutdown | Self::RetireNetwork(_)
+            Self::Pause(_)
+                | Self::Stop(_)
+                | Self::StopSendspin
+                | Self::Shutdown
+                | Self::RetireNetwork(_)
         ) || matches!(self, Self::Settings(settings) if settings.snapshot.muted || settings.snapshot.software_gain_zero)
     }
 }
@@ -187,6 +219,16 @@ pub(crate) enum Event {
         observation: Option<LocalPlaybackObservation>,
     },
     DsdRetirementFailed(Arc<DsdRetirementFailure>),
+    Sendspin(
+        #[cfg_attr(
+            not(all(test, target_os = "linux")),
+            expect(
+                dead_code,
+                reason = "the Host reads this event once a Core session owns the source"
+            )
+        )]
+        earph_core::sendspin_source::SendspinSourceEvent,
+    ),
     StopFailed {
         request: Box<StopRequest>,
         token: SourceTerminalToken,
@@ -296,12 +338,16 @@ impl Worker {
                 | Action::Shutdown
                 | Action::Start { .. }
                 | Action::StartNetwork { .. }
+                | Action::StartSendspin { .. }
                 | Action::RetireNetwork(_)
         ) && let Some(cancel) = &self.cancel
         {
             cancel.store(true, Ordering::Release);
         }
-        if let Action::Start { cancel, .. } | Action::StartNetwork { cancel, .. } = &action {
+        if let Action::Start { cancel, .. }
+        | Action::StartNetwork { cancel, .. }
+        | Action::StartSendspin { cancel, .. } = &action
+        {
             self.cancel = Some(cancel.clone());
         }
         self.queued.fetch_add(1, Ordering::AcqRel);
@@ -474,27 +520,32 @@ struct Playback {
 enum ActiveSource {
     Pcm(Box<Playback>),
     Dsd(Box<dsd::DsdPlayback>),
+    Sendspin(Box<sendspin::SendspinPlayback>),
 }
 impl ActiveSource {
     fn pcm(&self) -> Option<&Playback> {
         match self {
             Self::Pcm(value) => Some(value),
-            Self::Dsd(_) => None,
+            Self::Dsd(_) | Self::Sendspin(_) => None,
         }
     }
     fn pcm_mut(&mut self) -> Option<&mut Playback> {
         match self {
             Self::Pcm(value) => Some(value),
-            Self::Dsd(_) => None,
+            Self::Dsd(_) | Self::Sendspin(_) => None,
         }
     }
     fn is_dsd(&self) -> bool {
         matches!(self, Self::Dsd(_))
     }
+    fn is_sendspin(&self) -> bool {
+        matches!(self, Self::Sendspin(_))
+    }
     fn stop(&mut self) -> Result<(), EngineError> {
         match self {
             Self::Pcm(value) => value.output.stop(),
             Self::Dsd(value) => value.close(earph_core::dop::DsdCloseReason::Stop),
+            Self::Sendspin(value) => value.close(None),
         }
     }
 }
@@ -2089,6 +2140,12 @@ fn action_failure(
         before_control,
         retirement,
     } = context;
+    if let Some(ActiveSource::Sendspin(current)) = playback.as_mut() {
+        // The closed event carries this failure. Local terminal state stays untouched.
+        let _ = current.close(Some(error));
+        *playback = None;
+        return;
+    }
     if playback.as_ref().is_some_and(ActiveSource::is_dsd) {
         if error.code == ErrorCode::StaleSession
             && let Some(ActiveSource::Dsd(current)) = playback.as_ref()
@@ -2198,6 +2255,10 @@ fn stop_source(
             failure,
         ));
         drop(current);
+    }
+    if let Some(mut current) = playback.take_if(|source| source.is_sendspin()) {
+        // The closed event reports a stop failure. This source keeps no local terminal.
+        let _ = current.stop();
     }
     if let Some(ActiveSource::Pcm(mut current)) = playback.take() {
         let mut observation = current.failure_observation();
@@ -2315,8 +2376,10 @@ fn run(
             }
         };
         if let Some(action) = action {
-            if matches!(action, Action::Start { .. } | Action::StartNetwork { .. })
-                && network_retirement.is_some()
+            if matches!(
+                action,
+                Action::Start { .. } | Action::StartNetwork { .. } | Action::StartSendspin { .. }
+            ) && network_retirement.is_some()
             {
                 deferred_start = Some(action);
                 continue;
@@ -2351,9 +2414,68 @@ fn run(
                     })
                     .map(|p| (p.failure_context(None), p.failure_observation()))
             });
+            let action = match playback.as_ref() {
+                Some(ActiveSource::Sendspin(current)) => match current.refuse(action) {
+                    Some(action) => action,
+                    None => continue,
+                },
+                _ => action,
+            };
             let result = match action {
                 Action::RetireNetwork(closing) => {
                     network_retirement = Some(closing);
+                    Ok(())
+                }
+                Action::StartSendspin {
+                    settings,
+                    handle,
+                    clock,
+                    binding,
+                    observation,
+                    cancel,
+                } => {
+                    stopped = None;
+                    terminal = None;
+                    // A failed retirement drops the handle, which cancels the connection.
+                    if let Err(error) = retire_for_start(
+                        &mut playback,
+                        &mut dsd_retirement,
+                        &events,
+                        ActiveSource::stop,
+                    ) {
+                        sendspin::refuse_start(
+                            settings.snapshot.epochs,
+                            &observation,
+                            error,
+                            &events,
+                        );
+                        continue;
+                    }
+                    playback = sendspin::SendspinPlayback::start(
+                        settings,
+                        handle,
+                        clock,
+                        binding,
+                        observation,
+                        cancel,
+                        &events,
+                    )
+                    .map(|source| ActiveSource::Sendspin(Box::new(source)));
+                    Ok(())
+                }
+                Action::StopSendspin => {
+                    if let Some(mut current) = playback.take_if(|source| source.is_sendspin()) {
+                        // The closed event reports a stop failure.
+                        let _ = current.stop();
+                    }
+                    Ok(())
+                }
+                // This source cannot hold a stream, so the safety pause closes it.
+                Action::Pause(_) if playback.as_ref().is_some_and(ActiveSource::is_sendspin) => {
+                    if let Some(mut current) = playback.take() {
+                        // The closed event reports a stop failure.
+                        let _ = current.stop();
+                    }
                     Ok(())
                 }
                 Action::StartNetwork {
@@ -2590,6 +2712,8 @@ fn run(
                     } else if let Some(current) = playback.as_mut().and_then(ActiveSource::pcm_mut)
                     {
                         current.apply_settings(settings, &events)
+                    } else if let Some(ActiveSource::Sendspin(current)) = playback.as_mut() {
+                        current.apply_settings(settings)
                     } else if let Some(preparing) = &mut network_preparation {
                         preparing.settings = settings;
                         Ok(())
@@ -2775,6 +2899,16 @@ fn run(
                     },
                     &events,
                 ),
+            }
+        }
+        if let Some(ActiveSource::Sendspin(current)) = playback.as_mut() {
+            match current.step() {
+                Ok(false) => {}
+                // The connection ended or the source failed. Either way the output closes.
+                result => {
+                    let _ = current.close(result.err());
+                    playback = None;
+                }
             }
         }
         if let Some(current) = playback.as_mut().and_then(ActiveSource::pcm_mut) {
