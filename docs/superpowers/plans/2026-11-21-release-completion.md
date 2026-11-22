@@ -215,7 +215,10 @@ Independent review found no defect.
 The macOS wiring that selects the progress purpose has no direct test; the pure decision does.
 A retreat after the source finishes still faults, as the policy states.
 The corrected Engine is installed on Orbit, paused and muted, with the queue and volume preserved.
-Real headphone playback remains unverified.
+Doctor Biz played a track through his headphones with `earph` on Orbit on November 22, 2026, and reported that it worked.
+That report names no duration and no build, and no state was retained from that run.
+An earlier speaker run on the same day showed no validated queue clock reading after 11 seconds of playback.
+Whether that clock settles later remains unexamined.
 See the [running-retreat evidence](../../evidence/local-playback/coreaudio-running-retreat-20261122.json).
 
 ## Product decision: Quit stops playback
@@ -250,10 +253,14 @@ Its default runtime is separate from the desktop application's runtime.
 Naming an output on the command line approves that output. The volume changes only on request.
 See [the player guide](../../../crates/earph-engine/PLAYER-CLI.md).
 
-Nine process tests run the real binary against a private ALSA capture device.
-They cover finished, refused, failed, stopped, interrupted, attached, and replaced playback.
+Thirteen process tests run the real binary against a private ALSA capture device.
+They cover finished, refused, failed, stopped, interrupted, attached, replaced, and repositioned playback.
 Independent review found two cases where `play` stopped playback that it did not start; both are corrected.
 The Mac build passes strict Clippy, and `earph devices` lists outputs through Core Audio.
-Real audio through `earph` on a Mac remains unverified.
-The package does not yet bundle `earph`.
-Use `earph` for the next headphone check and for Engine regression checks.
+Doctor Biz heard a 44.1 kHz FLAC through the Orbit speakers at 0 dB on November 22, 2026.
+The first runs seemed silent because the track opens near -38 dB and the Engine starts at -40 dB.
+`play` therefore prints a hint at -30 dB or lower, and `earph seek` skips a quiet opening.
+With no named output, `play` uses the only listed output and refuses to pick between several.
+Package candidates bundle `earph`; no Mac package with it has been built or installed.
+`earph seek` and the device-rate display remain unverified on a Mac output.
+Use `earph` for Engine regression checks.
