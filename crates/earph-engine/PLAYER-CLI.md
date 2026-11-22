@@ -54,6 +54,65 @@ earph quit
 `pause`, `resume`, `stop`, and `seek` return after the playback worker acknowledges the change.
 `status --json` prints the complete Engine state.
 
+## Sendspin
+
+```sh
+earph sendspin --server ws://SERVER-ADDRESS:8927/sendspin --server-key SERVER-KEY --output "headphones"
+```
+
+`sendspin` starts an Engine for one Sendspin server, connects to it as a player, and plays what the server sends.
+It chooses and approves the output as `play` does, and it changes the volume only when you pass `--volume`.
+It prints the output, then one status line: connecting, waiting for the server to start a stream, or playing.
+That line also shows how much audio went to the output, the volume, and `muted` while muted.
+
+The line always says `sync unqualified`.
+The player schedules audio against the server's clock, but no measurement shows when sound leaves the output.
+Expect a constant offset from other players, and slow drift.
+`start error` is the player's own estimate, not a measurement.
+The command shows no playback position for the same reason.
+
+| Flag | Meaning |
+| --- | --- |
+| `--server ws://IP:PORT/PATH` | The server. The address must be numeric; no name lookup happens. |
+| `--server-key KEY` | The server's public key: 43 characters of URL-safe base64, the form of a Sendspin server ID. |
+| `--output NAME`, `--volume DB`, `--period`, `--buffer` | As for `play`. |
+| `--credential-helper PATH` | The `earph-credential-helper` executable. The default is the file of that name beside `earph`. |
+| `--credential-store STORE` | Where the player identity lives. On Linux: the D-Bus address of the keyring's bus; the default is `DBUS_SESSION_BUS_ADDRESS`. On macOS: the absolute path of a keychain file; no default exists. |
+| `--credential-lock PATH` | The lock file that guards the store. The default is `sendspin-credentials.lock` in the runtime directory. Every Engine that uses the same store must use the same lock file. |
+
+The Engine refuses loopback, link-local, 100.64.0.0/10, and other special-purpose addresses.
+Use the server's local network address.
+It also refuses `wss://`, because this player has no TLS.
+`sendspin` checks the address and the key before it starts anything.
+
+`sendspin` always starts its own Engine, because an Engine takes its server only when it starts.
+If an Engine already runs at the runtime directory, `sendspin` refuses; run `earph quit` first.
+
+From another terminal, `status`, `stop`, `mute`, `unmute`, `volume`, and `quit` work.
+A live stream cannot pause, so `pause` stops a Sendspin stream, as `stop` does.
+An Engine that cannot do that refuses the pause; then use `stop` or `mute`.
+`resume` and `seek` are not supported for a Sendspin stream.
+
+`sendspin` ends with one `result` line and an exit status.
+
+| Result | Exit status |
+| --- | --- |
+| `ended`: the server closed the connection, or another command stopped the stream or the Engine | 0 |
+| the stream failed, or the credential store or the server denied access | 1 |
+| wrong usage, a refused address or key, or an Engine already runs | 2 |
+| the Engine refused a command | 3 |
+| `interrupted` by Control-C or SIGTERM | 130 |
+
+The keyring or keychain must already be unlocked.
+The helper never prompts, unlocks, or creates a store.
+Nothing reconnects: after the connection ends, run the command again.
+
+Real Music Assistant use does not work yet.
+The store must already hold a player identity that is paired with the server, and no command creates or pairs one.
+Those pairing commands are planned work.
+Until then, `sendspin` fails with `AUTH_REQUIRED` against a store that holds no identity.
+The player also takes no volume or mute commands from the server, and it offers only 48 kHz stereo 16-bit PCM.
+
 ## Which Engine it uses
 
 `earph` uses the runtime directory in `--runtime`, then `EARPH_RUNTIME`, then `~/.earph-cli`.

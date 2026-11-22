@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-const INTERRUPTED: u8 = 130;
+pub const INTERRUPTED: u8 = 130;
 /// At or below this level, quiet music is inaudible on laptop speakers.
 const QUIET_DB: f64 = -30.0;
 
@@ -46,18 +46,7 @@ pub fn run(arguments: &Arguments, interrupted: &AtomicBool) -> Outcome<u8> {
         interrupted,
     );
     if result.is_err() {
-        // Leave nothing playing that this command started. Another session is not ours to stop.
-        let ours = |link: &mut Link| {
-            link.state()
-                .is_ok_and(|state| state["session_id"] == session.as_str() && !idle(&state))
-        };
-        if ours(&mut link) {
-            let _ = link.mutate(json!({"method": "sessions.stop"}), Target::Current);
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while ours(&mut link) && Instant::now() < deadline {
-                thread::sleep(Duration::from_millis(50));
-            }
-        }
+        stop_own(&mut link, &session);
     }
     for entry in &entries {
         let _ = link.mutate(json!({"method": "queue.remove", "id": entry}), Target::None);
@@ -68,6 +57,20 @@ pub fn run(arguments: &Arguments, interrupted: &AtomicBool) -> Outcome<u8> {
     Ok(code)
 }
 
+/// Leaves nothing playing that this command started. Another session is not ours to stop.
+pub fn stop_own(link: &mut Link, session: &str) {
+    let ours = |link: &mut Link| {
+        link.state()
+            .is_ok_and(|state| state["session_id"] == session && !idle(&state))
+    };
+    if ours(link) {
+        let _ = link.mutate(json!({"method": "sessions.stop"}), Target::Current);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while ours(link) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
 fn idle(state: &Value) -> bool {
     state["session_id"].is_null()
         || matches!(
@@ -130,10 +133,10 @@ fn only_output(link: &mut Link) -> Outcome<String> {
     match selectable.as_slice() {
         [device] => Ok(text(&device["endpoint"])),
         [] => Err(Failure::usage(
-            "no output is listed; name one: earph play --output NAME FILE",
+            "no output is listed; name one with --output NAME",
         )),
         several => Err(Failure::usage(format!(
-            "name the output to play through: earph play --output NAME FILE\nSet EARPH_OUTPUT to name it once per shell. The outputs are:\n{}",
+            "name the output to play through with --output NAME\nSet EARPH_OUTPUT to name it once per shell. The outputs are:\n{}",
             several
                 .iter()
                 .map(|device| format!("  {}", label(device)))
@@ -142,7 +145,7 @@ fn only_output(link: &mut Link) -> Outcome<String> {
         ))),
     }
 }
-fn prepare_output(link: &mut Link, arguments: &Arguments, state: &Value) -> Outcome<()> {
+pub fn prepare_output(link: &mut Link, arguments: &Arguments, state: &Value) -> Outcome<()> {
     let endpoint = match &arguments.output {
         Some(name) if name.trim().is_empty() => {
             return Err(Failure::usage("--output needs an output name"));
@@ -235,19 +238,7 @@ fn play(
         .clone();
     link.mutate(json!({"method": "queue.select", "id": first}), Target::None)?;
     let state = link.state()?;
-    println!(
-        "output   {}  volume {}",
-        text(&state["output"]["endpoint"]),
-        decibel_text(&state["software_gain_db"])
-    );
-    if state["software_gain_db"]
-        .as_f64()
-        .is_some_and(|decibels| decibels <= QUIET_DB)
-    {
-        println!(
-            "hint     this volume is hard to hear on speakers; pass --volume DB or run `earph volume DB`"
-        );
-    }
+    announce_output(&state);
     link.mutate(
         json!({
             "method": "sessions.start",
@@ -285,6 +276,23 @@ fn play(
         link.mutate(json!({"method": "mute.set", "muted": false}), Target::None)?;
     }
     follow(link, session, interrupted)
+}
+
+/// Prints the output and the volume, with a hint when that volume is hard to hear.
+pub fn announce_output(state: &Value) {
+    println!(
+        "output   {}  volume {}",
+        text(&state["output"]["endpoint"]),
+        decibel_text(&state["software_gain_db"])
+    );
+    if state["software_gain_db"]
+        .as_f64()
+        .is_some_and(|decibels| decibels <= QUIET_DB)
+    {
+        println!(
+            "hint     this volume is hard to hear on speakers; pass --volume DB or run `earph volume DB`"
+        );
+    }
 }
 
 /// Names the file the Engine rejected, or reports the output fault code.

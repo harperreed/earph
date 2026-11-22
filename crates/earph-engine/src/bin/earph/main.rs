@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 mod link;
 mod play;
+mod sendspin;
 
 use link::{Failure, Link, Outcome, Target, text};
 use serde_json::{Value, json};
@@ -20,9 +21,16 @@ usage: earph [--runtime DIRECTORY] COMMAND
                  Play files in order, print progress, and exit when playback ends.
                  --replace-queue stops current playback and replaces the queue.
                  Exit status: 0 finished or stopped, 1 playback failed, 130 interrupted.
+  sendspin --server ws://IP:PORT/PATH --server-key KEY [--output NAME] [--volume DB]
+                 [--credential-helper PATH] [--credential-store STORE] [--credential-lock PATH]
+                 Start an Engine for one Sendspin server and play what it sends.
+                 Timing is best effort: the status line says `sync unqualified`.
+                 The address must be numeric. Loopback, 100.64.0.0/10, and wss are refused.
+                 Exit status: 0 ended, 1 failed, 130 interrupted.
   devices        List outputs. Any part of a name selects one with --output.
   status [--json]  Show what the Engine is doing.
   pause | resume | stop | mute | unmute
+                 A Sendspin stream cannot pause, resume, or seek: pause stops it.
   volume DB      Set the volume, for example: earph volume -30
   seek POSITION  Jump to SECONDS or M:SS in the playing file.
   quit           Stop playback and the Engine.
@@ -43,6 +51,11 @@ pub struct Arguments {
     pub buffer: Option<u64>,
     pub replace_queue: bool,
     pub json: bool,
+    pub server: Option<String>,
+    pub server_key: Option<String>,
+    pub credential_helper: Option<String>,
+    pub credential_store: Option<String>,
+    pub credential_lock: Option<String>,
 }
 
 fn decibels(value: &str) -> Outcome<i64> {
@@ -81,6 +94,11 @@ fn parse(mut raw: impl Iterator<Item = String>) -> Outcome<Arguments> {
         buffer: None,
         replace_queue: false,
         json: false,
+        server: None,
+        server_key: None,
+        credential_helper: None,
+        credential_store: None,
+        credential_lock: None,
     };
     let mut options_ended = false;
     while let Some(argument) = raw.next() {
@@ -103,6 +121,13 @@ fn parse(mut raw: impl Iterator<Item = String>) -> Outcome<Arguments> {
             }
             "--period" => arguments.period = Some(frames("--period", value("--period")?)?),
             "--buffer" => arguments.buffer = Some(frames("--buffer", value("--buffer")?)?),
+            "--server" => arguments.server = Some(value("--server")?),
+            "--server-key" => arguments.server_key = Some(value("--server-key")?),
+            "--credential-helper" => {
+                arguments.credential_helper = Some(value("--credential-helper")?)
+            }
+            "--credential-store" => arguments.credential_store = Some(value("--credential-store")?),
+            "--credential-lock" => arguments.credential_lock = Some(value("--credential-lock")?),
             "--replace-queue" => arguments.replace_queue = true,
             "--json" => arguments.json = true,
             "--help" | "-h" => arguments.command = "help".into(),
@@ -250,22 +275,27 @@ fn show_status(link: &mut Link, json: bool) -> Outcome<()> {
         decibel_text(&state["software_gain_db"]),
         decibel_text(&state["volume_policy"]["software_cap_db"])
     );
-    let queue = link.query(json!({"method": "queue.get", "offset": 0, "limit": 64}))?;
-    let active = queue["entries"].as_array().and_then(|entries| {
-        entries
-            .iter()
-            .find(|entry| entry["id"] == state["active_entry_id"])
-    });
-    if let Some(entry) = active {
-        println!("track    {}", text(&entry["path"]));
+    if state["source"] == "sendspin" {
+        println!("source   Sendspin");
+        println!("state    {}", sendspin::status_line(&state));
+    } else {
+        let queue = link.query(json!({"method": "queue.get", "offset": 0, "limit": 64}))?;
+        let active = queue["entries"].as_array().and_then(|entries| {
+            entries
+                .iter()
+                .find(|entry| entry["id"] == state["active_entry_id"])
+        });
+        if let Some(entry) = active {
+            println!("track    {}", text(&entry["path"]));
+        }
+        println!(
+            "state    {}",
+            progress_line(
+                &state,
+                active.and_then(|entry| entry["status"]["total_frames"].as_u64())
+            )
+        );
     }
-    println!(
-        "state    {}",
-        progress_line(
-            &state,
-            active.and_then(|entry| entry["status"]["total_frames"].as_u64())
-        )
-    );
     if !state["error"].is_null() {
         println!("error    {}", text(&state["error"]));
     }
@@ -282,8 +312,26 @@ fn run(arguments: Arguments, interrupted: Arc<AtomicBool>) -> Outcome<u8> {
         }
         let mut link = Link::open(&arguments.runtime, false)?;
         let transport = matches!(arguments.command.as_str(), "pause" | "resume" | "stop");
-        if transport && link.state()?["session_id"].is_null() {
+        let state = link.state()?;
+        if transport && state["session_id"].is_null() {
             return Err(Failure::playback("nothing is playing"));
+        }
+        let sendspin = state["source"] == "sendspin";
+        if sendspin && arguments.command == "resume" {
+            return Err(sendspin::unsupported("resume"));
+        }
+        if sendspin && arguments.command == "pause" {
+            // A live stream cannot pause. The Engine either stops the stream or refuses.
+            return match link.complete(payload, target()) {
+                Ok(()) => {
+                    println!("stopped (a Sendspin stream cannot pause)");
+                    Ok(0)
+                }
+                Err(refusal) if refusal.message.contains("CAPABILITY_UNSUPPORTED") => Err(
+                    Failure::playback("a Sendspin stream cannot pause; use stop or mute"),
+                ),
+                Err(failure) => Err(failure),
+            };
         }
         if payload["method"] == "owner.shutdown" {
             // The Engine stops answering once it shuts down.
@@ -300,6 +348,7 @@ fn run(arguments: Arguments, interrupted: Arc<AtomicBool>) -> Outcome<u8> {
             Ok(if arguments.command.is_empty() { 2 } else { 0 })
         }
         "play" => play::run(&arguments, &interrupted),
+        "sendspin" => sendspin::run(&arguments, &interrupted),
         "devices" | "status" if !arguments.positional.is_empty() => Err(Failure::usage(format!(
             "{} takes no arguments",
             arguments.command
@@ -351,6 +400,9 @@ fn run(arguments: Arguments, interrupted: Arc<AtomicBool>) -> Outcome<u8> {
             let seconds = seconds(value)?;
             let mut link = Link::open(&arguments.runtime, false)?;
             let state = link.state()?;
+            if state["source"] == "sendspin" {
+                return Err(sendspin::unsupported("seek"));
+            }
             let rate = state["playback"]["format"]["sample_rate_hz"].as_u64();
             let (Some(rate), false) = (rate, state["session_id"].is_null()) else {
                 return Err(Failure::playback("nothing is playing"));

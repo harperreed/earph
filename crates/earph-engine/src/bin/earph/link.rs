@@ -1,7 +1,7 @@
 // ABOUTME: Connects the player CLI to one Engine owner, hosting that owner when none runs.
 // ABOUTME: Fences every command with fresh owner state and reports refusals in plain words.
 use earph_core::ErrorCode;
-use earph_engine::{DeviceDiscoveryHelper, EngineOwner};
+use earph_engine::{DeviceDiscoveryHelper, EngineOwner, SendspinConfiguration};
 use serde_json::{Value, json};
 use std::{
     path::{Path, PathBuf},
@@ -59,23 +59,9 @@ impl Link {
         };
         if host {
             match EngineOwner::bind(runtime) {
-                Ok(owner) => {
-                    let executable = std::env::current_exe().map_err(|error| {
-                        Failure::engine(format!("cannot locate this executable: {error}"))
-                    })?;
-                    let helper = DeviceDiscoveryHelper::from_executable(&executable)
-                        .map_err(|error| Failure::engine(describe(&error)))?;
-                    let owner = owner.with_device_discovery(helper);
-                    link.hosted = Some(thread::spawn(move || owner.serve()));
-                }
+                Ok(owner) => link.host(owner)?,
                 Err(error) if error.code == ErrorCode::SourceBusy => {}
-                Err(error) => {
-                    return Err(Failure::engine(format!(
-                        "cannot start an Engine at {}: {}",
-                        runtime.display(),
-                        describe(&error)
-                    )));
-                }
+                Err(error) => return Err(cannot_start(runtime, &error)),
             }
         }
         link.state().map_err(|failure| {
@@ -89,6 +75,41 @@ impl Link {
             }
         })?;
         Ok(link)
+    }
+    /// Starts an owner here with a Sendspin server. Refuses when an Engine already runs:
+    /// the server comes only from launch configuration, so a running Engine cannot adopt it.
+    pub fn open_sendspin(runtime: &Path, configuration: SendspinConfiguration) -> Outcome<Self> {
+        let owner = EngineOwner::bind(runtime).map_err(|error| {
+            if error.code == ErrorCode::SourceBusy {
+                Failure::usage(format!(
+                    "an Engine already runs at {}, and a running Engine cannot take a Sendspin server; run `earph quit` first",
+                    runtime.display()
+                ))
+            } else {
+                cannot_start(runtime, &error)
+            }
+        })?;
+        let owner = owner
+            .with_sendspin(configuration)
+            .map_err(|error| Failure::usage(describe(&error)))?;
+        let mut link = Self {
+            runtime: runtime.to_owned(),
+            hosted: None,
+            next: 0,
+        };
+        link.host(owner)?;
+        link.state()?;
+        Ok(link)
+    }
+    /// Serves `owner` on a thread of this process, with this executable as its device helper.
+    fn host(&mut self, owner: EngineOwner) -> Outcome<()> {
+        let executable = std::env::current_exe()
+            .map_err(|error| Failure::engine(format!("cannot locate this executable: {error}")))?;
+        let helper = DeviceDiscoveryHelper::from_executable(&executable)
+            .map_err(|error| Failure::engine(describe(&error)))?;
+        let owner = owner.with_device_discovery(helper);
+        self.hosted = Some(thread::spawn(move || owner.serve()));
+        Ok(())
     }
     pub fn hosted(&self) -> bool {
         self.hosted.is_some()
@@ -214,13 +235,29 @@ impl Link {
         let Some(join) = self.hosted.take() else {
             return Ok(());
         };
-        self.mutate(json!({"method": "owner.shutdown"}), Target::Current)?;
+        if let Err(failure) = self.mutate(json!({"method": "owner.shutdown"}), Target::Current) {
+            // Another command may have shut this owner down already. Then it ends on its own.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !join.is_finished() {
+                if Instant::now() >= deadline {
+                    return Err(failure);
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+        }
         join.join()
             .map_err(|_| Failure::engine("the hosted Engine panicked"))?
             .map_err(|error| Failure::engine(describe(&error)))
     }
 }
 
+fn cannot_start(runtime: &Path, error: &earph_core::EngineError) -> Failure {
+    Failure::engine(format!(
+        "cannot start an Engine at {}: {}",
+        runtime.display(),
+        describe(error)
+    ))
+}
 fn accepted_or_applied(receipt: &Value, method: &str) -> Outcome<()> {
     if matches!(receipt["status"].as_str(), Some("accepted" | "applied")) {
         return Ok(());
