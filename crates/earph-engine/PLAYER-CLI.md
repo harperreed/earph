@@ -78,7 +78,8 @@ The keychain file must already exist and be unlocked. No default keychain exists
    The token is permanent and secret: anyone who holds it can pair a server with this player at any time.
    Paste it into the server's player setup. Do not save it in a file, a script, or shell history.
 3. `pair` connects to the server and waits up to 10 minutes for the server to pair.
-   Enter the token in the server before or during that wait. `--timeout SECONDS` changes the wait.
+   Enter the token in the server during that wait. `--timeout SECONDS` changes the wait.
+   Music Assistant 2.10 keeps no token for a later connection, so start `pair` first.
    When the server completes pairing, `pair` stores the server's record, waits until the server switches to it, and disconnects.
    It prints `paired` and the server key. `--server-key` accepts that key.
 4. `sendspin` then plays. Without `--server-key` it uses the one server that this player is paired with.

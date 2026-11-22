@@ -161,6 +161,16 @@ and a roleless pairing followed by a player connection under the same identity.
 
 Pairing and playback use two connections. One connection for both stays deferred.
 
+A source reading on November 22, 2026 found that the pairing connection survives the operator's wait.
+The server sends an empty activation at once, which satisfies the 30-second exchange deadline.
+After that only keep-alive pings run, and the `pair` window (10 minutes by default) is the one limit.
+Music Assistant 2.10.12 acts on the live connection when the operator submits the token.
+It stores no token for a later connection, so the operator starts `pair` before pasting.
+The web interface location of the setup step, and a submission while the player is disconnected, remain unverified.
+
+The first Mac build of this code passed strict Clippy for Core, Engine, and credentials on November 22, 2026.
+No Sendspin test has run on a Mac, and no real keyring or keychain has held a Sendspin identity.
+
 ## Known risks
 
 - Event queue overflow ends the connection. Keep `buffer_capacity` small and the worker step non-blocking.
