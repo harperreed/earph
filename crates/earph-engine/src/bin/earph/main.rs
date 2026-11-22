@@ -27,6 +27,7 @@ usage: earph [--runtime DIRECTORY] COMMAND
   quit           Stop playback and the Engine.
 
 Naming an output with --output (or EARPH_OUTPUT) approves audio on that output.
+Without a name, play uses the only listed output. It refuses to pick between several.
 The volume changes only when you pass --volume. A new Engine starts at -40 dB.
 The runtime directory defaults to EARPH_RUNTIME, then ~/.earph-cli.
 `play` starts an Engine when none runs there and stops that Engine when it exits.";

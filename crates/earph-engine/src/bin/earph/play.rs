@@ -85,6 +85,9 @@ fn queue(link: &mut Link) -> Outcome<Vec<Value>> {
     }
 }
 
+fn label(device: &Value) -> String {
+    format!("{}  [{}]", device_name(device), text(&device["endpoint"]))
+}
 /// Picks the output that `name` describes: an exact endpoint, or one name that contains it.
 fn choose(link: &mut Link, name: &str) -> Outcome<String> {
     let listed = devices(link)?;
@@ -92,8 +95,6 @@ fn choose(link: &mut Link, name: &str) -> Outcome<String> {
         return Ok(name.to_owned());
     }
     let wanted = name.to_lowercase();
-    let label =
-        |device: &Value| format!("{}  [{}]", device_name(device), text(&device["endpoint"]));
     let matches: Vec<_> = listed
         .iter()
         .filter(|device| {
@@ -117,23 +118,37 @@ fn choose(link: &mut Link, name: &str) -> Outcome<String> {
         ))),
     }
 }
-fn prepare_output(link: &mut Link, arguments: &Arguments, state: &Value) -> Outcome<()> {
-    let Some(name) = &arguments.output else {
-        if !state["output"].is_null() && state["output_consented"] == true {
-            return Ok(());
-        }
-        let remembered = state["output"]["endpoint"]
-            .as_str()
-            .map(|endpoint| format!("\nThe last output was `{endpoint}`."))
-            .unwrap_or_default();
-        return Err(Failure::usage(format!(
-            "name the output to play through: earph play --output NAME FILE\nRun `earph devices` to list outputs, or set EARPH_OUTPUT.{remembered}"
-        )));
-    };
-    if name.trim().is_empty() {
-        return Err(Failure::usage("--output needs an output name"));
+/// Picks the output when the user named none: the only one this computer lists.
+fn only_output(link: &mut Link) -> Outcome<String> {
+    let listed = devices(link)?;
+    let selectable: Vec<_> = listed
+        .iter()
+        .filter(|device| !device["selection"].is_null())
+        .collect();
+    match selectable.as_slice() {
+        [device] => Ok(text(&device["endpoint"])),
+        [] => Err(Failure::usage(
+            "no output is listed; name one: earph play --output NAME FILE",
+        )),
+        several => Err(Failure::usage(format!(
+            "name the output to play through: earph play --output NAME FILE\nSet EARPH_OUTPUT to name it once per shell. The outputs are:\n{}",
+            several
+                .iter()
+                .map(|device| format!("  {}", label(device)))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ))),
     }
-    let endpoint = choose(link, name)?;
+}
+fn prepare_output(link: &mut Link, arguments: &Arguments, state: &Value) -> Outcome<()> {
+    let endpoint = match &arguments.output {
+        Some(name) if name.trim().is_empty() => {
+            return Err(Failure::usage("--output needs an output name"));
+        }
+        Some(name) => choose(link, name)?,
+        None if !state["output"].is_null() && state["output_consented"] == true => return Ok(()),
+        None => only_output(link)?,
+    };
     let output = json!({
         "backend": crate::backend(),
         "route": "system",

@@ -50,6 +50,17 @@ impl Bench {
         println!("Player bench artifacts: {}", directory.display());
         (Self { directory, capture }, pacer)
     }
+    /// Makes ALSA list exactly these outputs. Each one writes the capture file.
+    fn list_outputs(&self, names: &[&str]) {
+        let mut config = "pcm.null { type null }\n".to_owned();
+        for name in names {
+            config.push_str(&format!(
+                "pcm.{name} {{ type file slave.pcm null file \"{}\" format raw hint {{ show on description \"{name}\" }} }}\n",
+                self.capture.display()
+            ));
+        }
+        fs::write(self.directory.join("alsa.conf"), config).unwrap();
+    }
     fn tone(&self, name: &str, frames: u32) -> PathBuf {
         self.tone_at(name, frames, 1000)
     }
@@ -243,6 +254,34 @@ fn play_without_a_named_output_refuses_and_sends_no_audio() {
     let output = bench.run(&["play", tone.to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(2));
     assert!(text(&output.stderr).contains("--output"));
+    assert!(!bench.capture.exists());
+}
+
+#[test]
+fn play_without_a_named_output_uses_the_only_listed_output() {
+    let (bench, _) = Bench::new(false);
+    let tone = bench.tone("tone.wav", 4800);
+    bench.list_outputs(&["only_output"]);
+    let output = bench.run(&["play", tone.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let printed = text(&output.stdout);
+    assert!(printed.contains("output   only_output"), "{printed}");
+    assert!(printed.contains("result   finished"), "{printed}");
+    assert!(fs::metadata(&bench.capture).unwrap().len() > 0);
+}
+
+#[test]
+fn play_without_a_named_output_refuses_to_pick_between_several() {
+    let (bench, _) = Bench::new(false);
+    let tone = bench.tone("tone.wav", 4800);
+    bench.list_outputs(&["first_output", "second_output"]);
+    let output = bench.run(&["play", tone.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+    let refusal = text(&output.stderr);
+    assert!(
+        refusal.contains("first_output") && refusal.contains("second_output"),
+        "{refusal}"
+    );
     assert!(!bench.capture.exists());
 }
 

@@ -12,6 +12,8 @@ earph play track.flac --output "headphones"
 
 `--output` takes any part of an output name from `earph devices`, or an exact endpoint.
 Naming an output approves audio on that output. Set `EARPH_OUTPUT` to name it once per shell.
+If you name no output and `earph devices` lists exactly one, `play` uses and approves that output.
+If it lists several, `play` refuses and prints them.
 `play` accepts several files and plays them in order.
 It prints the output, the volume, each track, and the transport with its position and sample rates.
 Press Control-C to stop.
