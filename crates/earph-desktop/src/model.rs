@@ -67,6 +67,23 @@ impl PresentationModel {
     pub fn records(&self) -> &VecDeque<RequestRecord> {
         &self.records
     }
+    pub(crate) fn pause_ack_pending(&self) -> bool {
+        let Some(observed) = self.latest_state.as_ref().filter(|_| self.attached) else {
+            return false;
+        };
+        let Some(owner) = observed.state.owner_id.as_ref() else {
+            return false;
+        };
+        self.records.iter().any(|record| {
+            let request = record.request.envelope();
+            !record.owner_changed
+                && record.presentation == Presentation::Accepted
+                && matches!(request.payload, Command::Pause)
+                && request.owner_id.as_ref() == Some(owner)
+                && request.zone_id == observed.state.zone_id
+                && request.session_id == observed.state.session_id
+        })
+    }
     pub fn record(&self, id: &RequestId) -> Option<&RequestRecord> {
         self.records
             .iter()
@@ -328,6 +345,128 @@ impl DesktopClient {
 mod tests {
     use super::*;
     use earph_core::{EngineError, ids::ZoneId};
+
+    fn observe_core(
+        model: &mut PresentationModel,
+        core: &mut earph_core::session::Session,
+        request: Request,
+        now: u64,
+    ) {
+        if model.record(&request.envelope().request_id).is_none() {
+            model.next_ordinal += 1;
+            model.records.push_back(RequestRecord {
+                request: request.clone(),
+                presentation: Presentation::Queued,
+                in_flight: true,
+                owner_changed: false,
+                outcome: None,
+                ordinal: model.next_ordinal,
+            });
+        }
+        let receipt = core.submit_graph(request.envelope().clone(), now);
+        model.observe(Completion {
+            request,
+            outcome: Ok(crate::decode_reply(
+                serde_json::to_vec(&serde_json::json!({"receipt":receipt})).unwrap(),
+            )
+            .unwrap()),
+        });
+    }
+
+    fn accepted_pause() -> (earph_core::session::Session, PresentationModel, Request) {
+        let mut core = crate::network_fixture::ready(None);
+        let mut model = PresentationModel {
+            attached: true,
+            ..Default::default()
+        };
+        observe_core(&mut model, &mut core, query("pause-before"), 50);
+        let pause = Request::mutation(
+            RequestId::new("pause-awaiting-worker").unwrap(),
+            &model.latest_state().unwrap().state,
+            Command::Pause,
+        )
+        .unwrap();
+        observe_core(&mut model, &mut core, pause.clone(), 60);
+        observe_core(&mut model, &mut core, query("pause-accepted-state"), 60);
+        assert_eq!(
+            model
+                .record(&pause.envelope().request_id)
+                .unwrap()
+                .presentation,
+            Presentation::Accepted
+        );
+        assert_eq!(
+            model.latest_state().unwrap().state.transport,
+            crate::TransportView::Paused
+        );
+        (core, model, pause)
+    }
+
+    #[test]
+    fn accepted_pause_waits_for_its_actual_worker_acknowledgement() {
+        use earph_core::network_source::{NetworkEvent, NetworkEventKind, NetworkLifecycle};
+        let (mut core, mut model, pause) = accepted_pause();
+        assert!(
+            model.pause_ack_pending(),
+            "Accepted Pause still awaits the worker"
+        );
+        model
+            .records
+            .iter_mut()
+            .find(|record| record.request.envelope().request_id == pause.envelope().request_id)
+            .unwrap()
+            .in_flight = true;
+        assert!(
+            model.pause_ack_pending(),
+            "Reconciliation must not make Pause complete"
+        );
+        observe_core(&mut model, &mut core, pause.clone(), 60);
+        assert!(model.pause_ack_pending());
+        let state = core.snapshot();
+        let active = core.network_source().unwrap();
+        let mut observation = state.observation.network().cloned().unwrap();
+        observation.output_epochs = state.epochs;
+        observation.lifecycle = NetworkLifecycle::Paused;
+        core.advance_network(NetworkEvent {
+            binding: active.binding.clone(),
+            source_epochs: active.source_epochs,
+            output_epochs: state.epochs,
+            graph_epoch: state.graph_epoch,
+            device_epoch: state.device_epoch,
+            monotonic_ns: 61,
+            kind: NetworkEventKind::Paused { observation },
+        })
+        .unwrap();
+        observe_core(&mut model, &mut core, pause.clone(), 62);
+        assert_eq!(
+            model
+                .record(&pause.envelope().request_id)
+                .unwrap()
+                .presentation,
+            Presentation::Applied
+        );
+        assert!(!model.pause_ack_pending());
+    }
+
+    #[test]
+    fn detached_and_replaced_owners_do_not_inherit_a_pending_pause() {
+        let (_core, mut model, pause) = accepted_pause();
+        assert!(model.pause_ack_pending());
+        model.attached = false;
+        assert!(!model.pause_ack_pending());
+        model.attached = true;
+        assert!(model.pause_ack_pending());
+        let mut replacement = earph_core::session::Session::new_owner(
+            ZoneId::new("main").unwrap(),
+            earph_core::ids::OwnerId::new("replacement-owner").unwrap(),
+            earph_core::control::ControlLimits::default(),
+        );
+        observe_core(&mut model, &mut replacement, query("replacement-state"), 70);
+        let retained = model.record(&pause.envelope().request_id).unwrap();
+        assert_eq!(retained.presentation, Presentation::Accepted);
+        assert!(retained.owner_changed);
+        assert!(!model.pause_ack_pending());
+    }
 
     fn query(id: &str) -> Request {
         Request::query(

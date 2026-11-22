@@ -1206,6 +1206,7 @@ impl GuiController {
     }
     pub fn control_edit_available(&self) -> bool {
         self.foreground_available()
+            && !self.model().pause_ack_pending()
             && !self.model().records().iter().any(|record| {
                 !record.owner_changed
                     && !record.request.envelope().payload.is_query()
@@ -1277,7 +1278,8 @@ impl GuiController {
         self.client.is_some()
     }
     pub fn busy(&self) -> bool {
-        self.local_play.is_some()
+        self.model().pause_ack_pending()
+            || self.local_play.is_some()
             || !self.stop_preflights.is_empty()
             || self.local_work.is_some()
             || self.pending.is_some()

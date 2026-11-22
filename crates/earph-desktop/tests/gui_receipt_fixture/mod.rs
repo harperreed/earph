@@ -103,21 +103,26 @@ pub struct ReceiptTransport {
 }
 impl ReceiptTransport {
     pub fn observation(owner: PathBuf) -> Self {
-        Self::start(owner, Mode::Observe)
+        Self::start(owner, Mode::Observe, None)
+    }
+    pub fn observation_with_start_replay(owner: PathBuf, bytes: Vec<u8>) -> Self {
+        let request: CommandEnvelope = serde_json::from_slice(&bytes).unwrap();
+        assert!(matches!(request.payload, Command::Start { .. }));
+        Self::start(owner, Mode::Observe, Some(bytes))
     }
     pub fn drop_discovery(owner: PathBuf) -> Self {
-        Self::start(owner, Mode::DropDiscovery)
+        Self::start(owner, Mode::DropDiscovery, None)
     }
     pub fn drop_shutdown(owner: PathBuf) -> Self {
-        Self::start(owner, Mode::DropShutdown)
+        Self::start(owner, Mode::DropShutdown, None)
     }
     pub fn accepted(owner: PathBuf) -> Self {
-        Self::start(owner, Mode::Accepted)
+        Self::start(owner, Mode::Accepted, None)
     }
     pub fn uncertain_safety(owner: PathBuf) -> Self {
-        Self::start(owner, Mode::DropSafetyThenAccepted)
+        Self::start(owner, Mode::DropSafetyThenAccepted, None)
     }
-    fn start(owner_path: PathBuf, mode: Mode) -> Self {
+    fn start(owner_path: PathBuf, mode: Mode, start_replay: Option<Vec<u8>>) -> Self {
         let runtime = PathBuf::from("/tmp").join(unique());
         fs::create_dir(&runtime).unwrap();
         fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
@@ -164,6 +169,7 @@ impl ReceiptTransport {
         let hold_next = hold_state.clone();
         let held = state_held.clone();
         let gate = state_gate.clone();
+        let start_replay = Arc::new(start_replay);
         let serve = thread::spawn(move || {
             let mut workers = Vec::new();
             while !stop.load(Ordering::Acquire) {
@@ -181,6 +187,7 @@ impl ReceiptTransport {
                         let hold_next = hold_next.clone();
                         let held = held.clone();
                         let gate = gate.clone();
+                        let start_replay = start_replay.clone();
                         workers.push(thread::spawn(move || {
                             stream
                                 .set_read_timeout(Some(Duration::from_secs(2)))
@@ -190,13 +197,6 @@ impl ReceiptTransport {
                                 .unwrap();
                             let bytes = read_frame(&mut stream);
                             let command: CommandEnvelope = serde_json::from_slice(&bytes).unwrap();
-                            assert!(!matches!(
-                                command.payload,
-                                Command::Start { .. }
-                                    | Command::OutputSelect { .. }
-                                    | Command::OutputConsent { .. }
-                                    | Command::Mute { muted: false }
-                            ));
                             let index = {
                                 let mut frames = captured.lock().unwrap();
                                 assert!(frames.len() < 240, "fixture frame budget exhausted");
@@ -205,6 +205,22 @@ impl ReceiptTransport {
                             };
                             fs::write(artifacts.join(format!("request-{index}.json")), &bytes)
                                 .unwrap();
+                            // Reconciliation may read the exact retained Start receipt after reconnect.
+                            // Every new Start and every other signal-enabling command remains forbidden.
+                            assert!(
+                                !matches!(
+                                    command.payload,
+                                    Command::Start { .. }
+                                        | Command::OutputSelect { .. }
+                                        | Command::OutputConsent { .. }
+                                        | Command::Mute { muted: false }
+                                ) || start_replay
+                                    .as_ref()
+                                    .as_deref()
+                                    .is_some_and(|expected| expected == bytes.as_slice()),
+                                "Observation-only relay received {}",
+                                serde_json::to_value(&command.payload).unwrap()["method"]
+                            );
                             if matches!(command.payload, Command::State)
                                 && hold_next.swap(false, Ordering::AcqRel)
                             {

@@ -381,7 +381,16 @@ fn muted_start_and_resume_keep_exact_receipts_while_pause_seek_and_safety_remain
     until(&mut gui, |g| {
         g.state().unwrap().muted && g.state().unwrap().revision > before_mute && !g.busy()
     });
-    let held = receipt_fixture::ReceiptTransport::observation(proxy.runtime.clone());
+    let held = receipt_fixture::ReceiptTransport::observation_with_start_replay(
+        proxy.runtime.clone(),
+        retained_bytes.clone(),
+    );
+    let replayed = earph_engine::request(&held.runtime, &retained_bytes).unwrap();
+    let replayed: serde_json::Value = serde_json::from_slice(&replayed).unwrap();
+    assert_eq!(
+        replayed["receipt"]["request_id"],
+        serde_json::json!(retained_id)
+    );
     gui.handle(UiIntent::Disconnect);
     until(&mut gui, |g| !g.busy());
     gui.handle(UiIntent::Attach {
