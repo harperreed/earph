@@ -20,6 +20,7 @@ mod profiles;
 mod render;
 mod renderer;
 pub mod sendspin_credentials;
+pub mod sendspin_schedule;
 pub use renderer::RendererConfiguration;
 mod runtime;
 pub mod stream_render;
