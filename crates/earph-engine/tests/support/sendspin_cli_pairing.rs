@@ -285,6 +285,102 @@ pub fn an_unconfirmed_store_write_reports_that_recovery_is_required() {
     assert_eq!(later.status.code(), Some(1));
     assert!(later.stdout.is_empty(), "a refused store printed a token");
     assert!(text(&later.stderr).contains("recovered"));
+    // A play on that store names the store, not the server key.
+    let url = bench.url();
+    let play = bench
+        .sendspin_with(case, &["--server", &url, "--server-key", &bench.key])
+        .finish();
+    let failure = text(&play.stderr);
+    assert_eq!(play.status.code(), Some(1), "{failure}");
+    assert_eq!(failure.lines().count(), 1, "{failure}");
+    assert!(
+        failure.contains("credential store") && failure.contains("run it again"),
+        "{failure}"
+    );
+    assert!(!failure.contains("--server-key"), "{failure}");
+    assert!(bench.listener.peek_pending().is_none());
+    bench.no_engine_remains();
+}
+
+/// The whole path a person takes: init, token, pair, then play with no `--server-key`.
+pub fn a_paired_player_plays_without_a_server_key() {
+    let bench = Bench::new();
+    let (client, _) = provisioned(&bench);
+    let (player, mut peer) = pairing(&bench, "empty", &[]);
+    let long_term = complete(&mut peer);
+    peer.await_goodbye();
+    let paired = player.finish();
+    assert_eq!(paired.status.code(), Some(0), "{}", text(&paired.stderr));
+    drop(peer);
+
+    let url = bench.url();
+    let mut player = bench.sendspin_with("empty", &["--server", &url]);
+    bench.await_connection(&mut player);
+    // A paired server authenticates on the stored long-term secret at once.
+    let mut peer = PlayerPeer::connect(&bench.listener, client, long_term, "lt");
+    bench.stream_pattern(&mut peer);
+    peer.end_stream();
+    bench.serve(&mut peer, "the stream end returns to buffering", |state| {
+        state["transport"] == "buffering"
+    });
+    peer.close();
+    let output = player.finish();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(text(&output.stdout).contains("result   ended"));
+    bench.capture_is_exact();
+    bench.no_engine_remains();
+}
+
+pub fn play_without_a_server_key_needs_exactly_one_stored_record() {
+    use earph_sendspin::pairing::{PairingRecord, RecordCatalog};
+    let bench = Bench::new();
+    let url = bench.url();
+    let refused = |case: &str, code: i32, problem: &str| {
+        let output = bench.sendspin_with(case, &["--server", &url]).finish();
+        let refusal = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(code), "{case}: {refusal}");
+        assert!(refusal.contains(problem), "{case}: {refusal}");
+        assert!(bench.listener.peek_pending().is_none(), "{case} connected");
+        assert!(!bench.directory.join("rt").exists(), "{case} started");
+        output
+    };
+    refused("empty-absent", 1, "earph sendspin init");
+    // An identity with no pairing record.
+    let created = bench.sendspin_with("empty", &["init"]).finish();
+    assert_eq!(created.status.code(), Some(0));
+    refused("empty", 1, "earph sendspin pair");
+    // An identity paired with two servers.
+    let servers = [[31; 32], [32; 32]];
+    let records = servers.iter().zip([[71; 32], [72; 32]]).zip(1..);
+    let records = records
+        .map(|((server, psk), order)| PairingRecord {
+            server_public: *server,
+            psk,
+            last_used_order: order,
+        })
+        .collect();
+    let document = earph_sendspin::credentials::CommittedCredentials::new(
+        peer::CLIENT_PRIVATE,
+        peer::PAIRING_PSK,
+        RecordCatalog::from_committed(5, records, vec![]).unwrap(),
+        None,
+    )
+    .unwrap();
+    let bytes = document.encode_secret().unwrap();
+    std::fs::write(
+        bench.directory.join("store").join("two-document"),
+        serde_json::to_vec(bytes.as_secret_bytes()).unwrap(),
+    )
+    .unwrap();
+    let output = refused("two", 2, "--server-key");
+    let refusal = text(&output.stderr);
+    for server in servers {
+        assert!(
+            !refusal.contains(&URL_SAFE_NO_PAD.encode(server)),
+            "{refusal}"
+        );
+    }
+    assert_holds_no(&output, &[&[71; 32], &[72; 32]], "a refused play");
 }
 
 pub fn pair_refuses_bad_arguments_and_a_missing_identity() {

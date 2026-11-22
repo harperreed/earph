@@ -22,12 +22,18 @@ usage: earph [--runtime DIRECTORY] COMMAND
                  Play files in order, print progress, and exit when playback ends.
                  --replace-queue stops current playback and replaces the queue.
                  Exit status: 0 finished or stopped, 1 playback failed, 130 interrupted.
-  sendspin --server ws://IP:PORT/PATH --server-key KEY [--output NAME] [--volume DB]
+  sendspin --server ws://IP:PORT/PATH [--server-key KEY] [--output NAME] [--volume DB]
                  [--credential-helper PATH] [--credential-store STORE] [--credential-lock PATH]
                  Start an Engine for one Sendspin server and play what it sends.
+                 Without --server-key, use the one server that this player is paired with.
                  Timing is best effort: the status line says `sync unqualified`.
                  The address must be numeric. Loopback, 100.64.0.0/10, and wss are refused.
                  Exit status: 0 ended, 1 failed, 130 interrupted.
+  sendspin init  Create this player's Sendspin identity in an empty credential store.
+  sendspin token Print the pairing token. It is a permanent secret for the server's player setup.
+  sendspin pair --server ws://IP:PORT/PATH [--timeout SECONDS]
+                 Wait for the server to pair, store its record, and print the server key.
+                 These three take the same --credential options as sendspin.
   devices        List outputs. Any part of a name selects one with --output.
   status [--json]  Show what the Engine is doing.
   pause | resume | stop | mute | unmute

@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-const USAGE: &str = "usage: earph sendspin --server ws://IP:PORT/PATH --server-key KEY [--output NAME] [--volume DB]";
+const USAGE: &str = "usage: earph sendspin --server ws://IP:PORT/PATH [--server-key KEY] [--output NAME] [--volume DB]\n       earph sendspin init | token | pair --server ws://IP:PORT/PATH";
 /// This player offers one format: 48 kHz, stereo, 16-bit.
 const RATE: u64 = 48000;
 /// Each credential store operation gets this long before it counts as failed.
@@ -126,16 +126,15 @@ pub fn run(arguments: &Arguments, interrupted: &AtomicBool) -> Outcome<u8> {
         return Err(Failure::usage(format!("--server is needed\n{USAGE}")));
     };
     let pinned_address = address(server)?;
-    // No message repeats the key.
-    let server_public_key = arguments
-        .server_key
-        .as_deref()
-        .and_then(decode_key)
-        .ok_or_else(|| {
+    let server_public_key = match arguments.server_key.as_deref() {
+        // No message repeats the key.
+        Some(encoded) => decode_key(encoded).ok_or_else(|| {
             Failure::usage(
                 "--server-key must be the server's public key: 43 characters of URL-safe base64",
             )
-        })?;
+        })?,
+        None => pairing::only_server(arguments)?,
+    };
     let credentials = store(arguments)?;
     let mut link = Link::open_sendspin(
         &arguments.runtime,
@@ -220,7 +219,13 @@ fn stream(
         } else if state["session_id"].is_null() {
             finish(&line);
             if state["transport"] == "failed" {
-                return Err(failure(&text(&state["error"])));
+                let code = text(&state["error"]);
+                if recovery_required(link) {
+                    return Err(Failure::playback(
+                        "the credential store did not confirm an operation, which may have timed out. This command must restart, so run it again; if it fails the same way, the store needs recovery, and Earph has no recovery command yet",
+                    ));
+                }
+                return Err(failure(&code));
             }
             // The Engine reports no reason for a clean end.
             println!(
@@ -237,10 +242,24 @@ fn stream(
     }
 }
 
+/// Reads the Engine's credential recovery fact once the failed connection has retired.
+/// The Engine sets that fact when it retires the connection, shortly after the failure shows.
+fn recovery_required(link: &mut Link) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let Ok(sendspin) = link.query(json!({"method": "sources.sendspin.get"})) else {
+            return false;
+        };
+        if sendspin["phase"] == "disconnected" || Instant::now() >= deadline {
+            return sendspin["credential_recovery_required"] == true;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
 /// Explains a failed stream and, for a credential problem, what to do next.
 fn failure(code: &str) -> Failure {
     Failure::playback(match code {
-        "AUTH_REQUIRED" => "no Sendspin identity is stored in the credential store (AUTH_REQUIRED). Earph has no command yet to create or pair one; see PLAYER-CLI.md".to_owned(),
+        "AUTH_REQUIRED" => "no Sendspin identity is stored in the credential store (AUTH_REQUIRED). Run `earph sendspin init`, then pair; see PLAYER-CLI.md".to_owned(),
         "AUTH_DENIED" => "access was denied (AUTH_DENIED). Unlock the credential store, then check that --server-key names the server this player is paired with".to_owned(),
         "ASSET_INVALID" => "the connection failed (ASSET_INVALID): the server did not answer, or it sent something this player refuses".to_owned(),
         _ => format!(

@@ -420,3 +420,26 @@ pub fn pair(arguments: &Arguments, interrupted: &AtomicBool) -> Outcome<u8> {
     };
     Err(Failure { exit, message })
 }
+
+/// Returns the key of the one server that this player is paired with.
+/// A prior version of a replaced record names the same server, so servers count once.
+pub fn only_server(arguments: &Arguments) -> Outcome<[u8; 32]> {
+    let mut supervisor = supervisor(configuration(arguments)?)?;
+    let loaded = load(&mut supervisor, 1, AdmissionPolicy::deny())?;
+    let mut servers: Vec<[u8; 32]> = Vec::new();
+    for record in loaded.config.catalog.records() {
+        if !servers.contains(&record.server_public) {
+            servers.push(record.server_public);
+        }
+    }
+    match servers.as_slice() {
+        [] => Err(Failure::playback(
+            "this player is paired with no server. Run `earph sendspin pair --server ws://IP:PORT/PATH` first",
+        )),
+        [server] => Ok(*server),
+        // No message lists the stored servers.
+        _ => Err(Failure::usage(
+            "this player is paired with several servers. Pass --server-key KEY to choose one; `earph sendspin pair` prints the key of the server that it pairs",
+        )),
+    }
+}

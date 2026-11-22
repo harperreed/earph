@@ -58,7 +58,8 @@ An absent native operation ID also cannot clear bridge uncertainty.
 
 The stable lock serializes cooperating Earph owners using the same path.
 It cannot exclude unrelated external native writers and provides no compare-and-swap guarantee.
-Provisioning, startup integration, explicit recovery acknowledgment, clocks, playback, and output remain separate work.
+The command-line player provisions an identity with `earph sendspin init`; it writes through `CredentialStore` only after a definite `Missing`.
+Startup integration, explicit recovery acknowledgment, clocks, playback, and output remain separate work.
 Music Assistant and macOS native qualification remain explicit release gates.
 
 The process fixture tests use synthetic helper responses.

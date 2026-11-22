@@ -54,10 +54,56 @@ earph quit
 `pause`, `resume`, `stop`, and `seek` return after the playback worker acknowledges the change.
 `status --json` prints the complete Engine state.
 
+## Pair with a server
+
+These steps are untested against a real Music Assistant server.
+Local test servers pass them, and so does the pinned aiosendspin 10.2.1 pairing server.
+
+Run the four commands in order.
+
+```sh
+earph sendspin init
+earph sendspin token
+earph sendspin pair --server ws://SERVER-ADDRESS:8927/sendspin
+earph sendspin --server ws://SERVER-ADDRESS:8927/sendspin --output "headphones"
+```
+
+On macOS, add `--credential-store KEYCHAIN-FILE` to every one of these commands.
+The keychain file must already exist and be unlocked. No default keychain exists.
+
+1. `init` creates this player's identity and its pairing secret in the credential store.
+   It works only when the store holds no Sendspin identity. In every other case it refuses and changes nothing.
+   It prints the player ID, which is public.
+2. `token` prints the pairing token on standard output, and nothing else goes there.
+   The token is permanent and secret: anyone who holds it can pair a server with this player at any time.
+   Paste it into the server's player setup. Do not save it in a file, a script, or shell history.
+3. `pair` connects to the server and waits up to 10 minutes for the server to pair.
+   Enter the token in the server before or during that wait. `--timeout SECONDS` changes the wait.
+   When the server completes pairing, `pair` stores the server's record, waits until the server switches to it, and disconnects.
+   It prints `paired` and the server key. `--server-key` accepts that key.
+4. `sendspin` then plays. Without `--server-key` it uses the one server that this player is paired with.
+
+`pair` and `sendspin` use two separate connections. `pair` takes the same address rules as `sendspin`:
+a numeric address, no `wss://`, and no loopback, link-local, or 100.64.0.0/10 address.
+Use the server's local network address.
+
+| Result of `init`, `token`, or `pair` | Exit status |
+| --- | --- |
+| done | 0 |
+| the store refused, the server did not complete pairing, or the wait timed out | 1 |
+| wrong usage or a refused address | 2 |
+| `pair` interrupted by Control-C or SIGTERM | 130 |
+
+If `pair` fails, it says what the store holds.
+`Nothing was stored` means that the stored records did not change; run `pair` again.
+After Control-C, `pair` still waits for a store write that already began, then reports the result.
+If the store never confirmed a write, `pair` says that the store needs recovery.
+Every later command then refuses that store, and Earph has no recovery command yet.
+
 ## Sendspin
 
 ```sh
-earph sendspin --server ws://SERVER-ADDRESS:8927/sendspin --server-key SERVER-KEY --output "headphones"
+earph sendspin --server ws://SERVER-ADDRESS:8927/sendspin --output "headphones"
 ```
 
 `sendspin` starts an Engine for one Sendspin server, connects to it as a player, and plays what the server sends.
@@ -74,11 +120,11 @@ The command shows no playback position for the same reason.
 | Flag | Meaning |
 | --- | --- |
 | `--server ws://IP:PORT/PATH` | The server. The address must be numeric; no name lookup happens. |
-| `--server-key KEY` | The server's public key: 43 characters of URL-safe base64, the form of a Sendspin server ID. |
+| `--server-key KEY` | The server's public key: 43 characters of URL-safe base64, the form of a Sendspin server ID. Optional when this player is paired with exactly one server. With no paired server, `sendspin` says to pair first. With several, it asks for this flag. |
 | `--output NAME`, `--volume DB`, `--period`, `--buffer` | As for `play`. |
 | `--credential-helper PATH` | The `earph-credential-helper` executable. The default is the file of that name beside `earph`. |
 | `--credential-store STORE` | Where the player identity lives. On Linux: the D-Bus address of the keyring's bus; the default is `DBUS_SESSION_BUS_ADDRESS`. On macOS: the absolute path of a keychain file; no default exists. |
-| `--credential-lock PATH` | The lock file that guards the store. The default is `sendspin-credentials.lock` in the runtime directory. Every Engine that uses the same store must use the same lock file. |
+| `--credential-lock PATH` | The lock file that guards the store. The default is `sendspin-credentials.lock` in the runtime directory. Every command that uses the same store must use the same lock file. |
 
 The Engine refuses loopback, link-local, 100.64.0.0/10, and other special-purpose addresses.
 Use the server's local network address.
@@ -107,10 +153,9 @@ The keyring or keychain must already be unlocked.
 The helper never prompts, unlocks, or creates a store.
 Nothing reconnects: after the connection ends, run the command again.
 
-Real Music Assistant use does not work yet.
-The store must already hold a player identity that is paired with the server, and no command creates or pairs one.
-Those pairing commands are planned work.
-Until then, `sendspin` fails with `AUTH_REQUIRED` against a store that holds no identity.
+Real Music Assistant use is untested.
+The store must hold a player identity that is paired with the server; see "Pair with a server".
+If the credential store did not confirm an operation, `sendspin` says so in one line: run the command again.
 The player also takes no volume or mute commands from the server, and it offers only 48 kHz stereo 16-bit PCM.
 
 ## Which Engine it uses

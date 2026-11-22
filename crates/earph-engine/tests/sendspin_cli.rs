@@ -62,7 +62,7 @@ mod linux {
         if chosen.as_deref() == Some("credential-helper") {
             return helper::run();
         }
-        let cases: [(&str, fn()); 13] = [
+        let cases: [(&str, fn()); 15] = [
             (
                 "plays",
                 plays_the_stream_shows_status_and_exits_when_the_server_closes,
@@ -96,6 +96,14 @@ mod linux {
             (
                 "pair_refuses",
                 pairing::pair_refuses_bad_arguments_and_a_missing_identity,
+            ),
+            (
+                "paired_play",
+                pairing::a_paired_player_plays_without_a_server_key,
+            ),
+            (
+                "stored_key",
+                pairing::play_without_a_server_key_needs_exactly_one_stored_record,
             ),
         ];
         // An argument runs one case: `cargo test --test sendspin_cli -- wrong_key`.
@@ -437,7 +445,7 @@ mod linux {
     fn refuses_bad_arguments_before_it_starts_anything() {
         let bench = Bench::new();
         let url = bench.url();
-        let cases: [(&[&str], &str); 5] = [
+        let cases: [(&[&str], &str); 4] = [
             (&["--server-key", &bench.key], "--server is needed"),
             (
                 &[
@@ -461,7 +469,6 @@ mod linux {
                 &["--server", &url, "--server-key", "not-a-server-key!"],
                 "--server-key",
             ),
-            (&["--server", &url], "--server-key"),
         ];
         for (target, problem) in cases {
             let output = bench.sendspin(target).finish();

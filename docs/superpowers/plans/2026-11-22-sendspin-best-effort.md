@@ -123,9 +123,9 @@ Add an ignored test with the pinned Python peer. Update the Sendspin documents w
 A real Music Assistant server cannot drive this player before this unit.
 The missing parts are:
 
-1. Provisioning. Nothing creates the player identity and pairing secret.
-2. A pairing flow. A token encoder exists, but no command exports a token or runs a pairing connection.
-3. Pairing and playback cannot share one connection today.
+1. Provisioning. Done in U7a.
+2. A pairing flow. Done in U7b and U7c.
+3. Pairing and playback cannot share one connection today. U7c and U7d use two connections.
 4. Discovery and a listener. The user must supply the server address and a pinned IP.
 5. Reconnect. Permit and policy expiry end the session.
 6. Player commands. The player advertises none, so server volume and mute do nothing.
@@ -152,10 +152,10 @@ and a roleless pairing followed by a player connection under the same identity.
 
 | Unit | Work | Estimated size (source / test lines) |
 |---|---|---|
-| U7a | `earph sendspin init`: create the identity and pairing secret in an empty store; refuse any other store state | 180 / 220 |
-| U7b | `earph sendspin token`: print the pairing token to standard output only | 60 / 90 |
-| U7c | `earph sendspin pair --server URL`: run a roleless pairing connection and store the record | 350 / 450 |
-| U7d | Play without `--server-key` when exactly one record is stored | 80 / 120 |
+| U7a | Landed. `earph sendspin init` creates the identity and pairing secret only after the store reports a definite `Missing`, then confirms the load through `CredentialSupervisor`. An existing, locked, unavailable, ambiguous, unreadable, or uncertain store refuses and receives no write. | 180 / 220 |
+| U7b | Landed. `earph sendspin token` prints the version-zero token on standard output only, with one warning line on standard error. | 60 / 90 |
+| U7c | Landed. `earph sendspin pair --server URL [--timeout SECONDS]` runs one roleless pairing connection with a 10-minute window. It succeeds when the record is stored, read back, and named by the paired identity of the server's next handshake; then it sends `client/goodbye` with reason `restart` and prints the server key. A timeout, a lost acknowledgement, and Control-C leave the store unchanged. An unconfirmed write reports that recovery is required. The pinned Python pairing server passes when run by name with `EARPH_SENDSPIN_PEER`. | 350 / 450 |
+| U7d | Landed. `earph sendspin --server URL` without `--server-key` uses the one paired server. No paired server says to pair first; several ask for `--server-key` and list nothing. | 80 / 120 |
 | U7e | Reconnect with backoff, with a new permit and fresh credentials for each attempt | 200 / 250 |
 | U7f | Owner instructions | documents only |
 
