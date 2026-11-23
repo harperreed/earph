@@ -192,7 +192,7 @@ impl PlayerPeer {
         i64::try_from(self.origin.elapsed().as_micros()).unwrap() + SERVER_CLOCK_OFFSET_US
     }
     /// Activates the player role, then serves clock probes until the client reports availability.
-    /// Returns the player state that the client declared.
+    /// Returns the state that the client declared: its availability and its player object.
     pub fn activate_player(&mut self) -> Value {
         self.send_json(
             "server/activate",
@@ -200,8 +200,8 @@ impl PlayerPeer {
         );
         loop {
             let state = self.await_json("client/state", true);
-            if state["player"]["available"] == json!(true) {
-                return state["player"].clone();
+            if state["available"] == json!(true) {
+                return state;
             }
         }
     }

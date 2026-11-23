@@ -424,7 +424,7 @@ mod player_flush_tests {
             }
             assert!(fragments>1);
             assert!(p.shared.lock().observation.player.unwrap().available);
-            assert_eq!(delivered.unwrap(),json!({"type":"client/state","payload":{"player":{"available":true,"output_delay_ms":0,"required_lead_time_ms":100,"min_buffer_ms":50,"supported_commands":[]}}}));
+            assert_eq!(delivered.unwrap(),json!({"type":"client/state","payload":{"available":true,"player":{"output_delay_ms":0,"required_lead_time_ms":100,"min_buffer_ms":50,"supported_commands":[]}}}));
         });
     }
     async fn flush(write: TransportWrite) -> TransportWrite {

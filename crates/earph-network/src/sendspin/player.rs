@@ -137,9 +137,11 @@ pub(super) fn metadata_capacity_bytes(queue_capacity: usize, leases: usize) -> O
 }
 impl StateUpdate {
     pub fn message(self) -> ApplicationMessage {
-        let mut player = self.state.to_value();
-        player["available"] = json!(self.available);
-        ApplicationMessage::json("client/state", json!({"player":player}))
+        // The specification carries `available` beside the role objects, never inside one.
+        ApplicationMessage::json(
+            "client/state",
+            json!({"available":self.available,"player":self.state.to_value()}),
+        )
     }
 }
 
