@@ -229,7 +229,7 @@ fn stream(
             }
             // The Engine reports no reason for a clean end.
             println!(
-                "result   ended: the server closed the connection, or another command stopped the stream"
+                "result   ended: another command stopped the stream, or the server closed the connection before it knew this player"
             );
             return Ok(0);
         } else {
@@ -279,11 +279,13 @@ fn phase(state: &Value) -> &'static str {
         state["sendspin_playback"]["phase"].as_str(),
     ) {
         (Some("playing"), _) => "playing",
+        // The Engine connects again by itself, with a growing delay between attempts.
+        (_, Some("reconnecting")) => "lost the server, retrying",
         (_, Some("awaiting_stream")) => "waiting for the server to start a stream",
         _ => "connecting",
     }
 }
-/// One line: the phase, the audio handed to the output, the volume, and the timing label.
+/// One line: the phase, the audio handed to the output, the volume, the timing label, and any reconnects.
 /// It shows no audible position, because nothing measures one.
 /// Idle silence only keeps the output running, so it stays out of the audio count.
 pub fn status_line(state: &Value) -> String {
@@ -303,6 +305,10 @@ pub fn status_line(state: &Value) -> String {
     line.push_str("  sync unqualified");
     if let Some(error) = playback["timing"]["start_error_us"].as_i64() {
         line.push_str(&format!("  start error {:+.1} ms", error as f64 / 1000.0));
+    }
+    let reconnects = count(&playback["reconnects"]);
+    if reconnects > 0 {
+        line.push_str(&format!("  reconnects {reconnects}"));
     }
     line
 }
@@ -333,5 +339,28 @@ mod tests {
             line.ends_with("sync unqualified  start error -1.5 ms"),
             "{line}"
         );
+    }
+    #[test]
+    fn the_status_line_names_a_lost_server_and_counts_reconnects() {
+        let mut state = json!({
+            "transport": "buffering",
+            "software_gain_db": 0.0,
+            "muted": false,
+            "sendspin_playback": {
+                "phase": "reconnecting",
+                "submitted_frames": 0,
+                "reconnects": 0,
+                "timing": {"idle_silence_frames": 0, "start_error_us": null},
+            },
+        });
+        let line = status_line(&state);
+        assert!(line.starts_with("lost the server, retrying  "), "{line}");
+        assert!(!line.contains("reconnects"), "{line}");
+        state["transport"] = json!("playing");
+        state["sendspin_playback"]["phase"] = json!("streaming");
+        state["sendspin_playback"]["reconnects"] = json!(2);
+        let line = status_line(&state);
+        assert!(line.starts_with("playing  "), "{line}");
+        assert!(line.ends_with("sync unqualified  reconnects 2"), "{line}");
     }
 }
