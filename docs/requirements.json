@@ -285,6 +285,8 @@
       "verification_status": "partial",
       "evidence": [
         "crates/earph-core/tests/session_contracts.rs",
+        "crates/earph-core/tests/sendspin_control.rs",
+        "crates/earph-engine/tests/sendspin_owner.rs",
         "evidence/network/renderer-ownership-linux-20261120.json",
         "evidence/network/renderer-execution-linux-20261121.json"
       ]

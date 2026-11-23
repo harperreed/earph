@@ -194,8 +194,9 @@ The launch configuration holds the server URL, one pinned address, the server pu
 IPC never supplies a connection target.
 Capabilities list `sendspin` only for an owner launched with this configuration.
 
-`sources.sendspin.start { device_id }` starts a new muted session.
-It needs an approved matching output, no existing session, no configured or active pipeline, and a disconnected source.
+`sources.sendspin.start { device_id, takeover }` starts a new muted session.
+It needs an approved matching output, no configured or active pipeline, and a disconnected source.
+`takeover` is optional and defaults to `false`. With an existing session, only `takeover: true` starts; see [Source takeover](#source-takeover).
 `sources.sendspin.get {}` reports the phase, the connection generation, the source observation, and the last failure.
 State reports the source as `sendspin_playback` with timing qualification `unqualified` and no audible position.
 
@@ -212,6 +213,56 @@ Core ignores a source event whose connection generation or epochs are stale.
 A source that closes with an error fails the session with that error code.
 A clean close, a stop, or a pause clears the session.
 A lost server is the exception once the server knew this player: the session stays, and the Host connects again.
+
+## Source takeover
+
+Sendspin follows the one rule of every source, from [SPEC.md section 5](SPEC.md#5-playback-sessions-and-source-arbitration).
+Only one source owns the zone. An explicit start with takeover stops the prior session, invalidates its data, and starts the new source muted.
+A start without takeover fails with `SOURCE_BUSY` and the message `explicit takeover required`.
+Connecting Sendspin steals nothing. The server cannot create a session, so a server stream alone never interrupts another source.
+The explicit request is always an owner command: `sessions.start`, `sources.start_http_flac`, a renderer Play with the takeover right, or `sources.sendspin.start`.
+
+One playback worker thread opens and closes the output. It handles one action at a time, so two sources never hold the output together.
+
+Out of Sendspin, for example `sessions.start` with `takeover: true` during a stream:
+
+1. Sendspin owns the output: the worker's Sendspin source writes it.
+2. Core commits the new session with the next session epoch, muted. It closes the Sendspin connection fence in the same commit.
+   From here Core refuses every event and every progress report of that connection with `STALE_SESSION`.
+3. The Host sends the new source's start action. Sending it sets the cancel flag of the Sendspin source.
+4. The worker takes the start action. It closes the Sendspin source first: it cancels the connection handle, stops the output, and resets the scheduler.
+   The stop drops the audio that the output held. The timeline and its queued chunks go with the source.
+   No source owns the output now.
+5. The worker prepares the new source, which opens the output. The new source owns the output and stays muted until an explicit unmute.
+6. The Host runtime sees the released fence. It revokes the admission policy, joins Network, and joins the credential supervisor.
+   The phase goes from `closing` to `disconnected`. It drops the reconnect facts, so no retry runs and no attempt opens the output.
+
+The server learns the truth from the closed connection, as it does after `sessions.stop`.
+The player sends no `client/goodbye` and no `client/state` with `available: false` first; neither exists in this player yet.
+A chunk of the retired stream has no way back: its socket is cancelled, its timeline is dropped, and Core fences its connection generation.
+The server gets the output back only through a new `sources.sendspin.start`, and that start waits for `disconnected`.
+A takeover during `reconnecting` follows the same steps from step 2. The pending retry ends at step 6.
+
+Into Sendspin, `sources.sendspin.start` with `takeover: true` during local playback:
+
+1. The local source owns the output.
+2. Core commits the Sendspin session with the next session epoch, muted, in `preparing`. Core refuses local events while Sendspin owns the session.
+3. The Host sends the worker a stop for the local source in the same command.
+   The Sendspin start action comes only after the credential load, and the local source must not play until then.
+4. The worker stops the local source and closes its output. No source owns the output. Core refuses the worker's stop report.
+5. The Host runtime loads the credentials, starts Network, and sends the Sendspin start action.
+6. The worker opens the output for the Sendspin source. Sendspin owns the output. Unmute waits until the server knows the player.
+
+An outgoing HTTP or renderer source retires through its own retirement action at step 3, and the worker defers the Sendspin start until that retirement ends.
+An unmuted HTTP or renderer source has an active graph, and Sendspin refuses a pipeline, so that takeover fails with `FIDELITY_POLICY_CONFLICT`.
+Sendspin cannot take over its own session: a second start fails with `SOURCE_BUSY` until the first connection is `disconnected`.
+A stop or a shutdown after either commit acts on the new session and cancels what the handover left pending.
+
+The `sendspin_owner` test target covers both directions through a real owner and the in-repo test peer.
+Its takeover cases capture through a FIFO, so the capture keeps the audio of both sources in order.
+They check the retired chunks, the missing reconnect, a takeover during `reconnecting`, and a stop and a shutdown inside a handover.
+A name runs single cases, for example `cargo test --locked -p earph-engine --test sendspin_owner -- takes`.
+Core tests cover the HTTP directions. No test runs an HTTP or renderer handover with Sendspin through a real owner.
 
 ## Player stream lifecycle
 
@@ -388,7 +439,7 @@ It retries these transport ends: `PeerClosed`, `Lost`, `Connect`, `Upgrade`, and
 It never retries `Unpaired`, `UpgradeRefused`, `Authentication`, `Admission`, `Expired`, `Protocol`, `Clock`, a cancel, or a budget, service, or storage failure.
 `Unpaired` and `UpgradeRefused` end the session with `AUTH_DENIED`, on a first connection as well.
 It never retries a source that closed for its own reason, such as an output fault.
-A stop, a pause, and an owner shutdown release the session, so they end a pending retry at once.
+A stop, a pause, an owner shutdown, and a takeover by another source release the session, so they end a pending retry at once.
 
 A lost connection closes the worker's source through its ordinary close path, which stops the output.
 The runtime turns that close into the phase `reconnecting`, and Core keeps the session, its epochs, and its mute state.

@@ -318,7 +318,7 @@ A row with two letters has both gaps. The first letter is the gap that blocks ne
 | `PLAY-02` | implemented / partial | No AC-09 timeline record exists. `earph seek` is unverified on a Mac output. | a, b |
 | `PLAY-03` | implemented / partial | Gapless is exact at the ALSA capture boundary only. Core Audio and hardware joins are unqualified. | b |
 | `PLAY-04` | in_progress / partial | A queue with a rate or format change refuses to start. No muted reconfiguration exists. | a |
-| `PLAY-05` | in_progress / partial | Sendspin refuses every handoff with busy. No test delivers old Sendspin chunks to a new session. | a |
+| `PLAY-05` | in_progress / partial | Sendspin takeover has owner tests since build 3 and no recorded run. No HTTP or renderer handover with Sendspin runs through a real owner. No AC-12 handoff record exists. | a |
 | `PLAY-06` | implemented / partial | No test kills the owner during playback. AC-14 needs two physical outputs. | a, b |
 | `PLAY-07` | in_progress / partial | Public DSD submission is refused in code until an endpoint is qualified. Core Audio has no DSD output. | b, a |
 | `SRC-01` | in_progress / partial | `earph-engine owner --renderer-listen` starts the renderer; `earph` has no renderer command. SSDP is Linux-only. The AC-15 controller matrix is incomplete. | a |

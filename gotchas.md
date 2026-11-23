@@ -136,6 +136,13 @@
   End a capture test with a stop, never with a peer close: a close starts a reconnect.
   See the [Sendspin command tests](crates/earph-engine/tests/sendspin_cli.rs) and [the reconnect notes](docs/sendspin-runtime.md#reconnect).
 
+- A takeover into Sendspin must stop the outgoing local source in the takeover command itself.
+  The Sendspin start action reaches the worker only after the credential load.
+  Without that stop the local file plays on under a muted Sendspin session.
+  To test two sources on one output, capture through a FIFO: the file device keeps only the last open.
+  The local source writes a null or file device without pacing, so a closed FIFO is the only way to hold it mid-file.
+  See the `Gate` in the [Sendspin owner tests](crates/earph-engine/tests/sendspin_owner.rs) and [Source takeover](docs/sendspin-runtime.md#source-takeover).
+
 - The Core Audio device latency lies behind the frames that the output holds.
   Add it only to the Sendspin scheduler's delay; the idle silence pacer must see the held frames alone.
   A pacer that counts the latency as held frames feeds no silence, and the output runs dry.
