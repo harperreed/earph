@@ -81,6 +81,7 @@ Observed close, partial failure, expiry, or cancellation poisons any outstanding
 For a valid peer Close, the original socket drains its existing buffer and queued Close reply within `close_ms`.
 Draining an already-issued frame creates no Complete receipt for the poisoned session write.
 Successful reply flush reports `PeerClosed`; an expired flush reports `Deadline`.
+A socket that fails or ends without a Close reports `Lost`, which is no protocol error.
 If the transport stays unwritable, the deadline ends the reply attempt and the socket closes.
 The transport never re-encrypts, retransmits, or resumes that write on another socket.
 RFC fragmentation and Ping/Pong remain below the complete-message session boundary.
@@ -198,6 +199,7 @@ Core rejects `sessions.resume` and seeks for this source with `CAPABILITY_UNSUPP
 Core ignores a source event whose connection generation or epochs are stale.
 A source that closes with an error fails the session with that error code.
 A clean close, a stop, or a pause clears the session.
+A lost server is the exception once the server knew this player: the session stays, and the Host connects again.
 
 ## Player stream lifecycle
 
@@ -299,4 +301,30 @@ Network reports one when it joins with an unresolved commit.
 After any of these, every later start in that owner process fails with `AUTH_DENIED`.
 `sources.sendspin.get` then reports `credential_recovery_required: true`.
 Only a restarted owner clears that fact; the credential store keeps its own pending marker.
-The permit and the admission policy last 12 hours, and nothing reconnects.
+The permit and the admission policy last 12 hours. An expired permit ends the session and does not reconnect.
+
+### Reconnect
+
+The Host runtime owns the reconnect. Core, the playback worker, and Network each still handle one connection.
+The runtime retries only after the server knew this player in the current session.
+It retries these transport ends: `PeerClosed`, `Lost`, `Connect`, `Upgrade`, and `Deadline`.
+It never retries `Authentication`, `Admission`, `Expired`, `Protocol`, `Clock`, a cancel, or a budget, service, or storage failure.
+It never retries a source that closed for its own reason, such as an output fault.
+A stop, a pause, and an owner shutdown release the session, so they end a pending retry at once.
+
+A lost connection closes the worker's source through its ordinary close path, which stops the output.
+The runtime turns that close into the phase `reconnecting`, and Core keeps the session, its epochs, and its mute state.
+The transport shows `buffering`. The runtime joins Network and the credential supervisor as it does for a stop.
+Then it waits: 250 ms at first, doubled after each failed attempt, and 10 seconds at most. The wait has no random part.
+Each attempt spawns a new supervisor, loads the credentials again, and takes a new permit and a new admission policy.
+The worker gets a new source, so the handshake, the available declaration, the clock, the timeline, and the anchor are all new.
+The phase stays `reconnecting` until the server knows this player again.
+`reconnects` in the source observation counts the restored connections of the session.
+The worker's source reports zero, and the runtime writes the count into each observation that it forwards.
+`submitted_frames` and the `timing` facts count from the latest connection.
+An attempt whose credential load fails ends the session with that failure.
+An attempt that leaves an uncertain credential outcome ends the session with `AUTH_DENIED`.
+
+Each attempt opens the output before the socket connects, as a first start does.
+While the server stays away, the output therefore opens and closes once for each attempt.
+A dead network without a reset is found only by the transport's ping, after up to 40 seconds.

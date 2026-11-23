@@ -127,6 +127,17 @@ The latency is the device's own claim, so the offset can remain.
 `start error` is the player's own estimate, not a measurement.
 The command shows no playback position for the same reason.
 
+If the server goes away after it accepted this player, `sendspin` keeps running and connects again.
+The status line says `lost the server, retrying`, and `status --json` shows the phase `reconnecting`.
+The first attempt follows after 250 ms. The wait doubles after each failed attempt, up to 10 seconds.
+Each attempt authenticates again with the stored identity, and the next stream takes a new timing anchor.
+The mute state and the volume stay as they were.
+`reconnects` in the status line and in `status --json` counts the restored connections.
+The counts of audio and timing start again with each connection.
+Control-C, `stop`, and `quit` end the command at once, also while it waits.
+`sendspin` does not retry a server that never accepted this player, a denied access, or a broken protocol.
+Those end the command as the table below shows.
+
 While a stream is active and no audio is due, the player sends silence to keep the output running.
 The output then runs before the first audio is due, so a slow device start does not delay the audio.
 The status line leaves that silence out of the audio it counts.
@@ -161,7 +172,7 @@ It prints `stopped (a Sendspin stream cannot pause)`, and the `sendspin` command
 
 | Result | Exit status |
 | --- | --- |
-| `ended`: the server closed the connection, or another command stopped the stream or the Engine | 0 |
+| `ended`: another command stopped the stream or the Engine, or the server closed the connection before it accepted this player | 0 |
 | the stream failed, or the credential store or the server denied access | 1 |
 | wrong usage, a refused address or key, or an Engine already runs | 2 |
 | the Engine refused a command | 3 |
@@ -169,7 +180,7 @@ It prints `stopped (a Sendspin stream cannot pause)`, and the `sendspin` command
 
 The keyring or keychain must already be unlocked.
 The helper never prompts, unlocks, or creates a store.
-Nothing reconnects: after the connection ends, run the command again.
+No reconnect has run against a real Music Assistant server yet.
 
 Music Assistant 2.10.13 has driven this player on a Mac. Other versions are untested.
 The store must hold a player identity that is paired with the server; see "Pair with a server".

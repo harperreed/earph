@@ -191,7 +191,7 @@ The missing parts are:
 2. A pairing flow. Done in U7b and U7c.
 3. Pairing and playback cannot share one connection today. U7c and U7d use two connections.
 4. Discovery and a listener. The user must supply the server address and a pinned IP.
-5. Reconnect. Permit and policy expiry end the session.
+5. Reconnect. Done in U7e. Permit and policy expiry still end the session.
 6. Player commands. The player advertises none, so server volume and mute do nothing.
 7. Formats. Only 48 kHz stereo 16-bit PCM is offered.
 
@@ -220,7 +220,7 @@ and a roleless pairing followed by a player connection under the same identity.
 | U7b | Landed. `earph sendspin token` prints the version-zero token on standard output only, with one warning line on standard error. | 60 / 90 |
 | U7c | Landed. `earph sendspin pair --server URL [--timeout SECONDS]` runs one roleless pairing connection with a 10-minute window. It succeeds when the record is stored, read back, and named by the paired identity of the server's next handshake; then it sends `client/goodbye` with reason `restart` and prints the server key. A timeout, a lost acknowledgement, and Control-C leave the store unchanged. An unconfirmed write reports that recovery is required. The pinned Python pairing server passes when run by name with `EARPH_SENDSPIN_PEER`. | 350 / 450 |
 | U7d | Landed. `earph sendspin --server URL` without `--server-key` uses the one paired server. No paired server says to pair first; several ask for `--server-key` and list nothing. | 80 / 120 |
-| U7e | Reconnect with backoff, with a new permit and fresh credentials for each attempt | 200 / 250 |
+| U7e | Landed. The Host runtime connects again after a lost server, with a new permit and fresh credentials for each attempt. See "U7e: reconnect" below. | 200 / 250 |
 | U7f | Owner instructions | documents only |
 
 Pairing and playback use two connections. One connection for both stays deferred.
@@ -231,6 +231,40 @@ After that only keep-alive pings run, and the `pair` window (10 minutes by defau
 Music Assistant 2.10.12 acts on the live connection when the operator submits the token.
 It stores no token for a later connection, so the operator starts `pair` before pasting.
 The web interface location of the setup step, and a submission while the player is disconnected, remain unverified.
+
+#### U7e: reconnect
+
+Landed.
+Before this unit a lost server ended `earph sendspin`.
+The Host runtime now keeps the session and connects again.
+It retries only after the server knew this player in the session.
+It retries a closed socket, a lost socket, a refused connection, a failed upgrade, and a transport deadline.
+It does not retry a refused authentication, a protocol violation, an expired permit, a clock error, or an output fault.
+Those keep their exit status. A first connection that fails also ends the command as before.
+The wait starts at 250 ms, doubles after each failed attempt, and stops at 10 seconds. It has no random part.
+Each attempt gets a new credential supervisor, a new permit, a new admission policy, and a new worker source.
+The handshake, the player state, the clock, and the timing anchor are therefore new.
+The lost connection stops the output through the existing close path.
+State shows the phase `reconnecting`, the transport `buffering`, and a `reconnects` count.
+The command line prints `lost the server, retrying`.
+A stop, a quit, and Control-C end the session at once during the wait.
+
+Network gained one error, `Lost`, for a socket that fails or ends without a WebSocket Close.
+Before, such a socket reported `Protocol`, which a reconnect must not retry.
+A server that closes cleanly no longer ends the command once it accepted this player.
+Three tests that ended by a peer close now end by a stop.
+
+The command tests use the in-repo test server.
+They cover a clean close and a dropped socket, each followed by a new stream that anchors once.
+They cover a failed authentication on the reconnect, which ends the command with `AUTH_DENIED`.
+They cover Control-C while every attempt is refused.
+
+Unverified: a restart of a real Music Assistant server. No reconnect has run against one.
+Unverified: which transport end a real server restart produces, and how long the server stays away.
+Unverified: a network that fails without a reset. Only the 30-second ping and its 10-second reply limit find it.
+Unverified: reconnect on a Mac. No Mac has compiled or run this unit.
+Known limits: each attempt opens and closes the output, and a clock error still ends the session.
+Known limit: a failed credential load during a reconnect ends the session, for example a store that locked meanwhile.
 
 The first Mac build of this code passed strict Clippy for Core, Engine, and credentials on November 22, 2026.
 No Sendspin test has run on a Mac, and no real keyring or keychain has held a Sendspin identity.
