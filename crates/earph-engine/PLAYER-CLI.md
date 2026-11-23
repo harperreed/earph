@@ -56,8 +56,13 @@ earph quit
 
 ## Pair with a server
 
-These steps are untested against a real Music Assistant server.
+The owner ran these steps against Music Assistant 2.10.13 from a Mac on November 22, 2026, and they worked.
 Local test servers pass them, and so does the pinned aiosendspin 10.2.1 pairing server.
+On a Mac, `scripts/sendspin-mac-test` runs the same steps with a dedicated keychain file.
+
+macOS grants a stored identity to the exact helper executable that stored it.
+A rebuilt `earph-credential-helper` reports the store as locked, although it is unlocked.
+Keep the helper file that ran `init`, or pair again with the new one.
 
 Run the four commands in order.
 
@@ -162,7 +167,7 @@ The keyring or keychain must already be unlocked.
 The helper never prompts, unlocks, or creates a store.
 Nothing reconnects: after the connection ends, run the command again.
 
-Real Music Assistant use is untested.
+Music Assistant 2.10.13 has driven this player on a Mac. Other versions are untested.
 The store must hold a player identity that is paired with the server; see "Pair with a server".
 If the credential store did not confirm an operation, `sendspin` says so in one line: run the command again.
 The player also takes no volume or mute commands from the server, and it offers only 48 kHz stereo 16-bit PCM.

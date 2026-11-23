@@ -205,6 +205,25 @@ The web interface location of the setup step, and a submission while the player 
 The first Mac build of this code passed strict Clippy for Core, Engine, and credentials on November 22, 2026.
 No Sendspin test has run on a Mac, and no real keyring or keychain has held a Sendspin identity.
 
+## First real server test
+
+Doctor Biz ran the player on a Mac against Music Assistant 2.10.13 on November 22, 2026.
+That run supersedes the "unverified" notes above for pairing, the player role, and a Mac keychain file.
+No automated Sendspin test has run on a Mac.
+
+- Pairing worked: `init`, `token`, `pair`, then a second connection as a player under the same identity.
+- Music Assistant played a library track to Earph through built-in speakers and Bluetooth earphones.
+  The server converted 44.1 kHz to 48 kHz, because Earph offers only 48 kHz.
+- Before idle silence, the start error was +42 ms and +69 ms on speakers, and +293 ms and +426 ms on Bluetooth.
+  With idle silence, a speaker run showed a start error of -1.2 ms and a worst error of 1.5 ms after 14 seconds.
+  It dropped nothing and had no underrun.
+- Earph still played audibly behind a web player in the same group.
+  State names the cause: the counted delay ends at the AudioQueue sample time, not at the speaker.
+  The next unit adds the device's reported latency.
+- A rebuilt credential helper could not read the stored identity; the store looked locked.
+  The cause is unconfirmed. The likely cause is the keychain item's access list, which names the first helper.
+  A stable code signature for the helper would fix it.
+
 ## Known risks
 
 - Event queue overflow ends the connection. Keep `buffer_capacity` small and the worker step non-blocking.
