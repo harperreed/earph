@@ -25,10 +25,11 @@
         "D12"
       ],
       "depends_on": [],
-      "implementation_status": "in_progress",
+      "implementation_status": "implemented",
       "verification_status": "partial",
       "evidence": [
-        "evidence/foundation/verification.json"
+        "evidence/foundation/verification.json",
+        "evidence/ci/software-checks-20261120.json"
       ]
     },
     {
@@ -46,9 +47,15 @@
       "depends_on": [
         "ARCH-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/ffi/macos-swift-hosted-20261120.json",
+        "evidence/ffi/linux-kotlin-volume-20261120.json",
+        "evidence/desktop/workspace-integration-precommit-verification-20261118.json",
+        "crates/earph-ffi/tests/client.rs",
+        "crates/earph-desktop/tests/client.rs"
+      ]
     },
     {
       "id": "ARCH-03",
@@ -69,7 +76,10 @@
       "evidence": [
         "crates/earph-engine/tests/owner.rs",
         "crates/earph-engine/tests/cli.rs",
-        "crates/earph-engine/PLAYBACK.md"
+        "crates/earph-engine/PLAYBACK.md",
+        "evidence/local-playback/native-status-20261122.json",
+        "evidence/desktop/native-connect-queue-linux-20261119.json",
+        "evidence/dsp/macos-owner-lock-precommit-root-verification-20261118.json"
       ]
     },
     {
@@ -87,11 +97,13 @@
       "depends_on": [
         "ARCH-01"
       ],
-      "implementation_status": "in_progress",
+      "implementation_status": "implemented",
       "verification_status": "partial",
       "evidence": [
         "evidence/foundation/verification.json",
-        "evidence/dsd/software-linux-20261120.json"
+        "evidence/dsd/software-linux-20261120.json",
+        "evidence/dsd/engine-software-linux-20261121.json",
+        "evidence/dsd/engine-retirement-linux-20261121.json"
       ]
     },
     {
@@ -112,7 +124,10 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "evidence/foundation/verification.json"
+        "evidence/foundation/verification.json",
+        "evidence/dsp/verification-20261118.json",
+        "evidence/dsp/linux-prepared-dsp-cpu-verification-20261118.json",
+        "evidence/dsp/macos-prepared-dsp-cpu-verification-20261118.json"
       ]
     },
     {
@@ -150,7 +165,8 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "evidence/foundation/verification.json"
+        "evidence/foundation/verification.json",
+        "crates/earph-core/tests/schema_contracts.rs"
       ]
     },
     {
@@ -168,9 +184,16 @@
       "depends_on": [
         "ARCH-04"
       ],
-      "implementation_status": "in_progress",
+      "implementation_status": "implemented",
       "verification_status": "partial",
-      "evidence": ["crates/earph-media/tests/decode.rs", "crates/earph-engine/tests/owner.rs", "docs/local-playback.md"]
+      "evidence": [
+        "crates/earph-media/tests/decode.rs",
+        "crates/earph-engine/tests/owner.rs",
+        "docs/local-playback.md",
+        "evidence/local-playback/linux-canonical-20261118.json",
+        "evidence/local-playback/macos-canonical-20261118.json",
+        "evidence/local-playback/simple-player-20261121.json"
+      ]
     },
     {
       "id": "PLAY-02",
@@ -186,12 +209,15 @@
       "depends_on": [
         "PLAY-01"
       ],
-      "implementation_status": "in_progress",
+      "implementation_status": "implemented",
       "verification_status": "partial",
       "evidence": [
         "crates/earph-engine/tests/service_playback.rs",
         "crates/earph-engine/tests/worker_playback.rs",
-        "crates/earph-engine/PLAYBACK.md"
+        "crates/earph-engine/PLAYBACK.md",
+        "evidence/local-playback/linux-canonical-20261118.json",
+        "evidence/local-playback/simple-player-20261121.json",
+        "evidence/desktop/native-output-transport-linux-20261119.json"
       ]
     },
     {
@@ -208,9 +234,14 @@
       "depends_on": [
         "PLAY-01"
       ],
-      "implementation_status": "in_progress",
+      "implementation_status": "implemented",
       "verification_status": "partial",
-      "evidence": ["crates/earph-media/tests/cli.rs", "docs/local-playback.md"]
+      "evidence": [
+        "crates/earph-media/tests/cli.rs",
+        "docs/local-playback.md",
+        "crates/earph-engine/tests/service_playback.rs",
+        "evidence/local-playback/linux-canonical-20261118.json"
+      ]
     },
     {
       "id": "PLAY-04",
@@ -228,9 +259,14 @@
         "PLAY-03",
         "DSP-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-engine/tests/service_playback.rs",
+        "crates/earph-engine/tests/worker_playback.rs",
+        "evidence/dsp/final-review-verification-20261118.json",
+        "evidence/dsp/linux-src-native-release-verification-20261118.json"
+      ]
     },
     {
       "id": "PLAY-05",
@@ -245,9 +281,13 @@
       "depends_on": [
         "ARCH-03"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-core/tests/session_contracts.rs",
+        "evidence/network/renderer-ownership-linux-20261120.json",
+        "evidence/network/renderer-execution-linux-20261121.json"
+      ]
     },
     {
       "id": "PLAY-06",
@@ -266,9 +306,14 @@
         "PLAY-01",
         "SAFE-01"
       ],
-      "implementation_status": "in_progress",
+      "implementation_status": "implemented",
       "verification_status": "partial",
-      "evidence": ["crates/earph-engine/tests/owner.rs", "crates/earph-engine/tests/cli.rs"]
+      "evidence": [
+        "crates/earph-engine/tests/owner.rs",
+        "crates/earph-engine/tests/cli.rs",
+        "evidence/dsp/final-review-verification-20261118.json",
+        "evidence/local-playback/linux-canonical-20261118.json"
+      ]
     },
     {
       "id": "PLAY-07",
@@ -289,7 +334,9 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "evidence/dsd/software-linux-20261120.json"
+        "evidence/dsd/software-linux-20261120.json",
+        "evidence/dsd/engine-software-linux-20261121.json",
+        "evidence/dsd/engine-retirement-linux-20261121.json"
       ]
     },
     {
@@ -328,7 +375,13 @@
       "evidence": [
         "evidence/network/upnp-core-linux-20261120.json",
         "evidence/network/renderer-execution-linux-20261121.json",
-        "evidence/network/music-assistant-track-linux-20261121.json"
+        "evidence/network/music-assistant-track-linux-20261121.json",
+        "evidence/network/upnp-wire-linux-20261120.json",
+        "evidence/network/renderer-ownership-linux-20261120.json",
+        "evidence/network/upnp-native-getmute-20261121.json",
+        "evidence/network/upnp-current-rendering-20261121.json",
+        "evidence/network/upnp-muted-source-20261122.json",
+        "evidence/network/upnp-muted-transport-20261122.json"
       ]
     },
     {
@@ -352,7 +405,12 @@
         "evidence/sendspin/runtime-linux-20261121.json",
         "evidence/sendspin/native-credentials-linux-20261121.json",
         "evidence/sendspin/native-credentials-macos-20261121.json",
-        "evidence/sendspin/runtime-timing-native-linux-20261121.json"
+        "evidence/sendspin/runtime-timing-native-linux-20261121.json",
+        "evidence/sendspin/noise-linux-20261120.json",
+        "evidence/sendspin/pairing-linux-20261120.json",
+        "evidence/network/sendspin-player-timeline-20261121.json",
+        "evidence/network/sendspin-player-transport-20261121.json",
+        "docs/sendspin-runtime.md"
       ]
     },
     {
@@ -374,7 +432,9 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "evidence/sendspin/runtime-timing-native-linux-20261121.json"
+        "evidence/sendspin/runtime-timing-native-linux-20261121.json",
+        "evidence/network/sendspin-player-timeline-20261121.json",
+        "docs/sendspin-runtime.md"
       ]
     },
     {
@@ -394,9 +454,13 @@
         "SRC-02",
         "OBS-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/network/music-assistant-track-linux-20261121.json",
+        "evidence/diagnostics/reads-linux-20261119.json",
+        "evidence/desktop/signal-path-linux-20261119.json"
+      ]
     },
     {
       "id": "SRC-05",
@@ -413,9 +477,11 @@
       "depends_on": [
         "SRC-02"
       ],
-      "implementation_status": "not_started",
+      "implementation_status": "in_progress",
       "verification_status": "not_run",
-      "evidence": []
+      "evidence": [
+        "crates/earph-core/tests/network_control.rs"
+      ]
     },
     {
       "id": "SRC-06",
@@ -432,9 +498,15 @@
         "PLAY-05",
         "SAFE-05"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/network/uri-staging-linux-20261119.json",
+        "evidence/network/upnp-wire-linux-20261120.json",
+        "evidence/sendspin/pairing-linux-20261120.json",
+        "evidence/sendspin/session-linux-20261120.json",
+        "evidence/network/sendspin-player-transport-20261121.json"
+      ]
     },
     {
       "id": "OUT-01",
@@ -455,7 +527,15 @@
       "verification_status": "partial",
       "evidence": [
         "alsa-spike.md",
-        "coreaudio-spike.md"
+        "coreaudio-spike.md",
+        "evidence/alsa/host-direct.json",
+        "evidence/alsa/hardware-ownership.json",
+        "evidence/coreaudio/verification.json",
+        "evidence/local-playback/alsa-engine-20261118.json",
+        "evidence/local-playback/coreaudio-engine-20261118.json",
+        "evidence/local-playback/coreaudio-system-20261121.json",
+        "evidence/profiles/device-discovery-linux-20261119.json",
+        "evidence/profiles/macos-device-discovery-20261119.json"
       ]
     },
     {
@@ -475,7 +555,9 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "alsa-spike.md"
+        "alsa-spike.md",
+        "evidence/alsa/host-system.json",
+        "evidence/alsa/matrix.json"
       ]
     },
     {
@@ -495,7 +577,9 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "alsa-spike.md"
+        "alsa-spike.md",
+        "evidence/alsa/matrix.json",
+        "evidence/profiles/macos-device-discovery-20261119.json"
       ]
     },
     {
@@ -514,13 +598,15 @@
       "depends_on": [
         "OUT-01"
       ],
-      "implementation_status": "in_progress",
+      "implementation_status": "implemented",
       "verification_status": "partial",
       "evidence": [
         "crates/earph-engine/tests/worker_playback.rs",
         "crates/earph-coreaudio/tests/playback_native.rs",
         "crates/earph-coreaudio/evidence/hardware-handoff-20261118.json",
-        "crates/earph-engine/PLAYBACK.md"
+        "crates/earph-engine/PLAYBACK.md",
+        "evidence/local-playback/native-timing-observations-20261121.json",
+        "evidence/local-playback/coreaudio-running-retreat-20261122.json"
       ]
     },
     {
@@ -543,7 +629,9 @@
       "evidence": [
         "crates/earph-engine/tests/worker_playback.rs",
         "crates/earph-core/tests/local_control.rs",
-        "crates/earph-engine/PLAYBACK.md"
+        "crates/earph-engine/PLAYBACK.md",
+        "evidence/alsa/hardware-ownership.json",
+        "evidence/local-playback/linux-canonical-20261118.json"
       ]
     },
     {
@@ -567,7 +655,8 @@
         "crates/earph-core/tests/local_control.rs",
         "crates/earph-engine/src/output/coreaudio.rs",
         "crates/earph-coreaudio/PLAYBACK.md",
-        "crates/earph-engine/PLAYBACK.md"
+        "crates/earph-engine/PLAYBACK.md",
+        "evidence/local-playback/linux-canonical-20261118.json"
       ]
     },
     {
@@ -587,7 +676,10 @@
       ],
       "implementation_status": "implemented",
       "verification_status": "partial",
-      "evidence": ["evidence/dsp/verification-20261118.json"]
+      "evidence": [
+        "evidence/dsp/verification-20261118.json",
+        "evidence/dsp/r7-reviewed-platform-verification-20261118.json"
+      ]
     },
     {
       "id": "DSP-02",
@@ -605,9 +697,15 @@
       "depends_on": [
         "DSP-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/dsp/macos-components-verification-20261118.json",
+        "evidence/dsp/linux-src-native-release-verification-20261118.json",
+        "evidence/dsp/macos-src-native-release-verification-20261118.json",
+        "evidence/dsp/linux-prepared-dsp-cpu-verification-20261118.json",
+        "evidence/dsp/macos-prepared-dsp-cpu-verification-20261118.json"
+      ]
     },
     {
       "id": "DSP-03",
@@ -624,9 +722,13 @@
       "depends_on": [
         "DSP-01"
       ],
-      "implementation_status": "in_progress",
+      "implementation_status": "implemented",
       "verification_status": "partial",
-      "evidence": ["evidence/dsp/verification-20261118.json"]
+      "evidence": [
+        "evidence/dsp/verification-20261118.json",
+        "evidence/dsp/macos-components-verification-20261118.json",
+        "evidence/dsp/linux-src-native-release-verification-20261118.json"
+      ]
     },
     {
       "id": "DSP-04",
@@ -645,7 +747,10 @@
       ],
       "implementation_status": "implemented",
       "verification_status": "partial",
-      "evidence": ["evidence/dsp/verification-20261118.json"]
+      "evidence": [
+        "evidence/dsp/verification-20261118.json",
+        "evidence/dsp/r7-reviewed-platform-verification-20261118.json"
+      ]
     },
     {
       "id": "DSP-05",
@@ -664,7 +769,11 @@
       ],
       "implementation_status": "implemented",
       "verification_status": "partial",
-      "evidence": ["evidence/dsp/verification-20261118.json"]
+      "evidence": [
+        "evidence/dsp/verification-20261118.json",
+        "evidence/dsp/final-review-verification-20261118.json",
+        "evidence/dsp/backend-refresh-linux-precommit-20261119.json"
+      ]
     },
     {
       "id": "DSP-06",
@@ -680,9 +789,13 @@
       "depends_on": [
         "DSP-02"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/profiles/task2b-integrated-precommit-verification-20261118.json",
+        "evidence/profiles/macos-task2b-precommit-root-verification-20261118.json",
+        "evidence/desktop/native-correction-linux-20261119.json"
+      ]
     },
     {
       "id": "DSP-07",
@@ -701,9 +814,12 @@
         "DSP-06",
         "SAFE-02"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/profiles/task2b-integrated-precommit-verification-20261118.json",
+        "evidence/profiles/macos-task2b-precommit-root-verification-20261118.json"
+      ]
     },
     {
       "id": "DSP-08",
@@ -719,9 +835,12 @@
         "DSP-02",
         "DSP-04"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/dsp/linux-prepared-dsp-cpu-verification-20261118.json",
+        "evidence/dsp/macos-prepared-dsp-cpu-verification-20261118.json"
+      ]
     },
     {
       "id": "DSP-09",
@@ -756,12 +875,16 @@
       "depends_on": [
         "ARCH-02"
       ],
-      "implementation_status": "in_progress",
+      "implementation_status": "implemented",
       "verification_status": "partial",
       "evidence": [
         "crates/earph-core/tests/local_control.rs",
         "crates/earph-engine/tests/service_playback.rs",
-        "crates/earph-engine/PLAYBACK.md"
+        "crates/earph-engine/PLAYBACK.md",
+        "evidence/local-playback/simple-player-20261121.json",
+        "evidence/network/software-zero-linux-20261120.json",
+        "evidence/profiles/fixed-preparation-linux-precommit-20261119.json",
+        "evidence/desktop/native-zero-linux-20261120.json"
       ]
     },
     {
@@ -780,9 +903,12 @@
         "SAFE-01",
         "DSP-02"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/dsp/final-review-verification-20261118.json",
+        "evidence/dsp/coreaudio-final-review-engine-20261118.json"
+      ]
     },
     {
       "id": "SAFE-03",
@@ -803,7 +929,9 @@
       "evidence": [
         "crates/earph-core/tests/safety.rs",
         "crates/earph-core/tests/local_control.rs",
-        "crates/earph-engine/PLAYBACK.md"
+        "crates/earph-engine/PLAYBACK.md",
+        "evidence/profiles/fixed-preparation-linux-precommit-20261119.json",
+        "evidence/network/software-zero-linux-20261120.json"
       ]
     },
     {
@@ -825,7 +953,8 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "evidence/dsd/software-linux-20261120.json"
+        "evidence/dsd/software-linux-20261120.json",
+        "evidence/dsd/engine-software-linux-20261121.json"
       ]
     },
     {
@@ -848,7 +977,9 @@
       "evidence": [
         "crates/earph-engine/tests/owner.rs",
         "crates/earph-engine/README.md",
-        "crates/earph-engine/PLAYBACK.md"
+        "crates/earph-engine/PLAYBACK.md",
+        "evidence/diagnostics/preview-linux-20261119.json",
+        "evidence/sendspin/pairing-linux-20261120.json"
       ]
     },
     {
@@ -869,9 +1000,12 @@
         "SAFE-02",
         "SRC-06"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/profiles/owner-package-precommit-verification-20261118.json",
+        "evidence/network/upnp-wire-linux-20261120.json"
+      ]
     },
     {
       "id": "PROF-01",
@@ -887,9 +1021,14 @@
         "DSP-01",
         "SAFE-03"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/profiles/task2a-precommit-verification-20261118.json",
+        "evidence/profiles/task3a-integrated-precommit-verification-20261118.json",
+        "evidence/profiles/macos-task3a-integrated-precommit-root-verification-20261118.json",
+        "evidence/desktop/native-profiles-dsp-linux-20261119.json"
+      ]
     },
     {
       "id": "PROF-02",
@@ -905,9 +1044,12 @@
         "PROF-01",
         "OUT-03"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/profiles/observed-associations-linux-precommit-20261119.json",
+        "evidence/profiles/macos-software-profile-association-20261119.json"
+      ]
     },
     {
       "id": "PROF-03",
@@ -925,9 +1067,14 @@
       "depends_on": [
         "PROF-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/profiles/package-contract-precommit-verification-20261118.json",
+        "evidence/profiles/owner-package-round2-integration-precommit-20261118.json",
+        "evidence/desktop/native-packages-linux-20261119.json",
+        "evidence/desktop/native-fir-packages-linux-20261119.json"
+      ]
     },
     {
       "id": "PROF-04",
@@ -960,12 +1107,14 @@
       "depends_on": [
         "ARCH-02"
       ],
-      "implementation_status": "in_progress",
+      "implementation_status": "implemented",
       "verification_status": "partial",
       "evidence": [
         "crates/earph-core/tests/owner_control.rs",
         "crates/earph-engine/tests/worker_playback.rs",
-        "crates/earph-engine/PLAYBACK.md"
+        "crates/earph-engine/PLAYBACK.md",
+        "evidence/ffi/macos-swift-hosted-20261120.json",
+        "evidence/diagnostics/preview-linux-20261119.json"
       ]
     },
     {
@@ -984,9 +1133,15 @@
       "depends_on": [
         "CTL-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-core/tests/session_contracts.rs",
+        "crates/earph-ffi/tests/client.rs",
+        "evidence/ffi/macos-swift-hosted-20261120.json",
+        "evidence/ffi/linux-kotlin-volume-20261120.json",
+        "evidence/dsp/final-review-verification-20261118.json"
+      ]
     },
     {
       "id": "CTL-03",
@@ -1003,9 +1158,20 @@
         "CTL-01",
         "DSP-02"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/desktop/native-connect-queue-linux-20261119.json",
+        "evidence/desktop/native-output-transport-linux-20261119.json",
+        "evidence/desktop/native-profiles-dsp-linux-20261119.json",
+        "evidence/desktop/native-correction-linux-20261119.json",
+        "evidence/desktop/native-packages-linux-20261119.json",
+        "evidence/desktop/native-diagnostics-linux-20261120.json",
+        "evidence/desktop/native-zero-linux-20261120.json",
+        "evidence/desktop/macos-native-controls-20261121.json",
+        "evidence/local-playback/simple-player-20261121.json",
+        "evidence/local-playback/native-status-20261122.json"
+      ]
     },
     {
       "id": "CTL-04",
@@ -1021,9 +1187,15 @@
       "depends_on": [
         "CTL-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": [
+        "crates/earph-engine/tests/cli.rs",
+        "crates/earph-engine/tests/player_cli.rs",
+        "crates/earph-engine/PLAYER-CLI.md",
+        "evidence/local-playback/linux-canonical-20261118.json",
+        "evidence/packaging/candidate-linux-20261121.json"
+      ]
     },
     {
       "id": "CTL-05",
@@ -1040,9 +1212,17 @@
       "depends_on": [
         "ARCH-02"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/ffi/integration-20261118.json",
+        "evidence/ffi/macos-swift-hosted-20261120.json",
+        "evidence/ffi/macos-swift-profiles-20261119.json",
+        "evidence/ffi/linux-kotlin-network-20261120.json",
+        "evidence/ffi/linux-kotlin-renderer-20261120.json",
+        "evidence/ffi/linux-kotlin-volume-20261120.json",
+        "evidence/desktop/kotlin-profile-replay-linux-20261119.json"
+      ]
     },
     {
       "id": "CTL-06",
@@ -1058,12 +1238,13 @@
       "depends_on": [
         "CTL-01"
       ],
-      "implementation_status": "in_progress",
+      "implementation_status": "implemented",
       "verification_status": "partial",
       "evidence": [
         "crates/earph-engine/src/ipc.rs",
         "crates/earph-engine/tests/owner.rs",
-        "crates/earph-engine/PLAYBACK.md"
+        "crates/earph-engine/PLAYBACK.md",
+        "evidence/diagnostics/preview-linux-20261119.json"
       ]
     },
     {
@@ -1083,9 +1264,13 @@
         "ARCH-04",
         "OUT-03"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/diagnostics/reads-linux-20261119.json",
+        "evidence/desktop/signal-path-linux-20261119.json",
+        "evidence/desktop/native-zero-linux-20261120.json"
+      ]
     },
     {
       "id": "OBS-02",
@@ -1101,9 +1286,12 @@
         "OBS-01",
         "DSP-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/diagnostics/reads-linux-20261119.json",
+        "evidence/desktop/signal-path-linux-20261119.json"
+      ]
     },
     {
       "id": "OBS-03",
@@ -1120,9 +1308,11 @@
       "depends_on": [
         "ARCH-05"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/diagnostics/reads-linux-20261119.json"
+      ]
     },
     {
       "id": "OBS-04",
@@ -1139,9 +1329,13 @@
       "depends_on": [
         "OBS-01"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "in_progress",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/diagnostics/preview-linux-20261119.json",
+        "evidence/diagnostics/artifacts-linux-software-20261119.json",
+        "evidence/desktop/native-diagnostics-linux-20261120.json"
+      ]
     },
     {
       "id": "OBS-05",
@@ -1176,9 +1370,13 @@
       "depends_on": [
         "DSP-06"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/profiles/task2b-integrated-precommit-verification-20261118.json",
+        "evidence/desktop/native-correction-linux-20261119.json",
+        "evidence/desktop/native-fir-packages-linux-20261119.json"
+      ]
     },
     {
       "id": "COR-02",
@@ -1309,7 +1507,9 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "evidence/foundation/verification.json"
+        "evidence/foundation/verification.json",
+        "evidence/packaging/candidate-linux-20261121.json",
+        "evidence/packaging/simple-player-candidates-20261122.json"
       ]
     },
     {
@@ -1329,7 +1529,9 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "evidence/foundation/verification.json"
+        "evidence/foundation/verification.json",
+        "evidence/sendspin/pairing-linux-20261120.json",
+        "evidence/network/music-assistant-track-linux-20261121.json"
       ]
     },
     {
@@ -1350,7 +1552,13 @@
       "implementation_status": "in_progress",
       "verification_status": "partial",
       "evidence": [
-        "evidence/packaging/software-linux-20261120.json"
+        "evidence/packaging/software-linux-20261120.json",
+        "evidence/packaging/packaged-gui-linux-20261120.json",
+        "evidence/packaging/candidate-linux-20261121.json",
+        "evidence/packaging/simple-player-candidates-20261122.json",
+        "evidence/packaging/macos-user-install-20261121.json",
+        "evidence/packaging/macos-player-delivery-20261122.json",
+        "evidence/packaging/macos-attach-only-delivery-20261122.json"
       ]
     },
     {
@@ -1390,9 +1598,12 @@
       "depends_on": [
         "SAFE-05"
       ],
-      "implementation_status": "not_started",
-      "verification_status": "not_run",
-      "evidence": []
+      "implementation_status": "implemented",
+      "verification_status": "partial",
+      "evidence": [
+        "evidence/profiles/owner-package-precommit-verification-20261118.json",
+        "evidence/desktop/native-packages-linux-20261119.json"
+      ]
     }
   ],
   "acceptance_scenarios": [
