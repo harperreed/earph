@@ -3,6 +3,7 @@
 import asyncio
 import importlib.util
 import json
+import os
 import pathlib
 import sys
 
@@ -17,7 +18,17 @@ spec.loader.exec_module(transport_peer)
 report = transport_peer.report
 
 
-async def run(host, token):
+def keep(path, identity, record, client_id):
+    """Writes the server side of the pairing as the fixture line that the player server reads.
+
+    The file holds secrets. It must be new, and only its owner can read it.
+    """
+    fixture = {"server_private": identity.private_bytes.hex(), "psk": record.psk.hex(), "client_id": client_id}
+    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as file:
+        file.write(json.dumps(fixture) + "\n")
+
+
+async def run(host, token, record_path=None):
     hashes = transport_peer.provenance_module.provenance()
     # The pinned decoder reads the token that the Rust command printed.
     decoded = pairing_token.decode_psk_token(token)
@@ -49,6 +60,8 @@ async def run(host, token):
             record = await pairing.run_pairing_psk_server(enc, pairing_index=1, client_id=result.peer_id,
                 store=store, pairing_psk=decoded.pairing_psk)
             assert (await store.record_by_client_id(result.peer_id)).psk == record.psk
+            if record_path is not None:
+                keep(record_path, identity, record, result.peer_id)
             report({"stage": "paired", "psk_id": keys.psk_id_for(record.psk)})
             resolved = trust_store.ResolvedPsk(psk_id=keys.psk_id_for(record.psk), psk=record.psk,
                 category=trust_store.PskCategory.LONG_TERM, counterparty_id=result.peer_id)
@@ -83,4 +96,5 @@ async def run(host, token):
 
 
 if __name__ == "__main__":
-    asyncio.run(run(sys.argv[1], sys.stdin.readline().strip()))
+    # A second argument names a new private file that keeps the server side for sendspin_player_server.py.
+    asyncio.run(run(sys.argv[1], sys.stdin.readline().strip(), *sys.argv[2:3]))

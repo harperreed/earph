@@ -55,9 +55,53 @@ async def send_audio(enc, command):
     report({"stage": "sent", "frames": len(pcm) // 4, "first_timestamp": first})
 
 
+class PacedStream:
+    """Sends one pattern in real time, as a server does that holds a constant send-ahead."""
+    def __init__(self):
+        self.task = None
+        self.stopping = False
+
+    async def run(self, enc, command):
+        """Sends each chunk `lead_us` before its timestamp until the pattern ends or a stop arrives."""
+        first_frame, frames, preamble = command["first_frame"], command["frames"], command["preamble_frames"]
+        first = now_us() + command["lead_us"]
+        report({"stage": "streaming", "first_frame": first_frame, "first_timestamp": first})
+        sent = 0
+        while sent < preamble + frames and not self.stopping:
+            timestamp = first + sent * 1_000_000 // SAMPLE_RATE
+            wait_us = timestamp - command["lead_us"] - now_us()
+            if wait_us > 0:
+                await asyncio.sleep(wait_us / 1_000_000)
+                continue
+            silence = min(max(preamble - sent, 0), CHUNK_FRAMES)
+            audible = min(CHUNK_FRAMES - silence, preamble + frames - sent - silence)
+            pcm = bytes(silence * 4) + pattern(first_frame + sent + silence - preamble, audible)
+            frame = player.pack_player_audio_frame(timestamp, pcm)
+            player.stamp_send_ahead(frame, player.compute_send_ahead(timestamp, now_us()))
+            await enc.send_bytes(bytes(frame))
+            sent += silence + audible
+        report({"stage": "streamed", "frames": sent, "first_timestamp": first, "stopped": self.stopping})
+
+    async def stop(self):
+        """Ends the stream between two chunks, so no chunk stays half sent."""
+        if self.task is not None:
+            self.stopping = True
+            await self.task
+            self.task, self.stopping = None, False
+
+
+paced = PacedStream()
+
+
 async def follow(enc, command):
     """Runs one command of the test. Each server message comes from a pinned model."""
     name = command["command"]
+    if name == "stream":
+        # The stream runs beside the command loop, so a later clear or end can cut it.
+        await paced.stop()
+        paced.task = asyncio.ensure_future(paced.run(enc, command))
+        return
+    await paced.stop()
     if name == "start":
         stream = player.StreamStartPlayer(codec=types.AudioCodec.PCM, sample_rate=SAMPLE_RATE,
             channels=2, bit_depth=16)
@@ -74,7 +118,7 @@ async def follow(enc, command):
     else:
         raise AssertionError("unknown command")
     await enc.send_str(message.to_json())
-    report({"stage": name})
+    report({"stage": name, "server_time": now_us()})
 
 
 async def read_player(enc):
@@ -102,7 +146,7 @@ async def read_player(enc):
             "ignored_commands": declared.ignored_commands}})
 
 
-async def run(host, fixture):
+async def run(host, fixture, limit_seconds=60):
     hashes = transport_peer.provenance_module.provenance()
     for module, expected in MODEL_HASHES:
         actual = hashlib.sha256(pathlib.Path(module.__file__).read_bytes()).hexdigest()
@@ -163,11 +207,12 @@ async def run(host, fixture):
     port = site._server.sockets[0].getsockname()[1]
     report({"stage": "ready", "port": port, "server_id": identity.peer_id, "source_hashes": hashes})
     try:
-        await asyncio.wait_for(finished.wait(), 60)
+        await asyncio.wait_for(finished.wait(), limit_seconds)
         assert not failure, failure
     finally:
         await runner.cleanup()
 
 
 if __name__ == "__main__":
-    asyncio.run(run(sys.argv[1], json.loads(sys.stdin.readline())))
+    # A second argument raises the 60 second limit of one connection, for a long capture.
+    asyncio.run(run(sys.argv[1], json.loads(sys.stdin.readline()), *map(float, sys.argv[2:3])))
