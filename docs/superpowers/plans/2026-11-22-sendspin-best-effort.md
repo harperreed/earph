@@ -481,6 +481,18 @@ Other findings of these runs:
   Each command completed without waiting for a prompt. The keychain search list did not change.
 - The pinned peer's source hash checks pass on the Mac with Python 3.13.5 and the packages of `peer-requirements.txt`.
 
+### Local playback into the loopback device
+
+On 2026-11-23, the Mac build of `adb8d06` played the phoaudio `suite-48000-24-2ch` stimulus into the loopback device.
+This is local file playback, not Sendspin. It tests the same AudioQueue output path.
+
+- At 0 dB, the phoaudio `bit-exact` profile passed. The channel map is the identity.
+- At -10 dB, phoaudio found a gain change of -10.000 dB and nothing else. The `transparent` profile passed with a residual of -130 dB.
+- Both runs report `LEADING_CONTENT_LOST` for the first 288 frames. A frame comparison shows the 960-frame start gain ramp, linear from zero. No frame is missing.
+- Each capture read every frame with zero overruns.
+
+Record over SSH through a tmux session that a desktop Terminal started. A plain SSH session records silence, because macOS withholds audio input from it.
+
 ## Known risks
 
 - Event queue overflow ends the connection. Keep `buffer_capacity` small and the worker step non-blocking.
