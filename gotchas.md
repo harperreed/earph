@@ -140,4 +140,6 @@
   Add it only to the Sendspin scheduler's delay; the idle silence pacer must see the held frames alone.
   A pacer that counts the latency as held frames feeds no silence, and the output runs dry.
   The player needs a server lead of 150 ms plus that latency, or every chunk drops as late.
+  Music Assistant changes tracks with a full `stream/clear`, and the clear restarts an output that holds audio.
+  A restart longer than the remaining head start drops the track's first audio; read `timing.first_lead_us` and `timing.first_wait_us`.
   See `LatencyAdmission` in [the scheduler](crates/earph-engine/src/sendspin_schedule.rs) and [the runtime notes](docs/sendspin-runtime.md#player-stream-lifecycle).

@@ -314,6 +314,64 @@ Doctor Biz ran the build of `ce99d1f` on a Mac against Music Assistant on Novemb
   The player drops the first part of each track after a skip as late.
   The cause is not traced. The hypothesis: on a skip the server gives less head start than the declared lead.
 
+### Start drop: source reading and instrument
+
+A source reading on November 22, 2026 does not support that hypothesis. It ran nothing against a server.
+It read aiosendspin 10.2.1 and the Music Assistant 2.10.12 Sendspin provider. The 2.10.13 provider was not read.
+Two runs later showed 360,558 frames dropped over 24 anchors and 165,383 frames over 21 anchors.
+That is about 0.31 s and 0.16 s at each start.
+
+What the server does, from the source:
+
+- aiosendspin stamps the first chunk of a new timeline at its clock plus a send-ahead.
+  See `commit_audio` and `_min_send_ahead_us` in `aiosendspin/server/push_stream.py`.
+- For a buffered source the send-ahead is the larger of the minimum buffer plus a hold-back and the required lead time.
+  It is at least 50 ms, and the output delay is added. See `_role_send_ahead_us`.
+  For a live source it uses the minimum buffer and ignores the required lead time.
+- Both values come from the player state that Earph declares. The server clamps each at 30 seconds.
+  See `get_required_lead_time_us` and `get_min_buffer_us` in `aiosendspin/server/roles/player/v1.py`.
+- Music Assistant treats a library track as buffered. Radio and plugin sources are live.
+  See `_is_live_source` in the provider's `playback.py`.
+- A track change keeps the stream. The player receives a full `stream/clear`, no `stream/end`, and no new `stream/start`.
+  See `cancel(..., keep_stream=True)` in the provider's `player.py` and `PushStream.clear`.
+
+On the Bluetooth route Earph declared a lead of 310 ms and a minimum buffer of 360 ms.
+The first chunk after a skip therefore carries at least 360 ms at the server's clock.
+The schedule needs 160 ms of that for the device latency, plus the frames that the output holds.
+About 170 ms remain for the server's encode and send, the network, and the player's output.
+
+What the player does, from the code:
+
+- A full clear discards an output that holds scheduled audio. See `halt` in `crates/earph-engine/src/worker/sendspin.rs`.
+- The Core Audio discard closes and reopens the output. See `discard` in `crates/earph-engine/src/output/coreaudio/native.rs`.
+- Idle silence then starts the output again. No chunk gets a decision before the output runs. See `decide` in the worker.
+- A chunk whose target passed during that wait is dropped as late. See `anchor` in `crates/earph-engine/src/sendspin_schedule.rs`.
+
+The code supports this cause: the output restart after each clear takes longer than the head start that remains.
+The Bluetooth start errors before idle silence were 293 ms and 426 ms. A restart of that length exceeds 170 ms by 0.12 s to 0.26 s.
+The speaker values were 42 ms and 69 ms, which fit inside the margin. That matches a speaker run without drops.
+Inferred, not measured: the restart time of the Bluetooth output. No run has timed it.
+Unverified: that Music Assistant 2.10.13 behaves like the 2.10.12 source, and the size of the resampler hold-back.
+
+The instrument: `timing.first_lead_us`, `timing.min_first_lead_us`, `timing.first_wait_us`, and `timing.max_first_wait_us`.
+The first lead shows the head start that the server gave. The first wait shows how long the output kept the first decision back.
+The next Bluetooth run decides the cause. A first lead near 360 ms and a first wait above 200 ms confirm the restart.
+A first lead far below 360 ms points at the server instead.
+
+No fix landed. The options, once a run confirms the cause:
+
+1. Keep the output running through a full clear. Stop feeding audio, and let idle silence follow.
+   Cost: the output plays the audio that it already holds, so the old track sounds for that long after a skip.
+   On the AudioQueue route that is the queue depth. The device latency plays out in either design.
+   Sync stays exact. Size: about 30 source lines and 60 test lines. This is the recommended fix.
+2. Declare a larger lead and minimum buffer by a start allowance for the output.
+   Cost: every start and every skip begins later by that allowance, on every route unless the allowance is per route.
+   A buffered source keeps no lasting latency. A live source stays behind by the larger minimum buffer.
+   Sync stays exact. The allowance is a guess until a run measures the restart. Size: about 10 source lines.
+3. Start a late stream with a bounded offset instead of a drop, and hold that offset.
+   Cost: this player then plays behind every other player in the group for the whole stream.
+   State must show the offset. Size: about 80 source lines and 100 test lines. Not recommended.
+
 ## Known risks
 
 - Event queue overflow ends the connection. Keep `buffer_capacity` small and the worker step non-blocking.
