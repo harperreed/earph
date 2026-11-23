@@ -20,7 +20,7 @@ Press Control-C to stop.
 
 The volume changes only when you pass `--volume`, in dB from -120 to 0.
 A new Engine starts at -40 dB.
-That level suits headphones. It is hard to hear on speakers, and `play` prints a hint at -30 dB or lower.
+That level suits headphones. It is hard to hear on speakers, and `play` and `sendspin` print a hint at -30 dB or lower.
 On speakers, try `--volume -10`.
 
 `play` ends with one `result` line and an exit status.

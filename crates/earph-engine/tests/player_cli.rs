@@ -55,7 +55,7 @@ impl Bench {
         let mut config = "pcm.null { type null }\n".to_owned();
         for name in names {
             config.push_str(&format!(
-                "pcm.{name} {{ type file slave.pcm null file \"{}\" format raw hint {{ show on description \"{name}\" }} }}\n",
+                "pcm.{name} {{ type file slave.pcm null file \"{}\" format raw hint {{ show on description \"Desk {name}\" }} }}\n",
                 self.capture.display()
             ));
         }
@@ -265,7 +265,15 @@ fn play_without_a_named_output_uses_the_only_listed_output() {
     let output = bench.run(&["play", tone.to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
     let printed = text(&output.stdout);
-    assert!(printed.contains("output   only_output"), "{printed}");
+    // The line names the output as the device list does, not by its identifier alone.
+    assert!(
+        printed.contains("output   Desk only_output  [only_output]"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("hint     this volume is quiet"),
+        "{printed}"
+    );
     assert!(printed.contains("result   finished"), "{printed}");
     assert!(fs::metadata(&bench.capture).unwrap().len() > 0);
 }

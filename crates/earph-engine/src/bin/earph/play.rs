@@ -238,7 +238,7 @@ fn play(
         .clone();
     link.mutate(json!({"method": "queue.select", "id": first}), Target::None)?;
     let state = link.state()?;
-    announce_output(&state);
+    announce_output(link, &state);
     link.mutate(
         json!({
             "method": "sessions.start",
@@ -279,10 +279,18 @@ fn play(
 }
 
 /// Prints the output and the volume, with a hint when that volume is hard to hear.
-pub fn announce_output(state: &Value) {
+pub fn announce_output(link: &mut Link, state: &Value) {
+    let endpoint = &state["output"]["endpoint"];
+    // The identifier alone can be an opaque address. Name the output as the device list does.
+    let named = devices(link).ok().and_then(|listed| {
+        listed
+            .iter()
+            .find(|device| &device["endpoint"] == endpoint && !device_name(device).is_empty())
+            .map(label)
+    });
     println!(
         "output   {}  volume {}",
-        text(&state["output"]["endpoint"]),
+        named.unwrap_or_else(|| text(endpoint)),
         decibel_text(&state["software_gain_db"])
     );
     if state["software_gain_db"]
@@ -290,7 +298,7 @@ pub fn announce_output(state: &Value) {
         .is_some_and(|decibels| decibels <= QUIET_DB)
     {
         println!(
-            "hint     this volume is hard to hear on speakers; pass --volume DB or run `earph volume DB`"
+            "hint     this volume is quiet; if you hear nothing, pass --volume DB or run `earph volume DB`"
         );
     }
 }

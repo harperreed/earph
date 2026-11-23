@@ -174,7 +174,7 @@ fn stream(
         )?;
     }
     let state = link.state()?;
-    announce_output(&state);
+    announce_output(link, &state);
     link.mutate(
         json!({"method": "sources.sendspin.start", "device_id": state["output"]["device_id"]}),
         Target::New(session),
