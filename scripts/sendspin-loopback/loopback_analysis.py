@@ -207,7 +207,9 @@ def status_facts(snapshots, dropped_before):
     facts.update({"last_error_us": [timing.get("last_error_us") for timing in timings],
         "max_abs_error_us": last.get("max_abs_error_us"), "underruns": last.get("underruns"),
         "dropped_frames": last["dropped_frames"] - dropped_before,
-        "output_discarded_frames": last.get("output_discarded_frames")})
+        "output_discarded_frames": last.get("output_discarded_frames"),
+        # A starved output: queue frames with nothing queued, and chunks more than 20 ms late.
+        "late_chunks": last.get("late_chunks"), "starved_frames": last.get("starved_frames")})
     return facts
 
 
@@ -345,8 +347,9 @@ def summary(report):
             lines.append("  status   first lead %s us, first wait %s us, dropped %d, start error %s us, last error %s us" % (
                 status["first_lead_us"], status["first_wait_us"], status["dropped_frames"],
                 status["start_error_us"], "/".join(str(error) for error in status["last_error_us"])))
-            lines.append("  status   clear held %s frames, output discarded %s frames since the source started" % (
-                status["clear_held_frames"], status["output_discarded_frames"]))
+            lines.append("  status   clear held %s frames; since the source started: output discarded %s frames, "
+                "starved %s frames, %s late chunks" % (status["clear_held_frames"],
+                status["output_discarded_frames"], status["starved_frames"], status["late_chunks"]))
     for transition in report["transitions"]:
         if "silence_us" not in transition:
             lines.append("%s %d>%d  not measurable: a segment has no captured frame" % (
