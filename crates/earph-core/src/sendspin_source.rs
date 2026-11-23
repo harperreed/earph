@@ -36,8 +36,13 @@ pub enum SendspinTimingCorrection {
 pub struct SendspinTiming {
     pub qualification: SendspinTimingQualification,
     pub correction: SendspinTimingCorrection,
-    /// Whether the stream holds an anchor. A stream start, a stream end, and a long gap drop it.
+    /// Whether the stream holds an anchor.
+    /// A stream start, a full clear, a stream end, an output underrun, and a long gap drop it.
     pub anchored: bool,
+    /// Times a chunk took an anchor since this source started.
+    pub anchors: u64,
+    /// Output underruns that this source recovered from since it started.
+    pub underruns: u64,
     /// The first error measured after the latest anchor.
     pub start_error_us: Option<i64>,
     pub last_error_us: Option<i64>,
@@ -59,6 +64,8 @@ impl SendspinTiming {
         qualification: SendspinTimingQualification::Unqualified,
         correction: SendspinTimingCorrection::None,
         anchored: false,
+        anchors: 0,
+        underruns: 0,
         start_error_us: None,
         last_error_us: None,
         max_abs_error_us: 0,
@@ -113,6 +120,8 @@ mod tests {
                     "qualification": "unqualified",
                     "correction": "none",
                     "anchored": false,
+                    "anchors": 0,
+                    "underruns": 0,
                     "start_error_us": null,
                     "last_error_us": null,
                     "max_abs_error_us": 0,
@@ -126,6 +135,8 @@ mod tests {
         );
         observation.timing = SendspinTiming {
             anchored: true,
+            anchors: 2,
+            underruns: 1,
             start_error_us: Some(-40),
             last_error_us: Some(125),
             max_abs_error_us: 125,
@@ -135,6 +146,8 @@ mod tests {
             ..SendspinTiming::UNANCHORED
         };
         let timing = &serde_json::to_value(observation).unwrap()["timing"];
+        assert_eq!(timing["anchors"], 2);
+        assert_eq!(timing["underruns"], 1);
         assert_eq!(timing["start_error_us"], -40);
         assert_eq!(timing["last_error_us"], 125);
         assert_eq!(timing["mapping_revision"], 3);

@@ -310,3 +310,38 @@ fn zero_rate_and_overflow_return_errors() {
     );
     assert_eq!(scheduler.snapshot(), before);
 }
+
+#[test]
+fn anchors_count_each_anchored_write_and_no_wait_or_dropped_chunk() {
+    let mut scheduler = Scheduler::new(RATE).unwrap();
+    // A wait and a wholly late chunk take no anchor.
+    assert_eq!(
+        scheduler.decide(chunk(1_000_000, 900_000, None)),
+        Ok(Decision::Wait { until_us: 995_000 })
+    );
+    assert_eq!(
+        scheduler.decide(chunk(0, 1_000_000, None)),
+        Ok(Decision::DropChunk)
+    );
+    assert_eq!(scheduler.snapshot().anchors, 0);
+    assert_eq!(scheduler.decide(chunk(0, 0, None)), Ok(write(0, 0)));
+    assert_eq!(scheduler.snapshot().anchors, 1);
+    // A locked chunk and a short gap keep the first anchor.
+    let short = ChunkFacts {
+        gap_frames: 480,
+        ..chunk(20_000, 10_000, None)
+    };
+    assert_eq!(scheduler.decide(short), Ok(write(480, 0)));
+    assert_eq!(scheduler.snapshot().anchors, 1);
+    // A reset alone takes no anchor. The next written chunk does, padded or trimmed.
+    scheduler.reset();
+    assert_eq!(scheduler.snapshot().anchors, 1);
+    assert_eq!(scheduler.decide(chunk(1_000, 0, None)), Ok(write(48, 0)));
+    assert_eq!(scheduler.snapshot().anchors, 2);
+    let long = ChunkFacts {
+        gap_frames: 4_801,
+        ..chunk(2_000_000, 2_001_000, None)
+    };
+    assert_eq!(scheduler.decide(long), Ok(write(0, 48)));
+    assert_eq!(scheduler.snapshot().anchors, 3);
+}

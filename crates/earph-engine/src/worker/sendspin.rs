@@ -123,13 +123,15 @@ impl Reducer {
             .set_participation(participating, participating)
             .map_err(player_error)
     }
+    /// A partial clear cannot retract audio before `written`, which already left for the output.
     fn player(
         &mut self,
         event: PlayerEvent<'_>,
         accept_audio: bool,
+        written: Option<ServerPosition>,
     ) -> Result<TimelineAction, EngineError> {
         self.timeline
-            .apply(event, self.binding, accept_audio, None)
+            .apply(event, self.binding, accept_audio, written)
             .map_err(player_error)
     }
     /// The timeline rejects a regressing clock, so a later mapping revision cannot step back.
@@ -169,8 +171,9 @@ impl Reducer {
 struct Held {
     lease: PcmChunk,
     samples: Vec<i16>,
+    /// The scalar index of the first sample that has not left for the output period.
     offset: usize,
-    /// Whether the scheduler decided to write this chunk. `offset` then skips its late frames.
+    /// Whether the scheduler decided to write the samples from `offset` on.
     scheduled: bool,
 }
 
@@ -187,6 +190,8 @@ pub(super) struct SendspinPlayback {
     period: PcmBlock,
     /// The frame range of `period` that the output has not accepted yet.
     pending: Option<(usize, usize)>,
+    /// Whether `period` holds scheduled silence. Otherwise it holds samples of the held chunk.
+    period_silent: bool,
     held: Option<Held>,
     scheduler: Scheduler,
     /// Where the last scheduled chunk ends on the server timeline.
@@ -199,6 +204,8 @@ pub(super) struct SendspinPlayback {
     /// Whether the backend reports a delay. Then an unprimed output has a known delay of zero.
     reports_delay: bool,
     delay_basis: Option<&'static str>,
+    /// Output underruns that this source recovered from.
+    underruns: u64,
     gain: GainRamp,
     sequence: u64,
     submitted_frames: u64,
@@ -258,6 +265,8 @@ impl SendspinPlayback {
             .map_err(player_error)?;
         let scheduler = Scheduler::new(SAMPLE_RATE_HZ).map_err(|_| SCHEDULE)?;
         let output = output::open(config, format, epochs)?;
+        #[cfg(all(test, target_os = "linux"))]
+        let output = super::sendspin_tests::underrun_seam(output);
         let retained = settings
             .snapshot
             .profile_storage_bytes
@@ -294,6 +303,7 @@ impl SendspinPlayback {
             output,
             period,
             pending: None,
+            period_silent: false,
             held: None,
             scheduler,
             previous_end: None,
@@ -302,6 +312,7 @@ impl SendspinPlayback {
             // ALSA reports a client delay estimate. Core Audio reports none.
             reports_delay: config.backend == OutputBackend::Alsa,
             delay_basis: None,
+            underruns: 0,
             gain,
             sequence: 0,
             submitted_frames: 0,
@@ -387,6 +398,8 @@ impl SendspinPlayback {
                     Correction::None => SendspinTimingCorrection::None,
                 },
                 anchored: facts.anchored,
+                anchors: facts.anchors,
+                underruns: self.underruns,
                 start_error_us: facts.start_error_us,
                 last_error_us: facts.last_error_us,
                 max_abs_error_us: facts.max_abs_error_us,
@@ -426,7 +439,11 @@ impl SendspinPlayback {
                 self.reducer.declared = Some(generation);
             }
         }
-        let busy = self.write(mapping)?;
+        let busy = match self.write(mapping) {
+            Ok(busy) => busy,
+            // An underrun fails an output call. The recovered output has audio to schedule.
+            Err(error) => self.recover(error).map(|()| true)?,
+        };
         self.publish(observed.player)?;
         if !busy {
             // This sleep also bounds a scheduled wait, so the next tick drains events on time.
@@ -446,10 +463,23 @@ impl SendspinPlayback {
                 SessionEvent::Unsent(_) => self.reducer.declared = None,
                 _ => {}
             }
-            if let Some(event) = lease.player_event()
-                && self.reducer.player(event, lease.player_available())? == TimelineAction::Started
-            {
-                self.unanchor();
+            if let Some(event) = lease.player_event() {
+                let full_clear = matches!(
+                    event,
+                    PlayerEvent::Clear {
+                        from_timestamp_us: None,
+                        ..
+                    }
+                );
+                let written = self.written_until()?;
+                let available = lease.player_available();
+                match self.reducer.player(event, available, written)? {
+                    TimelineAction::Started => self.unanchor(),
+                    // A full clear also drops the audio that the output still holds.
+                    TimelineAction::Cleared(_) if full_clear => self.halt()?,
+                    TimelineAction::Cleared(_) => self.retract(written)?,
+                    _ => {}
+                }
             }
             // A stream end or a lost player role stops the stream. Neither drains audio.
             if streaming && !self.reducer.timeline.stream_active() {
@@ -468,15 +498,70 @@ impl SendspinPlayback {
             Err(_) => Ok(()),
         }
     }
-    /// Drops unplayed audio and reprepares the output for another stream.
+    /// Returns where the audio that left the timeline for the output ends on the server timeline.
+    fn written_until(&self) -> Result<Option<ServerPosition>, EngineError> {
+        match &self.held {
+            Some(held) if held.scheduled => held
+                .lease
+                .position()
+                .add_frames(held.offset / 2)
+                .map(Some)
+                .map_err(player_error),
+            _ => Ok(self.previous_end),
+        }
+    }
+    /// Drops the held chunk when a partial clear discarded it.
+    /// The replacement audio then continues from `written`, so the anchor stays.
+    fn retract(&mut self, written: Option<ServerPosition>) -> Result<(), EngineError> {
+        if self
+            .held
+            .as_ref()
+            .is_some_and(|held| !self.reducer.timeline.is_current(&held.lease))
+        {
+            self.release()?;
+            self.previous_end = written;
+            self.silence = 0;
+        }
+        Ok(())
+    }
+    /// Drops unplayed audio and reprepares the output for other audio.
     fn halt(&mut self) -> Result<(), EngineError> {
         self.pending = None;
         self.release()?;
         self.unanchor();
+        if !self.primed {
+            // A prepared output that accepted no frame holds nothing to drop.
+            return Ok(());
+        }
+        match self.output.suspend(self.settings.snapshot.epochs) {
+            Ok(_) => {
+                self.primed = false;
+                Ok(())
+            }
+            // A starved output underran before this halt. Its recovery prepares it again.
+            Err(error) => self.recover(error),
+        }
+    }
+    /// Reprepares the output after an underrun and makes the unwritten audio anchor again.
+    /// Every other failure returns unchanged. Gain and session settings stay as they are.
+    fn recover(&mut self, error: EngineError) -> Result<(), EngineError> {
+        // Only an output that accepted frames can underrun. This bound also ends a repeating fault.
+        if !self.primed || !self.output.recover(self.settings.snapshot.epochs)? {
+            return Err(error);
+        }
         self.primed = false;
-        self.output
-            .suspend(self.settings.snapshot.epochs)
-            .map(|_| ())
+        self.underruns += 1;
+        let unwritten = self.pending.take().map_or(0, |(offset, end)| end - offset);
+        if let Some(held) = self.held.as_mut() {
+            if !self.period_silent {
+                // The held chunk takes back the samples that the output never accepted.
+                held.offset -= unwritten * 2;
+            }
+            // A chunk without samples left stays scheduled, so the scheduler releases it.
+            held.scheduled = held.offset == held.samples.len();
+        }
+        self.unanchor();
+        Ok(())
     }
     /// Makes the next chunk anchor to its own timestamp.
     fn unanchor(&mut self) {
@@ -512,8 +597,13 @@ impl SendspinPlayback {
         let (Some(mapping), Some(held)) = (mapping, self.held.as_ref()) else {
             return Ok(None);
         };
-        let position = held.lease.position();
-        let frames = held.samples.len() as u64 / 2;
+        // After an underrun the held chunk continues from its first unwritten frame.
+        let position = held
+            .lease
+            .position()
+            .add_frames(held.offset / 2)
+            .map_err(player_error)?;
+        let frames = (held.samples.len() - held.offset) as u64 / 2;
         let now_us = self.clock.sample().map_err(transport_error)?.microseconds();
         let target = match mapping.port_target(
             position.microseconds_floor(),
@@ -575,7 +665,7 @@ impl SendspinPlayback {
                     skip_frames,
                 }) => {
                     let held = self.held.as_mut().ok_or(FAILED)?;
-                    held.offset = usize::try_from(skip_frames).map_err(|_| SCHEDULE)? * 2;
+                    held.offset += usize::try_from(skip_frames).map_err(|_| SCHEDULE)? * 2;
                     held.scheduled = true;
                     self.previous_end = Some(held.lease.end_position());
                     self.silence = prepend_silence_frames;
@@ -592,7 +682,8 @@ impl SendspinPlayback {
             return Ok(false);
         }
         let capacity = self.period.capacity_frames();
-        let frames = if self.silence > 0 {
+        self.period_silent = self.silence > 0;
+        let frames = if self.period_silent {
             let frames = usize::try_from(self.silence).map_or(capacity, |left| left.min(capacity));
             for index in 0..frames * 2 {
                 self.period.set_integer_sample(index, 0)?;
@@ -704,13 +795,13 @@ mod tests {
     fn activation_start_audio_and_end_drive_the_timeline_in_order() {
         let mut reducer = reducer();
         assert_eq!(
-            reducer.player(start(1), true).unwrap(),
+            reducer.player(start(1), true, None).unwrap(),
             TimelineAction::Discarded,
             "an inactive player role discards lifecycle events"
         );
         reducer.activated(true).unwrap();
         assert_eq!(
-            reducer.player(start(2), true).unwrap(),
+            reducer.player(start(2), true, None).unwrap(),
             TimelineAction::Started
         );
         assert_eq!(
@@ -719,13 +810,13 @@ mod tests {
         );
         let payload = [1, 0, 2, 0, 3, 0, 4, 0];
         assert_eq!(
-            reducer.player(audio(&payload, 3), true).unwrap(),
+            reducer.player(audio(&payload, 3), true, None).unwrap(),
             TimelineAction::Queued
         );
         let mut chunk = reducer.timeline.take_chunk().unwrap();
         assert_eq!(chunk.take_samples().unwrap(), [1, 2, 3, 4]);
         reducer.timeline.release_chunk(chunk).unwrap();
-        reducer.player(audio(&payload, 4), true).unwrap_err();
+        reducer.player(audio(&payload, 4), true, None).unwrap_err();
         let later = PlayerAudioFrame {
             server_timestamp_us: 3000,
             send_ahead_us: 0,
@@ -735,9 +826,15 @@ mod tests {
             frame: later,
             arrival: stamp(5),
         };
-        assert_eq!(reducer.player(later, true).unwrap(), TimelineAction::Queued);
+        assert_eq!(
+            reducer.player(later, true, None).unwrap(),
+            TimelineAction::Queued
+        );
         let end = PlayerEvent::End { arrival: stamp(6) };
-        assert_eq!(reducer.player(end, true).unwrap(), TimelineAction::Ended);
+        assert_eq!(
+            reducer.player(end, true, None).unwrap(),
+            TimelineAction::Ended
+        );
         assert!(
             reducer.timeline.take_chunk().is_none(),
             "a stream end discards queued audio"
@@ -751,10 +848,10 @@ mod tests {
     fn unavailable_delivery_and_deactivation_keep_audio_from_the_output() {
         let mut reducer = reducer();
         reducer.activated(true).unwrap();
-        reducer.player(start(1), true).unwrap();
+        reducer.player(start(1), true, None).unwrap();
         let payload = [1, 0, 2, 0];
         assert_eq!(
-            reducer.player(audio(&payload, 2), false).unwrap(),
+            reducer.player(audio(&payload, 2), false, None).unwrap(),
             TimelineAction::Discarded
         );
         assert!(reducer.timeline.take_chunk().is_none());

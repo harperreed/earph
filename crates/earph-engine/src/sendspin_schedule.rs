@@ -76,6 +76,8 @@ impl Qualification {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScheduleSnapshot {
     pub anchored: bool,
+    /// Times a chunk took an anchor. A wait and a dropped chunk take none.
+    pub anchors: u64,
     /// The first locked error after the latest anchor.
     pub start_error_us: Option<i64>,
     pub last_error_us: Option<i64>,
@@ -106,6 +108,7 @@ impl Scheduler {
             sample_rate,
             stats: ScheduleSnapshot {
                 anchored: false,
+                anchors: 0,
                 start_error_us: None,
                 last_error_us: None,
                 max_abs_error_us: 0,
@@ -190,6 +193,7 @@ fn anchor(
     if lead > 0 {
         let silence = frames(round_nearest(lead, MICROS_PER_SECOND)?)?;
         stats.inserted_silence_frames = add(stats.inserted_silence_frames, silence)?;
+        stats.anchors = add(stats.anchors, 1)?;
         stats.anchored = true;
         return Ok(Decision::Write {
             prepend_silence_frames: silence,
@@ -206,6 +210,7 @@ fn anchor(
     }
     let skip_frames = frames(late)?;
     stats.dropped_frames = add(stats.dropped_frames, skip_frames)?;
+    stats.anchors = add(stats.anchors, 1)?;
     stats.anchored = true;
     Ok(Decision::Write {
         prepend_silence_frames: 0,

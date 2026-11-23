@@ -227,6 +227,14 @@ impl PlayerPeer {
         .concat();
         self.send(4, body);
     }
+    /// Clears the player's buffer. A timestamp clears only the audio from that server time on.
+    pub fn clear_stream(&mut self, from_timestamp_us: Option<i64>) {
+        let mut payload = json!({"server_transmitted":self.server_now_us()});
+        if let Some(from) = from_timestamp_us {
+            payload["from_timestamp"] = json!(from);
+        }
+        self.send_json("stream/clear", payload);
+    }
     pub fn end_stream(&mut self) {
         self.send_json("stream/end", json!({}));
     }
