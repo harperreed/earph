@@ -516,7 +516,10 @@ impl OwnerControl<'_> {
                 gate.reserved = staged.snapshot().reserved_next_entry_id;
                 gate.epochs = Some(staged.snapshot().epochs);
             }
-            if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
+            if matches!(
+                command.payload,
+                Command::Stop | Command::OwnerShutdown | Command::SendspinStart { .. }
+            ) {
                 gate.active = None;
                 gate.reserved = None;
             }
@@ -560,7 +563,12 @@ impl OwnerControl<'_> {
             && !dispatched_early
             && let Err(error) = if command.payload.activates_graph() {
                 graphs.activate(worker, session)
-            } else if before.source == Some(SourceKind::Sendspin) {
+            } else if matches!(command.payload, Command::SendspinStart { .. }) {
+                retire_for_sendspin(&command, before.source, worker, session)
+            } else if before.source == Some(SourceKind::Sendspin)
+                // A takeover starts a new session, and its start action retires this source.
+                && after.epochs.session == before.epochs.session
+            {
                 dispatch_sendspin(&command, worker, session)
             } else {
                 dispatch_with_network(&command, worker, session, live_binding, clock)
@@ -683,6 +691,10 @@ fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
     if matches!(command, Command::NetworkStartHttpFlac { .. }) {
         return true;
     }
+    // A takeover stops the outgoing local source. A network source retires through its own action.
+    if matches!(command, Command::SendspinStart { .. }) {
+        return source == Some(SourceKind::LocalFile);
+    }
     if source == Some(SourceKind::Sendspin) {
         return matches!(
             command,
@@ -801,6 +813,27 @@ fn dispatch(
         worker.send(action)?;
     }
     Ok(())
+}
+/// Stops the local source that a Sendspin takeover replaces, before the credential load begins.
+/// The Sendspin start reaches the worker later, so the outgoing source must not play until then.
+/// Core refuses the stop report, because the session now belongs to Sendspin.
+fn retire_for_sendspin(
+    command: &CommandEnvelope,
+    outgoing: Option<SourceKind>,
+    worker: &mut Worker,
+    session: &Session,
+) -> Result<(), EngineError> {
+    if outgoing != Some(SourceKind::LocalFile) {
+        return Ok(());
+    }
+    worker.send(Action::Stop(StopRequest {
+        request_id: command.request_id.clone(),
+        settings: Settings {
+            pcm_processing: false,
+            snapshot: session.snapshot(),
+            playing: false,
+        },
+    }))
 }
 /// The Sendspin source takes settings and one stop. Pause reaches the worker before the commit.
 fn dispatch_sendspin(

@@ -779,10 +779,7 @@ fn a_local_start_takes_the_output_from_sendspin_only_with_takeover() {
     assert!(state.muted, "a takeover starts muted");
     assert_eq!(state.epochs.session, old.epochs.session + 1);
     assert!(session.sendspin_connection().is_none());
-    assert_eq!(
-        session.retiring_sendspin_connection(),
-        Some(old.generation)
-    );
+    assert_eq!(session.retiring_sendspin_connection(), Some(old.generation));
     assert_eq!(
         sendspin(&mut session, "closing")["value"]["phase"],
         "closing"
@@ -858,11 +855,14 @@ fn a_sendspin_start_takes_the_output_from_a_local_session_only_with_takeover() {
     assert!(local.active_entry_id.is_some());
 
     // A start without the field asks for no takeover.
-    for (id, payload) in [("absent", start()), ("implicit", {
-        let mut payload = takeover_start();
-        payload["takeover"] = json!(false);
-        payload
-    })] {
+    for (id, payload) in [
+        ("absent", start()),
+        ("implicit", {
+            let mut payload = takeover_start();
+            payload["takeover"] = json!(false);
+            payload
+        }),
+    ] {
         rejected(
             &mut session,
             id,
