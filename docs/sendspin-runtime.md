@@ -206,7 +206,6 @@ A lost server is the exception once the server knew this player: the session sta
 
 The playback worker anchors a chunk to its own server timestamp at each stream start.
 It anchors again after a full clear, an output underrun, idle silence, and a timestamp gap longer than 100 ms.
-It also anchors again when a contiguous chunk is more than 20 ms late on an output that holds its depth.
 A shorter gap becomes silence and keeps the anchor.
 
 While a stream is active and no audio is due, the worker feeds the output idle silence.
@@ -227,6 +226,9 @@ With the command's default sizes that is up to 8192 frames, about 170 ms. This c
 The bound applies only to an output that counts its queued frames from a cursor, as Core Audio does.
 An ALSA delay can count frames that already left the buffer, and a bound on that report could starve the device.
 So an ALSA output has no bound from the worker. Its buffer is the bound: 256 frames with the command's default.
+A clear then plays on for the buffer length: `buffer_frames` / 48000 s, about 5 ms at 256 frames.
+Above about 9600 buffer frames that hold exceeds the 200 ms head start, and each clear drops new audio as late.
+No guard exists for that case. A small one would declare a larger required lead for such a buffer, as the device latency already does.
 While a Core Audio output still starts, silence can pile up to about two buffers, and audio due inside that backlog drops once as late.
 The worker estimates the held frames from the accepted frames and its monotonic clock.
 A running output's own report corrects that estimate; an output without a clock reports zero and corrects nothing.
@@ -309,10 +311,9 @@ The audio after the hole stays on schedule, so the anchor stays.
 `timing.starved_frames` counts the queue frames that passed with nothing queued: gaps between buffers, and buffer starts behind the queue clock.
 It is `null` for an output that fails instead, as ALSA does.
 `timing.late_chunks` counts the contiguous chunks that were due more than 20 ms before the output could play them.
-A late chunk writes at once while the output catches up; an output that ran dry holds almost nothing then.
-A late chunk on an output that holds half its idle depth or more stays late, so it anchors again.
-That anchor drops the overdue frames and counts them in `timing.dropped_frames`.
-This also bounds a slow output clock at 20 ms of lateness; smaller drift stays uncorrected.
+The count acts on nothing: a late chunk writes at once, keeps the anchor, and records its error.
+Drift is not corrected and not bounded. A slow output clock makes every chunk later, without limit.
+`timing.late_chunks` and `timing.max_abs_error_us` show it. A designed drift unit is future work.
 A starved ALSA output underruns.
 After an underrun the worker prepares the same ALSA stream again and anchors the unwritten audio again.
 It reopens no device, and mute and volume stay unchanged.

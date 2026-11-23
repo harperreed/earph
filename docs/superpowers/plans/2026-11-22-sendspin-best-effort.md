@@ -65,7 +65,7 @@ U9 adds the latency that the Core Audio device reports behind that cursor.
 Keep the output running on idle silence while a stream is active and no audio is due (U8).
 Anchor only on a running output.
 Keep the output running through a full clear, and write scheduled audio only up to 100 ms ahead (U10).
-Count a starved output, and anchor again when a chunk stays more than 20 ms late (U10).
+Count a starved output and each chunk that is more than 20 ms late. Act on neither count (U10).
 
 ## Units
 
@@ -284,9 +284,15 @@ State shows the sum as `timing.starved_frames`.
   The server's head start is at least 200 ms plus the device latency, so 100 ms remain for a clear.
 - `timing.starved_frames` counts starved queue frames on Core Audio. It is `null` on ALSA, which fails a call instead.
 - `timing.late_chunks` counts contiguous chunks that were more than 20 ms late.
-  A late chunk writes at once while the output catches up. On an output that holds half its idle depth it anchors again.
-  That anchor drops the overdue frames and counts them. A queue that dropped the late frames itself needs no new anchor.
-  This also ends a lateness above 20 ms from a slow output clock. Smaller drift stays uncorrected.
+  The count acts on nothing: a late chunk writes at once, keeps the anchor, and records its error, as before this unit.
+  The second round first anchored such a chunk again on an output that held half its idle depth. A review removed that rule.
+  On Core Audio the held count includes the staging ring, so the rule could fire while the queue still dropped late buffers.
+  Both would drop audio, and the stream would then play early for good. A slow device clock would also skip once every 20 ms of drift.
+  The measured queue drops late buffers itself and stays on schedule, so Core Audio needs no new anchor.
+  Drift is not corrected and not bounded. `late_chunks` and `max_abs_error_us` show it. A designed drift unit is future work.
+- With no worker bound on ALSA, a clear plays on for `buffer_frames` / 48000 s: about 5 ms at the default 256 frames.
+  Above about 9600 buffer frames the hold exceeds the 200 ms head start, and each clear drops new audio as late.
+  No guard exists. A small one would declare a larger required lead for such a buffer, as the device latency already does.
 - `clear_held_frames` and `output_discarded_frames` no longer count idle silence that lies before the scheduled frames.
 - A clear no longer recovers an underrun by itself. A failed hold query gives `null`, and the next write recovers.
   That removes a branch that no test could reach.
@@ -300,7 +306,7 @@ That needs a rebuilt clock mapping in the adapter and a Mac to test it. It stays
 
 The worker tests model both kinds of starved output behind the clocked seam, with a worker stall of 250 ms.
 An output that drops late frames counts 6000 to 12000 starved frames, at least one late chunk, and keeps its anchor.
-An output that plays late frames late anchors again and drops the overdue audio.
+An output that plays late frames late counts the same, keeps its anchor, drops nothing, and stays late.
 The schedule test counts a buffer behind the clock and a gap after a predecessor.
 
 Unverified on a Mac: the whole second round. Two lines changed in code that only a Mac compiles:
