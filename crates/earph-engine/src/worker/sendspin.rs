@@ -2,8 +2,8 @@
 // ABOUTME: Anchors each stream to its server timestamps, keeps the output running on idle silence, and reports unqualified timing.
 use super::*;
 use crate::sendspin_schedule::{
-    ANCHOR_PAD_LIMIT_US, ChunkFacts, Correction, Decision, MonotonicClamp, Qualification,
-    Scheduler, SilencePacer,
+    ANCHOR_PAD_LIMIT_US, ChunkFacts, Correction, Decision, LatencyAdmission, MonotonicClamp,
+    Qualification, Scheduler, SilencePacer,
 };
 use earph_core::{
     audio::{ChannelLayout, PcmRepresentation},
@@ -25,6 +25,7 @@ use earph_sendspin::{
 /// No measurement of the path after the backend exists, so this delay is zero.
 const OUTPUT_DELAY_MS: u32 = 0;
 /// The server must send each chunk this far ahead of its timestamp. Admitted, not measured.
+/// The declared lead adds the applied device latency of the opened output.
 const REQUIRED_LEAD_TIME_MS: u64 = 150;
 /// The server should keep this much audio queued at the player. Admitted, not measured.
 const MIN_BUFFER_MS: u32 = 200;
@@ -285,8 +286,6 @@ impl SendspinPlayback {
         let mut gain = GainRamp::new(format)?;
         let (target, ramp) = gain_target(&settings.snapshot);
         gain.set_target(target, ramp)?;
-        let state = PlayerState::new(OUTPUT_DELAY_MS, REQUIRED_LEAD_TIME_MS, MIN_BUFFER_MS)
-            .map_err(player_error)?;
         let scheduler = Scheduler::new(SAMPLE_RATE_HZ).map_err(|_| SCHEDULE)?;
         let depth = (config.period_frames.saturating_mul(IDLE_DEPTH_PERIODS))
             .max(SAMPLE_RATE_HZ / 1000 * IDLE_DEPTH_MIN_MS)
@@ -295,6 +294,12 @@ impl SendspinPlayback {
         let output = output::open(config, format, epochs)?;
         #[cfg(all(test, target_os = "linux"))]
         let output = super::sendspin_tests::underrun_seam(output);
+        // The schedule writes each chunk earlier by the applied device latency,
+        // so the server must send it that much earlier.
+        let latency = output.device_latency().map(|device| device.frames);
+        let lead = LatencyAdmission::new(SAMPLE_RATE_HZ, latency).lead_time_ms();
+        let state = PlayerState::new(OUTPUT_DELAY_MS, REQUIRED_LEAD_TIME_MS + lead, MIN_BUFFER_MS)
+            .map_err(player_error)?;
         let retained = settings
             .snapshot
             .profile_storage_bytes
@@ -415,8 +420,20 @@ impl SendspinPlayback {
         report_closed(&self.shared, event, &self.events);
         stopped
     }
+    /// Returns what the schedule does with the latency that the output device reports,
+    /// and the delay basis that names an applied latency.
+    /// A reopened output reads its device again, so this asks the output each time.
+    fn device_latency(&self) -> (LatencyAdmission, Option<&'static str>) {
+        let reported = self.output.device_latency();
+        let admission = LatencyAdmission::new(SAMPLE_RATE_HZ, reported.map(|device| device.frames));
+        let basis = reported
+            .filter(|_| admission.applied())
+            .map(|device| device.basis);
+        (admission, basis)
+    }
     fn observed(&self, phase: SendspinTransportPhase) -> SendspinSourceObservation {
         let facts = self.scheduler.snapshot();
+        let (latency, _) = self.device_latency();
         SendspinSourceObservation {
             phase,
             submitted_frames: self.submitted_frames,
@@ -439,6 +456,8 @@ impl SendspinPlayback {
                 mapping_revision: facts.mapping_revision,
                 backend_delay_known: facts.delay_known,
                 backend_delay_basis: self.delay_basis,
+                device_latency_frames: latency.reported_frames(),
+                device_latency_applied: latency.applied(),
             },
         }
     }
@@ -622,6 +641,7 @@ impl SendspinPlayback {
     /// Returns the frames that the output still holds, or `None` when the backend reports no fact.
     /// A backend without a delay report counts the accepted frames past its restart cursor.
     /// That cursor is callback delivery or a queue clock, never an audible position.
+    /// The device latency lies behind these frames, so the idle pacer never sees it.
     fn held_frames(&mut self) -> Result<Option<u64>, EngineError> {
         if !self.primed {
             // An output that accepted no frame holds none.
@@ -633,7 +653,9 @@ impl SendspinPlayback {
             Some(counters.submitted.saturating_sub(cursor))
         });
         if held.is_some() {
-            self.delay_basis = Some(counters.basis);
+            // The scheduler's delay includes an applied device latency, and the basis says so.
+            let (_, latency_basis) = self.device_latency();
+            self.delay_basis = Some(latency_basis.unwrap_or(counters.basis));
         }
         Ok(held)
     }
@@ -673,12 +695,14 @@ impl SendspinPlayback {
         let gap_ticks = self
             .previous_end
             .map_or(0, |end| position.ticks() - end.ticks());
+        // The device reports its latency behind the frames that the output holds.
+        let (latency, _) = self.device_latency();
         let facts = ChunkFacts {
             target_us: target.time_us,
             mapping_revision: target.mapping_revision,
             frames,
             now_us,
-            delay_frames: self.held_frames()?,
+            delay_frames: latency.delay_frames(self.held_frames()?),
             gap_frames: u64::try_from(gap_ticks / ServerPosition::TICKS_PER_FRAME).unwrap_or(0),
         };
         let decision = self.scheduler.decide(facts).map_err(|_| SCHEDULE)?;

@@ -31,6 +31,30 @@ fn request(config: &OutputConfiguration, format: PcmFormat) -> Result<OutputRequ
         route,
     })
 }
+/// Returns the latency that the device reports beyond the worker's restart cursor, at the client rate.
+/// It adds the device latency, the safety offset, and the stream latency.
+/// The AudioQueue cursor is the queue clock: a frame in the device IO buffer still lies past it,
+/// so the counted frames cover that buffer already.
+/// The HAL cursor is callback delivery: a delivered frame leaves the count and still waits one
+/// IO buffer, so that route adds the buffer.
+/// The frames are a device report, and the basis claims no audible position.
+fn device_latency(
+    latency: &earph_coreaudio::OutputLatency,
+    request: &OutputRequest,
+) -> Option<DeviceLatency> {
+    let (with_io_buffer, basis) = match request.route {
+        PlaybackRoute::Float32Compatibility => (
+            false,
+            "audio_queue_sample_time_plus_reported_device_latency_not_audible_position",
+        ),
+        PlaybackRoute::StrictInteger => (
+            true,
+            "core_audio_ioproc_delivery_plus_reported_device_latency_not_audible_position",
+        ),
+    };
+    let frames = latency.frames_at(request.format.sample_rate_hz(), with_io_buffer)?;
+    Some(DeviceLatency { frames, basis })
+}
 fn observed(format: &StreamFormat) -> ObservedStreamFormat {
     let representation = match (
         format.format_id == u32::from_be_bytes(*b"lpcm"),
@@ -359,6 +383,50 @@ mod tests {
             request(&direct, format()).unwrap().route,
             PlaybackRoute::StrictInteger
         );
+    }
+    #[test]
+    fn reported_device_latency_uses_the_client_rate_and_names_its_route() {
+        let reported = earph_coreaudio::OutputLatency {
+            nominal_rate_hz: 48000.0,
+            device_frames: Some(300),
+            safety_offset_frames: Some(100),
+            stream_frames: Some(80),
+            io_buffer_frames: 512,
+        };
+        let system = request(&config(), format()).unwrap();
+        // The queue clock already counts the frames in the device IO buffer.
+        assert_eq!(
+            device_latency(&reported, &system),
+            Some(DeviceLatency {
+                frames: 480,
+                basis: "audio_queue_sample_time_plus_reported_device_latency_not_audible_position",
+            })
+        );
+        // A 96 kHz device counts twice the frames for the same time.
+        let fast = earph_coreaudio::OutputLatency {
+            nominal_rate_hz: 96000.0,
+            ..reported
+        };
+        assert_eq!(device_latency(&fast, &system).unwrap().frames, 240);
+        let mut direct = config();
+        direct.route = OutputRoute::DirectHardware;
+        let direct = request(&direct, format()).unwrap();
+        // Callback delivery stops before the device IO buffer.
+        assert_eq!(
+            device_latency(&reported, &direct),
+            Some(DeviceLatency {
+                frames: 992,
+                basis: "core_audio_ioproc_delivery_plus_reported_device_latency_not_audible_position",
+            })
+        );
+        let unknown = earph_coreaudio::OutputLatency {
+            device_frames: None,
+            safety_offset_frames: None,
+            stream_frames: None,
+            ..reported
+        };
+        assert_eq!(device_latency(&unknown, &system), None);
+        assert_eq!(device_latency(&unknown, &direct), None);
     }
     #[test]
     fn strict_policy_rejects_a_known_float_conversion_before_native_open() {

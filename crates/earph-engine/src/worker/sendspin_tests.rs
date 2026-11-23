@@ -272,11 +272,15 @@ impl Bench {
 
 /// Accepts the client, activates the player role, and starts one stream.
 fn streaming_peer(bench: &Bench) -> peer::PlayerPeer {
+    streaming_peer_with_lead(bench, 150)
+}
+/// As `streaming_peer`, for a player that declares this required lead time.
+fn streaming_peer_with_lead(bench: &Bench, lead_ms: u64) -> peer::PlayerPeer {
     let mut peer = peer::PlayerPeer::accept(&bench.listener);
     // The declared lead time and buffer need are admitted values, not measurements.
     assert_eq!(
         peer.activate_player(),
-        serde_json::json!({"available":true,"output_delay_ms":0,"required_lead_time_ms":150,"min_buffer_ms":200,"supported_commands":[]})
+        serde_json::json!({"available":true,"output_delay_ms":0,"required_lead_time_ms":lead_ms,"min_buffer_ms":200,"supported_commands":[]})
     );
     peer.serve_until("the source awaits its first stream", || {
         bench.observed().phase == SendspinTransportPhase::AwaitingStream
@@ -377,6 +381,10 @@ static UNDERRUNS: AtomicUsize = AtomicUsize::new(0);
 static AUDIBLE_UNDERRUNS: AtomicUsize = AtomicUsize::new(0);
 /// A nonzero value puts a clock in front of the next opened output. It is the start time in ms.
 static CLOCK_START_MS: AtomicUsize = AtomicUsize::new(0);
+/// A nonzero value makes the next opened output report this device latency, in frames.
+/// The clocked output then plays each frame that much later.
+static DEVICE_LATENCY_FRAMES: AtomicUsize = AtomicUsize::new(0);
+const DEVICE_LATENCY_BASIS: &str = "test_output_clock_plus_device_latency";
 /// When the clocked output plays each first audible frame after silence.
 static AUDIBLE_AT: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
 const CLOCK_PERIOD_FRAMES: u64 = 960;
@@ -445,9 +453,10 @@ impl OutputClock {
             self.accepted += 1;
         }
         if let Some(at) = self.running_at {
+            let latency = DEVICE_LATENCY_FRAMES.load(Ordering::Acquire) as u64;
             let mut audible_at = AUDIBLE_AT.lock().unwrap();
             for frame in self.unplaced.drain(..) {
-                audible_at.push(at + Duration::from_micros(frame * 1000 / 48));
+                audible_at.push(at + Duration::from_micros((frame + latency) * 1000 / 48));
             }
         }
     }
@@ -529,6 +538,15 @@ impl Output for UnderrunSeam {
         match self.clock.as_mut() {
             Some(clock) => clock.counters(),
             None => self.inner.progress(),
+        }
+    }
+    fn device_latency(&self) -> Option<output::DeviceLatency> {
+        match DEVICE_LATENCY_FRAMES.load(Ordering::Acquire) {
+            0 => self.inner.device_latency(),
+            frames => Some(output::DeviceLatency {
+                frames: frames as u64,
+                basis: DEVICE_LATENCY_BASIS,
+            }),
         }
     }
     fn suspend(&mut self, epochs: Epochs) -> Result<output::Counters, EngineError> {
@@ -1397,4 +1415,75 @@ fn a_full_clear_before_any_audio_keeps_the_output_running_on_idle_silence() {
     assert_audible_on_time(&[due]);
     let (capture, closed) = finish(peer, bench, &directory);
     assert_capture(&capture, &[&first], closed);
+}
+
+#[test]
+fn a_reported_device_latency_moves_audio_earlier_so_it_leaves_the_device_on_time() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_reported_device_latency_moves_audio_earlier_so_it_leaves_the_device_on_time",
+    ) else {
+        return;
+    };
+    const LEAD: Duration = Duration::from_millis(600);
+    // The device reports 200 ms, as a Bluetooth output does.
+    DEVICE_LATENCY_FRAMES.store(9600, Ordering::Release);
+    let bench = clocked_bench(150);
+    // The player asks the server for its own 150 ms plus the device latency.
+    let mut peer = streaming_peer_with_lead(&bench, 350);
+    let [first, second, ..] = parts();
+    let first_due = Instant::now() + LEAD;
+    let start = peer.server_now_us() + LEAD.as_micros() as i64;
+    stream(&mut peer, &bench, start, &first, PART_FRAMES);
+    // A full clear reopens the output, and the reopened output reports its latency again.
+    peer.clear_stream(None);
+    let second_due = Instant::now() + LEAD;
+    let restart = peer.server_now_us() + LEAD.as_micros() as i64;
+    stream(&mut peer, &bench, restart, &second, 2 * PART_FRAMES);
+    let timing = bench.observed().timing;
+    assert_eq!(timing.anchors, 2);
+    assert_eq!(timing.dropped_frames, 0);
+    assert_eq!(timing.device_latency_frames, Some(9600));
+    assert!(timing.device_latency_applied);
+    assert_eq!(timing.backend_delay_basis, Some(DEVICE_LATENCY_BASIS));
+    assert_eq!(
+        timing.qualification,
+        SendspinTimingQualification::Unqualified
+    );
+    // The seam plays each frame 200 ms after its clock passes it.
+    assert_audible_on_time(&[first_due, second_due]);
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[&first, &second], closed);
+}
+
+#[test]
+fn a_server_lead_shorter_than_the_device_latency_drops_the_overdue_audio() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_server_lead_shorter_than_the_device_latency_drops_the_overdue_audio",
+    ) else {
+        return;
+    };
+    // This server ignores the declared 350 ms and sends 150 ms ahead.
+    const LEAD: Duration = Duration::from_millis(150);
+    DEVICE_LATENCY_FRAMES.store(9600, Ordering::Release);
+    let bench = clocked_bench(1);
+    let mut peer = streaming_peer_with_lead(&bench, 350);
+    let [first, second, ..] = parts();
+    let pcm = [first, second].concat();
+    let first_due = Instant::now() + LEAD;
+    let start = peer.server_now_us() + LEAD.as_micros() as i64;
+    stream(&mut peer, &bench, start, &pcm, 2 * PART_FRAMES);
+    let (capture, timing) = finish(peer, bench, &directory);
+    // The first audio is due 50 ms before the device can play it. The clock mapping may err by 2 ms.
+    let dropped = timing.dropped_frames;
+    assert!(
+        (2400 - 96..2 * PART_FRAMES).contains(&dropped),
+        "dropped {dropped} frames"
+    );
+    assert!(timing.device_latency_applied);
+    // The peer sends faster than real time, so later audio has the lead and leaves on time.
+    assert_audible_on_time(&[first_due + Duration::from_micros(dropped * 1000 / 48)]);
+    assert!(
+        audible_span(&capture) == &pcm[dropped as usize * 4..],
+        "the capture is the audio without its first {dropped} frames"
+    );
 }

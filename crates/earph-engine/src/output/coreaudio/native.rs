@@ -59,9 +59,18 @@ fn counters(
         },
     })
 }
+/// Reads the latency that the opened device reports. The reads start no IO.
+fn reported_latency(native: &CoreAudioOutput, request: &OutputRequest) -> Option<DeviceLatency> {
+    device_latency(
+        &earph_coreaudio::output_latency(&native.report().observed),
+        request,
+    )
+}
 pub(in crate::output) struct NativeOutput {
     native: CoreAudioOutput,
     request: OutputRequest,
+    /// Read when the native output opened, and again after each reopen.
+    latency: Option<DeviceLatency>,
     drain_deadline: Option<Instant>,
     complete: Option<Counters>,
     activity: ActivityTracker,
@@ -93,6 +102,7 @@ impl NativeOutput {
         let native = CoreAudioOutput::open(request.clone(), epochs)
             .map_err(|failure| open_error("open", failure))?;
         Ok(Self {
+            latency: reported_latency(&native, &request),
             native,
             request,
             drain_deadline: None,
@@ -116,6 +126,7 @@ impl NativeOutput {
         self.native = CoreAudioOutput::open(self.request.clone(), epochs)
             .map_err(|failure| open_error(open, failure))?;
         self.activity.reopened();
+        self.latency = reported_latency(&self.native, &self.request);
         self.drain_deadline = None;
         self.complete = None;
         Ok(())
@@ -192,6 +203,9 @@ impl Output for NativeOutput {
     }
     fn progress(&mut self) -> Result<Counters, EngineError> {
         self.complete.map_or_else(|| self.counters("progress"), Ok)
+    }
+    fn device_latency(&self) -> Option<DeviceLatency> {
+        self.latency
     }
     fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError> {
         if self.native.state() == OutputState::Running {

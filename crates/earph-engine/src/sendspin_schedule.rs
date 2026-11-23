@@ -308,6 +308,58 @@ impl SilencePacer {
     }
 }
 
+/// The scheduler refuses a reported device latency above this limit. Admitted, not measured.
+pub const DEVICE_LATENCY_LIMIT_US: i64 = 1_000_000;
+
+/// Decides whether the schedule counts the latency that the output device reports.
+/// That latency lies behind the frames that the output holds. It is a device report, not a measurement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LatencyAdmission {
+    reported_frames: Option<u64>,
+    applied: bool,
+    lead_time_ms: u64,
+}
+impl LatencyAdmission {
+    /// `reported_frames` counts frames at `sample_rate`. `None` means that the device reports none.
+    /// A report within the limit applies. A longer one is kept for the report and adds nothing.
+    pub fn new(sample_rate: u32, reported_frames: Option<u64>) -> Self {
+        let rate = u128::from(sample_rate);
+        let micros = u128::from(reported_frames.unwrap_or(0)) * MICROS_PER_SECOND as u128;
+        let applied = reported_frames.is_some()
+            && rate > 0
+            && micros <= DEVICE_LATENCY_LIMIT_US as u128 * rate;
+        Self {
+            reported_frames,
+            applied,
+            // The limit keeps an applied latency far inside `u64` milliseconds.
+            lead_time_ms: if applied {
+                micros.div_ceil(rate * 1_000) as u64
+            } else {
+                0
+            },
+        }
+    }
+    /// The latency that the device reports, applied or not.
+    pub fn reported_frames(self) -> Option<u64> {
+        self.reported_frames
+    }
+    /// Whether `delay_frames` adds the reported latency.
+    pub fn applied(self) -> bool {
+        self.applied
+    }
+    /// Returns the scheduler's delay: the frames that the output holds plus the applied latency.
+    /// An unknown hold stays unknown.
+    pub fn delay_frames(self, held_frames: Option<u64>) -> Option<u64> {
+        let latency = self.reported_frames.filter(|_| self.applied).unwrap_or(0);
+        held_frames.map(|held| held.saturating_add(latency))
+    }
+    /// The whole milliseconds that the applied latency adds to the lead time this player requires.
+    /// The schedule writes each chunk that much earlier, so the server must send it that much earlier.
+    pub fn lead_time_ms(self) -> u64 {
+        self.lead_time_ms
+    }
+}
+
 fn mul(left: i128, right: i128) -> Result<i128, ScheduleError> {
     left.checked_mul(right).ok_or(ScheduleError::Overflow)
 }

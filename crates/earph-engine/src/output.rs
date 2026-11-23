@@ -18,6 +18,15 @@ pub(crate) struct Counters {
     pub delay: Option<u64>,
     pub basis: &'static str,
 }
+/// The latency that an output device reports beyond the frames that `Counters` cover.
+/// It is a device report, never an audible position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DeviceLatency {
+    /// Frames at the rate of the opened format.
+    pub frames: u64,
+    /// The measurement boundary of a delay that includes these frames.
+    pub basis: &'static str,
+}
 pub(crate) trait Output {
     /// Actual Rust-owned adapter audio capacity; excludes metadata and opaque native storage.
     fn audio_storage_bytes(&self) -> Result<u64, EngineError>;
@@ -37,6 +46,11 @@ pub(crate) trait Output {
         false
     }
     fn progress(&mut self) -> Result<Counters, EngineError>;
+    /// Returns the latency that the device reported when this output last opened.
+    /// `None` means that the backend reports none.
+    fn device_latency(&self) -> Option<DeviceLatency> {
+        None
+    }
     fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError>;
     /// Drops unplayed audio and reprepares the output for other audio.
     /// Unlike `suspend`, it reports no position, so it also works while the output still starts.

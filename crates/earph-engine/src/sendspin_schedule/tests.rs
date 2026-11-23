@@ -431,3 +431,87 @@ fn contiguous_audio_gets_idle_silence_only_below_two_thirds_of_the_depth() {
     assert_eq!(pacer.owed(10_021, None, true), 481);
     assert_eq!(pacer.owed(10_021, Some(10_021 + 5_000), true), 240);
 }
+
+#[test]
+fn a_reported_device_latency_within_the_limit_joins_the_counted_delay() {
+    let latency = LatencyAdmission::new(RATE, Some(9_600));
+    assert_eq!(latency.reported_frames(), Some(9_600));
+    assert!(latency.applied());
+    // The output holds 1_536 frames, and the device reports 200 ms behind them.
+    assert_eq!(latency.delay_frames(Some(1_536)), Some(11_136));
+    assert_eq!(latency.delay_frames(Some(0)), Some(9_600));
+    // An unknown counted delay stays unknown.
+    assert_eq!(latency.delay_frames(None), None);
+    assert_eq!(latency.delay_frames(Some(u64::MAX)), Some(u64::MAX));
+    // One second is the limit, and the limit itself applies.
+    assert!(LatencyAdmission::new(RATE, Some(48_000)).applied());
+    // A device that reports zero latency adds nothing, and the report still applies.
+    let zero = LatencyAdmission::new(RATE, Some(0));
+    assert!(zero.applied());
+    assert_eq!(zero.delay_frames(Some(7)), Some(7));
+}
+
+#[test]
+fn an_unknown_or_absurd_device_latency_is_reported_and_never_applied() {
+    let unknown = LatencyAdmission::new(RATE, None);
+    assert_eq!(unknown.reported_frames(), None);
+    assert!(!unknown.applied());
+    assert_eq!(unknown.delay_frames(Some(5)), Some(5));
+    assert_eq!(unknown.lead_time_ms(), 0);
+    // One frame beyond one second.
+    for absurd in [48_001, u64::MAX] {
+        let latency = LatencyAdmission::new(RATE, Some(absurd));
+        assert_eq!(latency.reported_frames(), Some(absurd));
+        assert!(!latency.applied());
+        assert_eq!(latency.delay_frames(Some(5)), Some(5));
+        assert_eq!(latency.delay_frames(None), None);
+        assert_eq!(latency.lead_time_ms(), 0);
+    }
+    // 44_101 frames exceed one second at 44.1 kHz and fit inside it at 48 kHz.
+    assert!(!LatencyAdmission::new(44_100, Some(44_101)).applied());
+    assert!(LatencyAdmission::new(RATE, Some(44_101)).applied());
+    // No rate turns frames into time, so nothing applies.
+    assert!(!LatencyAdmission::new(0, Some(1)).applied());
+    assert_eq!(LatencyAdmission::new(0, Some(1)).lead_time_ms(), 0);
+}
+
+#[test]
+fn the_applied_device_latency_rounds_up_to_whole_lead_milliseconds() {
+    let lead = |frames| LatencyAdmission::new(RATE, Some(frames)).lead_time_ms();
+    assert_eq!(lead(0), 0);
+    assert_eq!(lead(1), 1);
+    assert_eq!(lead(48), 1);
+    // 49 frames last 1.0208 ms.
+    assert_eq!(lead(49), 2);
+    assert_eq!(lead(9_600), 200);
+    assert_eq!(lead(48_000), 1_000);
+}
+
+#[test]
+fn a_device_latency_longer_than_the_server_lead_drops_audio_until_the_lead_covers_it() {
+    let mut scheduler = Scheduler::new(RATE).unwrap();
+    let latency = LatencyAdmission::new(RATE, Some(9_600));
+    // The output holds 32 ms of idle silence, and the device reports 200 ms: 232 ms of delay.
+    let delay = latency.delay_frames(Some(1_536));
+    // A chunk that arrives 150 ms ahead is 82 ms late, so every such chunk drops.
+    assert_eq!(
+        scheduler.decide(chunk(150_000, 0, delay)),
+        Ok(Decision::DropChunk)
+    );
+    assert_eq!(scheduler.snapshot().dropped_frames, 480);
+    assert!(!scheduler.snapshot().anchored);
+    // A lead of 150 ms plus the latency leaves 118 ms: wait until 5 ms remain.
+    let ahead_us = (150 + latency.lead_time_ms() as i64) * 1_000;
+    assert_eq!(ahead_us, 350_000);
+    assert_eq!(
+        scheduler.decide(chunk(ahead_us, 0, delay)),
+        Ok(Decision::Wait { until_us: 113_000 })
+    );
+    // At the wake time the chunk anchors behind 240 frames of silence and drops nothing more.
+    assert_eq!(
+        scheduler.decide(chunk(ahead_us, 113_000, delay)),
+        Ok(write(240, 0))
+    );
+    assert!(scheduler.snapshot().anchored);
+    assert_eq!(scheduler.snapshot().dropped_frames, 480);
+}

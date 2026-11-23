@@ -31,6 +31,7 @@ pub enum SendspinTimingCorrection {
 }
 
 /// Scheduling facts against the server timeline. Every error is `(write time + backend delay) - target`.
+/// That delay includes an applied device latency.
 /// These are client estimates. They describe no audible position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct SendspinTiming {
@@ -60,7 +61,14 @@ pub struct SendspinTiming {
     /// A backend without a delay report counts the accepted frames past its restart cursor.
     pub backend_delay_known: bool,
     /// The measurement boundary of the last known backend delay.
+    /// It names the device latency when the scheduler adds that latency to the delay.
     pub backend_delay_basis: Option<&'static str>,
+    /// The latency that the output device reports beyond the backend delay, in stream frames.
+    /// `None` means unknown, and unknown latency counts as zero. It is a device report, not a measurement.
+    pub device_latency_frames: Option<u64>,
+    /// Whether the scheduler adds the reported device latency to the backend delay.
+    /// It refuses a report above its limit, and it has nothing to add to an unknown latency.
+    pub device_latency_applied: bool,
 }
 impl SendspinTiming {
     /// The timing of a source that has scheduled no chunk.
@@ -79,6 +87,8 @@ impl SendspinTiming {
         mapping_revision: None,
         backend_delay_known: false,
         backend_delay_basis: None,
+        device_latency_frames: None,
+        device_latency_applied: false,
     };
 }
 
@@ -136,6 +146,8 @@ mod tests {
                     "mapping_revision": null,
                     "backend_delay_known": false,
                     "backend_delay_basis": null,
+                    "device_latency_frames": null,
+                    "device_latency_applied": false,
                 },
             })
         );
@@ -149,6 +161,8 @@ mod tests {
             mapping_revision: Some(3),
             backend_delay_known: true,
             backend_delay_basis: Some("alsa_client_estimate"),
+            device_latency_frames: Some(9600),
+            device_latency_applied: true,
             ..SendspinTiming::UNANCHORED
         };
         let timing = &serde_json::to_value(observation).unwrap()["timing"];
@@ -158,5 +172,7 @@ mod tests {
         assert_eq!(timing["last_error_us"], 125);
         assert_eq!(timing["mapping_revision"], 3);
         assert_eq!(timing["backend_delay_basis"], "alsa_client_estimate");
+        assert_eq!(timing["device_latency_frames"], 9600);
+        assert_eq!(timing["device_latency_applied"], true);
     }
 }
