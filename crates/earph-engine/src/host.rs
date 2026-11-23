@@ -88,7 +88,7 @@ pub(crate) fn serve(
                     let _ = session.advance_network(event);
                 }
                 Ok(Event::Sendspin(event)) => {
-                    if let Some(sendspin) = sendspin.as_ref() {
+                    if let Some(sendspin) = sendspin.as_mut() {
                         sendspin.route(&mut session, event, monotonic(&clock));
                     }
                 }
@@ -921,19 +921,23 @@ fn advance(session: &mut Session, kind: EngineEventKind, epochs: Option<Epochs>,
         && let Some(connection) = session.sendspin_connection()
     {
         // The Sendspin session fails through its own fenced close event.
-        let frames = session
+        let (frames, reconnects) = session
             .snapshot()
             .observation
             .sendspin()
-            .map_or(0, |observation| observation.submitted_frames);
+            .map_or((0, 0), |observation| {
+                (observation.submitted_frames, observation.reconnects)
+            });
+        let mut observation = earph_core::sendspin_source::SendspinSourceObservation::new(
+            earph_core::sendspin_source::SendspinTransportPhase::Closed,
+            frames,
+        );
+        observation.reconnects = reconnects;
         let _ = session.advance_sendspin(
             connection.generation,
             earph_core::sendspin_source::SendspinSourceEvent {
                 epochs: connection.epochs,
-                observation: earph_core::sendspin_source::SendspinSourceObservation::new(
-                    earph_core::sendspin_source::SendspinTransportPhase::Closed,
-                    frames,
-                ),
+                observation,
                 error: Some(*code),
             },
             monotonic(clock),

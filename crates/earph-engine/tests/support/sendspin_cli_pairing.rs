@@ -344,7 +344,9 @@ pub fn a_paired_player_plays_without_a_server_key() {
     bench.serve(&mut peer, "the stream end returns to buffering", |state| {
         state["transport"] == "buffering"
     });
-    peer.close();
+    // The stop cancels the connection, so the peer has nothing left to answer.
+    let stop = bench.earph(&["stop"]).finish();
+    assert_eq!(stop.status.code(), Some(0), "{}", text(&stop.stderr));
     let output = player.finish();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
     assert!(text(&output.stdout).contains("result   ended"));

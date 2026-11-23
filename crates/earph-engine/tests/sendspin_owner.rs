@@ -444,14 +444,10 @@ mod linux {
         bench.serve(&mut peer, "the stream end returns to buffering", |bench| {
             bench.state()["transport"] == "buffering"
         });
-        peer.close();
-        bench.wait("the peer close clears the session", |bench| {
-            bench.phase() == "disconnected"
-        });
-        let state = bench.state();
-        assert_eq!(state["transport"], "idle");
-        assert_eq!(state["session_id"], Value::Null);
-        assert_eq!(state["error"], Value::Null);
+        // A closed server would start a reconnect, and a new output open truncates the capture.
+        bench.end("sessions.stop");
+        assert_eq!(bench.state()["error"], Value::Null);
+        drop(peer);
         bench.shutdown();
         bench.assert_capture_is_exact(pad);
     }

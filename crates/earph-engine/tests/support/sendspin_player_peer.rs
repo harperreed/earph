@@ -80,30 +80,9 @@ impl PlayerPeer {
         psk: [u8; 32],
         category: &str,
     ) -> Self {
-        let (stream, _) = listener.accept().unwrap();
-        // Timed chunks must leave at once. Batching would add tens of milliseconds of transit.
-        stream.set_nodelay(true).unwrap();
-        stream.set_read_timeout(Some(STAGE)).unwrap();
-        let mut socket = accept(stream).unwrap();
-        // A short timeout turns every later read into a poll.
-        socket
-            .get_ref()
-            .set_read_timeout(Some(Duration::from_millis(1)))
-            .unwrap();
-        let origin = Instant::now();
-        let init = text(&mut socket, origin);
-        let presented: Value = serde_json::from_str(&init).unwrap();
-        assert!(
-            presented["payload"]["client_id"] == URL_SAFE_NO_PAD.encode(client_public),
-            "the client presented another identity"
-        );
+        let (mut socket, origin, mut handshake) =
+            offered(listener, &client_public, &client_public, &psk, category);
         let public = noise::static_public_key(&SERVER_PRIVATE).unwrap();
-        let server = serde_json::to_string(&json!({"type":"server/init","payload":{"version":1,"server_id":URL_SAFE_NO_PAD.encode(public)}})).unwrap();
-        socket.send(server.clone().into()).unwrap();
-        let prologue = [init.as_bytes(), server.as_bytes()].concat();
-        let (mut handshake, payload) = offer(&client_public, &psk, category, &prologue);
-        let offer = json!({"type":"noise/handshake","payload":payload});
-        socket.send(offer.to_string().into()).unwrap();
         let reply: Value = serde_json::from_str(&text(&mut socket, origin)).unwrap();
         let record = URL_SAFE_NO_PAD
             .decode(reply["payload"]["data"].as_str().unwrap())
@@ -125,6 +104,21 @@ impl PlayerPeer {
         peer.send_json("server/hello", json!({"name":"Server"}));
         peer.await_json("client/hello", false);
         peer
+    }
+    /// Accepts one client and sends a Noise message that was made for another client key.
+    /// The client cannot authenticate that message. Returns after the client ended the connection.
+    pub fn fail_authentication(listener: &TcpListener) {
+        let client = noise::static_public_key(&CLIENT_PRIVATE).unwrap();
+        let other = noise::static_public_key(&[3; 32]).unwrap();
+        let (mut socket, origin, _) = offered(listener, &client, &other, &PAIRING_PSK, "pr");
+        loop {
+            assert!(origin.elapsed() < STAGE, "peer stage deadline: refusal");
+            match socket.read() {
+                Err(Error::Io(error)) if idle(&error) => {}
+                Ok(Message::Close(_)) | Err(_) => return,
+                Ok(_) => {}
+            }
+        }
     }
     /// Re-handshakes inside the current channel onto another secret.
     pub fn rotate(&mut self, psk: [u8; 32], category: &str) {
@@ -327,6 +321,41 @@ impl PlayerPeer {
             }
         }
     }
+}
+/// Accepts one client, exchanges the init messages, and sends the server's first Noise message.
+/// The client must present `client_public`. The Noise message is made for `noise_public`.
+fn offered(
+    listener: &TcpListener,
+    client_public: &[u8; 32],
+    noise_public: &[u8; 32],
+    psk: &[u8; 32],
+    category: &str,
+) -> (WebSocket<TcpStream>, Instant, snow::HandshakeState) {
+    let (stream, _) = listener.accept().unwrap();
+    // Timed chunks must leave at once. Batching would add tens of milliseconds of transit.
+    stream.set_nodelay(true).unwrap();
+    stream.set_read_timeout(Some(STAGE)).unwrap();
+    let mut socket = accept(stream).unwrap();
+    // A short timeout turns every later read into a poll.
+    socket
+        .get_ref()
+        .set_read_timeout(Some(Duration::from_millis(1)))
+        .unwrap();
+    let origin = Instant::now();
+    let init = text(&mut socket, origin);
+    let presented: Value = serde_json::from_str(&init).unwrap();
+    assert!(
+        presented["payload"]["client_id"] == URL_SAFE_NO_PAD.encode(client_public),
+        "the client presented another identity"
+    );
+    let public = noise::static_public_key(&SERVER_PRIVATE).unwrap();
+    let server = serde_json::to_string(&json!({"type":"server/init","payload":{"version":1,"server_id":URL_SAFE_NO_PAD.encode(public)}})).unwrap();
+    socket.send(server.clone().into()).unwrap();
+    let prologue = [init.as_bytes(), server.as_bytes()].concat();
+    let (handshake, payload) = offer(noise_public, psk, category, &prologue);
+    let offer = json!({"type":"noise/handshake","payload":payload});
+    socket.send(offer.to_string().into()).unwrap();
+    (socket, origin, handshake)
 }
 fn idle(error: &std::io::Error) -> bool {
     matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut)

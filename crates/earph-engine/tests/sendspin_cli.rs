@@ -1,5 +1,5 @@
 // ABOUTME: Runs the real `earph sendspin` command against the test Sendspin server and a private ALSA capture.
-// ABOUTME: Checks the exact capture, status, refusals, a wrong key, interruption, and control from a second process.
+// ABOUTME: Checks the exact capture, status, refusals, a wrong key, interruption, reconnects, and control from a second process.
 #[cfg(not(target_os = "linux"))]
 fn main() {}
 #[cfg(target_os = "linux")]
@@ -62,10 +62,19 @@ mod linux {
         if chosen.as_deref() == Some("credential-helper") {
             return helper::run();
         }
-        let cases: [(&str, fn()); 15] = [
+        let cases: [(&str, fn()); 18] = [
+            ("plays", plays_the_stream_shows_status_and_ends_on_a_stop),
             (
-                "plays",
-                plays_the_stream_shows_status_and_exits_when_the_server_closes,
+                "reconnect",
+                reconnects_after_the_server_drops_and_plays_again,
+            ),
+            (
+                "reconnect_denied",
+                a_refused_authentication_ends_the_reconnect,
+            ),
+            (
+                "reconnect_interrupt",
+                an_interrupt_during_the_reconnect_delay_exits_at_once,
             ),
             ("refuses", refuses_bad_arguments_before_it_starts_anything),
             ("wrong_key", a_wrong_server_key_fails_without_audio),
@@ -212,8 +221,7 @@ mod linux {
             }
         }
         pub(super) fn url(&self) -> String {
-            let address = self.listener.local_addr().unwrap();
-            format!("ws://{}:{}/sendspin", address.ip(), address.port())
+            url_of(&self.listener)
         }
         pub(super) fn earph(&self, arguments: &[&str]) -> Player {
             let child = Command::new(env!("CARGO_BIN_EXE_earph"))
@@ -308,6 +316,18 @@ mod linux {
                 done(&self.state())
             });
         }
+        /// Polls the Engine without a peer until it reports the wanted fact.
+        fn wait(&self, what: &str, done: impl Fn(&Value) -> bool) -> Value {
+            let deadline = Instant::now() + DEADLINE;
+            loop {
+                let state = self.state();
+                if done(&state) {
+                    return state;
+                }
+                assert!(Instant::now() < deadline, "deadline: {what}: {state}");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
         /// Runs a second `earph` to its end while the peer keeps answering the first one.
         pub(super) fn meanwhile(&self, peer: &mut peer::PlayerPeer, mut second: Player) -> Output {
             peer.serve_until("a second command exits", || second.exited());
@@ -315,14 +335,7 @@ mod linux {
         }
         /// Waits for the command to connect. The peer's accept blocks, so a command that exits early fails here first.
         pub(super) fn await_connection(&self, player: &mut Player) {
-            self.listener.set_nonblocking(true).unwrap();
-            let deadline = Instant::now() + DEADLINE;
-            while self.listener.peek_pending().is_none() {
-                assert!(!player.exited(), "the command exited before it connected");
-                assert!(Instant::now() < deadline, "the command never connected");
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            self.listener.set_nonblocking(false).unwrap();
+            await_connection_on(&self.listener, player);
         }
         /// Starts the command, connects the peer, and streams the pattern once the command unmuted.
         fn streaming(&self) -> (Player, peer::PlayerPeer, u64) {
@@ -387,6 +400,30 @@ mod linux {
             }
         }
     }
+    fn url_of(listener: &TcpListener) -> String {
+        let address = listener.local_addr().unwrap();
+        format!("ws://{}:{}/sendspin", address.ip(), address.port())
+    }
+    fn await_connection_on(listener: &TcpListener, player: &mut Player) {
+        listener.set_nonblocking(true).unwrap();
+        let deadline = Instant::now() + DEADLINE;
+        while listener.peek_pending().is_none() {
+            assert!(!player.exited(), "the command exited before it connected");
+            assert!(Instant::now() < deadline, "the command never connected");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        listener.set_nonblocking(false).unwrap();
+    }
+    fn interrupt(player: &Player) {
+        rustix::process::kill_process(
+            rustix::process::Pid::from_child(player.0.as_ref().unwrap()),
+            rustix::process::Signal::INT,
+        )
+        .unwrap();
+    }
+    fn reconnecting(state: &Value) -> bool {
+        state["sendspin_playback"]["phase"] == "reconnecting"
+    }
     pub(super) trait Pending {
         fn peek_pending(&self) -> Option<()>;
     }
@@ -402,7 +439,7 @@ mod linux {
         }
     }
 
-    fn plays_the_stream_shows_status_and_exits_when_the_server_closes() {
+    fn plays_the_stream_shows_status_and_ends_on_a_stop() {
         let bench = Bench::new();
         let (player, mut peer, frames) = bench.streaming();
         let status = bench.meanwhile(&mut peer, bench.earph(&["status", "--json"]));
@@ -433,7 +470,9 @@ mod linux {
         bench.serve(&mut peer, "the stream end returns to buffering", |state| {
             state["transport"] == "buffering"
         });
-        peer.close();
+        // The stop cancels the connection, so the peer has nothing left to answer.
+        let stop = bench.earph(&["stop"]).finish();
+        assert_eq!(stop.status.code(), Some(0), "{}", text(&stop.stderr));
         let output = player.finish();
         assert_eq!(output.status.code(), Some(0));
         let stdout = text(&output.stdout);
@@ -500,14 +539,116 @@ mod linux {
         assert!(capture.is_empty(), "a denied start writes no audio");
         bench.no_engine_remains();
     }
+    /// The server closes cleanly once and drops its socket once. The same session plays after each.
+    fn reconnects_after_the_server_drops_and_plays_again() {
+        let bench = Bench::new();
+        let (mut player, mut peer, frames) = bench.streaming();
+        let session = bench.state()["session_id"].clone();
+        for reconnects in 1..=2 {
+            if reconnects == 1 {
+                peer.close();
+            } else {
+                peer.abandon();
+            }
+            let lost = bench.wait("the lost server shows as reconnecting", reconnecting);
+            assert_eq!(lost["transport"], "buffering", "{lost}");
+            assert_eq!(lost["session_id"], session);
+            assert_eq!(lost["error"], Value::Null);
+            assert_eq!(lost["muted"], false, "a lost server changes no mute");
+            assert_eq!(lost["sendspin_playback"]["reconnects"], reconnects - 1);
+            assert!(
+                !lost["sendspin_playback"]["timing"]["anchored"]
+                    .as_bool()
+                    .unwrap()
+            );
+            bench.await_connection(&mut player);
+            // The new connection authenticates with the stored identity and declares its state again.
+            peer = peer::PlayerPeer::accept(&bench.listener);
+            // The pattern anchors on this connection's own stream start.
+            assert_eq!(bench.stream_pattern(&mut peer), frames);
+            let status = bench.meanwhile(&mut peer, bench.earph(&["status", "--json"]));
+            let state: Value = serde_json::from_slice(&status.stdout).unwrap();
+            assert_eq!(state["session_id"], session);
+            assert_eq!(state["transport"], "playing");
+            let playback = &state["sendspin_playback"];
+            assert_eq!(playback["phase"], "streaming");
+            assert_eq!(playback["reconnects"], reconnects);
+            assert_eq!(playback["timing"]["anchors"], 1, "{playback}");
+        }
+        let plain = text(&bench.meanwhile(&mut peer, bench.earph(&["status"])).stdout);
+        assert!(plain.contains("reconnects 2"), "{plain}");
+        peer.end_stream();
+        bench.serve(&mut peer, "the stream end returns to buffering", |state| {
+            state["transport"] == "buffering"
+        });
+        // The stop cancels the connection, so the peer has nothing left to answer.
+        let stop = bench.earph(&["stop"]).finish();
+        assert_eq!(stop.status.code(), Some(0), "{}", text(&stop.stderr));
+        let output = player.finish();
+        assert_eq!(output.status.code(), Some(0));
+        let stdout = text(&output.stdout);
+        assert!(stdout.contains("lost the server, retrying"), "{stdout}");
+        assert!(stdout.lines().last().unwrap().starts_with("result   ended"));
+        // The file device truncates on open, so this capture holds the last connection's audio.
+        bench.capture_is_exact();
+        bench.no_engine_remains();
+    }
+    /// The returned server fails authentication. A retry cannot heal that, so the command fails as a first denial does.
+    fn a_refused_authentication_ends_the_reconnect() {
+        let bench = Bench::new();
+        let (mut player, peer, _) = bench.streaming();
+        peer.abandon();
+        bench.await_connection(&mut player);
+        peer::PlayerPeer::fail_authentication(&bench.listener);
+        let output = player.finish();
+        let failure = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{failure}");
+        assert!(failure.contains("AUTH_DENIED"), "{failure}");
+        assert!(text(&output.stdout).contains("lost the server, retrying"));
+        assert!(
+            bench.listener.peek_pending().is_none(),
+            "a refused authentication opens no further connection"
+        );
+        bench.no_engine_remains();
+    }
+    /// The server is gone and refuses every connection, so the command waits between attempts.
+    fn an_interrupt_during_the_reconnect_delay_exits_at_once() {
+        let bench = Bench::new();
+        let address = bench.listener.local_addr().unwrap().ip();
+        let listener = TcpListener::bind((address, 0)).unwrap();
+        let target = ["--server", &url_of(&listener), "--server-key", &bench.key];
+        let mut player = bench.sendspin(&target);
+        await_connection_on(&listener, &mut player);
+        let mut peer = peer::PlayerPeer::accept(&listener);
+        peer.activate_player();
+        bench.serve(&mut peer, "the command unmutes", |state| {
+            state["muted"] == false
+        });
+        peer.abandon();
+        drop(listener);
+        bench.wait("the lost server shows as reconnecting", reconnecting);
+        // Refused attempts pass meanwhile, so the delay between them has grown.
+        std::thread::sleep(Duration::from_millis(1500));
+        let state = bench.state();
+        assert!(reconnecting(&state), "{state}");
+        assert_eq!(state["sendspin_playback"]["reconnects"], 0);
+        assert!(!player.exited(), "a refused connection is retried");
+        let asked = Instant::now();
+        interrupt(&player);
+        let output = player.finish();
+        assert!(
+            asked.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            asked.elapsed()
+        );
+        assert_eq!(output.status.code(), Some(130));
+        assert!(text(&output.stdout).contains("result   interrupted"));
+        bench.no_engine_remains();
+    }
     fn an_interrupt_stops_the_stream_and_the_engine() {
         let bench = Bench::new();
         let (player, _peer, _) = bench.streaming();
-        rustix::process::kill_process(
-            rustix::process::Pid::from_child(player.0.as_ref().unwrap()),
-            rustix::process::Signal::INT,
-        )
-        .unwrap();
+        interrupt(&player);
         let output = player.finish();
         assert_eq!(output.status.code(), Some(130));
         assert!(text(&output.stdout).contains("result   interrupted"));
