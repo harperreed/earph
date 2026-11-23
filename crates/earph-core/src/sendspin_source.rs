@@ -59,7 +59,7 @@ pub struct SendspinTiming {
     /// Received frames that arrived too late and never reached the output.
     pub dropped_frames: u64,
     /// Contiguous chunks that were due more than 20 ms before the output could play them.
-    /// The output ran dry or fell behind. Such a chunk anchors again once the output holds its depth.
+    /// The output ran dry or fell behind. The chunk still plays; nothing corrects or bounds the lateness.
     pub late_chunks: u64,
     /// Frames of output time that passed with nothing queued since this source started.
     /// Audio that was due in that time is lost, and no other counter holds it.

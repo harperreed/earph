@@ -1762,9 +1762,9 @@ fn a_starved_output_that_drops_late_frames_counts_them_and_keeps_its_anchor() {
 }
 
 #[test]
-fn a_starved_output_that_plays_late_frames_late_anchors_again_once_it_is_steady() {
+fn a_starved_output_that_plays_late_frames_late_is_counted_and_nothing_anchors_again() {
     let Some(directory) = isolate(
-        "worker::sendspin_tests::a_starved_output_that_plays_late_frames_late_anchors_again_once_it_is_steady",
+        "worker::sendspin_tests::a_starved_output_that_plays_late_frames_late_is_counted_and_nothing_anchors_again",
     ) else {
         return;
     };
@@ -1774,7 +1774,7 @@ fn a_starved_output_that_plays_late_frames_late_anchors_again_once_it_is_steady(
     let mut peer = streaming_peer(&bench);
     let start = peer.server_now_us() + 200_000;
     stream(&mut peer, &bench, start, &first, PART_FRAMES);
-    // The worker stalls for 250 ms. The output holds at most 100 ms, so every later frame would play 150 ms late or more.
+    // The worker stalls for 250 ms. The output holds at most 100 ms, so every later frame plays 150 ms late or more.
     STALL_MS.store(250, Ordering::Release);
     stream(&mut peer, &bench, start + PART_US, &second, 2 * PART_FRAMES);
     stream(
@@ -1785,22 +1785,15 @@ fn a_starved_output_that_plays_late_frames_late_anchors_again_once_it_is_steady(
         3 * PART_FRAMES,
     );
     let timing = bench.observed().timing;
+    // No drift or lateness correction exists. State shows the lateness, and the source acts on none of it.
     assert!(
-        timing.late_chunks >= 2,
+        timing.late_chunks >= 8,
         "late chunks {}",
         timing.late_chunks
     );
-    assert_eq!(
-        timing.anchors, 2,
-        "a late chunk on a steady output anchors again"
-    );
-    // The new anchor drops the audio that was due while the output was dry: 150 ms.
-    // Idle silence that the output took meanwhile delays the anchor by up to 60 ms more.
-    let dropped = timing.dropped_frames;
-    assert!(
-        (4800..=14400).contains(&dropped),
-        "the new anchor dropped {dropped} frames"
-    );
+    assert_eq!(timing.anchors, 1, "a late chunk keeps the anchor");
+    assert_eq!(timing.dropped_frames, 0);
+    assert_eq!(timing.underruns, 0);
     let starved = timing
         .starved_frames
         .expect("this output counts starved frames");
@@ -1808,10 +1801,8 @@ fn a_starved_output_that_plays_late_frames_late_anchors_again_once_it_is_steady(
         (6000..=12000).contains(&starved),
         "the output starved for {starved} frames"
     );
-    assert_eq!(timing.underruns, 0);
     let last = timing.last_error_us.expect("a last error");
-    // The last chunk is within the late limit again. The catch-up ends between two chunks.
-    assert!(last.abs() <= 20_000, "last error {last}");
-    let (_, closed) = finish(peer, bench, &directory);
-    assert_eq!(closed.anchors, 2);
+    assert!(last >= 100_000, "last error {last}");
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[&first, &second, &third], closed);
 }

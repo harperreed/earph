@@ -232,8 +232,6 @@ pub(super) struct SendspinPlayback {
     scheduled_until: u64,
     /// Scheduled frames that the output accepted since the last idle silence before them.
     scheduled_run: u64,
-    /// Idle silence keeps this many frames in the output.
-    idle_depth: u64,
     /// A running output that counts its queued frames holds at most this many frames of scheduled audio.
     scheduled_depth: u64,
     /// Frames of output time that passed with nothing queued, summed over every output of this source.
@@ -370,7 +368,6 @@ impl SendspinPlayback {
             primed: false,
             scheduled_until: 0,
             scheduled_run: 0,
-            idle_depth: depth.into(),
             scheduled_depth: scheduled_depth.into(),
             starved_frames: None,
             starved_seen: 0,
@@ -798,16 +795,13 @@ impl SendspinPlayback {
             .map_or(0, |end| position.ticks() - end.ticks());
         // The device reports its latency behind the frames that the output holds.
         let (latency, _) = self.device_latency();
-        let held = self.held_frames()?;
         let facts = ChunkFacts {
             target_us: target.time_us,
             mapping_revision: target.mapping_revision,
             frames,
             now_us,
-            delay_frames: latency.delay_frames(held),
+            delay_frames: latency.delay_frames(self.held_frames()?),
             gap_frames: u64::try_from(gap_ticks / ServerPosition::TICKS_PER_FRAME).unwrap_or(0),
-            // An output that ran dry holds almost nothing while it catches up.
-            steady: held.is_some_and(|held| held * 2 >= self.idle_depth),
         };
         let decision = self.scheduler.decide(facts).map_err(|_| SCHEDULE)?;
         if let Decision::Wait { until_us } = decision {

@@ -12,9 +12,8 @@
 pub const ANCHOR_PAD_LIMIT_US: i64 = 5_000;
 /// While locked, a timestamp gap up to this length becomes silence. A longer gap anchors again.
 pub const SHORT_GAP_LIMIT_US: i64 = 100_000;
-/// While locked, a chunk later than this counts as late.
-/// It anchors again when the output is steady, and that drops the overdue frames.
-/// Smaller errors stay: this slice corrects no drift. Admitted, not measured.
+/// While locked, a chunk later than this counts as late. It still writes: the count acts on nothing.
+/// This slice corrects no drift and bounds no lateness. Admitted, not measured.
 pub const LATE_LIMIT_US: i64 = 20_000;
 const MICROS_PER_SECOND: i128 = 1_000_000;
 
@@ -38,9 +37,6 @@ pub struct ChunkFacts {
     /// Whole frames between the previous chunk's end and this chunk's start.
     /// The caller computes this from the timeline positions. Anchoring ignores it.
     pub gap_frames: u64,
-    /// Whether the output holds enough frames that it is not catching up after a dry spell.
-    /// A late chunk on such an output stays late, so it anchors again.
-    pub steady: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,7 +88,7 @@ pub struct ScheduleSnapshot {
     pub inserted_silence_frames: u64,
     pub dropped_frames: u64,
     /// Contiguous chunks that were due more than `LATE_LIMIT_US` before the output could play them.
-    /// The output ran dry or fell behind the server clock.
+    /// The output ran dry or fell behind the server clock. The count changes no decision.
     pub late_chunks: u64,
     /// The head start of the first chunk after the latest reset: its target minus the time it was first seen.
     /// The output delay is not subtracted. A reset keeps the value until the next first chunk.
@@ -198,15 +194,12 @@ impl Scheduler {
         let mut head = self.head;
         stats.mapping_revision = Some(chunk.mapping_revision);
         stats.delay_known = chunk.delay_frames.is_some();
-        let locked = stats.anchored && gap <= mul(SHORT_GAP_LIMIT_US.into(), rate)?;
-        // The chunk's first frame leaves after the delay and the gap silence.
-        let error = narrow(round_nearest(sub(gap, lead)?, rate)?);
-        let late = locked && error? > LATE_LIMIT_US;
-        if late {
-            stats.late_chunks = add(stats.late_chunks, 1)?;
-        }
-        let decision = if locked && !(late && chunk.steady) {
-            let error = error?;
+        let decision = if stats.anchored && gap <= mul(SHORT_GAP_LIMIT_US.into(), rate)? {
+            // The chunk's first frame leaves after the delay and the gap silence.
+            let error = narrow(round_nearest(sub(gap, lead)?, rate)?)?;
+            if error > LATE_LIMIT_US {
+                stats.late_chunks = add(stats.late_chunks, 1)?;
+            }
             stats.inserted_silence_frames = add(stats.inserted_silence_frames, chunk.gap_frames)?;
             stats.start_error_us.get_or_insert(error);
             stats.last_error_us = Some(error);
@@ -217,7 +210,7 @@ impl Scheduler {
             }
         } else {
             if stats.anchored {
-                // A long gap or a late chunk starts a new anchor attempt with this chunk.
+                // A long gap starts a new anchor attempt with this chunk.
                 head = Head::Unseen;
             }
             stats.anchored = false;
