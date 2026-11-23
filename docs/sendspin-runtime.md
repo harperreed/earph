@@ -316,12 +316,16 @@ A lost connection closes the worker's source through its ordinary close path, wh
 The runtime turns that close into the phase `reconnecting`, and Core keeps the session, its epochs, and its mute state.
 The transport shows `buffering`. The runtime joins Network and the credential supervisor as it does for a stop.
 Then it waits: 250 ms at first, doubled after each failed attempt, and 10 seconds at most. The wait has no random part.
+Only a connection that the server kept for 30 seconds starts the wait at 250 ms again.
+A server that accepts the player and drops it at once therefore sees the same growing wait.
 Each attempt spawns a new supervisor, loads the credentials again, and takes a new permit and a new admission policy.
 The worker gets a new source, so the handshake, the available declaration, the clock, the timeline, and the anchor are all new.
 The phase stays `reconnecting` until the server knows this player again.
 `reconnects` in the source observation counts the restored connections of the session.
 The worker's source reports zero, and the runtime writes the count into each observation that it forwards.
 `submitted_frames` and the `timing` facts count from the latest connection.
+A worker that reports no close within two seconds of a healable transport end starts the same reconnect.
+A close that such a worker reports later is ignored: it left the observation of the running attempt open.
 An attempt whose credential load fails ends the session with that failure.
 An attempt that leaves an uncertain credential outcome ends the session with `AUTH_DENIED`.
 

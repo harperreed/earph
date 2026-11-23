@@ -242,6 +242,9 @@ It retries a closed socket, a lost socket, a refused connection, a failed upgrad
 It does not retry a refused authentication, a protocol violation, an expired permit, a clock error, or an output fault.
 Those keep their exit status. A first connection that fails also ends the command as before.
 The wait starts at 250 ms, doubles after each failed attempt, and stops at 10 seconds. It has no random part.
+Only a connection that lasted 30 seconds starts the wait at 250 ms again.
+A server that accepts the player and drops it at once sees the growing wait.
+A worker that reports its closed source late, or never, gets the same reconnect after a healable transport end.
 Each attempt gets a new credential supervisor, a new permit, a new admission policy, and a new worker source.
 The handshake, the player state, the clock, and the timing anchor are therefore new.
 The lost connection stops the output through the existing close path.
@@ -257,7 +260,9 @@ Three tests that ended by a peer close now end by a stop.
 The command tests use the in-repo test server.
 They cover a clean close and a dropped socket, each followed by a new stream that anchors once.
 They cover a failed authentication on the reconnect, which ends the command with `AUTH_DENIED`.
-They cover Control-C while every attempt is refused.
+They cover Control-C inside a 4-second wait, with a 2-second exit bound.
+They cover a server that accepts and drops three times: the waits before the attempts grow.
+They cover a clean close before the server accepted the player: the command ends with status 0 and no retry.
 
 Unverified: a restart of a real Music Assistant server. No reconnect has run against one.
 Unverified: which transport end a real server restart produces, and how long the server stays away.
@@ -265,6 +270,10 @@ Unverified: a network that fails without a reset. Only the 30-second ping and it
 Unverified: reconnect on a Mac. No Mac has compiled or run this unit.
 Known limits: each attempt opens and closes the output, and a clock error still ends the session.
 Known limit: a failed credential load during a reconnect ends the session, for example a store that locked meanwhile.
+Known weakness: the runtime matches a worker close to the transport end by error code.
+A source fault with the same code, in the same moment as a healable transport end, starts a reconnect.
+Known weakness: a server refusal that arrives as a WebSocket Close, or as HTTP 401 or 403 on the upgrade, is retried forever.
+Unverified: how Music Assistant refuses a revoked player.
 
 The first Mac build of this code passed strict Clippy for Core, Engine, and credentials on November 22, 2026.
 No Sendspin test has run on a Mac, and no real keyring or keychain has held a Sendspin identity.
@@ -287,6 +296,23 @@ No automated Sendspin test has run on a Mac.
 - A rebuilt credential helper could not read the stored identity; the store looked locked.
   The cause is unconfirmed. The likely cause is the keychain item's access list, which names the first helper.
   A stable code signature for the helper would fix it.
+
+### Later runs with the device latency
+
+Doctor Biz ran the build of `ce99d1f` on a Mac against Music Assistant on November 22, 2026.
+
+- Built-in speakers: the device reported a latency of 1094 frames, about 23 ms, and the player applied it.
+  The start error was 0.3 ms and the maximum error was 1.0 ms. The run had no drop and no underrun.
+  By ear, Earph played in sync with a web player in Safari on an iPhone.
+  This is no measurement. Sync stays `unqualified`.
+- Bluetooth earphones, about ten minutes, with 21 track changes from the Music Assistant page:
+  the device reported a latency of 7680 frames, 160 ms, and the player applied it.
+  The maximum error was 7.7 ms and did not change from start to end. The run had no underrun.
+  By ear, the track changes were clean.
+  This was the first real run of the Core Audio discard path.
+- Open defect: on the Bluetooth route, `dropped_frames` rose by about 15,400 frames, about 0.32 s, at each stream start.
+  The player drops the first part of each track after a skip as late.
+  The cause is not traced. The hypothesis: on a skip the server gives less head start than the declared lead.
 
 ## Known risks
 
