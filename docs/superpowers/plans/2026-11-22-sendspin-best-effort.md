@@ -64,7 +64,8 @@ U9 adds the latency that the Core Audio device reports behind that cursor.
 
 Keep the output running on idle silence while a stream is active and no audio is due (U8).
 Anchor only on a running output.
-Keep the output running through a full clear, and write scheduled audio only up to the idle depth (U10).
+Keep the output running through a full clear, and write scheduled audio only up to 100 ms ahead (U10).
+Count a starved output, and anchor again when a chunk stays more than 20 ms late (U10).
 
 ## Units
 
@@ -79,7 +80,7 @@ Keep the output running through a full clear, and write scheduled audio only up 
 | U7 | Credential provisioning and pairing, for real Music Assistant use | 870 / 1130 | U4 |
 | U8 | Landed. Keep the output running on idle silence | 200 / 500 | U5 |
 | U9 | Landed. Count the Core Audio device's reported latency in the schedule | 150 / 350 | U8 |
-| U10 | Landed on Linux. Keep the output running through a full clear | 70 / 130 | U8 |
+| U10 | Landed. Keep the output running through a full clear; count starvation | 190 / 420 | U8 |
 
 ### U1: thinnest sample path
 
@@ -183,7 +184,8 @@ That sum is about 2 ms, so a reported latency of this size cannot explain an aud
 
 ### U10: running output through a clear
 
-Landed on Linux on November 23, 2026. No Mac has compiled or run this unit.
+Landed in two rounds on November 23, 2026. A Mac ran the first round; see "Measured on a Mac" below.
+No Mac has compiled or run the second round.
 The loopback capture below timed a full clear at 152 ms to 174 ms, because the clear restarted the output.
 An anchor on an output that kept running cost nothing measurable.
 
@@ -201,14 +203,14 @@ No Mac can run here, so the adapters stay unchanged.
 The held audio therefore needed a bound.
 Before this unit the worker wrote every contiguous chunk at once, as far ahead as the output took it.
 From the code, a Core Audio system output takes its staging ring plus an equal queue window: 8192 frames, about 170 ms, with the default sizes.
-The worker now writes scheduled audio only while a running output holds less than the idle depth.
-That depth is three periods and at least 30 ms, never more than the buffer.
+The worker now writes scheduled audio only while a running output holds less than a scheduled depth.
+The first round used the idle depth: three periods and at least 30 ms. The second round uses 100 ms.
 The rest waits in the timeline, where a clear still drops it.
-So cleared audio plays on for at most about 30 ms, plus the device latency, which plays out in either design.
-The bound applies only to an output that reports its held frames. The ALSA file and null devices report zero.
-It applies only when the buffer is larger than the depth. A smaller buffer is its own bound.
-With the default ALSA sizes the depth equals the 256-frame buffer, so nothing changes there.
-An ALSA delay can count frames that already left the buffer. A bound on that report would starve such a device.
+So cleared audio plays on for at most about 100 ms, plus the device latency, which plays out in either design.
+The bound applies only to an output that counts its queued frames from a cursor, as Core Audio does.
+An ALSA delay can count frames that already left the buffer. A bound on that report could starve such a device.
+An ALSA output therefore has no bound from the worker. Its buffer is the bound: 256 frames with the default sizes.
+The first round bounded every output whose buffer was larger than the depth; the review found that unsafe for ALSA.
 
 State shows the cost. `timing.clear_held_frames` holds the scheduled frames that the output held at the latest full clear.
 `timing.max_clear_held_frames` keeps the largest value.
@@ -226,27 +228,100 @@ Side finding B is not traced to its cause. See "Tail frames" below.
 
 The worker tests give the clocked output a 150 ms start and a 100 ms head start after a clear on playing audio.
 Before this unit that clear lost 6323 frames. Now it loses none, the first wait stays below 20 ms, and the audio leaves on time.
-A second test sends 400 ms of audio within 80 ms: the clocked output held 3838 of its 3840 frames before, and at most 2880 now.
-A third test gives the output a buffer equal to the depth and a report that counts 960 frames too many.
-A bound on that report kept the buffer at 2880 of 3840 frames. Without the bound the buffer fills.
+A second test sends 400 ms of audio within 80 ms: the clocked output held 3838 of its 3840 frames before the bound.
+It now holds at most 4800 of 7680 frames.
+A third test makes the output report a delay, as ALSA does, that counts 960 frames too many. That output fills its buffer.
 
-Unverified on a Mac: all of it. The capture runs that verify it, with the build of this unit:
+#### Measured on a Mac
 
-- `run NAME --streams 11 --seconds 4` (a clear on playing audio, the 200 ms head start).
-  Expect no missing head frame, `first_wait_us` near 0 instead of 57 ms to 69 ms, and `clear_held_frames` up to about 1440.
-  Expect the old audio to run on for about 30 ms past the clear, up to 35 ms, instead of 11 ms to 21 ms.
-  Expect the silence to shrink from 179 ms to 188 ms to about 165 ms to 175 ms.
-- The same with `--lead-us 80000` and `--lead-us 40000`.
-  Expect the result of the gap runs: no missing head frame at either head start.
-  Before, 80 ms lost 72 ms to 95 ms and 40 ms lost 113 ms to 130 ms.
-  At 40 ms the margin is small: the head start less the 30 ms that the output holds, less the transit.
-- `--transition clear --idle-seconds 1`: expect `clear_held_frames` 0 and `first_wait_us` 0.
-- One long segment, `--streams 1 --seconds 300`: expect no interior missing frame and no underrun.
-  This run is the check of the shallower depth in steady playback.
-- Then a Bluetooth output with Music Assistant: expect `dropped_frames` to stay flat across track skips.
-  Listen for dropouts in steady playback. The output now holds 30 ms of audio where it held up to 170 ms.
+Doctor Biz ran the first round, the build of `a006fe7`, on November 23, 2026.
+It used the AudioQueue route, the silent loopback device, and the capture harness. The depth was 30 ms.
 
-These numbers are predictions from the code and from the capture of the earlier build. No run has confirmed one.
+- A clear at the 200 ms head start, 4 runs of 10 clears: no missing head frame and a `first_wait_us` of 0.
+  The old audio ran 27.9 ms to 29.8 ms past the clear. The new audio left 199 ms to 200.6 ms after it.
+  The offsets were unchanged: -64 us to -1297 us.
+- A clear at an 80 ms head start, 5 clears: no missing head frame, where the earlier build lost 3437 to 4546 frames.
+  The new audio left 79.2 ms to 79.7 ms after the clear.
+- One 120 s stream: all 5,760,000 frames left, with no interior gap.
+- The analysis reports about 8100 missing tail frames at each 200 ms clear and about 2400 at each 80 ms clear.
+  That is the cleared audio. The peer had sent one head start of audio past the clear: 9600 and 3840 frames.
+  About 1400 of them had reached the output and played on. The rest is 8200 and 2440 frames.
+- Holes: 4 of 44 four-second segments, in 3 of 4 runs, missed interior frames.
+  The hole sizes were [128, 4928, 2944], [256, 3008], [128], and [64] frames, all multiples of 64.
+  They began 0.6 s to 2.5 s into a segment, not at a clear. The Mac ran other work, with a load average of 3 to 16.
+  The earlier build, `adb8d06`, had no interior gap in any run, including one of 300 s.
+- The frames were missing, not late. After each hole the offset of the segment stayed constant to under 0.001 us.
+- State showed `underruns` 0 and `dropped_frames` 0. `max_abs_error_us` stepped to 65,893 in one such run.
+
+#### The holes
+
+A source reading on November 23, 2026 explains the holes as starvation of the AudioQueue. No Mac ran for it.
+
+- The worker stalled for longer than the output held. With the 30 ms depth the queue held 21 ms to 27 ms.
+  `max_abs_error_us` of 65,893 fits: one chunk was decided about 66 ms after its audio was due.
+- The worker dropped nothing. While anchored it writes every chunk and skips no frame; see the locked branch of `Scheduler::decide`.
+  `dropped_frames` stayed 0, and no idle silence entered, because the timeline still held audio.
+- The staging ring cannot overrun. `Producer::write` accepts only what fits.
+- The adapter enqueues each buffer without a start time and trusts the start that the queue returns.
+  See `pump` in `crates/earph-coreaudio/src/playback/system/native.rs`.
+  `Schedule::append` refuses only a start before the predecessor's end. It accepted any start behind the queue clock, and any gap.
+- `Schedule::retire` retires every buffer whose end lies behind the queue clock.
+  A buffer placed behind the clock retires at the next read, so the held count dropped and nothing signalled a loss.
+- Inferred from the measurement, not from code: the queue keeps its sample timeline through a dry spell.
+  It places a late buffer right behind its predecessor, in the past, and never plays the part behind its clock.
+  That gives missing whole buffers, 64 frames each, and an unchanged offset afterwards. Both were measured.
+  AudioQueue is closed source. A queue that placed a late buffer at its present would shift the offset instead; no capture showed that.
+- The earlier build held up to 170 ms, so the same stalls starved nothing.
+
+The second round counts both cases. `Schedule` now keeps the latest queue clock.
+It counts the frames of each buffer that start behind that clock, and the frames of each gap after a predecessor.
+State shows the sum as `timing.starved_frames`.
+
+#### Second round
+
+- The scheduled depth is 100 ms, and at least the idle depth. Idle silence keeps its 30 ms.
+  The trade-off: a stalled worker starves the output after that long, and a clear leaves that much old audio.
+  The server's head start is at least 200 ms plus the device latency, so 100 ms remain for a clear.
+- `timing.starved_frames` counts starved queue frames on Core Audio. It is `null` on ALSA, which fails a call instead.
+- `timing.late_chunks` counts contiguous chunks that were more than 20 ms late.
+  A late chunk writes at once while the output catches up. On an output that holds half its idle depth it anchors again.
+  That anchor drops the overdue frames and counts them. A queue that dropped the late frames itself needs no new anchor.
+  This also ends a lateness above 20 ms from a slow output clock. Smaller drift stays uncorrected.
+- `clear_held_frames` and `output_discarded_frames` no longer count idle silence that lies before the scheduled frames.
+- A clear no longer recovers an underrun by itself. A failed hold query gives `null`, and the next write recovers.
+  That removes a branch that no test could reach.
+- The slow-start test built its audio after the stream start. Idle silence filled the starting output within 20 ms.
+  A chunk that arrives later waits behind a blocked silence period, and its first lead reads low. The test now builds the audio first.
+  The product effect stays and is documented: `first_lead_us` and `first_wait_us` read low for such a chunk.
+
+A design for later: keep a deep hold and still clear at once.
+The queue could take each buffer with an explicit start time, and a clear could reset the queue and re-enqueue from "now".
+That needs a rebuilt clock mapping in the adapter and a Mac to test it. It stays out of this unit.
+
+The worker tests model both kinds of starved output behind the clocked seam, with a worker stall of 250 ms.
+An output that drops late frames counts 6000 to 12000 starved frames, at least one late chunk, and keeps its anchor.
+An output that plays late frames late anchors again and drops the overdue audio.
+The schedule test counts a buffer behind the clock and a gap after a predecessor.
+
+Unverified on a Mac: the whole second round. Two lines changed in code that only a Mac compiles:
+the `starved` field in `clock_diagnostics` of the system route, and the `starved` field in the Engine's Core Audio counters.
+Unverified: that the queue clock and the returned buffer start share one timeline closely enough for an exact count.
+A count that grows in a run without holes shows that they do not.
+
+The capture runs that verify the second round, with expectations from the code and the first measurement:
+
+- `run NAME --streams 11 --seconds 4` under the same load, several times.
+  Expect no interior hole, because a stall must now exceed 100 ms. Expect `starved_frames` flat and `late_chunks` 0.
+  If a hole appears, expect `starved_frames` to grow by about the hole's frames, and `late_chunks` to grow for a hole above 20 ms.
+  Expect `anchors` to grow only at the clears.
+- The clears of that run: no missing head frame, `first_wait_us` near 0, `clear_held_frames` up to about 4800.
+  Expect the old audio to run on for up to about 100 ms, and about 4800 missing tail frames at each clear.
+- `--lead-us 80000`: the head start is now shorter than the held audio.
+  Expect up to about 20 ms of missing head frames, counted in `dropped_frames`. No server gives so short a head start.
+- `--streams 1 --seconds 300` under load: no interior hole, `starved_frames` flat, `underruns` 0.
+- `--transition end`: compare the missing tail frames with `starved_frames`; see "Tail frames".
+
+No run has confirmed one of these expectations.
 
 ### U6: independent producer and documents
 
@@ -574,7 +649,13 @@ What the reading finds:
 - The reading does not explain the loss. In every run the capture driver waited 0.5 s or longer between the last audio and the next close.
   Idle silence should have moved the tail out long before.
 
-So the cause is one of three, and only a capture can tell them apart:
+The holes of the first U10 build suggest a fourth cause, and the likely one.
+The last slot holds the audio tail and the first idle silence. Idle silence starts only 20 ms before the queue runs dry.
+A worker that stalls longer hands that slot to the queue behind its clock, and the queue never plays it.
+That loses exactly the tail, 1 to 63 frames, and no counter moved. `timing.starved_frames` now counts it.
+Not confirmed: no capture has run with that counter.
+
+Before that reading, the cause was one of three, and only a capture can tell them apart:
 
 1. Idle silence did not follow the audio in those segments, and a later close dropped the staged tail.
    Then `timing.output_discarded_frames` grows by the missing frames at a stream end.

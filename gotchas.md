@@ -154,7 +154,11 @@
 
 - A Sendspin output takes scheduled audio as fast as the worker writes it, far ahead of its clock.
   Whatever it holds at a full clear plays on, because no backend drops held audio without a restart.
-  Write scheduled audio only up to the idle depth, and leave the rest in the timeline.
+  Write scheduled audio only up to a bounded depth, and leave the rest in the timeline.
+  That depth is also the stall the output survives: 30 ms lost whole buffers on a loaded Mac, so it is 100 ms.
+  A starved AudioQueue reports nothing. Its clock runs on and it never plays audio that arrives behind that clock.
+  Read `timing.starved_frames` and `timing.late_chunks`; `underruns` and `dropped_frames` stay flat.
+  Bound only a hold that counts queued frames from a cursor. An ALSA delay can count frames behind the buffer.
   The Core Audio system route also keeps a tail shorter than one period in its staging ring until more frames arrive.
   Record a Mac loopback capture only through the tmux session that holds microphone permission.
   Keep the silent preamble in a capture: a gain ramp turns 16-bit pattern frames into other valid pattern frames.

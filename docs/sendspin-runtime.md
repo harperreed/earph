@@ -206,6 +206,7 @@ A lost server is the exception once the server knew this player: the session sta
 
 The playback worker anchors a chunk to its own server timestamp at each stream start.
 It anchors again after a full clear, an output underrun, idle silence, and a timestamp gap longer than 100 ms.
+It also anchors again when a contiguous chunk is more than 20 ms late on an output that holds its depth.
 A shorter gap becomes silence and keeps the anchor.
 
 While a stream is active and no audio is due, the worker feeds the output idle silence.
@@ -214,14 +215,18 @@ A chunk takes an anchor only on a running output.
 A device that still starts would delay every frame behind that anchor.
 Idle silence then keeps the output from running dry through an anchor wait, a server gap, and starvation.
 It keeps three periods in the output, and at least 30 ms, never more than the buffer once the output runs.
-Scheduled audio uses the same depth: the worker writes a chunk only while a running output holds less.
+Scheduled audio has its own depth: 100 ms, and at least the idle depth.
+The worker writes a chunk only while a running output holds less than that.
 The rest waits in the timeline, where a clear can still drop it.
-Before this bound a Core Audio output took audio until its staging ring and its queue window were full.
+The depth trades two costs. A worker that stalls longer starves the output, and the audio that was due meanwhile is lost.
+A full clear leaves up to that much old audio to play on, and the next audio needs a head start beyond it.
+The server's head start is at least 200 ms plus the device latency, so 100 ms leaves 100 ms for a clear.
+A depth of 30 ms lost frames on a loaded Mac: 4 of 44 four-second segments had holes of 64 to 4928 frames.
+Without a bound a Core Audio output takes audio until its staging ring and its queue window are full.
 With the command's default sizes that is up to 8192 frames, about 170 ms. This comes from the code; no run measured it.
-An output that reports no held frames has no bound. The ALSA file and null devices report zero at once.
-The worker applies the bound only when the buffer is larger than the depth. A smaller buffer is its own bound.
-With the command's default ALSA sizes the depth equals the 256-frame buffer, so nothing changes there.
-An ALSA delay can count frames that already left the buffer, and a bound on that report would starve the device.
+The bound applies only to an output that counts its queued frames from a cursor, as Core Audio does.
+An ALSA delay can count frames that already left the buffer, and a bound on that report could starve the device.
+So an ALSA output has no bound from the worker. Its buffer is the bound: 256 frames with the command's default.
 While a Core Audio output still starts, silence can pile up to about two buffers, and audio due inside that backlog drops once as late.
 The worker estimates the held frames from the accepted frames and its monotonic clock.
 A running output's own report corrects that estimate; an output without a clock reports zero and corrects nothing.
@@ -276,10 +281,12 @@ The worker drops the queued audio and the part of a chunk that the output has no
 It cannot take back the audio that the output already holds, so that audio plays out.
 Idle silence follows it, and the next chunk anchors on the running output.
 That anchor counts the held frames, old audio and idle silence alike, as its delay.
-The held audio is at most the depth above, so cleared audio plays on for at most about 30 ms with the default Core Audio sizes.
-With the default ALSA sizes it is at most the 256-frame buffer, about 5 ms.
+The held audio is at most the scheduled depth, so cleared audio plays on for at most about 100 ms on Core Audio.
+On ALSA it is at most the buffer, about 5 ms with the default 256 frames.
 The device latency lies behind it and plays out as well.
+A head start shorter than the held audio loses the difference at the head of the new audio, as late frames.
 `timing.clear_held_frames` shows the scheduled frames that the output held at the latest full clear.
+Idle silence before and behind those frames does not count.
 It is `null` before the first full clear and for an output that reported no held frames.
 `timing.max_clear_held_frames` keeps the largest value since the source started.
 Neither backend can drop its held audio without a restart through the interface that the worker uses.
@@ -296,6 +303,16 @@ The next `stream/start` starts it again, so audio due before the device runs is 
 Each new activation gets a new available player state.
 
 Idle silence keeps a running output fed, so only a stalled worker starves it.
+A starved Core Audio system output reports no failure.
+The Mac loopback capture showed that its queue clock runs on, and that audio which arrives behind that clock never plays.
+The audio after the hole stays on schedule, so the anchor stays.
+`timing.starved_frames` counts the queue frames that passed with nothing queued: gaps between buffers, and buffer starts behind the queue clock.
+It is `null` for an output that fails instead, as ALSA does.
+`timing.late_chunks` counts the contiguous chunks that were due more than 20 ms before the output could play them.
+A late chunk writes at once while the output catches up; an output that ran dry holds almost nothing then.
+A late chunk on an output that holds half its idle depth or more stays late, so it anchors again.
+That anchor drops the overdue frames and counts them in `timing.dropped_frames`.
+This also bounds a slow output clock at 20 ms of lateness; smaller drift stays uncorrected.
 A starved ALSA output underruns.
 After an underrun the worker prepares the same ALSA stream again and anchors the unwritten audio again.
 It reopens no device, and mute and volume stay unchanged.
@@ -317,6 +334,10 @@ It subtracts no output delay, so it shows what the server gave.
 `timing.min_first_lead_us` keeps the smallest first lead since the source started.
 `timing.first_wait_us` shows the time from that first sight to the first scheduling decision.
 The player decides only on a running output, so this wait includes the output's start time.
+The player sees a chunk only between two output writes.
+While a starting output is full, a silence period waits for room and the player sees no chunk.
+A chunk that arrives then gets a first lead and a first wait that both read low, by up to the output's start time.
+The decision itself is not later for it: no chunk gets a decision before the output runs.
 `timing.max_first_wait_us` keeps the longest first wait since the source started.
 The player drops audio at a start when the first lead is shorter than the first wait plus the backend delay.
 A short first lead points at the server. A long first wait points at the output.
