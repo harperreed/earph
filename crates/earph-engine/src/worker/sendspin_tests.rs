@@ -1287,6 +1287,15 @@ fn a_slow_starting_output_runs_on_idle_silence_before_each_anchor_so_audio_start
         streaming.timing.backend_delay_basis,
         Some("test_output_clock")
     );
+    // The peer stamped each first chunk 400 ms ahead, and the source saw it before the output ran.
+    let lead = streaming.timing.first_lead_us.expect("a first lead");
+    assert!((300_000..=400_000).contains(&lead), "first lead {lead}");
+    let least = streaming.timing.min_first_lead_us.expect("a least lead");
+    assert!((300_000..=lead).contains(&least), "least lead {least}");
+    // After the clear the first decision waited for the output, which takes 150 ms to run.
+    let waited = streaming.timing.first_wait_us.expect("a first wait");
+    assert!((100_000..=300_000).contains(&waited), "first wait {waited}");
+    assert!(streaming.timing.max_first_wait_us >= waited);
     assert_audible_on_time(&[first_due, second_due]);
     // A stream end releases the output. Nothing feeds it between streams.
     peer.end_stream();

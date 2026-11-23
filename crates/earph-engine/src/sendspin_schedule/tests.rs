@@ -347,6 +347,131 @@ fn anchors_count_each_anchored_write_and_no_wait_or_dropped_chunk() {
 }
 
 /// Keeps 30 ms in an output that plays 48 frames each millisecond.
+#[test]
+fn first_lead_is_the_head_start_of_the_first_chunk_after_each_reset_before_the_delay() {
+    let mut scheduler = Scheduler::new(RATE).unwrap();
+    let snapshot = scheduler.snapshot();
+    assert_eq!(snapshot.first_lead_us, None);
+    assert_eq!(snapshot.min_first_lead_us, None);
+    assert_eq!(snapshot.first_wait_us, None);
+    assert_eq!(snapshot.max_first_wait_us, 0);
+    // 100 ms of head start. The 4_800 delay frames use all of it, and the first lead excludes them.
+    assert_eq!(
+        scheduler.decide(chunk(1_000_000, 900_000, Some(4_800))),
+        Ok(write(0, 0))
+    );
+    let snapshot = scheduler.snapshot();
+    assert_eq!(snapshot.first_lead_us, Some(100_000));
+    assert_eq!(snapshot.min_first_lead_us, Some(100_000));
+    // No sight preceded this decision, so it waited for nothing.
+    assert_eq!(snapshot.first_wait_us, Some(0));
+    // A locked chunk changes nothing.
+    assert_eq!(
+        scheduler.decide(chunk(1_010_000, 950_000, Some(2_880))),
+        Ok(write(0, 0))
+    );
+    assert_eq!(scheduler.snapshot().first_lead_us, Some(100_000));
+    // A reset keeps the last value until the next chunk replaces it.
+    scheduler.reset();
+    assert_eq!(scheduler.snapshot().first_lead_us, Some(100_000));
+    // A late first chunk has a negative head start. Only the first decision counts.
+    assert_eq!(
+        scheduler.decide(chunk(2_000_000, 2_030_000, None)),
+        Ok(Decision::DropChunk)
+    );
+    assert_eq!(
+        scheduler.decide(chunk(2_050_000, 2_030_000, None)),
+        Ok(Decision::Wait {
+            until_us: 2_045_000
+        })
+    );
+    let snapshot = scheduler.snapshot();
+    assert_eq!(snapshot.first_lead_us, Some(-30_000));
+    assert_eq!(snapshot.min_first_lead_us, Some(-30_000));
+    // A larger head start replaces the last value and keeps the minimum.
+    scheduler.reset();
+    assert_eq!(
+        scheduler.decide(chunk(3_000_000, 2_640_000, None)),
+        Ok(Decision::Wait {
+            until_us: 2_995_000
+        })
+    );
+    let snapshot = scheduler.snapshot();
+    assert_eq!(snapshot.first_lead_us, Some(360_000));
+    assert_eq!(snapshot.min_first_lead_us, Some(-30_000));
+}
+
+#[test]
+fn a_sight_records_the_head_start_before_the_first_decision_and_the_wait_between_them() {
+    let mut scheduler = Scheduler::new(RATE).unwrap();
+    // The chunk arrives 360 ms early. The output starts for 400 ms, so no decision runs meanwhile.
+    scheduler.sight(1_360_000, 1_000_000);
+    // A later sight of the waiting chunk changes nothing.
+    scheduler.sight(1_360_000, 1_200_000);
+    let snapshot = scheduler.snapshot();
+    assert_eq!(snapshot.first_lead_us, Some(360_000));
+    assert_eq!(snapshot.first_wait_us, None);
+    // The first decision finds the chunk 40 ms late: 1_920 of its frames are gone.
+    assert_eq!(
+        scheduler.decide(ChunkFacts {
+            frames: 4_800,
+            ..chunk(1_360_000, 1_400_000, None)
+        }),
+        Ok(write(0, 1_920))
+    );
+    let snapshot = scheduler.snapshot();
+    assert_eq!(snapshot.first_lead_us, Some(360_000));
+    assert_eq!(snapshot.first_wait_us, Some(400_000));
+    assert_eq!(snapshot.max_first_wait_us, 400_000);
+    // A shorter wait after the next reset replaces the last value and keeps the maximum.
+    scheduler.reset();
+    scheduler.sight(2_300_000, 2_000_000);
+    assert_eq!(
+        scheduler.decide(chunk(2_300_000, 2_010_000, None)),
+        Ok(Decision::Wait {
+            until_us: 2_295_000
+        })
+    );
+    // Only the first decision after the sight measures the wait.
+    assert_eq!(
+        scheduler.decide(chunk(2_300_000, 2_295_000, None)),
+        Ok(write(240, 0))
+    );
+    let snapshot = scheduler.snapshot();
+    assert_eq!(snapshot.first_lead_us, Some(300_000));
+    assert_eq!(snapshot.min_first_lead_us, Some(300_000));
+    assert_eq!(snapshot.first_wait_us, Some(10_000));
+    assert_eq!(snapshot.max_first_wait_us, 400_000);
+}
+
+#[test]
+fn a_long_gap_and_an_extreme_lead_also_record_a_first_lead() {
+    let mut scheduler = locked(RATE);
+    assert_eq!(scheduler.snapshot().first_lead_us, Some(0));
+    // A long gap anchors again, so its chunk is the first of a new attempt.
+    let long = ChunkFacts {
+        gap_frames: 4_801,
+        ..chunk(2_000_000, 1_900_000, None)
+    };
+    assert_eq!(
+        scheduler.decide(long),
+        Ok(Decision::Wait {
+            until_us: 1_995_000
+        })
+    );
+    assert_eq!(scheduler.snapshot().first_lead_us, Some(100_000));
+    // A head start beyond the integer range saturates and fails no decision.
+    scheduler.reset();
+    assert_eq!(
+        scheduler.decide(chunk(i64::MAX, i64::MIN, None)),
+        Ok(Decision::Wait {
+            until_us: i64::MAX - 5_000
+        })
+    );
+    assert_eq!(scheduler.snapshot().first_lead_us, Some(i64::MAX));
+    assert_eq!(scheduler.snapshot().min_first_lead_us, Some(0));
+}
+
 fn pacer() -> SilencePacer {
     SilencePacer::new(RATE, 1_440).unwrap()
 }

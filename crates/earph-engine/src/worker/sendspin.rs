@@ -457,6 +457,10 @@ impl SendspinPlayback {
                 inserted_silence_frames: facts.inserted_silence_frames,
                 idle_silence_frames: self.idle_silence_frames,
                 dropped_frames: facts.dropped_frames,
+                first_lead_us: facts.first_lead_us,
+                min_first_lead_us: facts.min_first_lead_us,
+                first_wait_us: facts.first_wait_us,
+                max_first_wait_us: facts.max_first_wait_us,
                 mapping_revision: facts.mapping_revision,
                 backend_delay_known: facts.delay_known,
                 backend_delay_basis: self.delay_basis,
@@ -669,11 +673,6 @@ impl SendspinPlayback {
         let (Some(mapping), Some(held)) = (mapping, self.held.as_ref()) else {
             return Ok(None);
         };
-        // An anchor needs a running output. A device that still starts delays every frame behind it.
-        // Idle silence starts the output meanwhile.
-        if !self.scheduler.snapshot().anchored && !self.output.is_running() {
-            return Ok(None);
-        }
         // After an underrun the held chunk continues from its first unwritten frame.
         let position = held
             .lease
@@ -695,6 +694,15 @@ impl SendspinPlayback {
             // The transport ends a connection whose estimate expired; hold the chunk this tick.
             Err(_) => return Ok(None),
         };
+        if !self.scheduler.snapshot().anchored {
+            // The first sight records the head start that the server gave, before any wait for the output.
+            self.scheduler.sight(target.time_us, now_us);
+            // An anchor needs a running output. A device that still starts delays every frame behind it.
+            // Idle silence starts the output meanwhile.
+            if !self.output.is_running() {
+                return Ok(None);
+            }
+        }
         // Whole frames between the previous chunk and this one. An overlap counts as no gap.
         let gap_ticks = self
             .previous_end

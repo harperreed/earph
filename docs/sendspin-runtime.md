@@ -283,6 +283,17 @@ Audio beyond the timeline budget ends the source with `RESOURCE_BUDGET_EXCEEDED`
 It grows with waiting time, so it stays apart from `timing.inserted_silence_frames`.
 That counter holds only the scheduler's bounded silence: the anchor pads and the short gaps.
 `submitted_frames` includes both.
+`timing.dropped_frames` counts received frames that were due before the player could write them.
+
+`timing.first_lead_us` shows the head start of the first chunk after the latest stream start, clear, underrun, long gap, or idle silence.
+It is that chunk's local target time minus the time the player first saw it.
+It subtracts no output delay, so it shows what the server gave.
+`timing.min_first_lead_us` keeps the smallest first lead since the source started.
+`timing.first_wait_us` shows the time from that first sight to the first scheduling decision.
+The player decides only on a running output, so this wait includes the output's start time.
+`timing.max_first_wait_us` keeps the longest first wait since the source started.
+The player drops audio at a start when the first lead is shorter than the first wait plus the backend delay.
+A short first lead points at the server. A long first wait points at the output.
 No test produced a hardware underrun, because no ALSA plugin without hardware underruns.
 The worker tests put a clock in front of the file capture: a start time, a 48 kHz drain, and a final failure when dry.
 The worker tests fail one write at the output interface and then prepare the real file-capture stream again.

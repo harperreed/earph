@@ -58,6 +58,17 @@ pub struct SendspinTiming {
     pub idle_silence_frames: u64,
     /// Received frames that arrived too late and never reached the output.
     pub dropped_frames: u64,
+    /// The head start of the first chunk after the latest stream start, clear, underrun, long gap, or idle silence.
+    /// It is the chunk's local target minus the time the source first saw it. No output delay is subtracted.
+    /// The schedule needs more than the backend delay, or it drops the difference as late.
+    pub first_lead_us: Option<i64>,
+    /// The smallest first lead since this source started.
+    pub min_first_lead_us: Option<i64>,
+    /// The time from the first sight of that chunk to its first scheduling decision.
+    /// The source decides only on a running output, so this includes the output's start time.
+    pub first_wait_us: Option<u64>,
+    /// The longest first wait since this source started.
+    pub max_first_wait_us: u64,
     /// Revision of the clock mapping that the last decision used.
     pub mapping_revision: Option<u64>,
     /// Whether the last decision knew the frames that the output held. Unknown frames count as zero.
@@ -87,6 +98,10 @@ impl SendspinTiming {
         inserted_silence_frames: 0,
         idle_silence_frames: 0,
         dropped_frames: 0,
+        first_lead_us: None,
+        min_first_lead_us: None,
+        first_wait_us: None,
+        max_first_wait_us: 0,
         mapping_revision: None,
         backend_delay_known: false,
         backend_delay_basis: None,
@@ -151,6 +166,10 @@ mod tests {
                     "inserted_silence_frames": 0,
                     "idle_silence_frames": 0,
                     "dropped_frames": 0,
+                    "first_lead_us": null,
+                    "min_first_lead_us": null,
+                    "first_wait_us": null,
+                    "max_first_wait_us": 0,
                     "mapping_revision": null,
                     "backend_delay_known": false,
                     "backend_delay_basis": null,
@@ -166,6 +185,10 @@ mod tests {
             start_error_us: Some(-40),
             last_error_us: Some(125),
             max_abs_error_us: 125,
+            first_lead_us: Some(360_000),
+            min_first_lead_us: Some(-12_000),
+            first_wait_us: Some(410_000),
+            max_first_wait_us: 410_000,
             mapping_revision: Some(3),
             backend_delay_known: true,
             backend_delay_basis: Some("alsa_client_estimate"),
@@ -178,6 +201,10 @@ mod tests {
         assert_eq!(timing["underruns"], 1);
         assert_eq!(timing["start_error_us"], -40);
         assert_eq!(timing["last_error_us"], 125);
+        assert_eq!(timing["first_lead_us"], 360_000);
+        assert_eq!(timing["min_first_lead_us"], -12_000);
+        assert_eq!(timing["first_wait_us"], 410_000);
+        assert_eq!(timing["max_first_wait_us"], 410_000);
         assert_eq!(timing["mapping_revision"], 3);
         assert_eq!(timing["backend_delay_basis"], "alsa_client_estimate");
         assert_eq!(timing["device_latency_frames"], 9600);

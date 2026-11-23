@@ -84,6 +84,15 @@ pub struct ScheduleSnapshot {
     pub max_abs_error_us: u64,
     pub inserted_silence_frames: u64,
     pub dropped_frames: u64,
+    /// The head start of the first chunk after the latest reset: its target minus the time it was first seen.
+    /// The output delay is not subtracted. A reset keeps the value until the next first chunk.
+    pub first_lead_us: Option<i64>,
+    /// The smallest first lead so far.
+    pub min_first_lead_us: Option<i64>,
+    /// The time from the first sight of that chunk to its first decision.
+    pub first_wait_us: Option<u64>,
+    /// The longest first wait so far.
+    pub max_first_wait_us: u64,
     /// Mapping revision of the last decision.
     pub mapping_revision: Option<u64>,
     /// Whether the last decision had a reported output delay.
@@ -97,6 +106,19 @@ pub struct ScheduleSnapshot {
 pub struct Scheduler {
     sample_rate: u32,
     stats: ScheduleSnapshot,
+    head: Head,
+}
+
+/// How far the first chunk after a reset has come.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Head {
+    /// No chunk was seen since the reset.
+    Unseen,
+    /// The first chunk was seen at this local time and awaits its first decision.
+    Seen {
+        at_us: i64,
+    },
+    Decided,
 }
 
 impl Scheduler {
@@ -114,11 +136,16 @@ impl Scheduler {
                 max_abs_error_us: 0,
                 inserted_silence_frames: 0,
                 dropped_frames: 0,
+                first_lead_us: None,
+                min_first_lead_us: None,
+                first_wait_us: None,
+                max_first_wait_us: 0,
                 mapping_revision: None,
                 delay_known: false,
                 correction: Correction::None,
                 qualification: Qualification::Unqualified,
             },
+            head: Head::Unseen,
         })
     }
 
@@ -126,6 +153,14 @@ impl Scheduler {
     pub fn reset(&mut self) {
         self.stats.anchored = false;
         self.stats.start_error_us = None;
+        self.head = Head::Unseen;
+    }
+
+    /// Records the head start of the first chunk since the last reset.
+    /// Call it when the chunk first has a target, even while no decision can run.
+    /// A later call changes nothing until the next reset. A value outside the range saturates.
+    pub fn sight(&mut self, target_us: i64, now_us: i64) {
+        see(&mut self.stats, &mut self.head, target_us, now_us);
     }
 
     pub fn snapshot(&self) -> ScheduleSnapshot {
@@ -149,6 +184,7 @@ impl Scheduler {
         let gap = mul(i128::from(chunk.gap_frames), MICROS_PER_SECOND)?;
         // Work on a copy, so a failed decision commits nothing.
         let mut stats = self.stats;
+        let mut head = self.head;
         stats.mapping_revision = Some(chunk.mapping_revision);
         stats.delay_known = chunk.delay_frames.is_some();
         let decision = if stats.anchored && gap <= mul(SHORT_GAP_LIMIT_US.into(), rate)? {
@@ -163,13 +199,40 @@ impl Scheduler {
                 skip_frames: 0,
             }
         } else {
+            if stats.anchored {
+                // A long gap starts a new anchor attempt with this chunk.
+                head = Head::Unseen;
+            }
             stats.anchored = false;
             stats.start_error_us = None;
+            see(&mut stats, &mut head, chunk.target_us, chunk.now_us);
+            if let Head::Seen { at_us } = head {
+                let wait = chunk.now_us.saturating_sub(at_us).max(0).unsigned_abs();
+                stats.first_wait_us = Some(wait);
+                stats.max_first_wait_us = stats.max_first_wait_us.max(wait);
+                head = Head::Decided;
+            }
             anchor(&mut stats, lead, rate, chunk)?
         };
         self.stats = stats;
+        self.head = head;
         Ok(decision)
     }
+}
+
+/// Records the first lead when no chunk was seen since the reset.
+fn see(stats: &mut ScheduleSnapshot, head: &mut Head, target_us: i64, now_us: i64) {
+    if *head != Head::Unseen {
+        return;
+    }
+    let lead = target_us.saturating_sub(now_us);
+    stats.first_lead_us = Some(lead);
+    stats.min_first_lead_us = Some(
+        stats
+            .min_first_lead_us
+            .map_or(lead, |least| least.min(lead)),
+    );
+    *head = Head::Seen { at_us: now_us };
 }
 
 /// Place one chunk against its own target. A `Write` locks the scheduler.
