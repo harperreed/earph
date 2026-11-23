@@ -394,6 +394,93 @@ No fix landed. The options, once a run confirms the cause:
    Cost: this player then plays behind every other player in the group for the whole stream.
    State must show the offset. Size: about 80 source lines and 100 test lines. Not recommended.
 
+### Loopback timing capture
+
+Root ran the first measured timing capture on November 23, 2026, on the Mac build host.
+The build of `adb8d06` played streams from the pinned Python peer into the silent phoaudio Loopback device at 48 kHz.
+It was also the first automated Sendspin pairing and playback on a Mac.
+[The runtime notes](../../sendspin-runtime.md#loopback-timing-capture) describe the harness, the method, and its limits.
+Twelve runs gave 73 anchors. Every recording was complete: no callback gap and no driver overrun.
+This is one virtual device on one machine. Sync stays `unqualified`.
+Each statement below says whether it is measured or inferred.
+
+Clocks, measured:
+
+- The peer's `time.monotonic_ns` (Python 3.13.5) is `mach_absolute_time` scaled by the timebase 125/3.
+  In 6000 bracketed readings, each absolute reading lay between its two monotonic readings, at most 292 ns from either.
+  The continuous clock differed by 50.04 s, so the check tells the two clocks apart.
+- `loopcheck --times` writes the `mHostTime` of each input callback in the same ticks.
+  Server time and capture time therefore lie on one clock, and the analysis maps nothing.
+- The callback times fit the nominal 48 kHz within 0.001 us. The device reports no latency and no safety offset.
+
+Start offset, measured. The offset is the time a frame left the device minus its server time.
+
+- Inside a segment the offset never moved. Its spread was below 0.001 us in every segment of 3 to 300 seconds.
+- Each anchor chose a new offset. Over 72 anchors the mean was -608 us and the standard deviation 408 us.
+  The range was -1311 us to -50 us: every frame left early.
+- The kind of anchor made no clear difference: -663 us over 20 stream starts, -655 us over 22 clears,
+  -429 us over 15 clears after the audio ran out, and -643 us over 15 anchors after a gap.
+- One more anchor is left out. It was a stream start with a 40 ms head start, and its gain ramp reached the pattern.
+- The player's `start_error_us` ranged from -1115 us to +1176 us, with a mean of +31 us.
+  The measured offset lay earlier than `start_error_us` at every anchor: by 7 us to 1323 us, 638 us on average.
+- `last_error_us` moved by up to 1.3 ms inside a segment whose measured offset stayed fixed.
+- Inferred: `last_error_us` shows when the worker wrote a chunk, not where the audio left.
+- Inferred: the difference to `start_error_us` spreads evenly over about 64 frames (1333 us).
+  That points at a step of that size in the queue clock that the delay count reads. No code reading confirmed it.
+- Unverified: the share of the Python peer in the offset. The peer stamps its clock replies in Python.
+
+Skip behaviour, measured. The peer sent a full `stream/clear` and new audio at once.
+The head start was 200 ms, as the pinned server's formula gives for the state that Earph declared here.
+
+- 12 clears on playing audio lost no frame. `dropped_frames` stayed 0.
+  The old audio ran 11 ms to 21 ms past the clear. The output was silent for 179 ms to 188 ms.
+  The new audio left 199.0 ms to 200.4 ms after the clear, on time.
+  `first_lead_us` was 147 ms to 162 ms and `first_wait_us` 58 ms to 65 ms.
+- 5 clears after the audio ran out behaved the same: no lost frame, a first lead of 145 ms to 162 ms, a first wait of 58 ms to 66 ms.
+  The worker's `scheduled` flag stays set after the scheduled audio played out, so such a clear also restarts the output.
+- A shorter head start is no server behaviour. It shows the limit of the restart.
+  With 120 ms, 5 clears lost the first 1670 to 2428 frames (35 ms to 51 ms).
+  With 80 ms, 10 clears lost 3437 to 4546 frames (72 ms to 95 ms).
+  With 40 ms, 5 clears lost 5440 to 6254 frames (113 ms to 130 ms).
+  In those 20 clears the new audio left 152 ms to 174 ms after the clear, whatever the head start.
+  `dropped_frames` equalled the missing frames in all 20, and the first wait stayed at 57 ms to 69 ms.
+- 15 anchors after a gap met a running output: no clear, no restart, only idle silence before them.
+  With head starts of 200 ms, 80 ms, and 40 ms they lost no frame, and `first_wait_us` was 0.
+  The new audio left on time, 39 ms to 41 ms after the peer sent it in the shortest case.
+- 15 stream starts with the 200 ms head start dropped nothing.
+  Their first lead minus their first wait put the first decision 117 ms to 132 ms before the audio was due.
+  Stream starts with head starts of 120 ms, 80 ms, and 40 ms dropped 327, 1925 to 2328, and 3789 to 4221 frames of their silent preamble.
+
+Drift, measured. One stream ran for 300 seconds.
+
+- All 14,400,000 frames left, in order, with none missing and none added.
+- The offset was -1258.0 us at each of 28,126 callbacks. The slope was zero.
+- `last_error_us` moved between -1243 us and +26 us over 31 snapshots.
+- Not measured: drift between two machines. The peer and the device share one host clock here.
+  The run shows only that the AudioQueue path neither gains nor loses a frame in five minutes.
+
+What this says about the start drop:
+
+- Measured: a full clear costs this output 152 ms to 174 ms before new audio can leave. A running output costs nothing measurable.
+- Measured parts of that cost: 35 ms to 55 ms pass before the worker first sees the new chunk, and the first wait adds 57 ms to 69 ms.
+  Inferred from the code: the first part is the discard, which closes and reopens the output; the rest is the idle silence that the new output holds ahead of the audio.
+- Measured: the server's 200 ms head start leaves 26 ms to 48 ms of margin on this device.
+  The loopback device has no latency, and the recorder kept it running.
+- Inferred: an output that restarts more slowly loses the difference at each clear. That fits the Bluetooth drops of 0.16 s and 0.31 s.
+  Not measured: the restart time of the Bluetooth output, and a start drop in any capture with the server's own head start.
+- The recommended fix, option 1, is supported. Measured: an anchor on a running output needs no restart time, even with a 40 ms head start.
+  Not measured: the fix itself, because no build keeps the output running through a clear.
+  Not measured: its cost, the old audio that the output still holds. With today's discard the old audio ran 11 ms to 21 ms past the clear.
+- For option 2: the start allowance would have to cover the whole restart, which this device already puts at up to 174 ms after the clear.
+
+Other findings of these runs:
+
+- Measured: in 8 of 51 segments that ran out, the last 1 to 56 frames never left the device.
+  `dropped_frames` did not count them. The cause is not traced.
+- Measured: `earph sendspin init`, `token`, `pair`, and playback work over SSH with a keychain file and its password.
+  Each command completed without waiting for a prompt. The keychain search list did not change.
+- The pinned peer's source hash checks pass on the Mac with Python 3.13.5 and the packages of `peer-requirements.txt`.
+
 ## Known risks
 
 - Event queue overflow ends the connection. Keep `buffer_capacity` small and the worker step non-blocking.

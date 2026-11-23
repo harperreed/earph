@@ -353,6 +353,11 @@ Those models parse the player's `client/hello` and `client/state`.
 They also build `server/activate`, `stream/start`, the audio frames, `stream/clear`, and `stream/end`.
 The peer stamps each chunk on its own monotonic clock and answers the clock requests from that clock.
 It checks the source hashes of twelve pinned modules before it listens.
+Its `audio` command sends a pattern as fast as the player's queue allows.
+Its `stream` command sends a pattern in real time with a constant send-ahead, and a later `clear` or `end` cuts it.
+A second argument raises the 60 second limit of one connection.
+The pairing server takes a second argument: a new private file that keeps its side of the pairing for the player server.
+The [loopback timing capture](#loopback-timing-capture) uses both.
 
 The case `play_python` in the `sendspin_cli` test target runs the real `earph sendspin` command against that peer.
 The target has no harness, so the case runs only by name, as `pair_python` does.
@@ -387,3 +392,98 @@ The unqualified boundary of this test:
   The start error on that device is about -28 ms with either test server, so the case asserts no error size.
 - The case proves no synchronization accuracy. Timing stays `unqualified`.
 - No Mac has run the case. It needs Linux and ALSA.
+
+## Loopback timing capture
+
+`scripts/sendspin-loopback/loopback_capture.py` measures the player's timing on a Mac without sound.
+Earph plays a stream from the pinned Python player peer into the "phoaudio Loopback" device.
+That virtual device returns its output on its input, sample for sample, and plays nothing.
+The `loopcheck` recorder of phoaudio records that input and lists the host time of every input callback.
+
+The harness needs these parts on the Mac:
+
+- The phoaudio Loopback driver at 48 kHz stereo, and a built `loopcheck`. The harness changes no device setting.
+- A tmux session that a Terminal window on that Mac started: `tmux -L phoaudio new -d -s rec`.
+  macOS gives a recorder without microphone permission only silence, and an SSH session has none.
+  The harness sends one recorder job into that session and reads the job's files.
+- `earph` and `earph-credential-helper` built for the Mac.
+- `uv` and an installed Python 3.12 or later. `setup` downloads no Python; pass `--python VERSION` to name the installed one.
+
+Copy `scripts/sendspin-loopback/` and the three `tests/support` folders of `earph-engine`, `earph-network`, and `earph-sendspin` to the Mac.
+Keep their paths under one folder, as in the repository. Then run on the Mac:
+
+```
+mkdir -m 700 WORK-FOLDER
+python3 scripts/sendspin-loopback/loopback_capture.py --root WORK-FOLDER --earph EARPH --helper HELPER setup
+WORK-FOLDER/py/venv/bin/python scripts/sendspin-loopback/loopback_capture.py --root WORK-FOLDER \
+    --earph EARPH --helper HELPER --loopcheck LOOPCHECK run NAME --streams 11 --seconds 4
+```
+
+`setup` installs the pinned peer packages from `peer-requirements.txt` with hash checks.
+It creates a keychain file with a throwaway password inside the work folder and touches no other keychain.
+It creates a player identity there and pairs it with the pinned Python pairing server.
+The pairing server keeps its side of the record in a private file for the player server.
+The pairing token goes from `earph sendspin token` straight into the peer; no file and no log holds it.
+The peer listens on the Mac's own local network address, because the command refuses loopback addresses.
+Every command prints its usage with `--help`, and every failure names its fix.
+The harness names one output only, "phoaudio Loopback", and it deletes nothing.
+
+### What a run does
+
+A run sends one or more segments of the counter pattern and records until the last one ends.
+Frame n of the pattern holds n + 1 on the left channel and the complement of n on the right channel, modulo 65536.
+The peer sends each segment in real time and holds a constant send-ahead, the head start.
+The default head start is the send-ahead of aiosendspin 10.2.1 for a buffered source at the stream's own rate.
+That is the larger of the declared minimum buffer, the declared required lead time, and 50 ms, plus the declared output delay.
+For Earph on a device without latency it is 200 ms. `--lead-us` sets another head start.
+
+`--transition` chooses what separates two segments:
+
+- `clear`: a full `stream/clear` cuts the playing segment, and the next segment follows at once.
+  Music Assistant changes tracks this way.
+- `clear` with `--idle-seconds`: the segment runs out first, so the clear meets an output that plays idle silence.
+- `end`: a `stream/end` and a new `stream/start`.
+- `gap`: the segment runs out, and the next one follows on the same stream with no message between.
+  The player then anchors again on its running output.
+
+A segment after a `stream/start` begins with silence, 4800 frames by default, so the gain ramp ends before the pattern.
+The run takes `earph status --json` snapshots during each segment.
+
+### What the analysis measures
+
+`loopback_analysis.py` reads `capture.wav`, `times.csv`, and `run.json` of the run folder and writes `analysis.json`.
+Each captured pattern frame names its own number, so the analysis needs no correlation.
+
+- **Offset.** The host time at which a frame left the device, minus the server time of that frame.
+  A positive offset is late. The analysis takes one offset at each input callback: mean, spread, minimum, maximum, and slope.
+- **Missing frames.** The sent frames that never left: at the head of a segment, inside it, and at its tail.
+  A clear drops queued audio, so a cut segment always misses its tail.
+- **Silence.** The time between the last frame of one segment and the first frame of the next.
+  The analysis also gives both times relative to the server time of the clear.
+- **Status.** The first lead, the first wait, the start error, the last errors, and the dropped frames that the player reported for each segment.
+
+The clocks: the peer stamps audio and answers clock requests with `time.monotonic_ns`.
+`loopcheck --times` writes the `mHostTime` of each input callback, in `mach_absolute_time` ticks.
+The `clock` command reads monotonic, absolute, monotonic 2000 times and checks that each scaled absolute reading lies between its neighbours.
+`run` repeats that check and refuses to run when it fails, because both times must lie on one clock.
+The device reports no latency and no safety offset, and its clock follows the host clock exactly.
+So the host time of a captured frame is the time at which the device took that frame from the player.
+
+`loopback_analysis.py` runs on any machine. Its tests use small synthetic captures:
+
+```
+cd scripts/sendspin-loopback && python3 -m unittest test_loopback_analysis.py
+```
+
+The limits of this capture:
+
+- It covers one virtual device on one machine. Timing stays `unqualified`.
+- The server and the device share one host clock, so the capture shows no drift between two machines.
+  It shows only whether the player's own path gains or loses time.
+- The recorder keeps the device running. A device that must start from idle can take longer to restart.
+- The device has no latency, so the capture measures the AudioQueue path and no speaker.
+- The offset includes the error of the player's clock estimate against the Python peer.
+  The peer stamps its clock replies in Python, and that error has no measurement.
+- The peer's pacing is test code. Only the size of the head start follows the pinned server's source.
+- A gain ramp over pattern frames gives frames that look like other pattern frames. Keep the silent preamble.
+- Counter 65535 is zero on both channels. A segment that ends on that frame looks one frame shorter.

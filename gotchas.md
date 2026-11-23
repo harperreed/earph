@@ -150,3 +150,10 @@
   Parse each new client message with the pinned models, not with the in-repo test server alone.
   The pinned Python environment lacks the `server` extra, so `aiosendspin.server` cannot import there.
   See the [pinned Python player peer](docs/sendspin-runtime.md#pinned-python-player-peer).
+
+- The Sendspin worker's `scheduled` flag stays set after its scheduled audio played out.
+  A full clear then still restarts the output, even while the output plays only idle silence.
+  To reach an anchor on a running output without a restart, send new audio after a gap and send no clear.
+  Record a Mac loopback capture only through the tmux session that holds microphone permission.
+  Keep the silent preamble in a capture: a gain ramp turns 16-bit pattern frames into other valid pattern frames.
+  See the [loopback timing capture](docs/sendspin-runtime.md#loopback-timing-capture).
