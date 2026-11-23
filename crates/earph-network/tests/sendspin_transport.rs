@@ -591,3 +591,45 @@ fn clock_configuration() -> earph_network::sendspin::ClockConfiguration {
         policy: earph_sendspin::timing::TimePolicy::new(250_000, 9_000_000, 20_000_000).unwrap(),
     }
 }
+/// A server that restarts or a network that fails ends the socket without a WebSocket Close.
+/// That end is no protocol violation, so a caller may connect again.
+#[test]
+fn a_socket_that_ends_without_a_close_reports_a_lost_connection() {
+    for reset in [false, true] {
+        let listener = TcpListener::bind((interface(), 0)).unwrap();
+        let p = permit(&listener);
+        let peer = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut socket = tokio_tungstenite::tungstenite::accept(stream).unwrap();
+            assert!(socket.read().unwrap().is_text());
+            if reset {
+                // A zero linger time makes the close send a reset.
+                socket2::SockRef::from(socket.get_ref())
+                    .set_linger(Some(Duration::ZERO))
+                    .unwrap();
+            }
+        });
+        let mut worker = SendspinWorker::default();
+        let handle = worker
+            .start(
+                p.clone(),
+                &p,
+                config(),
+                clock_configuration(),
+                Box::new(Services),
+                DriverLimits::default(),
+            )
+            .unwrap();
+        let observer = handle.observer();
+        assert_eq!(
+            wait(&observer).terminal,
+            Some(DriverError::Lost),
+            "reset: {reset}"
+        );
+        worker.retire().unwrap();
+        peer.join().unwrap();
+    }
+}

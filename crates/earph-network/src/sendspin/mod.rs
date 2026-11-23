@@ -19,6 +19,8 @@ pub enum DriverError {
     Busy,
     Cancelled,
     PeerClosed,
+    /// The socket failed or ended without a WebSocket Close. The peer broke no rule.
+    Lost,
     Connect,
     Upgrade,
     Protocol,

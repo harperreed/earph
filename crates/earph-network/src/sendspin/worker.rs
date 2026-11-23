@@ -12,7 +12,7 @@ use std::{
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::{
     WebSocketStream,
-    tungstenite::{Error, Message},
+    tungstenite::{Error, Message, error::ProtocolError},
 };
 
 struct PendingWrite {
@@ -950,6 +950,11 @@ fn session_error(e: SessionError) -> DriverError {
 fn websocket_error(e: Error) -> DriverError {
     match e {
         Error::Capacity(_) | Error::WriteBufferFull(_) => DriverError::Budget,
+        // The socket failed or ended before any Close frame. The peer broke no rule.
+        Error::Io(_)
+        | Error::ConnectionClosed
+        | Error::AlreadyClosed
+        | Error::Protocol(ProtocolError::ResetWithoutClosingHandshake) => DriverError::Lost,
         _ => DriverError::Protocol,
     }
 }
@@ -1550,7 +1555,8 @@ async fn run(
                 })
             }),
             Step::Read(Some(Err(e)), _) => Err(websocket_error(e)),
-            Step::Read(None, _) => Err(DriverError::Protocol),
+            // The stream ended before any Close frame.
+            Step::Read(None, _) => Err(DriverError::Lost),
             Step::Admission(id, result) => {
                 p.admission = None;
                 result
