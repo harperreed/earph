@@ -323,6 +323,20 @@ The capture runs that verify the second round, with expectations from the code a
 
 No run has confirmed one of these expectations.
 
+#### Second round, measured on a Mac
+
+The Mac build of the second round ran the loopback harness on 2026-11-23. The device was the silent loopback device on the AudioQueue route.
+
+- Four valid runs of eleven 4 s segments, with a clear between segments: no interior hole and no missing head frame.
+- Two of those runs had twelve busy processes beside them. One more loaded run was invalid, because the recorder itself reported overlaps.
+- At each clear, old audio ran 98.7 to 99.6 ms, and new audio left 199.7 to 200.7 ms after the clear. `first_wait_us` read 0 and `clear_held_frames` read 4736.
+- One loaded 180 s stream: no interior hole, and the offset stayed at -52.7 us.
+- `starved_frames`, `late_chunks`, `underruns`, and `dropped_frames` stayed 0 in every run. `max_abs_error_us` stayed under 1.9 ms.
+- The loaded 180 s stream lost its last 40 frames, and no counter moved. The tail loss stays open.
+
+No run starved the output, so no run has shown `starved_frames` move on a Mac.
+A Bluetooth output and a real Music Assistant skip remain untested with this change.
+
 ### U6: independent producer and documents
 
 Add an ignored test with the pinned Python peer. Update the Sendspin documents with the unqualified boundary.
