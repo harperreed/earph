@@ -93,6 +93,9 @@ The driver removes no pairing record. The specification asks the client to remov
 If the transport stays unwritable, the deadline ends the reply attempt and the socket closes.
 The transport never re-encrypts, retransmits, or resumes that write on another socket.
 RFC fragmentation and Ping/Pong remain below the complete-message session boundary.
+The driver sends a Ping every `ping_ms` and ends the connection with `Deadline` when no frame arrives within `pong_ms` of that Ping.
+Every frame from the peer answers a pending Ping: a Pong, a Ping, and any message.
+A peer that still sends audio or clock replies is therefore never lost for a late Pong.
 The worker samples checked monotonic microseconds when WebSocket delivery returns a complete message.
 Its single `ReceiveStamp` survives ciphertext queues, plaintext queues, and final-fragment reassembly.
 The session derives milliseconds from that stamp for its existing deadlines.
@@ -434,7 +437,26 @@ Unverified: no test produced that case, and no test ran a refusal by a real Musi
 
 The player keeps its pairing record after `server/unpair`, although the specification tells it to remove the record.
 The record is useless without the server's own record. A new pairing with that server replaces it.
-A dead network without a reset is found only by the transport's ping, after up to 40 seconds.
+
+#### Silent server
+
+A network that fails without a reset leaves an open socket that says nothing: a pulled cable, a server host that lost power.
+The specification names WebSocket Ping and Pong as the liveness check and sets no time.
+The player runtime pings every 2 seconds and allows 3 seconds for any frame after a Ping.
+It therefore finds a silent server within 5 seconds, and the reconnect starts as after any lost connection.
+State then shows `last_end: "deadline"`. The transport's own ceilings stay 30 and 10 seconds; the pairing command still uses them.
+
+The two numbers are admitted, not measured:
+
+- 3 seconds is what the transport already gives a server to accept a TCP connection, and to answer the upgrade.
+- 2 seconds is the time that one clock burst takes when no reply comes: eight probes of 250 ms each.
+  The advertised buffer holds about half a second of audio, so a server that streams sends frames far more often.
+
+A slow server is kept: any frame inside the 3 seconds counts, not only a Pong.
+A server that sends nothing at all for 5 seconds is lost, also when it only stalled. The reconnect then finds it again after 250 ms.
+The clock exchange alone could not give this bound: bursts start up to 10 seconds apart, as the specification allows.
+The pinned server pings the player every 30 seconds as well; the player answers those from its transport.
+Unverified: a pulled cable and a real Music Assistant server. The tests use a local peer that stops reading its socket.
 
 ## Pinned Python player peer
 

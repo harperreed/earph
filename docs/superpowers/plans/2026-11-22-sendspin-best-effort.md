@@ -456,7 +456,8 @@ They cover a clean close before the server accepted the player: the command ends
 
 Unverified: a restart of a real Music Assistant server. No reconnect has run against one.
 Unverified: which transport end a real server restart produces, and how long the server stays away.
-Unverified: a network that fails without a reset. Only the 30-second ping and its 10-second reply limit find it.
+Fixed on November 23, 2026: the player pings every 2 seconds and allows 3 seconds for any frame, so it finds a silent server within 5 seconds.
+Unverified: a network that really fails without a reset. A local peer that stops reading stands in for it.
 Unverified: reconnect on a Mac. No Mac has compiled or run this unit.
 Known limits: each attempt opens and closes the output, and a clock error still ends the session.
 Known limit: a failed credential load during a reconnect ends the session, for example a store that locked meanwhile.

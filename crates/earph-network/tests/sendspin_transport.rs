@@ -718,3 +718,123 @@ fn a_peer_close_keeps_its_close_code() {
         peer.join().unwrap();
     }
 }
+/// A server that streams or answers clock probes lives, even when its Pong is late or missing.
+/// Only a peer that sends nothing at all is lost, within the ping interval plus the reply allowance.
+#[test]
+fn any_frame_from_the_peer_answers_a_ping_and_a_silent_peer_is_lost_within_the_bound() {
+    use std::io::{Read, Write};
+    const PING: Duration = Duration::from_millis(20);
+    const REPLY: Duration = Duration::from_millis(60);
+    const TALKING: Duration = Duration::from_millis(400);
+    let listener = TcpListener::bind((interface(), 0)).unwrap();
+    let p = permit(&listener);
+    let (silent_tx, silent_rx) = std::sync::mpsc::channel();
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    let server = thread::spawn(move || {
+        let (s, _) = listener.accept().unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut ws = tokio_tungstenite::tungstenite::accept(s).unwrap();
+        assert!(ws.read().unwrap().is_text());
+        // From here the peer parses nothing, so it never answers a Ping with a Pong.
+        let socket = ws.get_mut();
+        socket
+            .set_read_timeout(Some(Duration::from_millis(1)))
+            .unwrap();
+        let talking = Instant::now() + TALKING;
+        let mut bytes = [0; 256];
+        while Instant::now() < talking {
+            // An empty unmasked Ping frame, as a server heartbeat sends it.
+            // A client that gave up already closed the socket. The assertions below report that.
+            if socket.write_all(&[0x89, 0x00]).is_err() {
+                break;
+            }
+            let _ = socket.read(&mut bytes);
+            thread::sleep(Duration::from_millis(5));
+        }
+        silent_tx.send(Instant::now()).unwrap();
+        // The socket stays open and silent until the client gave up.
+        let _ = done_rx.recv_timeout(Duration::from_secs(5));
+    });
+    let mut w = SendspinWorker::default();
+    let h = w
+        .start(
+            p.clone(),
+            &p,
+            config(),
+            clock_configuration(),
+            Box::new(Services),
+            DriverLimits {
+                ping_ms: PING.as_millis() as u64,
+                pong_ms: REPLY.as_millis() as u64,
+                ..DriverLimits::default()
+            },
+        )
+        .unwrap();
+    let o = h.observer();
+    let silent = silent_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    assert_eq!(
+        o.observation().terminal,
+        None,
+        "a peer that still sends frames is alive without a Pong"
+    );
+    assert_eq!(wait(&o).terminal, Some(DriverError::Deadline));
+    let noticed = silent.elapsed();
+    // The scheduler of a loaded test host gets 200 ms beyond the bound.
+    assert!(
+        noticed <= PING + REPLY + Duration::from_millis(200),
+        "the silent peer was lost after {noticed:?}"
+    );
+    done_tx.send(()).unwrap();
+    w.retire().unwrap();
+    server.join().unwrap();
+}
+/// A slow server answers each Ping late. An answer inside the reply allowance keeps the connection.
+#[test]
+fn a_peer_that_answers_late_but_inside_the_reply_allowance_stays_alive() {
+    let listener = TcpListener::bind((interface(), 0)).unwrap();
+    let p = permit(&listener);
+    let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+    let server = thread::spawn(move || {
+        let (s, _) = listener.accept().unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut ws = tokio_tungstenite::tungstenite::accept(s).unwrap();
+        assert!(ws.read().unwrap().is_text());
+        ws.get_ref()
+            .set_read_timeout(Some(Duration::from_millis(1)))
+            .unwrap();
+        // The peer looks at its socket every 100 ms. One look reads a Ping, and the next one sends the Pong.
+        let mut pings = 0;
+        while stop_rx.recv_timeout(Duration::from_millis(100)).is_err() {
+            if matches!(ws.read(), Ok(message) if message.is_ping()) {
+                pings += 1;
+            }
+        }
+        pings
+    });
+    let mut w = SendspinWorker::default();
+    let h = w
+        .start(
+            p.clone(),
+            &p,
+            config(),
+            clock_configuration(),
+            Box::new(Services),
+            DriverLimits {
+                ping_ms: 20,
+                pong_ms: 400,
+                ..DriverLimits::default()
+            },
+        )
+        .unwrap();
+    let o = h.observer();
+    // Three reply allowances pass. A deadline that ignored the late answers would end the connection.
+    thread::sleep(Duration::from_millis(1200));
+    assert_eq!(o.observation().terminal, None);
+    stop_tx.send(()).unwrap();
+    assert!(
+        server.join().unwrap() >= 3,
+        "the peer answered several pings"
+    );
+    h.cancel();
+    w.retire().unwrap();
+}

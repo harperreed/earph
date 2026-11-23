@@ -1573,6 +1573,9 @@ async fn run(
                 Err(e) => Err(websocket_error(e)),
             },
             Step::Read(Some(Ok(message)), arrival) => arrival.and_then(|stamp| {
+                // Every frame proves that the peer lives, so it answers a pending Ping as a Pong does.
+                // A peer that streams or answers clock probes is never lost for a late Pong.
+                pong_due = None;
                 let recorded = if matches!(&message, Message::Text(_) | Message::Binary(_)) {
                     shared.arrival(stamp)
                 } else {
@@ -1598,12 +1601,7 @@ async fn run(
                         control_flush = true;
                         Ok(())
                     }
-                    Message::Pong(bytes) => {
-                        if bytes.as_ref() == b"earph" {
-                            pong_due = None;
-                        }
-                        Ok(())
-                    }
+                    Message::Pong(_) => Ok(()),
                     Message::Close(frame) => {
                         shared.lock().observation.close_code =
                             frame.map(|frame| u16::from(frame.code));

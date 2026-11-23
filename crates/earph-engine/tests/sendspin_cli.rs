@@ -65,7 +65,7 @@ mod linux {
         if chosen.as_deref() == Some("credential-helper") {
             return helper::run();
         }
-        let cases: [(&str, fn()); 23] = [
+        let cases: [(&str, fn()); 24] = [
             ("plays", plays_the_stream_shows_status_and_ends_on_a_stop),
             (
                 "reconnect",
@@ -90,6 +90,10 @@ mod linux {
             (
                 "reconnect_facts",
                 a_retried_server_shows_its_last_end_and_the_attempt_count,
+            ),
+            (
+                "silent",
+                a_silent_server_is_lost_within_seconds_and_a_slow_one_is_kept,
             ),
             (
                 "close_early",
@@ -765,6 +769,37 @@ mod linux {
         let stop = bench.earph(&["stop"]).finish();
         assert_eq!(stop.status.code(), Some(0), "{}", text(&stop.stderr));
         assert_eq!(player.finish().status.code(), Some(0));
+        bench.no_engine_remains();
+    }
+    /// A network that fails without a reset leaves an open socket that says nothing.
+    /// The player must notice that within seconds, and it must keep a server that only answers late.
+    fn a_silent_server_is_lost_within_seconds_and_a_slow_one_is_kept() {
+        let bench = Bench::new();
+        let (player, mut peer) = accepted_player(&bench);
+        // A slow server reads its socket once a second, so each of its answers is up to a second late.
+        // This phase lasts longer than the bound for a silent server.
+        for _ in 0..7 {
+            std::thread::sleep(Duration::from_secs(1));
+            let served = Instant::now() + Duration::from_millis(50);
+            peer.serve_until("a slow server answers", || Instant::now() >= served);
+        }
+        let kept = bench.state()["sendspin_playback"].clone();
+        assert_eq!(kept["phase"], "awaiting_stream", "{kept}");
+        assert_eq!(kept["reconnects"], 0, "{kept}");
+        assert_eq!(kept["last_end"], Value::Null, "{kept}");
+        // The peer keeps its socket open and reads nothing more, as a pulled cable looks to the player.
+        let silent = Instant::now();
+        let lost = bench.wait("the silent server shows as lost", reconnecting);
+        let noticed = silent.elapsed();
+        println!("the silent server was noticed after {noticed:?}");
+        assert!(
+            noticed < Duration::from_secs(7),
+            "the player noticed the silent server after {noticed:?}"
+        );
+        assert_eq!(lost["sendspin_playback"]["last_end"], "deadline", "{lost}");
+        interrupt(&player);
+        assert_eq!(player.finish().status.code(), Some(130));
+        drop(peer);
         bench.no_engine_remains();
     }
     /// The server accepts the player and drops it at once, three times.

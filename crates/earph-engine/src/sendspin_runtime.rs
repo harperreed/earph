@@ -47,6 +47,15 @@ const ORPHAN_GRACE: Duration = Duration::from_secs(2);
 /// Network closes within its own one second ceiling unless a commit is still pending.
 const RETIREMENT_DEADLINE: Duration = Duration::from_secs(10);
 
+/// The transport sends a WebSocket Ping this often. The specification names Ping and Pong as the liveness check and sets no time.
+/// Two seconds is the time that one clock burst of eight probes takes when no reply comes.
+/// The advertised buffer holds about half a second of audio, so a server that streams sends frames far more often.
+const LIVENESS_PING_MS: u64 = 2000;
+/// A server that sends no frame at all for this long after a Ping is lost. Any frame counts, not only a Pong.
+/// Three seconds is what the transport already gives a server to accept a connection and to answer the upgrade.
+/// A dead network without a reset is therefore found within five seconds. Admitted, not measured.
+const LIVENESS_REPLY_MS: u64 = 3000;
+
 /// The first attempt after a lost connection waits this long.
 const RECONNECT_DELAY: Duration = Duration::from_millis(250);
 /// The delay doubles after each failed attempt and stops growing here.
@@ -614,6 +623,8 @@ impl Connection {
         // A one millisecond join wait keeps each retirement poll inside the owner loop's own tick.
         let limits = DriverLimits {
             retire_ms: 1,
+            ping_ms: LIVENESS_PING_MS,
+            pong_ms: LIVENESS_REPLY_MS,
             ..DriverLimits::default()
         };
         let handle = self
