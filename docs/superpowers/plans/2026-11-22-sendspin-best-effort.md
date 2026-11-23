@@ -174,6 +174,9 @@ No Mac has compiled or run this unit.
 Unverified on a Mac: the property reads and their values, and the safety offset and IO buffer choice on the AudioQueue route.
 Unverified: a Music Assistant server that honors a required lead time above 150 ms.
 The silent macOS test `native::tests::default_output_latency_reads_start_no_io_and_change_no_setting` in `earph-coreaudio` prints the reported frames.
+It is an ignored test; run it by name with `--ignored`.
+On November 22, 2026 it passed on the Mac build host: 50 device frames, 50 safety frames, and 0 stream frames at 48 kHz.
+That sum is about 2 ms, so a reported latency of this size cannot explain an audible lag on built-in speakers.
 
 ### U6: independent producer and documents
 

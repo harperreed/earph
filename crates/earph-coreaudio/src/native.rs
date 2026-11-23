@@ -462,6 +462,7 @@ mod tests {
     /// Reads properties of the default output device. It starts no IO and emits no signal.
     /// It prints frame counts only, never a device name or UID.
     #[test]
+    #[ignore = "reads the default output device, which a headless or virtual-device Mac may lack"]
     fn default_output_latency_reads_start_no_io_and_change_no_setting() {
         let global = ca::kAudioObjectPropertyScopeGlobal;
         let id: u32 = read(

@@ -239,6 +239,9 @@ An unreadable property counts as zero. With no readable property the value is `n
 `timing.device_latency_applied` says whether the scheduler adds the latency.
 The scheduler refuses a report above one second: state shows the frames, and `device_latency_applied` stays `false`.
 While the latency applies, `timing.backend_delay_basis` names it: `audio_queue_sample_time_plus_reported_device_latency_not_audible_position`.
+The direct hardware route uses `core_audio_ioproc_delivery_plus_reported_device_latency_not_audible_position`.
+The player declares a required lead time and a minimum buffer that both grow by the applied latency.
+A server holds a live source at the minimum buffer, so the lead time alone would leave such a source late.
 The latency is a device report, not a measurement. Timing stays `unqualified`, and state claims no audible position.
 ALSA reports no device latency through this path, so Linux scheduling is unchanged.
 Local file playback reads the same properties when it opens a Core Audio output and uses none of them.

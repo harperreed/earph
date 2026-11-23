@@ -278,9 +278,10 @@ fn streaming_peer(bench: &Bench) -> peer::PlayerPeer {
 fn streaming_peer_with_lead(bench: &Bench, lead_ms: u64) -> peer::PlayerPeer {
     let mut peer = peer::PlayerPeer::accept(&bench.listener);
     // The declared lead time and buffer need are admitted values, not measurements.
+    // Both grow by the applied device latency: a server holds a live source at the buffer floor.
     assert_eq!(
         peer.activate_player(),
-        serde_json::json!({"available":true,"output_delay_ms":0,"required_lead_time_ms":lead_ms,"min_buffer_ms":200,"supported_commands":[]})
+        serde_json::json!({"available":true,"output_delay_ms":0,"required_lead_time_ms":lead_ms,"min_buffer_ms":lead_ms + 50,"supported_commands":[]})
     );
     peer.serve_until("the source awaits its first stream", || {
         bench.observed().phase == SendspinTransportPhase::AwaitingStream

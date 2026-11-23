@@ -298,7 +298,9 @@ impl SendspinPlayback {
         // so the server must send it that much earlier.
         let latency = output.device_latency().map(|device| device.frames);
         let lead = LatencyAdmission::new(SAMPLE_RATE_HZ, latency).lead_time_ms();
-        let state = PlayerState::new(OUTPUT_DELAY_MS, REQUIRED_LEAD_TIME_MS + lead, MIN_BUFFER_MS)
+        // A server may hold a live source at the buffer floor, so that floor grows as well.
+        let floor = MIN_BUFFER_MS.saturating_add(u32::try_from(lead).unwrap_or(u32::MAX));
+        let state = PlayerState::new(OUTPUT_DELAY_MS, REQUIRED_LEAD_TIME_MS + lead, floor)
             .map_err(player_error)?;
         let retained = settings
             .snapshot
