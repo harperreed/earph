@@ -102,6 +102,24 @@ impl NativeOutput {
             start_permission: None,
         })
     }
+    /// Closes the native output and opens a fresh one for the same request.
+    fn reopen(
+        &mut self,
+        epochs: Epochs,
+        close: &'static str,
+        open: &'static str,
+    ) -> Result<(), EngineError> {
+        self.native
+            .close()
+            .map_err(|failure| self.native_error(close, failure))?;
+        self.activity.closed();
+        self.native = CoreAudioOutput::open(self.request.clone(), epochs)
+            .map_err(|failure| open_error(open, failure))?;
+        self.activity.reopened();
+        self.drain_deadline = None;
+        self.complete = None;
+        Ok(())
+    }
     fn native_error(
         &self,
         operation: &'static str,
@@ -182,16 +200,13 @@ impl Output for NativeOutput {
                 .map_err(|failure| self.native_error("suspend_pause", failure))?;
         }
         let progress = self.counters("suspend_progress")?;
-        self.native
-            .close()
-            .map_err(|failure| self.native_error("suspend_close", failure))?;
-        self.activity.closed();
-        self.native = CoreAudioOutput::open(self.request.clone(), epochs)
-            .map_err(|failure| open_error("suspend_reopen", failure))?;
-        self.activity.reopened();
-        self.drain_deadline = None;
-        self.complete = None;
+        self.reopen(epochs, "suspend_close", "suspend_reopen")?;
         Ok(progress)
+    }
+    fn discard(&mut self, epochs: Epochs) -> Result<(), EngineError> {
+        // A starting AudioQueue has no restart position yet, and a pause without one faults it.
+        // Closing needs none.
+        self.reopen(epochs, "discard_close", "discard_reopen")
     }
     fn finish(&mut self) -> Result<Option<Counters>, EngineError> {
         if let Some(complete) = self.complete {

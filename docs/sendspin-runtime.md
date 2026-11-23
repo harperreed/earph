@@ -210,7 +210,8 @@ Idle silence starts the output at the stream start, so the device runs before th
 A chunk takes an anchor only on a running output.
 A device that still starts would delay every frame behind that anchor.
 Idle silence then keeps the output from running dry through an anchor wait, a server gap, and starvation.
-It keeps three periods in the output, and at least 30 ms, never more than the buffer.
+It keeps three periods in the output, and at least 30 ms, never more than the buffer once the output runs.
+While a Core Audio output still starts, silence can pile up to about two buffers, and audio due inside that backlog drops once as late.
 The worker estimates the held frames from the accepted frames and its monotonic clock.
 A running output's own report corrects that estimate; an output without a clock reports zero and corrects nothing.
 So a clockless output gets idle silence no faster than real time.
@@ -229,6 +230,7 @@ A `stream/clear` with `from_timestamp` drops only the queued audio from that ser
 Audio that already left for the output stays.
 The timeline trims replacement audio that overlaps it, and the anchor stays.
 A full clear stops and prepares an output that holds scheduled audio; idle silence then starts it again.
+A stream end or a clear closes a Core Audio output without pausing it, because a starting output has no restart position.
 An output that holds only idle silence keeps running through a full clear.
 A `stream/end` and a lost player role stop the stream without a drain.
 Both stop and release the output at once. Nothing feeds the output between streams.

@@ -38,6 +38,11 @@ pub(crate) trait Output {
     }
     fn progress(&mut self) -> Result<Counters, EngineError>;
     fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError>;
+    /// Drops unplayed audio and reprepares the output for other audio.
+    /// Unlike `suspend`, it reports no position, so it also works while the output still starts.
+    fn discard(&mut self, epochs: Epochs) -> Result<(), EngineError> {
+        self.suspend(epochs).map(|_| ())
+    }
     /// Reprepares the same stream after a native underrun failed the last call.
     /// Returns false when that failure was no underrun. The output then stays failed.
     fn recover(&mut self, _epochs: Epochs) -> Result<bool, EngineError> {

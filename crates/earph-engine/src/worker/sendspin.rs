@@ -30,7 +30,7 @@ const REQUIRED_LEAD_TIME_MS: u64 = 150;
 const MIN_BUFFER_MS: u32 = 200;
 const SAMPLE_RATE_HZ: u32 = 48000;
 /// Idle silence keeps this many periods in the output, and at least `IDLE_DEPTH_MIN_MS`.
-/// Core Audio starts after two accepted periods and fails when a callback finds less than one.
+/// Core Audio starts after two accepted periods. Its hardware route fails when a callback finds less than one.
 /// Admitted, not measured.
 const IDLE_DEPTH_PERIODS: u32 = 3;
 /// A shallower depth leaves a late worker tick too little margin. Admitted, not measured.
@@ -567,8 +567,8 @@ impl SendspinPlayback {
             // Idle silence needs no drop either, and a restart would delay the next audio.
             return Ok(());
         }
-        match self.output.suspend(self.settings.snapshot.epochs) {
-            Ok(_) => {
+        match self.output.discard(self.settings.snapshot.epochs) {
+            Ok(()) => {
                 self.primed = false;
                 self.scheduled = false;
                 self.pacer.reset();
