@@ -327,7 +327,7 @@ The capture runs that verify the second round, with expectations from the code a
 - `--streams 1 --seconds 300` under load: no interior hole, `starved_frames` flat, `underruns` 0.
 - `--transition end`: compare the missing tail frames with `starved_frames`; see "Tail frames".
 
-No run has confirmed one of these expectations.
+The next section records the runs.
 
 #### Second round, measured on a Mac
 
@@ -339,6 +339,9 @@ The Mac build of the second round ran the loopback harness on 2026-11-23. The de
 - One loaded 180 s stream: no interior hole, and the offset stayed at -52.7 us.
 - `starved_frames`, `late_chunks`, `underruns`, and `dropped_frames` stayed 0 in every run. `max_abs_error_us` stayed under 1.9 ms.
 - The loaded 180 s stream lost its last 40 frames, and no counter moved. The tail loss stays open.
+
+The build without the late anchor rule ran two more loaded clear runs: no interior hole, no missing head frame, and every counter at 0.
+One run of six segments with a stream end between them lost 61 and 46 tail frames in two segments. `starved_frames` and `output_discarded_frames` stayed 0.
 
 No run starved the output, so no run has shown `starved_frames` move on a Mac.
 A Bluetooth output and a real Music Assistant skip remain untested with this change.
