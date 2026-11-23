@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "attach_only_ffi_foundation_dirty_precommit_qualification",
+  "source": {
+    "baseline_commit": "29a50ddf94e87369ad9f66ac3b3066615618bbeb",
+    "source_dirty": true,
+    "runtime_source_sha256": "1f3cf8abf52bb33b9bb5d570381c51237cb547922851c2abbd67efc6eb3328c0",
+    "dependency_lock_sha256": "eb80c2bae7a4dbab47d02836a9f13b3eda25254f07dc7df46e6b63316ce14fa8",
+    "v2_patch_sha256": "de87f9f4e2edac0ec010a30cade9bb560f189243dfad873529d9b1d12612ec6b",
+    "v2_source_manifest_sha256": "7e4abb0e5eb896c763593e2d4e909ed5b36af33553660f80913f29ed1ae9939b",
+    "source_files": 1562,
+    "post_gate_changes": "Evidence, plan checkpoint, and one JNA gotcha only; no runtime source change"
+  },
+  "rust": {
+    "canonical": {
+      "passed": 651,
+      "failed": 0,
+      "ignored": 4,
+      "compiler_warnings_or_errors": 0,
+      "log_sha256": "a97b2f7c2ba7fd5f05a8bf6afbfb2d0c95ecc4acfc3e5a850e4b1be768edc325"
+    },
+    "real_owner_binding_tests": 8,
+    "strict_generator_feature_clippy": "pass"
+  },
+  "kotlin": {
+    "schema_version": 1,
+    "status": "pass",
+    "language": "kotlin",
+    "actual_foreign_commands": 10,
+    "exact_cli_comparisons": 10,
+    "typed_local_failures": 4,
+    "owner_survives_handle_release": true,
+    "reported_safety_unchanged": true,
+    "native_output_opened": false,
+    "signal_exercises": 0,
+    "cancellation_qualified": false,
+    "subscriptions_qualified": false,
+    "private_jna_dispatcher_verified": true,
+    "engine_sha256": "c831af1cc0ef3d1ebb70671fb9172e5de96d6be2290a98d29f0401b49d0017bf",
+    "library_sha256": "2d31fce16a018c6e81105c8f8af69e4ae7bb4701457e6a0f6e7a1971033b005e",
+    "owner_exit_code": 0,
+    "owner_signal": null,
+    "error": null,
+    "summary_sha256": "9258f30ce1739bad7bc05425c00f0948ff77fe00ece17ff2a322659a964380b0",
+    "compiler": "Kotlin 2.4.21",
+    "java": "26.0.2.1",
+    "jna": "5.19.1",
+    "compiler_warnings_as_errors": true,
+    "compiler_and_consumer_stderr_bytes": 0,
+    "dispatcher_sha256": "ca07953d595210082339753d9e818a1fdb40509a17a41914d9a2cb0d2df6b6af",
+    "child_properties": [
+      "jna.nounpack=true",
+      "jna.noclasspath=true",
+      "jna.nosys=true",
+      "jna.boot.library.path=retained private dispatcher directory",
+      "jna.tmpdir=private task directory",
+      "java.io.tmpdir=private task directory"
+    ],
+    "counts_overlap_first_safe_run": true
+  },
+  "swift": {
+    "candidate_file": "macos-swift-v2-20261118.json",
+    "candidate_sha256": "cf191e9b6d046f60828723df78b4ab9887d62ee06379cece3a57dc0b38d42412",
+    "root_verification_file": "macos-swift-v2-root-verification-20261118.json",
+    "root_verification_sha256": "05f14e27138d2124da5c59308b13280fca56ed9cfab5b5cbbae041335bb183a0"
+  },
+  "independent_review": {
+    "status": "approved_after_v2_actual_swift_gate",
+    "model": "session_main_model",
+    "reviewer": "independent_implementation_reviewer",
+    "receipt_sha256": "808ab86c9d434a7646121c85df8205e1d6360aa4e0de0f701afc8a9e9925db37",
+    "resolved_finding": "Swift weak reference changes from weak var to weak let while preserving actual release assertion",
+    "open_material_findings": 0
+  },
+  "privacy": {
+    "raw_artifacts_public": false,
+    "device_names_or_uids_public": false,
+    "private_runtime_paths_public": false,
+    "production_credentials_used": false
+  },
+  "limits": [
+    "Initial default-JNA gate lacked isolation of its loader temporary-file cleanup. No before-state receipt proves whether earlier files existed or were removed.",
+    "Both failed Swift v1 gates, the first JNA gate, and all later isolated gates remain in ignored task storage.",
+    "Safe Kotlin runs and Swift do not resolve the historical JNA cleanup uncertainty.",
+    "Eight whitespace diagnostics preserve verbatim generated upstream legal text; handwritten diff is clean.",
+    "These are dirty precommit debug-build receipts, not clean shipped-build, UI, callback, audio, DAC, or acoustic qualification.",
+    "Prompt request cancellation, subscriptions, full transport equivalence, desktop hosting, and the remaining T13 matrices are not qualified.",
+    "Reported safety fields only; private fixed-output arming is not directly observed."
+  ]
+}

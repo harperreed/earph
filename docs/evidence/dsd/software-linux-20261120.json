@@ -1,0 +1,448 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "source": {
+    "baseline_commit": "d2fa9f76544ed253e8ee0c067fa62914cf4c1bc3",
+    "source_dirty": true,
+    "qualified_archive_sha256": "ba0bd7a3c8cdc9366fa2becfbc78115ec9672aa6affd35c7d1fe935be1fe21e8",
+    "qualified_source_files": 1955,
+    "source_unchanged_during_checks": true
+  },
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "measurement_boundary": "Software contracts and generated fixtures; physical hardware unqualified"
+  },
+  "dependency_lock_sha256": "3f9225b14df8589a64af14020698ad6ac1ce3dc4062f89e0b9cb786314b48801",
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "reported_results": {
+      "passed": 1530,
+      "failed": 0,
+      "ignored": 11,
+      "groups": 169
+    },
+    "log_sha256": "c518d2412418df24572c383049baada23552168de2a00c81ebf40981654e2988",
+    "product_build_exit": 0,
+    "count_note": "Reported blocks include child results and are not a unique-test total. Six ignored Sendspin peer tests ran separately."
+  },
+  "integrated_peer": {
+    "command": "cargo test --locked -p earph-sendspin -- --ignored --nocapture",
+    "exit": 0,
+    "tests_passed": 6,
+    "log_sha256": "3727450c708b92f511d8eb04a61f6287189d95ecdbd88e024edbc033d93b2c23",
+    "launcher_sha256": "544b561d4c7c9cc3a9803f4e0f125126c4925222d0e5223ed3178e7f06ce78a4",
+    "network_connections": false,
+    "audio_output": false,
+    "operator_credentials_used": false
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "2a016870f3457c9ad933b3c7a701facbd3896cb427b09b3ccb61173e65207773"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "22a4975a4a7fa8372570f8a8d536bd5af6623e860b85a84af0a2664b6fd2c299"
+    }
+  ],
+  "scope": "Stereo DSF and uncompressed DFF readers with typed packed-three-byte DoP software transport",
+  "requirement_ids": [
+    "ARCH-04",
+    "PLAY-07",
+    "SAFE-04"
+  ],
+  "acceptance_ids": [
+    "AC-13"
+  ],
+  "acceptance_status": "partial",
+  "unit": {
+    "baseline_commit": "a302748b4bece1e5da642c9ff97137e27810bdd1",
+    "patch_sha256": "a72891ab6e9e3167cf2932a03485911f5b5a7242ee3deab107d575d9d72caf97",
+    "source_manifest_sha256": "c829fb0b48c82e3c164331c6bade5a06c2c752567e9b62f42bb6fcb1cae3b624"
+  },
+  "source_files": [
+    {
+      "path": "crates/earph-core/src/audio.rs",
+      "sha256": "74a21123438d5be9ff0bdb563afa7ddcc91e3ecf57b128878f8f537dedc3ce3e"
+    },
+    {
+      "path": "crates/earph-core/src/lib.rs",
+      "sha256": "1b043a84fd72e3f170fff49366b36e2b6073f60021f4d1254deef60c8a64d07e"
+    },
+    {
+      "path": "crates/earph-core/src/dop.rs",
+      "sha256": "004c1651e6d68a23dee4562fc1393b6c97e34ea46b433368dc880069c90e5e21"
+    },
+    {
+      "path": "crates/earph-core/tests/dop.rs",
+      "sha256": "5499efa56709633b5d5e4cdda5c79fec987572dc4c4b00aa5b90e905a9191afb"
+    },
+    {
+      "path": "crates/earph-media/src/lib.rs",
+      "sha256": "08e19828a6d4c9bc471b87a64d34c1408a25493f7e877a0170dba765975b82b4"
+    },
+    {
+      "path": "crates/earph-media/src/dsd.rs",
+      "sha256": "8b1ca5759da1900901d0aec9a9a524923dc4eb611a8f453015fb56e444551dae"
+    },
+    {
+      "path": "crates/earph-media/tests/dsd.rs",
+      "sha256": "d733366d326a5fbb92f0b23ea24bf481e2f8287f739b64213ab9345ab0680fa8"
+    }
+  ],
+  "focused": {
+    "first-green": {
+      "exit": 0,
+      "log_sha256": "5f5e8ebeeca6ddcc925c3cdfc95940c4b5ee39c93855db33dc3cacafebc1fa3f",
+      "results": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    "focused-suites": {
+      "exit": 0,
+      "log_sha256": "8f68ea54e3affd964f004253511f47b855d28c9ccfce03c9a4d3c9f4d3add6e8",
+      "results": [
+        {
+          "status": "ok",
+          "passed": 99,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 33,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 21,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 28,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 24,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    "focused-codec-final": {
+      "exit": 0,
+      "log_sha256": "c1b4c7146ac7ea8f0441944bf6548dea7a78dccf3d9b4e0076daad1af5dd2e88",
+      "results": [
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    "strict-clippy-03": {
+      "exit": 0,
+      "log_sha256": "f1787cf384d784b8fd9156baca13cb65a660143f35c7cd55629a5c3498d84671",
+      "results": []
+    },
+    "fmt-final": {
+      "exit": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "results": []
+    }
+  },
+  "independent_review": {
+    "status": "complete",
+    "material_findings": 0,
+    "report_sha256": "e577f605b95afe8fdba3f09e8830a44ddda344a0c305c97296e3724678720eaf"
+  },
+  "implementation": {
+    "containers": [
+      "DSF",
+      "uncompressed DFF"
+    ],
+    "channels": 2,
+    "source_bit_rates_hz": [
+      2822400,
+      5644800
+    ],
+    "carrier_rates_hz": [
+      176400,
+      352800
+    ],
+    "carrier_bytes_per_word": 3,
+    "source_group_bits_per_channel": 16,
+    "source_block_bytes_per_channel_maximum": 4096,
+    "joint_owned_working_bytes": 24580,
+    "nonaudio_scan_bytes_maximum": 1048576,
+    "dff_chunk_count_maximum": 256,
+    "dsf_trailing_tag_bytes_maximum": 65536
+  },
+  "boundaries": {
+    "software_file_pipeline": true,
+    "independent_consumer": true,
+    "engine_source_wired": false,
+    "native_adapter_wired": false,
+    "physical_output": false,
+    "generic_silence_filler": false,
+    "pcm_carrier_conversion": false
+  },
+  "limits": [
+    "The working allowance covers named buffers, not process memory or caller-retained blocks.",
+    "Software fixtures establish byte order, markers, counts, seeks, boundaries and cleanup, not safe DAC transitions.",
+    "Engine integration, device carriage, domain-aware start/pause/stop/underrun and qualified routes on both launch OSes remain required."
+  ]
+}

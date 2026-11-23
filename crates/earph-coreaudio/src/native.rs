@@ -314,6 +314,34 @@ pub fn inspect(uid: &str) -> Result<DeviceSnapshot, CoreAudioError> {
         )))
 }
 
+/// Reads the latency that an output device and its first output stream report.
+/// It reads properties only: it starts no IO and changes no setting.
+/// A missing property and a failed read both leave that count unknown.
+/// AudioHardwareBase.h gives each count in frames, puts the device properties in the
+/// output scope, and gives a stream object the global scope only.
+pub fn output_latency(device: &DeviceSnapshot) -> OutputLatency {
+    let output = ca::kAudioObjectPropertyScopeOutput;
+    OutputLatency {
+        nominal_rate_hz: device.nominal_rate_hz,
+        device_frames: read(device.object_id, ca::kAudioDevicePropertyLatency, output).ok(),
+        safety_offset_frames: read(
+            device.object_id,
+            ca::kAudioDevicePropertySafetyOffset,
+            output,
+        )
+        .ok(),
+        stream_frames: device.output_streams.first().and_then(|stream| {
+            read(
+                stream.object_id,
+                ca::kAudioStreamPropertyLatency,
+                ca::kAudioObjectPropertyScopeGlobal,
+            )
+            .ok()
+        }),
+        io_buffer_frames: device.buffer_frames,
+    }
+}
+
 unsafe extern "C-unwind" fn silent_callback(
     _: u32,
     _: NonNull<AudioTimeStamp>,
@@ -424,5 +452,59 @@ impl Drop for SilentRegistration {
                 Box::leak(context);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Reads properties of the default output device. It starts no IO and emits no signal.
+    /// It prints frame counts only, never a device name or UID.
+    #[test]
+    #[ignore = "reads the default output device, which a headless or virtual-device Mac may lack"]
+    fn default_output_latency_reads_start_no_io_and_change_no_setting() {
+        let global = ca::kAudioObjectPropertyScopeGlobal;
+        let id: u32 = read(
+            ca::kAudioObjectSystemObject as u32,
+            ca::kAudioHardwarePropertyDefaultOutputDevice,
+            global,
+        )
+        .unwrap();
+        let streams = || {
+            array::<u32>(
+                id,
+                ca::kAudioDevicePropertyStreams,
+                ca::kAudioObjectPropertyScopeOutput,
+                16,
+            )
+            .unwrap()
+        };
+        assert!(
+            !streams().is_empty(),
+            "this test requires a default output device with an output stream"
+        );
+        let before = snapshot(id, streams()).unwrap();
+        let latency = output_latency(&before);
+        println!("{}", serde_json::to_string(&latency).unwrap());
+        println!(
+            "frames at 48 kHz: {:?} without and {:?} with the IO buffer",
+            latency.frames_at(48000, false),
+            latency.frames_at(48000, true)
+        );
+        assert!(
+            latency.device_frames.is_some() && latency.safety_offset_frames.is_some(),
+            "the default output device reports its latency and its safety offset"
+        );
+        assert_eq!(latency.nominal_rate_hz, before.nominal_rate_hz);
+        assert_eq!(latency.io_buffer_frames, before.buffer_frames);
+        let after = snapshot(id, streams()).unwrap();
+        assert_eq!(before.nominal_rate_hz, after.nominal_rate_hz);
+        assert_eq!(before.buffer_frames, after.buffer_frames);
+        assert_eq!(before.hog_owner_pid, after.hog_owner_pid);
+        assert_eq!(
+            serde_json::to_value(&before.output_streams).unwrap(),
+            serde_json::to_value(&after.output_streams).unwrap()
+        );
     }
 }

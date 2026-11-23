@@ -19,6 +19,10 @@ pub enum PreparationStatus {
         format: PcmFormat,
         total_frames: u64,
     },
+    DsdReady {
+        format: crate::dop::DsdSourceFormat,
+        total_source_bits: u64,
+    },
     Failed {
         code: ErrorCode,
     },

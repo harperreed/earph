@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "status": "pass_for_linux_generated_kotlin_control_network_and_disabled_renderer",
+  "date_utc": "2026-11-20",
+  "source": {
+    "baseline_commit": "3af7c71a5536b01d4c4991b2168ec88c67f5a378",
+    "source_dirty": true,
+    "source_files": 475,
+    "manifest_sha256": "24acbc6337e2fd8119e9392de97e0dfe8cf5a7f14cc1cd01f1d6f70d7e8596ad",
+    "scenario_sha256": "db8f08e833e22bcbf5f35a0ad1cddff42b20461d99877247167a3c161b11b438",
+    "source_and_head_unchanged_during_run": true,
+    "changes_after_build_phase": [
+      "scripts/ffi-scenario.mjs"
+    ],
+    "compiled_runtime_inputs_unchanged": true,
+    "profile": "dev"
+  },
+  "tools": {
+    "rust": "1.98.1",
+    "node": "26.13.1",
+    "kotlin": "2.4.21",
+    "java": "26.0.2.1",
+    "jna": "5.19.1",
+    "uniffi": "0.32.2"
+  },
+  "checks": {
+    "original_complete_gate_exit": 1,
+    "original_gate_failure_stage": "exclusive scenario receipt filename collision",
+    "rust_build_and_compile_phase": "pass",
+    "corrected_actual_scenario_exit": 0,
+    "rust_client_tests": 13,
+    "startup_parser_tests": 4,
+    "generator_feature_clippy": "pass",
+    "kotlin_warnings_as_errors": "pass",
+    "foreign_frames": 78,
+    "consumer_processes": 35,
+    "exact_cli_comparisons": 44,
+    "profile_terminal_replays": 9,
+    "local_guard_scenarios_per_consumer": 4,
+    "local_guard_replies": 140,
+    "distinct_local_error_codes": [
+      "ASSET_INVALID",
+      "RESOURCE_BUDGET_EXCEEDED"
+    ],
+    "current_scenario_guarded_jvm_launches": 35,
+    "original_gate_guarded_jvm_launches": 40,
+    "network_commands": 9,
+    "network_foreign_frames": 18,
+    "network_exact_cli_comparisons": 9,
+    "exact_network_grant_envelope_and_reply_replay": true,
+    "revoked_generation_preserved": true,
+    "revoked_lease_expiry_null": true,
+    "staged_uri_query_redacted": true,
+    "real_http_fixture_connections": 0,
+    "real_http_fixture_requests": 0,
+    "renderer_commands": 6,
+    "renderer_foreign_frames": 12,
+    "renderer_exact_cli_comparisons": 6,
+    "renderer_disabled": true,
+    "renderer_get_before_and_after": true,
+    "renderer_grants_replace_and_revoke_error": "CAPABILITY_UNSUPPORTED",
+    "renderer_untrusted_request_error": "AUTH_DENIED",
+    "exact_rejected_renderer_grant_envelope_and_reply_replay": true,
+    "renderer_authority_and_owner_state_unchanged": true,
+    "owner_exit_code": 0,
+    "owner_signal": null,
+    "owned_pid_absent_at_collection": true,
+    "private_jna_dispatcher_verified": true,
+    "all_consumer_stderr_empty": true,
+    "frozen_products_unchanged": 6,
+    "native_output_opened": false,
+    "signal_exercises": 0
+  },
+  "products": {
+    "engine_sha256": "4f7f4983e50b70193d097373ec7bb2bdbad7a5e9e75854257e491f7f1bb6d4bd",
+    "bindgen_sha256": "a301c1cb05692c6e5833cefe4ff80ba267e89ff69f64627551bdd654e406df1d",
+    "library_sha256": "bb7f3252aa69188eb7cfa1b13e71eda7e2695ebb18a195b7abffcd3a832f4c43",
+    "consumer_jar_sha256": "18f5d3b99b5a21dc8a09d066969c4442fdddf3b0c686bd7c2e21f20fe5a4d54d",
+    "generated_kotlin_sha256": "fad43e6f82b7a40ea9accb70cfbe4d34c6a8458631c4d1d0cf3b51df52e36a6d",
+    "jna_dispatcher_sha256": "ca07953d595210082339753d9e818a1fdb40509a17a41914d9a2cb0d2df6b6af"
+  },
+  "private_evidence": {
+    "qualification_sha256": "43e823c7b22356a03873d85663987b7ed03f1a70e19eca90eba8c5429027235b"
+  },
+  "review": {
+    "operator_receipt_readback_material_findings": 0,
+    "parent_review": "complete, no material findings",
+    "parent_review_sha256": "b2e7a194b9108f2cf2d0e7b7bf04ac538899ef09d2f0b4057b04fbbd6e8cd84b"
+  },
+  "limits": [
+    "Rust test counts overlap the canonical suite and are not additive unique coverage.",
+    "The current public bridge forwards opaque JSON bytes; this run adds generated consumer coverage only.",
+    "The renderer remains disabled; renderer enablement, ingress, fetching and rendering are not qualified.",
+    "The added API cases extend existing coverage; the observed receipt filename collision is the actual driver regression RED.",
+    "Current Mac/Swift remains blocked; no remote action ran.",
+    "Older generated-consumer compatibility, stable C ABI, successful foreign package import, cancellation and subscriptions remain unqualified.",
+    "No native output, hardware playback, GUI, callback, independent-clock, DAC or acoustic behavior is qualified."
+  ],
+  "raw_private_values_included": false
+}

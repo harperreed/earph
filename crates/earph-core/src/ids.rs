@@ -35,8 +35,22 @@ identity!(
     PreparedGraphId,
     RequestId,
     OwnerId,
-    QueueEntryId
+    QueueEntryId,
+    StagedMediaId,
+    RendererControllerId
 );
+
+impl StagedMediaId {
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
+
+impl RendererControllerId {
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
 
 impl NodeId {
     /// Reports retained UTF-8 storage capacity for graph memory admission.
@@ -56,6 +70,11 @@ impl ProfileId {
     }
 }
 impl DeviceId {
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+}
+impl QueueEntryId {
     pub(crate) fn capacity_bytes(&self) -> usize {
         self.0.capacity()
     }

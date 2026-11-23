@@ -1,6 +1,9 @@
 // ABOUTME: Tests reservation, fault, and pause behavior through real private IPC.
 // ABOUTME: Uses isolated child processes with generated media and ALSA file-to-null routes.
 #![cfg(target_os = "linux")]
+#[allow(dead_code)]
+#[path = "../../earph-media/tests/support/dsd.rs"]
+mod dsd_containers;
 mod support;
 use earph_core::{control::*, ids::*};
 use earph_engine::{EngineOwner, request};
@@ -193,6 +196,198 @@ fn host(
         profile_id: ProfileId::new("native-profile").unwrap(),
     });
     (controller, join)
+}
+
+#[test]
+fn generated_dsf_prepares_as_dsd_without_qualifying_or_writing_the_endpoint() {
+    if isolated(
+        "generated_dsf_prepares_as_dsd_without_qualifying_or_writing_the_endpoint",
+        None,
+    ) {
+        return;
+    }
+    let directory = artifacts();
+    let source = directory.join("typed-source.data");
+    fs::write(
+        &source,
+        dsd_containers::dsf(&[0xa5, 0x5a, 0x69, 0x96], 1, 2_822_400, b""),
+    )
+    .unwrap();
+    let (c, join) = host("capture");
+    c.append(&source);
+    c.start();
+    let state = c.wait(|s| s["transport"] == "buffering" || s["transport"] == "failed");
+    let queue = c.queue();
+    let unmute = c.send(Command::Mute { muted: false });
+    assert_eq!(unmute["receipt"]["status"], "rejected", "{unmute}");
+    assert_eq!(unmute["receipt"]["error"]["code"], "SAFETY_POLICY_BLOCKED");
+    let seek = c.send(
+        serde_json::from_value(json!({"method":"transport.seek_dsd","position_bits":16})).unwrap(),
+    );
+    assert_eq!(seek["receipt"]["status"], "accepted", "{seek}");
+    let ended = c.wait(|s| s["transport"] == "idle" || s["transport"] == "failed");
+    let shutdown = c.send(Command::OwnerShutdown);
+    join.join().unwrap().unwrap();
+    assert_eq!(shutdown["receipt"]["status"], "applied", "{shutdown}");
+    assert_eq!(state["transport"], "buffering", "{state}; queue={queue}");
+    assert!(state["playback"].is_null(), "{state}");
+    assert_eq!(
+        state["dsd_playback"]["source_format"]["bit_rate_hz"],
+        2_822_400
+    );
+    assert_eq!(state["dsd_playback"]["qualification"], "unverified");
+    assert_eq!(
+        queue["entries"][0]["status"]["state"], "dsd_ready",
+        "{queue}"
+    );
+    assert_eq!(
+        ended["dsd_playback"]["completion_basis"], "source_submitted",
+        "{ended}"
+    );
+    assert!(
+        fs::read(directory.join("capture.pcm"))
+            .unwrap_or_default()
+            .is_empty()
+    );
+}
+
+#[test]
+fn muted_dsd_shutdown_accepts_retirement_before_the_owner_exits() {
+    if isolated(
+        "muted_dsd_shutdown_accepts_retirement_before_the_owner_exits",
+        None,
+    ) {
+        return;
+    }
+    let directory = artifacts();
+    let source = directory.join("source.dff");
+    fs::write(
+        &source,
+        dsd_containers::dff(&[0x69, 0x96, 0xa5, 0x5a], 2_822_400),
+    )
+    .unwrap();
+    let (c, join) = host("capture");
+    c.append(&source);
+    c.start();
+    c.wait(|state| state["dsd_playback"].is_object());
+    let reply = c.send(Command::OwnerShutdown);
+    join.join().unwrap().unwrap();
+    assert_eq!(reply["receipt"]["status"], "accepted", "{reply}");
+    assert!(
+        fs::read(directory.join("capture.pcm"))
+            .unwrap_or_default()
+            .is_empty()
+    );
+}
+
+#[test]
+fn exact_software_zero_is_distinct_from_finite_minus_120_db_in_real_signed24_capture() {
+    if isolated(
+        "exact_software_zero_is_distinct_from_finite_minus_120_db_in_real_signed24_capture",
+        None,
+    ) {
+        return;
+    }
+    let directory = artifacts();
+    let source = directory.join("nonzero-signed24.wav");
+    wave(&source, 48000, 4096, 0);
+    for zero in [false, true] {
+        let (c, join) = host("capture");
+        c.apply(serde_json::from_value(json!({"method":"output.select","output":{"backend":"alsa","route":"system","endpoint":"capture","device_id":"native","profile_id":"native-profile","period_frames":64,"buffer_frames":256,"volume_mode":"software","fidelity":"compatible_conversion"}})).unwrap());
+        c.apply(Command::OutputConsent {
+            device_id: DeviceId::new("native").unwrap(),
+            profile_id: ProfileId::new("native-profile").unwrap(),
+        });
+        c.apply(Command::VolumeSet {
+            millidecibels: -120000,
+            ramp_frames: 0,
+        });
+        if zero {
+            c.apply(Command::VolumeSilence);
+        }
+        c.append(&source);
+        c.start();
+        c.wait(|state| state["transport"] == "buffering");
+        c.apply(Command::Mute { muted: false });
+        let state = c.wait(|state| state["transport"] == "idle" || state["transport"] == "failed");
+        assert!(state["error"].is_null(), "{state}");
+        assert_eq!(state["software_gain_zero"], zero);
+        assert_eq!(state["software_gain_db"], -120.0);
+        assert_eq!(state["playback"]["source_position_frames"], 4096);
+        let captured = fs::read(directory.join("capture.pcm")).unwrap();
+        assert_eq!(captured.len(), 4096 * 6);
+        assert_eq!(captured.iter().all(|sample| *sample == 0), zero);
+        fs::write(
+            directory.join(if zero {
+                "exact-zero.pcm"
+            } else {
+                "finite-minus120.pcm"
+            }),
+            captured,
+        )
+        .unwrap();
+        c.apply(Command::OwnerShutdown);
+        join.join().unwrap().unwrap();
+    }
+}
+
+#[test]
+fn factory_defaults_reaches_the_live_worker_before_finite_playback_resumes() {
+    if isolated(
+        "factory_defaults_reaches_the_live_worker_before_finite_playback_resumes",
+        None,
+    ) {
+        return;
+    }
+    let directory = artifacts();
+    let source = directory.join("factory-source.wav");
+    let original = wave(&source, 48000, 300000, 0);
+    let (c, join) = host("capture");
+    c.apply(serde_json::from_value(json!({"method":"output.select","output":{"backend":"alsa","route":"system","endpoint":"capture","device_id":"native","profile_id":"native-profile","period_frames":64,"buffer_frames":256,"volume_mode":"software","fidelity":"compatible_conversion"}})).unwrap());
+    c.apply(Command::OutputConsent {
+        device_id: DeviceId::new("native").unwrap(),
+        profile_id: ProfileId::new("native-profile").unwrap(),
+    });
+    c.append(&source);
+    c.start();
+    c.wait(|state| state["transport"] == "buffering");
+    c.apply(Command::Mute { muted: false });
+    c.wait(|state| {
+        state["transport"] == "playing"
+            && state["playback"]["submitted_frames"].as_u64().unwrap_or(0) > 0
+    });
+    let before = c.state();
+    c.apply(Command::VolumeFactoryDefaults);
+    let muted = c.wait(|state| state["transport"] == "buffering" && state["muted"] == true);
+    assert_eq!(muted["software_gain_db"], -40.0);
+    assert_eq!(muted["software_gain_zero"], false);
+    assert_eq!(muted["source"], before["source"]);
+    assert_eq!(muted["session_id"], before["session_id"]);
+    assert_eq!(muted["output_consented"], before["output_consented"]);
+    let capture = directory.join("capture.pcm");
+    let prefix = fs::read(&capture).unwrap();
+    assert!(!prefix.is_empty() && prefix.len() < original.len());
+    assert_eq!(prefix, original[..prefix.len()]);
+    c.apply(Command::Mute { muted: false });
+    let done = c.wait(|state| state["transport"] == "idle" || state["transport"] == "failed");
+    assert!(done["error"].is_null(), "{done}");
+    let captured = fs::read(capture).unwrap();
+    assert_eq!(captured.len(), original.len());
+    assert_eq!(captured[..prefix.len()], prefix);
+    for (actual, raw) in captured[prefix.len()..]
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(original[prefix.len()..].as_chunks::<3>().0)
+    {
+        let mut bytes = [0_u8; 4];
+        bytes[..3].copy_from_slice(raw);
+        bytes[3] = if raw[2] & 0x80 == 0 { 0 } else { 255 };
+        let attenuated = (f64::from(i32::from_le_bytes(bytes)) * 0.01).round() as i32;
+        assert_eq!(actual, &attenuated.to_le_bytes()[..3]);
+    }
+    c.apply(Command::OwnerShutdown);
+    join.join().unwrap().unwrap();
 }
 
 #[test]

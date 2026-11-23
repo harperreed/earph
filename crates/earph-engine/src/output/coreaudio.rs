@@ -3,6 +3,7 @@
 use super::*;
 use earph_core::session::ObservedSampleRepresentation;
 use earph_coreaudio::{OutputRequest, PlaybackRoute, StreamFormat};
+mod activity;
 #[cfg(target_os = "macos")]
 mod native;
 #[cfg(target_os = "macos")]
@@ -30,6 +31,30 @@ fn request(config: &OutputConfiguration, format: PcmFormat) -> Result<OutputRequ
         route,
     })
 }
+/// Returns the latency that the device reports beyond the worker's restart cursor, at the client rate.
+/// It adds the device latency, the safety offset, and the stream latency.
+/// The AudioQueue cursor is the queue clock: a frame in the device IO buffer still lies past it,
+/// so the counted frames cover that buffer already.
+/// The HAL cursor is callback delivery: a delivered frame leaves the count and still waits one
+/// IO buffer, so that route adds the buffer.
+/// The frames are a device report, and the basis claims no audible position.
+fn device_latency(
+    latency: &earph_coreaudio::OutputLatency,
+    request: &OutputRequest,
+) -> Option<DeviceLatency> {
+    let (with_io_buffer, basis) = match request.route {
+        PlaybackRoute::Float32Compatibility => (
+            false,
+            "audio_queue_sample_time_plus_reported_device_latency_not_audible_position",
+        ),
+        PlaybackRoute::StrictInteger => (
+            true,
+            "core_audio_ioproc_delivery_plus_reported_device_latency_not_audible_position",
+        ),
+    };
+    let frames = latency.frames_at(request.format.sample_rate_hz(), with_io_buffer)?;
+    Some(DeviceLatency { frames, basis })
+}
 fn observed(format: &StreamFormat) -> ObservedStreamFormat {
     let representation = match (
         format.format_id == u32::from_be_bytes(*b"lpcm"),
@@ -50,6 +75,59 @@ fn observed(format: &StreamFormat) -> ObservedStreamFormat {
         bytes_per_frame: format.bytes_per_frame,
         interleaved: format.format_flags & 32 == 0,
     }
+}
+
+fn backend_observation(
+    report: &earph_coreaudio::OutputReport,
+    audio_storage_bytes: u64,
+) -> Result<BackendObservation, EngineError> {
+    use sha2::{Digest, Sha256};
+    let uid = &report.observed.uid;
+    if uid.is_empty() || uid.len() > 1024 || !report.observed.alive {
+        return Err(EngineError::new(
+            ErrorCode::DeviceUnavailable,
+            "opened Core Audio device has no bounded native identity",
+        ));
+    }
+    let mut hash = Sha256::new();
+    hash.update(b"earph-native-device/core-audio/1\0");
+    hash.update((uid.len() as u64).to_le_bytes());
+    hash.update(uid.as_bytes());
+    let digest: String = hash
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let stream = report
+        .observed
+        .output_streams
+        .first()
+        .ok_or(EngineError::new(
+            ErrorCode::DeviceUnavailable,
+            "opened Core Audio device has no observed output stream",
+        ))?;
+    Ok(BackendObservation {
+        backend: OutputBackend::CoreAudio,
+        device_identity_sha256: Some(digest.try_into()?),
+        audio_storage_bytes,
+        client_format: observed(
+            report
+                .queue_client_format
+                .as_ref()
+                .unwrap_or(&stream.virtual_format),
+        ),
+        device_format: Some(observed(&stream.physical)),
+        measurement_boundary: if report.queue_client_format.is_some() {
+            "audio_queue_client_and_observed_device_formats"
+        } else {
+            "core_audio_observed_stream_formats"
+        },
+        preservation: if report.requested.route == PlaybackRoute::Float32Compatibility {
+            PreservationState::Modified
+        } else {
+            PreservationState::Unverified
+        },
+    })
 }
 
 const FAULT_DIAGNOSTICS: usize = 32;
@@ -240,6 +318,59 @@ mod tests {
         PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed24).unwrap()
     }
     #[test]
+    fn opened_report_identity_uses_observed_uid_and_rejects_unbounded_identity() {
+        let stream = serde_json::json!({"sample_rate_hz":48000.0,"format_id":u32::from_be_bytes(*b"lpcm"),"format_flags":12,"bytes_per_packet":6,"frames_per_packet":1,"bytes_per_frame":6,"channels_per_frame":2,"bits_per_channel":24});
+        // A typed snapshot is model input, not a native-device qualification receipt.
+        let observed: earph_coreaudio::DeviceSnapshot = serde_json::from_value(serde_json::json!({
+            "object_id":42,"uid":"observed-test-uid","name":"Test device","alive":true,
+            "nominal_rate_hz":48000.0,"nominal_rate_settable":false,"buffer_frames":512,
+            "buffer_frame_range":{"minimum":64.0,"maximum":1024.0},"hog_owner_pid":null,"hog_mode_settable":null,
+            "output_streams":[{"object_id":43,"physical":stream,"virtual_format":stream,"physical_settable":false,"virtual_settable":false,"available_physical":[],"available_virtual":[]}]
+        })).unwrap();
+        let mut report = earph_coreaudio::OutputReport {
+            requested: request(&config(), format()).unwrap(),
+            observed,
+            evidence_level: "registered_not_started",
+            payload_preservation: "unverified",
+            downstream_transformations: "unknown",
+            queue_client_format: None,
+        };
+        let first = backend_observation(&report, 256).unwrap();
+        assert_eq!(
+            first.device_identity_sha256.unwrap().as_str(),
+            "2623c24c4ddc8f681bd127f754e73154f3d8b6f7571cfe09f65d0a360f890165"
+        );
+        let serialized = serde_json::to_value(&first).unwrap();
+        assert!(serialized.get("uid").is_none());
+        assert_eq!(
+            serialized["device_identity_sha256"],
+            "2623c24c4ddc8f681bd127f754e73154f3d8b6f7571cfe09f65d0a360f890165"
+        );
+        report.requested.device_uid = "another-requested-uid".into();
+        report.observed.name = "Another display name".into();
+        report.observed.nominal_rate_hz = 96000.0;
+        assert_eq!(
+            backend_observation(&report, 512)
+                .unwrap()
+                .device_identity_sha256,
+            first.device_identity_sha256
+        );
+        report.observed.uid = "another-observed-uid".into();
+        assert_ne!(
+            backend_observation(&report, 512)
+                .unwrap()
+                .device_identity_sha256,
+            first.device_identity_sha256
+        );
+        for invalid in [String::new(), "x".repeat(1025)] {
+            report.observed.uid = invalid;
+            assert_eq!(
+                backend_observation(&report, 512).unwrap_err().code,
+                ErrorCode::DeviceUnavailable
+            );
+        }
+    }
+    #[test]
     fn explicit_uid_and_buffer_bounds_reach_the_native_request_without_a_default_route() {
         let native = request(&config(), format()).unwrap();
         assert_eq!(native.device_uid, "explicit-test-uid");
@@ -252,6 +383,50 @@ mod tests {
             request(&direct, format()).unwrap().route,
             PlaybackRoute::StrictInteger
         );
+    }
+    #[test]
+    fn reported_device_latency_uses_the_client_rate_and_names_its_route() {
+        let reported = earph_coreaudio::OutputLatency {
+            nominal_rate_hz: 48000.0,
+            device_frames: Some(300),
+            safety_offset_frames: Some(100),
+            stream_frames: Some(80),
+            io_buffer_frames: 512,
+        };
+        let system = request(&config(), format()).unwrap();
+        // The queue clock already counts the frames in the device IO buffer.
+        assert_eq!(
+            device_latency(&reported, &system),
+            Some(DeviceLatency {
+                frames: 480,
+                basis: "audio_queue_sample_time_plus_reported_device_latency_not_audible_position",
+            })
+        );
+        // A 96 kHz device counts twice the frames for the same time.
+        let fast = earph_coreaudio::OutputLatency {
+            nominal_rate_hz: 96000.0,
+            ..reported
+        };
+        assert_eq!(device_latency(&fast, &system).unwrap().frames, 240);
+        let mut direct = config();
+        direct.route = OutputRoute::DirectHardware;
+        let direct = request(&direct, format()).unwrap();
+        // Callback delivery stops before the device IO buffer.
+        assert_eq!(
+            device_latency(&reported, &direct),
+            Some(DeviceLatency {
+                frames: 992,
+                basis: "core_audio_ioproc_delivery_plus_reported_device_latency_not_audible_position",
+            })
+        );
+        let unknown = earph_coreaudio::OutputLatency {
+            device_frames: None,
+            safety_offset_frames: None,
+            stream_frames: None,
+            ..reported
+        };
+        assert_eq!(device_latency(&unknown, &system), None);
+        assert_eq!(device_latency(&unknown, &direct), None);
     }
     #[test]
     fn strict_policy_rejects_a_known_float_conversion_before_native_open() {
@@ -375,6 +550,20 @@ mod tests {
             state: earph_coreaudio::OutputState::Failed,
             submitted_frames: 2993,
             callback_delivered_frames: 2560,
+            queue_acquired_frames: None,
+            queue_running_observed: None,
+            queue_clock_status: None,
+            queue_clock_ready: None,
+            queue_clock_sample_time_bits: None,
+            queue_clock_sample_time_finite: None,
+            queue_clock_flags: None,
+            queue_clock_discontinuity: None,
+            queue_clock_observed_enqueued_frames: None,
+            queue_enqueued_frames: None,
+            queue_clock_last_valid_frame: None,
+            queue_schedule: None,
+            queue_retired_frames: None,
+            queue_starved_frames: None,
             queued_frames: 433,
             callbacks_observed: 6,
             measurement_boundary: "core_audio_ioproc_delivery",
@@ -476,5 +665,52 @@ mod tests {
         }
         write_fault_diagnostic(&mut InterleavedStderr { wrote: false }, "open", None, None)
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod system_format_tests {
+    use super::*;
+    use earph_core::{
+        audio::{ChannelLayout, PcmRepresentation},
+        ids::{DeviceId, ProfileId},
+        safety::{FidelityPolicy, VolumeMode},
+    };
+    #[test]
+    fn queue_client_observation_preserves_source_rate_instead_of_physical_rate() {
+        let physical = serde_json::json!({"sample_rate_hz":48000.0,"format_id":u32::from_be_bytes(*b"lpcm"),"format_flags":9,"bytes_per_packet":8,"frames_per_packet":1,"bytes_per_frame":8,"channels_per_frame":2,"bits_per_channel":32});
+        let snapshot = serde_json::from_value(serde_json::json!({"object_id":42,"uid":"test","name":"fixture","alive":true,"nominal_rate_hz":48000.0,"nominal_rate_settable":false,"buffer_frames":512,"buffer_frame_range":{"minimum":64.0,"maximum":1024.0},"hog_owner_pid":null,"hog_mode_settable":null,"output_streams":[{"object_id":43,"physical":physical,"virtual_format":physical,"physical_settable":false,"virtual_settable":false,"available_physical":[],"available_virtual":[]}]})).unwrap();
+        let config = OutputConfiguration {
+            backend: OutputBackend::CoreAudio,
+            route: OutputRoute::System,
+            endpoint: "test".into(),
+            device_id: DeviceId::new("test").unwrap(),
+            profile_id: ProfileId::new("test").unwrap(),
+            period_frames: 64,
+            buffer_frames: 256,
+            volume_mode: VolumeMode::Software,
+            fidelity: FidelityPolicy::CompatibleConversion,
+        };
+        let format =
+            PcmFormat::new(44100, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
+        let mut client: StreamFormat = serde_json::from_value(physical).unwrap();
+        client.sample_rate_hz = 44100.0;
+        let report = earph_coreaudio::OutputReport {
+            requested: request(&config, format).unwrap(),
+            observed: snapshot,
+            evidence_level: "prepared_queue_client_readback",
+            payload_preservation: "modified_integer_to_float32",
+            downstream_transformations: "os_conversion_unverified",
+            queue_client_format: Some(client),
+        };
+        let observation = backend_observation(&report, 4096).unwrap();
+        assert_eq!(observation.client_format.sample_rate_hz, 44100.0);
+        assert_eq!(
+            observation.client_format.representation,
+            ObservedSampleRepresentation::Float32
+        );
+        assert_eq!(observation.device_format.unwrap().sample_rate_hz, 48000.0);
+        assert_eq!(observation.preservation, PreservationState::Modified);
+        assert_eq!(observation.audio_storage_bytes, 4096);
     }
 }

@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# ABOUTME: Builds the standard macOS controller against generated Rust bindings.
+# ABOUTME: Retains compiler logs, static link inputs, and separate native products.
+set -euo pipefail
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+output=''
+swiftc=''
+check=false
+while (($#)); do
+  case "$1" in
+    --output|--swiftc)
+      if (($# < 2)); then printf 'error: %s needs a value\n' "$1" >&2; exit 2; fi
+      case "$1" in --output) output=$2;; --swiftc) swiftc=$2;; esac
+      shift 2;;
+    --help)
+      printf '%s\n' 'usage: scripts/build-macos-desktop --output NEW_ABSOLUTE_DIRECTORY [--swiftc PATH] [--check]'
+      exit 0;;
+    --check) check=true; shift;;
+    *) printf 'error: unknown argument: %s\n' "$1" >&2; exit 2;;
+  esac
+done
+case "$output" in /*) ;; *) printf 'error: provide a new absolute output directory\n' >&2; exit 2;; esac
+if [[ $(uname -s) != Darwin ]]; then printf 'error: this build requires macOS and Xcode\n' >&2; exit 2; fi
+if [[ -e "$output" ]]; then printf 'error: preserve the existing output and choose a new directory\n' >&2; exit 2; fi
+if [[ -z "$swiftc" ]]; then swiftc=$(xcrun --find swiftc); fi
+test -x "$swiftc"
+cd "$repo_root"
+umask 077
+mkdir -p "$output/generated" "$output/products" "$output/bridge" "$output/tmp"
+export TMPDIR="$output/tmp"
+export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-"$output/rust"}
+export CARGO_CACHE_AUTO_CLEAN_FREQUENCY=never
+export CARGO_INCREMENTAL=0
+export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1}
+export SDKROOT=${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}
+source "$repo_root/scripts/macos-deployment-target.sh"
+configure_macos_target "$(uname -m)"
+printf '%s\n' "$MACOSX_DEPLOYMENT_TARGET" > "$output/deployment-target.txt"
+printf '%s\n' "$swift_target" > "$output/swift-target.txt"
+compile_swift() {
+  "$swiftc" -target "$swift_target" "$@"
+}
+run() {
+  local label=$1
+  shift
+  if "$@" > "$output/$label.log" 2>&1; then
+    printf '%s: passed\n' "$label"
+  else
+    local result=$?
+    tail -c 32768 "$output/$label.log" >&2
+    printf 'error: %s failed (%s); full log: %s/%s.log\n' "$label" "$result" "$output" "$label" >&2
+    return "$result"
+  fi
+}
+run rust-version rustc -vV
+run swift-version "$swiftc" --version
+run bindings-tool cargo build --locked -p earph-ffi --features bindgen --bin earph-bindgen
+run desktop-library cargo build --locked -p earph-desktop --lib
+run products cargo build --locked -p earph-engine --bin earph-engine --bin earph -p earph-harness --bin earph-harness
+run native-link-info cargo rustc --locked -p earph-desktop --lib -- --print=native-static-libs
+cp "$CARGO_TARGET_DIR/debug/libearph_desktop.a" "$output/bridge/libearph_desktop.a"
+cp "$CARGO_TARGET_DIR/debug/libearph_desktop.dylib" "$output/bridge/libearph_desktop.dylib"
+run bindings "$CARGO_TARGET_DIR/debug/earph-bindgen" generate "$output/bridge/libearph_desktop.dylib" --language swift --no-format --out-dir "$output/generated"
+link_lines=$(sed -n 's/^note: native-static-libs: //p' "$output/native-link-info.log")
+if [[ -z "$link_lines" || "$link_lines" == *$'\n'* ]]; then
+  printf 'error: expected one compiler-reported native static library list; inspect %s/native-link-info.log\n' "$output" >&2
+  exit 1
+fi
+read -r -a native_links <<< "$link_lines"
+expect_framework=false
+for argument in "${native_links[@]}"; do
+  if $expect_framework; then
+    case "$argument" in *[!a-zA-Z0-9_]*|'') printf 'error: invalid compiler framework name\n' >&2; exit 1;; esac
+    expect_framework=false
+  else
+    case "$argument" in
+      -framework) expect_framework=true;;
+      -l*) case "${argument#-l}" in *[!a-zA-Z0-9_+.-]*|'') printf 'error: invalid compiler library name\n' >&2; exit 1;; esac;;
+      *) printf 'error: unsupported compiler link argument: %s\n' "$argument" >&2; exit 1;;
+    esac
+  fi
+done
+if $expect_framework; then printf 'error: compiler framework name is missing\n' >&2; exit 1; fi
+printf '%s\n' "${native_links[@]}" > "$output/compiler-native-link-arguments.txt"
+# Swift supplies libSystem. Keep C and Objective-C once; preserve every other reported argument.
+link_arguments=()
+seen_c=false
+seen_objc=false
+for argument in "${native_links[@]}"; do
+  case "$argument" in
+    -lSystem) continue;;
+    -lc) if $seen_c; then continue; fi; seen_c=true;;
+    -lobjc) if $seen_objc; then continue; fi; seen_objc=true;;
+  esac
+  link_arguments+=("$argument")
+done
+native_links=("${link_arguments[@]}")
+printf '%s\n' "${native_links[@]}" > "$output/native-link-arguments.txt"
+module_arguments=()
+for module in "$output"/generated/*.modulemap; do
+  test -f "$module"
+  module_arguments+=(-Xcc "-fmodule-map-file=$module")
+done
+run swift-compile compile_swift -parse-as-library -warnings-as-errors -I "$output/generated" \
+  "${module_arguments[@]}" "$output"/generated/*.swift macos/Sources/Earph/*.swift \
+  -Xlinker "$output/bridge/libearph_desktop.a" "${native_links[@]}" \
+  -o "$output/products/earph-desktop"
+if grep -q 'warning:' "$output/swift-compile.log"; then
+  cat "$output/swift-compile.log" >&2
+  printf 'error: native linking emitted a warning; inspect the retained compiler log\n' >&2
+  exit 1
+fi
+cp "$CARGO_TARGET_DIR/debug/earph-engine" "$output/products/earph-engine"
+cp "$CARGO_TARGET_DIR/debug/earph" "$output/products/earph"
+cp "$CARGO_TARGET_DIR/debug/earph-harness" "$output/products/earph-harness"
+run linked-libraries otool -L "$output/products/earph-desktop"
+run architecture file "$output/products/earph-desktop" "$output/products/earph-engine" "$output/products/earph"
+shasum -a 256 "$output"/products/* "$output"/generated/* "$output"/bridge/* > "$output/product.hashes"
+shasum -a 256 Cargo.toml Cargo.lock macos/Sources/Earph/*.swift scripts/build-macos-desktop scripts/macos-deployment-target.sh > "$output/source.hashes"
+printf '%s\n' "$CARGO_TARGET_DIR" > "$output/cargo-target.txt"
+if $check; then
+  mkdir "$output/tests"
+  run controls-build compile_swift -parse-as-library -warnings-as-errors -framework AppKit -framework SwiftUI \
+    macos/Sources/Earph/NativeTextEditor.swift macos/Tests/NativeControlsTests.swift -o "$output/tests/controls"
+  run controls "$output/tests/controls"
+  run presentation-build compile_swift -parse-as-library -warnings-as-errors \
+    macos/Sources/Earph/Presentation.swift macos/Tests/PresentationTests.swift -o "$output/tests/presentation"
+  run presentation "$output/tests/presentation"
+  for scenario in ControllerLifecycle OwnerIntegration; do
+    run "$scenario-build" compile_swift -parse-as-library -warnings-as-errors -I "$output/generated" \
+      "${module_arguments[@]}" "$output"/generated/*.swift macos/Sources/Earph/Presentation.swift \
+      macos/Sources/Earph/ControllerStore.swift "macos/Tests/${scenario}Tests.swift" \
+      -Xlinker "$output/bridge/libearph_desktop.a" "${native_links[@]}" \
+      -o "$output/tests/$scenario"
+  done
+  run lifecycle "$output/tests/ControllerLifecycle"
+  view_sources=()
+  for source in macos/Sources/Earph/*.swift; do
+    if [[ "$source" != */EarphApp.swift ]]; then view_sources+=("$source"); fi
+  done
+  run view-build compile_swift -parse-as-library -warnings-as-errors -I "$output/generated" \
+    "${module_arguments[@]}" "$output"/generated/*.swift "${view_sources[@]}" macos/Tests/ViewPresentationTests.swift \
+    -Xlinker "$output/bridge/libearph_desktop.a" "${native_links[@]}" -o "$output/tests/view"
+  run view "$output/tests/view" "$output/tests/native-window.png"
+  # Keep the socket path short and retain this private runtime after the check.
+  test_parent=$(mktemp -d /private/tmp/earph-native.XXXXXX)
+  printf '%s\n' "$test_parent" > "$output/test-runtime-parent.txt"
+  run owner-integration "$output/tests/OwnerIntegration" "$test_parent/owner" "$output/products/earph-engine" "$test_parent/artifacts" --attach-only
+  run regression-build compile_swift -parse-as-library -warnings-as-errors -I "$output/generated" \
+    "${module_arguments[@]}" "$output"/generated/*.swift "${view_sources[@]}" macos/Tests/BatchIntegrationTests.swift \
+    -Xlinker "$output/bridge/libearph_desktop.a" "${native_links[@]}" -o "$output/tests/regressions"
+  regression_parent=$(mktemp -d /private/tmp/earph-native.XXXXXX)
+  printf '%s\n' "$regression_parent" > "$output/regression-runtime-parent.txt"
+  run regressions "$output/tests/regressions" "$regression_parent/owner" "$output/products/earph-engine" "$regression_parent/artifacts" all
+  shasum -a 256 "$output"/tests/* macos/Tests/*.swift > "$output/test.hashes"
+fi
+printf 'Native Mac products are ready: %s/products\n' "$output"

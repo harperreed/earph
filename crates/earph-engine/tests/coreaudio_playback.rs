@@ -131,6 +131,16 @@ fn settings(device: &earph_coreaudio::DeviceSnapshot) -> Value {
 #[test]
 #[ignore = "requires Doctor Biz's hardware approval and an explicit private Core Audio selection"]
 fn owned_media_plays_through_owner_and_cli_with_unknown_audible_timing() {
+    run_owned_media(false);
+}
+
+#[test]
+#[ignore = "requires Doctor Biz's hardware approval and exact private device selection; starts silent hardware"]
+fn owned_silent_44100_system_lifecycle_on_selected_48000_device() {
+    run_owned_media(true);
+}
+
+fn run_owned_media(system_mismatch: bool) {
     assert_eq!(
         std::env::var("EARPH_ENGINE_PLAYBACK_APPROVAL").as_deref(),
         Ok("granted"),
@@ -152,6 +162,9 @@ fn owned_media_plays_through_owner_and_cli_with_unknown_audible_timing() {
         before.nominal_rate_hz, 48000.0,
         "acceptance never changes the selected sample rate"
     );
+    if system_mismatch {
+        assert_eq!(before.buffer_frames, 512);
+    }
     let report_path = PathBuf::from(
         std::env::var_os("EARPH_ENGINE_PLAYBACK_REPORT")
             .expect("a new private report path is required"),
@@ -164,7 +177,11 @@ fn owned_media_plays_through_owner_and_cli_with_unknown_audible_timing() {
         .unwrap();
     let directory = report_path.parent().unwrap();
     let source = directory.join("owned-generated.wav");
-    wave(&source, 72000);
+    if system_mismatch {
+        silent_wave(&source, 72000);
+    } else {
+        wave(&source, 72000);
+    }
     let source_sha256 = earph_harness::sha256(&fs::read(&source).unwrap());
     let runtime = support::runtime();
     let owner = EngineOwner::bind(&runtime).unwrap();
@@ -176,7 +193,7 @@ fn owned_media_plays_through_owner_and_cli_with_unknown_audible_timing() {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         controller.apply(json!({"method":"output.select","output":{"backend":"core_audio","route":"system",
             "endpoint":uid,"device_id":"native-acceptance","profile_id":"native-acceptance",
-            "period_frames":before.buffer_frames,"buffer_frames":(before.buffer_frames*8).min(65536),
+            "period_frames":if system_mismatch {64} else {before.buffer_frames},"buffer_frames":if system_mismatch {256} else {(before.buffer_frames*8).min(65536)},
             "volume_mode":"software","fidelity":"compatible_conversion"}}));
         controller.apply(json!({"method":"volume.set","millidecibels":-40000,"ramp_frames":960}));
         controller.apply(json!({"method":"output.consent","device_id":"native-acceptance","profile_id":"native-acceptance"}));
@@ -192,12 +209,17 @@ fn owned_media_plays_through_owner_and_cli_with_unknown_audible_timing() {
         controller.wait("playing");
         controller.apply(json!({"method":"sessions.pause"}));
         let paused = controller.wait("paused");
-        assert!(paused["audible_position_frames"].is_null());
+        assert!(paused["playback"]["audible_source_position_frames"].is_null());
         controller.apply(json!({"method":"sessions.seek","position_frames":12000}));
         let seeked = controller.wait("paused");
         assert_eq!(seeked["playback"]["submitted_frames"], 0);
+        let resumed_at = Instant::now();
         controller.apply(json!({"method":"sessions.resume"}));
         let ended = controller.wait("idle");
+        let resumed_elapsed = resumed_at.elapsed();
+        let resumed_elapsed_ns = resumed_elapsed.as_nanos();
+        let expected_suffix_duration = Duration::from_secs_f64(60000.0 / 44100.0);
+        let duration_tolerance = Duration::from_millis(20);
         assert!(ended["error"].is_null(), "{ended}");
         assert_eq!(ended["playback"]["submitted_frames"], 60000);
         assert!(ended["playback"]["consumed_frames"].is_null());
@@ -207,19 +229,75 @@ fn owned_media_plays_through_owner_and_cli_with_unknown_audible_timing() {
             "float32"
         );
         assert_eq!(ended["playback"]["backend"]["preservation"], "modified");
+        if system_mismatch {
+            // This measures resume request through natural owner completion, never acoustic presentation.
+            // The 20 ms budget covers one 512/48k callback, four 64/44.1k periods, and polling.
+            assert!(
+                resumed_elapsed >= expected_suffix_duration - duration_tolerance,
+                "source-rate drain completed too early: {resumed_elapsed:?}"
+            );
+            assert!(
+                resumed_elapsed < Duration::from_secs(10),
+                "source-rate drain exceeded the owner observation deadline"
+            );
+            assert_eq!(
+                ended["playback"]["output_activity"]["close_confirmed"],
+                true
+            );
+            assert_eq!(
+                ended["playback"]["consumption_basis"],
+                "audio_queue_sample_time_not_audible_position"
+            );
+            assert!(ended["playback"]["audible_source_position_frames"].is_null());
+            assert_eq!(
+                ended["playback"]["backend"]["client_format"]["sample_rate_hz"],
+                44100.0
+            );
+            assert_eq!(
+                ended["playback"]["backend"]["device_format"]["sample_rate_hz"],
+                48000.0
+            );
+        }
         controller.settle(&start);
-        json!({"ready":ready,"paused":paused,"seeked":seeked,"ended":ended})
+        let cancelled = if system_mismatch {
+            controller.apply(json!({"method":"queue.select","id":queue["receipt"]["result"]["value"]["entries"][0]["id"]}));
+            let state = controller.state();
+            let restart = controller.document(json!({"method":"sessions.start","source":"local_file","device_id":"native-acceptance","takeover":false,"seekable":true}),Some(&state),true);
+            assert_eq!(controller.send(&restart)["receipt"]["status"], "accepted");
+            controller.wait("buffering");
+            controller.apply(json!({"method":"mute.set","muted":false}));
+            controller.wait("playing");
+            controller.apply(json!({"method":"mute.set","muted":true}));
+            let muted = controller.state();
+            assert_eq!(muted["muted"], true);
+            controller.apply(json!({"method":"sessions.stop"}));
+            let cancelled = controller.wait("idle");
+            assert!(cancelled["error"].is_null(), "{cancelled}");
+            assert_eq!(cancelled["muted"], true);
+            assert_eq!(
+                cancelled["playback"]["output_activity"]["close_confirmed"],
+                true
+            );
+            json!({"muted":muted,"stopped":cancelled})
+        } else {
+            Value::Null
+        };
+        json!({"ready":ready,"paused":paused,"seeked":seeked,"ended":ended,"resumed_elapsed_ns":resumed_elapsed_ns,"expected_suffix_client_frames":60000,"expected_suffix_duration_ns":if system_mismatch {json!(expected_suffix_duration.as_nanos())} else {Value::Null},"duration_lower_tolerance_ns":if system_mismatch {json!(duration_tolerance.as_nanos())} else {Value::Null},"duration_measurement_boundary":"resume_request_to_owner_natural_idle_not_acoustic_presentation","cancelled":cancelled})
     }));
     controller.apply(json!({"method":"owner.shutdown"}));
     join.join().unwrap().unwrap();
     let after = earph_coreaudio::inspect(uid).unwrap();
-    let unchanged = settings(&before) == settings(&after);
+    let unchanged = if system_mismatch {
+        serde_json::to_value(&before).unwrap() == serde_json::to_value(&after).unwrap()
+    } else {
+        settings(&before) == settings(&after)
+    };
     let source_unchanged = source_sha256 == earph_harness::sha256(&fs::read(&source).unwrap());
     let document = json!({"schema_version":1,"status":if result.is_ok()&&unchanged&&source_unchanged {"pass"}else{"fail"},
         "settings_unchanged":unchanged,"before":before,"after":after,"observations":result.as_ref().ok(),
-        "source":"owned_generated_440hz_signed24_stereo","sample_rate_hz":48000,"source_frames":72000,
+        "source":if system_mismatch {"owned_generated_silent_signed16_stereo"} else {"owned_generated_440hz_signed24_stereo"},"sample_rate_hz":if system_mismatch {44100} else {48000},"source_frames":72000,
         "source_sha256":source_sha256,"source_unchanged":source_unchanged,
-        "software_gain_db":-40,"maximum_output_dbfs":-52.0,"dac_preservation":"unverified",
+        "software_gain_db":-40,"maximum_output_dbfs":if system_mismatch {Value::Null} else {json!(-52.0)},"dac_preservation":"unverified",
         "build":earph_harness::build_provenance()});
     report
         .write_all(&serde_json::to_vec_pretty(&document).unwrap())
@@ -230,4 +308,28 @@ fn owned_media_plays_through_owner_and_cli_with_unknown_audible_timing() {
     if let Err(panic) = result {
         std::panic::resume_unwind(panic);
     }
+}
+
+fn silent_wave(path: &Path, frames: usize) {
+    let payload_bytes = u32::try_from(frames * 4).unwrap();
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .unwrap();
+    file.write_all(b"RIFF").unwrap();
+    file.write_all(&(36 + payload_bytes).to_le_bytes()).unwrap();
+    file.write_all(b"WAVEfmt ").unwrap();
+    file.write_all(&16_u32.to_le_bytes()).unwrap();
+    file.write_all(&1_u16.to_le_bytes()).unwrap();
+    file.write_all(&2_u16.to_le_bytes()).unwrap();
+    file.write_all(&44100_u32.to_le_bytes()).unwrap();
+    file.write_all(&176400_u32.to_le_bytes()).unwrap();
+    file.write_all(&4_u16.to_le_bytes()).unwrap();
+    file.write_all(&16_u16.to_le_bytes()).unwrap();
+    file.write_all(b"data").unwrap();
+    file.write_all(&payload_bytes.to_le_bytes()).unwrap();
+    file.write_all(&vec![0_u8; payload_bytes as usize]).unwrap();
+    file.sync_all().unwrap();
 }

@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "scope": "Bounded Sendspin client-side encrypted records on Linux",
+  "spec_revision": "9d2f15ee8f172c67ce00dc0d9f6603c3b1030d9f",
+  "source": {
+    "baseline_commit": "3af7c71a5536b01d4c4991b2168ec88c67f5a378",
+    "source_dirty": true,
+    "qualified_archive_sha256": "d3590c91773afc8652f4c5b629af4f175a75fa1ade1ba129ced13396be802b33",
+    "qualified_source_files": 1921,
+    "source_unchanged_during_checks": true,
+    "implementation_patch_sha256": "fbc00b66b4da385237af54ccf18dba1edc05f2fbd3e43f44ca5f6ceff43c21f6",
+    "noise_source_sha256": "d0fe4db3ccc2515d32f17041e851b9aadf6b2b3ae8070f286ad54b6e0666d9b8",
+    "specification_licence_sha256": "3ccde4a9233ba71229ffd323e52a1bd46ed5c3ab953384c326618d69db264027",
+    "mit_licence_sha256": "dd6e5b75158ab25884b93b22d879ceb6d8d29e5f8f67f628a78ef4f14a345783"
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "reported_tests": {
+      "passed": 1385,
+      "failed": 0,
+      "ignored": 6,
+      "groups": 156
+    },
+    "log_sha256": "ccce99f1b440dceeb19be1453826e5fe0eed4d53a47cf67403d46e80d7a781db",
+    "product_build_exit": 0,
+    "count_note": "Reported test blocks include child results. The ignored independent peer is executed separately below."
+  },
+  "independent_peer": {
+    "implementation": "aiosendspin 10.2.1 NoiseSession",
+    "commit": "692831b07bc453a38d5a39a16ee566141547bfa1",
+    "test_exit": 0,
+    "test_passes": 1,
+    "live_modes": [
+      "sn",
+      "lt",
+      "pr",
+      "fallback",
+      "wrong_psk",
+      "prologue",
+      "wrong_static",
+      "corrupt",
+      "replay",
+      "order",
+      "boundary"
+    ],
+    "mode_count": 11,
+    "log_sha256": "0a721e8dc83a40ed234e70f961403356e2b3fedc8affea3e3bb0c9c2b035cd38",
+    "launcher": "Existing isolated pinned environment through offline uv; no dependency sync or downloads",
+    "launcher_sha256": "544b561d4c7c9cc3a9803f4e0f125126c4925222d0e5223ed3178e7f06ce78a4",
+    "operator_credentials_used": false,
+    "network_connections": false,
+    "audio_output": false
+  },
+  "security_review": {
+    "material_findings": 0,
+    "review_sha256": "1c43726f5b5f8fb26ad3bc08042964e730c7991e28d625174425cf5f401c9c8d",
+    "scope": "Exact ten-file implementation, accepted feature union, licences and retained real-peer evidence"
+  },
+  "dependencies": {
+    "snow": "0.10.0",
+    "default_features": false,
+    "features": [
+      "use-curve25519",
+      "use-chacha20poly1305",
+      "use-sha2",
+      "use-getrandom"
+    ],
+    "added_package_versions": 18,
+    "inventory_and_notices": "canonical check passed; original licence bytes retained"
+  },
+  "fixture_corrections": {
+    "renderer": "Wait for actual peer EOF before adopting the real B retirement acknowledgement.",
+    "ssdp": "Probe real discovery within the original two-second bound; retain exact error and joined-shutdown checks.",
+    "production_retirement_or_ssdp_policy_changed": false,
+    "earlier_ci_packet_absence_cause": "Unmeasured; neither the timeout nor packet absence proves service death."
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "f35f9c14af6fd61357530616471d2ffbcece3ded8425bbf3aaea7cf7f454db3d"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "0e219259835dd33816b59e72d146c561a80b14ffd2203e33588d75de51e412a8"
+    }
+  ],
+  "limits": [
+    "Raw-record library only; no Sendspin listener or owner source is enabled.",
+    "Encryption and Sentinel selection do not grant pairing, playback or role authority.",
+    "Mandatory pairing records, token presentation, finalization and persistence remain required.",
+    "Full application sequencing, fragmentation and in-band re-handshake remain required.",
+    "No Music Assistant interoperability, native output, independent clocks, Mac runtime or release qualification is established."
+  ]
+}

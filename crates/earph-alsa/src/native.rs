@@ -87,15 +87,26 @@ parameters!(
     snd_pcm_info_malloc,
     snd_pcm_info_free
 );
+parameters!(
+    Status,
+    sys::snd_pcm_status_t,
+    snd_pcm_status_malloc,
+    snd_pcm_status_free
+);
 
 pub(crate) struct Pcm {
     pointer: *mut sys::snd_pcm_t,
+    status: Status,
+    software: Software,
     // Keep the owned native stream on its owner thread; no concurrent native calls are allowed.
     _owner: PhantomData<Rc<()>>,
 }
 impl Pcm {
     pub(crate) fn open(request: &OpenRequest) -> Result<Self, AlsaError> {
         request.validate()?;
+        // Allocate before opening so every partial failure frees both containers automatically.
+        let status = Status::new()?;
+        let software = Software::new()?;
         let device = CString::new(request.device.as_bytes())
             .map_err(|_| AlsaError::new(ErrorCode::AssetInvalid, "invalid ALSA endpoint"))?;
         let mut pointer = ptr::null_mut();
@@ -127,6 +138,8 @@ impl Pcm {
         }
         let pcm = Self {
             pointer,
+            status,
+            software,
             _owner: PhantomData,
         };
         if request.route == Route::DirectHardware && pcm.kind() != sys::SND_PCM_TYPE_HW {
@@ -372,6 +385,46 @@ impl Pcm {
             )
         })
     }
+    pub(crate) fn timing_status(
+        &self,
+    ) -> Result<(crate::output::NativePcmState, i64, Option<u32>, Option<u32>), AlsaError> {
+        use crate::output::NativePcmState;
+        // SAFETY: The sole PCM owner also owns these reusable native containers.
+        unsafe {
+            let mut mode = 0;
+            let mut kind = 0;
+            let current = sys::snd_pcm_sw_params_current(self.pointer, self.software.0);
+            let timestamp_mode = (current >= 0
+                && sys::snd_pcm_sw_params_get_tstamp_mode(self.software.0, &mut mode) >= 0)
+                .then_some(mode);
+            let timestamp_type = (current >= 0
+                && sys::snd_pcm_sw_params_get_tstamp_type(self.software.0, &mut kind) >= 0)
+                .then_some(kind);
+            check(
+                sys::snd_pcm_status(self.pointer, self.status.0),
+                ErrorCode::OutputFault,
+                "cannot observe ALSA status",
+            )?;
+            let state = match sys::snd_pcm_status_get_state(self.status.0) {
+                sys::SND_PCM_STATE_OPEN => NativePcmState::Open,
+                sys::SND_PCM_STATE_SETUP => NativePcmState::Setup,
+                sys::SND_PCM_STATE_PREPARED => NativePcmState::Prepared,
+                sys::SND_PCM_STATE_RUNNING => NativePcmState::Running,
+                sys::SND_PCM_STATE_XRUN => NativePcmState::Xrun,
+                sys::SND_PCM_STATE_DRAINING => NativePcmState::Draining,
+                sys::SND_PCM_STATE_PAUSED => NativePcmState::Paused,
+                sys::SND_PCM_STATE_SUSPENDED => NativePcmState::Suspended,
+                sys::SND_PCM_STATE_DISCONNECTED => NativePcmState::Disconnected,
+                other => NativePcmState::Unknown(other),
+            };
+            Ok((
+                state,
+                sys::snd_pcm_status_get_delay(self.status.0) as i64,
+                timestamp_mode,
+                timestamp_type,
+            ))
+        }
+    }
     pub(crate) fn stop(&self) -> Result<(), AlsaError> {
         // SAFETY: The stream is live. Drop stops immediately and never drains or emits queued samples.
         check(
@@ -445,18 +498,36 @@ impl Drop for Hints {
         }
     }
 }
-unsafe fn hint_field(hint: *const c_void, key: &CStr) -> Option<String> {
+unsafe fn hint_field(hint: *const c_void, key: &CStr) -> Result<Option<String>, AlsaError> {
     // SAFETY: The hint remains live in its owned list and key is a C string.
     let pointer = unsafe { sys::snd_device_name_get_hint(hint, key.as_ptr()) };
     if pointer.is_null() {
-        return None;
+        return Ok(None);
     }
     // SAFETY: ALSA returns a malloc-owned C string; copy it before freeing it once.
-    let result = unsafe { text(pointer) };
+    let result = (|| {
+        let maximum = earph_core::devices::MAX_DEVICE_TEXT_BYTES;
+        let mut length = 0;
+        // SAFETY: ALSA owns a NUL-terminated allocation. Stop at its terminator or the admitted bound.
+        while unsafe { *pointer.add(length) } != 0 {
+            if length == maximum {
+                return Err(AlsaError::new(
+                    ErrorCode::ResourceBudgetExceeded,
+                    "ALSA hint text exceeds discovery limit",
+                ));
+            }
+            length += 1;
+        }
+        // SAFETY: The bounded scan established that these bytes belong to the live allocation.
+        let bytes = unsafe { std::slice::from_raw_parts(pointer.cast::<u8>(), length) };
+        let value = std::str::from_utf8(bytes)
+            .map_err(|_| AlsaError::new(ErrorCode::AssetInvalid, "ALSA hint is not UTF-8"))?;
+        Ok(value.to_owned())
+    })();
     unsafe {
         libc::free(pointer.cast());
     }
-    Some(result)
+    result.map(Some)
 }
 pub fn devices() -> Result<Vec<DeviceHint>, AlsaError> {
     let mut pointer = ptr::null_mut();
@@ -478,16 +549,22 @@ pub fn devices() -> Result<Vec<DeviceHint>, AlsaError> {
         if hint.is_null() {
             break;
         }
+        if index == earph_core::devices::MAX_DEVICES {
+            return Err(AlsaError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "ALSA hint count exceeds discovery limit",
+            ));
+        }
         index += 1;
         // SAFETY: Each queried hint belongs to the live list; fields are copied and freed separately.
         unsafe {
-            if hint_field(hint, c"IOID").as_deref() == Some("Input") {
+            if hint_field(hint, c"IOID")?.as_deref() == Some("Input") {
                 continue;
             }
-            if let Some(device) = hint_field(hint, c"NAME") {
+            if let Some(device) = hint_field(hint, c"NAME")? {
                 result.push(DeviceHint {
                     device,
-                    description: hint_field(hint, c"DESC"),
+                    description: hint_field(hint, c"DESC")?,
                     evidence_level: "advertised",
                 });
             }

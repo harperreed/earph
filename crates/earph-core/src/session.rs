@@ -7,7 +7,7 @@ use crate::{
     graph_control::*,
     ids::{increment, *},
     queue::{LocalQueue, QueueSnapshot},
-    safety::{FidelityPolicy, OutputContext, SampleDomain, VolumePolicy},
+    safety::{FidelityPolicy, OutputContext, SampleDomain, VolumeMode, VolumePolicy},
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::VecDeque, sync::Arc};
@@ -18,6 +18,29 @@ use graph::GraphControl;
 #[path = "session_profiles.rs"]
 mod profiles;
 use profiles::ProfileControl;
+#[path = "session_associations.rs"]
+mod associations;
+#[path = "session_devices.rs"]
+mod devices;
+use devices::DeviceControl;
+#[path = "session_diagnostics.rs"]
+mod diagnostics;
+#[path = "session_network.rs"]
+mod network;
+#[path = "session_renderer.rs"]
+mod renderer;
+#[path = "session_renderer_events.rs"]
+mod renderer_events;
+#[path = "session_sendspin.rs"]
+mod sendspin;
+#[path = "session_sources.rs"]
+mod sources;
+
+enum RendererIngress {
+    Local,
+    Peer(std::net::IpAddr),
+    Graph(Arc<crate::renderer::RendererGraphBinding>),
+}
 
 // A fresh owner needs room for consent, preparation, activation, and transport acknowledgements.
 const RESTART_REVISION_HEADROOM: u64 = 64;
@@ -33,7 +56,7 @@ const OUTPUT: EngineError = EngineError::new(
     "output stopped; explicit recovery required",
 );
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransportState {
     Idle,
@@ -92,6 +115,7 @@ pub struct SessionSnapshot {
     pub transport: TransportState,
     pub muted: bool,
     pub software_gain_db: f64,
+    pub software_gain_zero: bool,
     pub epochs: Epochs,
     pub revision: u64,
     pub graph_epoch: u64,
@@ -107,10 +131,227 @@ pub struct SessionSnapshot {
     pub output: Option<OutputConfiguration>,
     pub output_consented: bool,
     pub volume_policy: VolumePolicy,
+    pub local_volume_policy: VolumePolicy,
+    pub configured_profile: Option<crate::profile_control::ProfileCatalogReference>,
     pub gain_ramp_frames: u32,
     pub active_entry_id: Option<QueueEntryId>,
     pub reserved_next_entry_id: Option<QueueEntryId>,
-    pub playback: Option<PlaybackObservation>,
+    #[serde(flatten)]
+    pub observation: PlaybackState,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LocalPlaybackObservation {
+    Pcm(Box<PlaybackObservation>),
+    Dsd(Box<crate::dop::DsdPlaybackObservation>),
+}
+impl From<PlaybackObservation> for LocalPlaybackObservation {
+    fn from(value: PlaybackObservation) -> Self {
+        Self::Pcm(Box::new(value))
+    }
+}
+impl From<crate::dop::DsdPlaybackObservation> for LocalPlaybackObservation {
+    fn from(value: crate::dop::DsdPlaybackObservation) -> Self {
+        Self::Dsd(Box::new(value))
+    }
+}
+impl LocalPlaybackObservation {
+    pub fn pcm(&self) -> Option<&PlaybackObservation> {
+        match self {
+            Self::Pcm(value) => Some(value),
+            Self::Dsd(_) => None,
+        }
+    }
+    pub fn entry_id(&self) -> &QueueEntryId {
+        match self {
+            Self::Pcm(value) => &value.source_entry_id,
+            Self::Dsd(value) => &value.source_entry_id,
+        }
+    }
+    pub fn decoded_pcm_frames(&self) -> u64 {
+        self.pcm().map_or(0, |value| value.source_position_frames)
+    }
+    pub fn audible_pcm_frames(&self) -> Option<u64> {
+        self.pcm()
+            .and_then(|value| value.audible_source_position_frames)
+    }
+    fn validate(&self, epochs: Epochs) -> Result<(), EngineError> {
+        match self {
+            Self::Pcm(_) => Ok(()),
+            Self::Dsd(value) => {
+                if value.source_epochs.session != epochs.session
+                    || value.source_epochs.stream > epochs.stream
+                    || value.output.as_ref().is_some_and(|output| {
+                        output.output_epochs != epochs
+                            || output.output_epochs != value.source_epochs
+                    })
+                {
+                    return Err(STALE);
+                }
+                value.validate()
+            }
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub enum CurrentPlaybackObservation {
+    Local(LocalPlaybackObservation),
+    Network(Box<crate::network_source::NetworkPlaybackObservation>),
+    Sendspin(Box<crate::sendspin_source::SendspinSourceObservation>),
+}
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PlaybackState(pub Option<CurrentPlaybackObservation>);
+impl From<LocalPlaybackObservation> for PlaybackState {
+    fn from(value: LocalPlaybackObservation) -> Self {
+        Self(Some(CurrentPlaybackObservation::Local(value)))
+    }
+}
+impl From<PlaybackObservation> for PlaybackState {
+    fn from(value: PlaybackObservation) -> Self {
+        LocalPlaybackObservation::from(value).into()
+    }
+}
+impl From<crate::network_source::NetworkPlaybackObservation> for PlaybackState {
+    fn from(value: crate::network_source::NetworkPlaybackObservation) -> Self {
+        Self(Some(CurrentPlaybackObservation::Network(Box::new(value))))
+    }
+}
+impl From<crate::sendspin_source::SendspinSourceObservation> for PlaybackState {
+    fn from(value: crate::sendspin_source::SendspinSourceObservation) -> Self {
+        Self(Some(CurrentPlaybackObservation::Sendspin(Box::new(value))))
+    }
+}
+impl PlaybackState {
+    pub fn sendspin(&self) -> Option<&crate::sendspin_source::SendspinSourceObservation> {
+        match &self.0 {
+            Some(CurrentPlaybackObservation::Sendspin(value)) => Some(value.as_ref()),
+            _ => None,
+        }
+    }
+    pub fn local(&self) -> Option<&LocalPlaybackObservation> {
+        match &self.0 {
+            Some(CurrentPlaybackObservation::Local(value)) => Some(value),
+            _ => None,
+        }
+    }
+    pub fn pcm(&self) -> Option<&PlaybackObservation> {
+        self.local().and_then(LocalPlaybackObservation::pcm)
+    }
+    pub fn pcm_mut(&mut self) -> Option<&mut PlaybackObservation> {
+        match &mut self.0 {
+            Some(CurrentPlaybackObservation::Local(LocalPlaybackObservation::Pcm(value))) => {
+                Some(value)
+            }
+            _ => None,
+        }
+    }
+    pub fn dsd(&self) -> Option<&crate::dop::DsdPlaybackObservation> {
+        match self.local() {
+            Some(LocalPlaybackObservation::Dsd(value)) => Some(value),
+            _ => None,
+        }
+    }
+    pub fn network(&self) -> Option<&crate::network_source::NetworkPlaybackObservation> {
+        match &self.0 {
+            Some(CurrentPlaybackObservation::Network(value)) => Some(value),
+            _ => None,
+        }
+    }
+    pub fn network_mut(
+        &mut self,
+    ) -> Option<&mut crate::network_source::NetworkPlaybackObservation> {
+        match &mut self.0 {
+            Some(CurrentPlaybackObservation::Network(value)) => Some(value),
+            _ => None,
+        }
+    }
+}
+impl Serialize for PlaybackState {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("playback", &self.pcm())?;
+        if let Some(value) = self.network() {
+            map.serialize_entry("network_playback", value)?;
+        }
+        if let Some(value) = self.dsd() {
+            map.serialize_entry("dsd_playback", value)?;
+        }
+        if let Some(value) = self.sendspin() {
+            map.serialize_entry("sendspin_playback", value)?;
+        }
+        map.end()
+    }
+}
+impl SessionSnapshot {
+    /// Capture an absolute volume gesture without granting consent or source ownership.
+    pub fn volume_observation(&self) -> Option<crate::control::VolumeObservation> {
+        let output = self.output.as_ref()?;
+        if !self.output_consented
+            || self.shutdown_requested
+            || output.volume_mode != VolumeMode::Software
+        {
+            return None;
+        }
+        // Software gestures carry serializable caps. Fixed arming remains private to the owner.
+        let mut volume_policy = self.volume_policy.clone();
+        volume_policy.disarm();
+        let mut local_volume_policy = self.local_volume_policy.clone();
+        local_volume_policy.disarm();
+        Some(crate::control::VolumeObservation {
+            source: self.source,
+            active_entry_id: self.active_entry_id.clone(),
+            epochs: self.epochs,
+            device_epoch: self.device_epoch,
+            graph_epoch: self.graph_epoch,
+            output: output.clone(),
+            output_consented: self.output_consented,
+            muted: self.muted,
+            software_gain_zero: self.software_gain_zero,
+            volume_policy,
+            local_volume_policy,
+        })
+    }
+    pub fn sample_domain(&self) -> SampleDomain {
+        if self.source == Some(SourceKind::LocalFile) && self.observation.dsd().is_some() {
+            SampleDomain::Dsd
+        } else {
+            SampleDomain::Pcm
+        }
+    }
+    /// Validates software passthrough only. This grants no endpoint submission authority.
+    pub fn validate_dsd_passthrough(&self) -> Result<(), EngineError> {
+        let blocked = EngineError::new(
+            ErrorCode::FidelityPolicyConflict,
+            "DSD requires armed fixed zero-dB passthrough without a graph or ramp",
+        );
+        let output = self.output.as_ref().ok_or(blocked)?;
+        if output.volume_mode != VolumeMode::Fixed
+            || self.software_gain_db != 0.0
+            || self.software_gain_zero
+            || self.gain_ramp_frames != 0
+            || self.configured_profile.is_some()
+        {
+            return Err(blocked);
+        }
+        if !self.output_consented {
+            return Err(EngineError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "DSD requires current output consent",
+            ));
+        }
+        self.volume_policy.validate_unmute(
+            &OutputContext {
+                device_id: output.device_id.clone(),
+                profile_id: output.profile_id.clone(),
+            },
+            output.volume_mode,
+            SampleDomain::Dsd,
+            output.fidelity,
+            self.software_gain_db,
+            None,
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -129,6 +370,43 @@ pub struct PlaybackObservation {
     pub output_peak: Option<f64>,
     pub modified: bool,
     pub backend: Option<BackendObservation>,
+    pub output_activity: Option<OutputActivity>,
+}
+
+pub(super) struct MeasuredPlaybackFacts<'a> {
+    format: PcmFormat,
+    modified: bool,
+    input_peak: Option<f64>,
+    output_peak: Option<f64>,
+    backend_delay_frames: Option<u64>,
+    backend: Option<&'a BackendObservation>,
+    processing: Option<&'a PlaybackProcessingObservation>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputActivityScope {
+    OutputInstanceAcrossNativeReopens,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputActivityBoundary {
+    CoreAudioSdkEntryCalls,
+}
+
+/// Runtime samples only; overflow makes all totals lower bounds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct OutputActivity {
+    pub scope: OutputActivityScope,
+    pub measurement_boundary: OutputActivityBoundary,
+    pub origin_epochs: Epochs,
+    pub native_open_successes: u64,
+    pub sdk_write_attempts: u64,
+    pub accepted_frames: u64,
+    pub sdk_start_attempts: u64,
+    pub counter_overflow: bool,
+    pub close_confirmed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -212,6 +490,7 @@ pub enum PreservationState {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BackendObservation {
     pub backend: OutputBackend,
+    pub device_identity_sha256: Option<crate::profiles::ProfileObjectHash>,
     /// Actual Rust-owned adapter audio storage; excludes metadata and opaque native storage.
     pub audio_storage_bytes: u64,
     pub client_format: ObservedStreamFormat,
@@ -228,23 +507,23 @@ pub struct EngineEvent {
 #[derive(Debug, Clone)]
 pub enum EngineEventKind {
     LocalPrepared {
-        observation: PlaybackObservation,
+        observation: LocalPlaybackObservation,
     },
     LocalProgress {
-        observation: PlaybackObservation,
+        observation: LocalPlaybackObservation,
     },
     LocalReserved {
         active: QueueEntryId,
         next: Option<QueueEntryId>,
     },
     LocalPaused {
-        observation: PlaybackObservation,
+        observation: LocalPlaybackObservation,
     },
     LocalStopped {
-        observation: Option<PlaybackObservation>,
+        observation: Option<LocalPlaybackObservation>,
     },
     LocalCompleted {
-        observation: PlaybackObservation,
+        observation: LocalPlaybackObservation,
     },
     LocalFailed {
         code: ErrorCode,
@@ -297,13 +576,25 @@ pub struct SessionCheckpoint {
     #[serde(default)]
     pub volume_policy: VolumePolicy,
     #[serde(default)]
+    pub local_volume_policy: Option<VolumePolicy>,
+    #[serde(default)]
+    pub configured_profile: Option<crate::profile_control::ProfileCatalogReference>,
+    #[serde(default)]
     pub output: Option<OutputConfiguration>,
     #[serde(default)]
     pub graph_intent: Option<Arc<GraphIntent>>,
     #[serde(default)]
     pub profile_catalog: Vec<crate::profile_control::ProfileCatalogReference>,
+    #[serde(default)]
+    pub profile_associations: Vec<crate::profiles::ProfileAssociation>,
 }
 
+#[derive(Clone)]
+struct LocalSourceAdmission {
+    epochs: Epochs,
+    entry_id: QueueEntryId,
+    domain: SampleDomain,
+}
 #[derive(Clone)]
 pub struct Session {
     state: SessionSnapshot,
@@ -315,8 +606,15 @@ pub struct Session {
     queue: LocalQueue,
     local_playback_enabled: bool,
     local_boundary: Option<LocalBoundary>,
+    local_admission: Option<LocalSourceAdmission>,
     graph: GraphControl,
     profiles: ProfileControl,
+    devices: DeviceControl,
+    sources: crate::source::SourceStaging,
+    network: crate::network_source::NetworkSources,
+    sendspin: crate::sendspin_control::SendspinControl,
+    renderer: crate::renderer::RendererControl,
+    diagnostics: diagnostics::DiagnosticState,
 }
 impl Session {
     pub fn new(zone_id: ZoneId, limits: ControlLimits) -> Self {
@@ -332,6 +630,7 @@ impl Session {
                 transport: TransportState::Idle,
                 muted: true,
                 software_gain_db: -40.0,
+                software_gain_zero: false,
                 epochs: Epochs::default(),
                 revision: 0,
                 graph_epoch: 0,
@@ -347,10 +646,12 @@ impl Session {
                 output: None,
                 output_consented: false,
                 volume_policy: VolumePolicy::default(),
+                local_volume_policy: VolumePolicy::default(),
+                configured_profile: None,
                 gain_ramp_frames: 0,
                 active_entry_id: None,
                 reserved_next_entry_id: None,
-                playback: None,
+                observation: PlaybackState::default(),
             },
             receipts: VecDeque::with_capacity(limits.receipts),
             transport_record: None,
@@ -360,8 +661,15 @@ impl Session {
             queue: LocalQueue::default(),
             local_playback_enabled: false,
             local_boundary: None,
+            local_admission: None,
             graph: GraphControl::default(),
             profiles: ProfileControl::default(),
+            devices: DeviceControl::default(),
+            sources: crate::source::SourceStaging::default(),
+            network: crate::network_source::NetworkSources::default(),
+            sendspin: crate::sendspin_control::SendspinControl::default(),
+            renderer: crate::renderer::RendererControl::default(),
+            diagnostics: diagnostics::DiagnosticState::default(),
         }
     }
     pub fn new_owner(zone_id: ZoneId, owner_id: OwnerId, limits: ControlLimits) -> Self {
@@ -378,10 +686,11 @@ impl Session {
     }
     pub fn pending_local_stop_request(&self) -> Option<&RequestId> {
         let record = self.transport_record.as_ref()?;
-        (self.local_boundary == Some(LocalBoundary::Stop)
+        (self.state.source == Some(SourceKind::LocalFile)
+            && self.local_boundary == Some(LocalBoundary::Stop)
             && self.state.operation.as_ref() == Some(&record.0.request_id)
             && record.1.status == ReceiptStatus::Accepted
-            && matches!(record.0.payload, Command::Stop))
+            && matches!(record.0.payload, Command::Stop | Command::OwnerShutdown))
         .then_some(&record.0.request_id)
     }
     pub fn restore_owner(
@@ -396,6 +705,9 @@ impl Session {
                 "unsupported checkpoint version",
             ));
         }
+        if checkpoint.configured_profile.is_some() && checkpoint.local_volume_policy.is_none() {
+            return Err(crate::profile_control::INVALID);
+        }
         let mut session = Self::new_owner(zone_id, owner_id, limits);
         session.queue = LocalQueue::restore(checkpoint.queue)?;
         crate::profile_control::validate_catalog(
@@ -403,6 +715,8 @@ impl Session {
             checkpoint.profile_catalog.capacity(),
         )?;
         session.profiles.references = checkpoint.profile_catalog;
+        session.profiles.associations = checkpoint.profile_associations;
+        session.validate_profile_associations(false)?;
         // Terminal observations can exhaust an owner after its last persisted command.
         session.state.revision = if checkpoint
             .revision
@@ -421,8 +735,33 @@ impl Session {
             intent.graph.validate_structure()?;
             session.graph.configured = Some(intent);
         }
+        session.state.local_volume_policy = checkpoint
+            .local_volume_policy
+            .unwrap_or_else(|| checkpoint.volume_policy.clone());
+        session.state.local_volume_policy.disarm();
+        session.state.configured_profile = checkpoint.configured_profile;
         session.state.volume_policy = checkpoint.volume_policy;
         session.state.volume_policy.disarm();
+        let persisted = crate::profiles::ProfileVolumeIntent {
+            mode: VolumeMode::Software,
+            software_cap_db: session.state.volume_policy.software_cap_db(),
+            hardware_cap_db: session.state.volume_policy.hardware_cap_db(),
+        };
+        if persisted.effective_policy(&session.state.local_volume_policy)?
+            != session.state.volume_policy
+            || session.state.configured_profile.is_none()
+                && session.state.volume_policy != session.state.local_volume_policy
+        {
+            return Err(crate::profile_control::INVALID);
+        }
+        if let Some(reference) = &session.state.configured_profile {
+            crate::profile_control::validate_catalog(std::slice::from_ref(reference), 1)?;
+            if !session.profiles.references.contains(reference)
+                || session.graph.configured.is_none()
+            {
+                return Err(crate::profile_control::INVALID);
+            }
+        }
         session.state.software_gain_db =
             (-40.0_f64).min(session.state.volume_policy.software_cap_db());
         session.state.transport = TransportState::Paused;
@@ -438,13 +777,57 @@ impl Session {
             revision: self.state.revision,
             queue: self.queue.snapshot(),
             volume_policy: self.state.volume_policy.clone(),
+            local_volume_policy: Some(self.state.local_volume_policy.clone()),
+            configured_profile: self.state.configured_profile.clone(),
             output: self.state.output.clone(),
             graph_intent: self.graph.configured.clone(),
             profile_catalog: self.profiles.references.clone(),
+            profile_associations: self.profiles.associations.clone(),
         }
     }
     pub fn shutdown_requested(&self) -> bool {
         self.state.shutdown_requested
+    }
+    pub fn has_pcm_processing(&self) -> bool {
+        self.graph.configured.is_some() || self.graph.active.is_some()
+    }
+    fn current_sample_domain(&self) -> Option<SampleDomain> {
+        if self.state.source != Some(SourceKind::LocalFile) {
+            return Some(SampleDomain::Pcm);
+        }
+        if self.state.observation.local().is_some() {
+            return Some(self.state.sample_domain());
+        }
+        self.local_admission
+            .as_ref()
+            .filter(|admission| {
+                admission.epochs == self.state.epochs
+                    && Some(&admission.entry_id) == self.state.active_entry_id.as_ref()
+            })
+            .map(|admission| admission.domain)
+    }
+    fn measured_playback_facts(&self) -> Option<MeasuredPlaybackFacts<'_>> {
+        if let Some(p) = self.state.observation.network() {
+            Some(MeasuredPlaybackFacts {
+                format: p.format,
+                modified: p.modified,
+                input_peak: p.input_peak,
+                output_peak: p.output_peak,
+                backend_delay_frames: p.backend_delay_frames,
+                backend: p.backend.as_ref(),
+                processing: p.processing.as_ref(),
+            })
+        } else {
+            self.state.observation.pcm().map(|p| MeasuredPlaybackFacts {
+                format: p.format,
+                modified: p.modified,
+                input_peak: p.input_peak,
+                output_peak: p.output_peak,
+                backend_delay_frames: p.backend_delay_frames,
+                backend: p.backend.as_ref(),
+                processing: p.processing.as_ref(),
+            })
+        }
     }
     pub fn snapshot(&self) -> SessionSnapshot {
         let mut state = self.state.clone();
@@ -453,12 +836,8 @@ impl Session {
         state
     }
     pub fn events_since(&self, cursor: u64) -> EventBatch {
-        let oldest = self
-            .events
-            .front()
-            .map_or(self.state.event_sequence.saturating_add(1), |e| e.sequence);
         EventBatch {
-            gap: cursor > self.state.event_sequence || cursor.saturating_add(1) < oldest,
+            gap: self.event_history_gap(cursor),
             events: self
                 .events
                 .iter()
@@ -467,6 +846,13 @@ impl Session {
                 .collect(),
             snapshot: self.snapshot(),
         }
+    }
+    fn event_history_gap(&self, cursor: u64) -> bool {
+        let oldest = self
+            .events
+            .front()
+            .map_or(self.state.event_sequence.saturating_add(1), |e| e.sequence);
+        cursor > self.state.event_sequence || cursor.saturating_add(1) < oldest
     }
     fn receipt(
         &self,
@@ -483,29 +869,100 @@ impl Session {
             revision: self.state.revision,
             epochs: self.state.epochs,
             activation_frame: None,
-            result: if status == ReceiptStatus::Applied {
+            result: if status == ReceiptStatus::Accepted && c.payload.starts_diagnostic_work() {
+                self.diagnostic_artifact_reply(&c.request_id)
+            } else if status == ReceiptStatus::Applied {
                 match c.payload {
+                    Command::RendererGet {}
+                    | Command::RendererGrantsReplace { .. }
+                    | Command::RendererGrantsRevoke { .. }
+                    | Command::RendererCallbackGrantsReplace { .. }
+                    | Command::RendererCallbackGrantsRevoke { .. }
+                    | Command::RendererSubscription { .. }
+                    | Command::RendererRequest { .. } => {
+                        Some(QueryResult::Renderer(self.renderer_snapshot()))
+                    }
+                    Command::NetworkGet {}
+                    | Command::NetworkGrantsReplace { .. }
+                    | Command::NetworkGrantsRevoke { .. } => {
+                        Some(QueryResult::Network(self.network_snapshot()))
+                    }
+                    Command::SendspinGet {} => {
+                        Some(QueryResult::Sendspin(self.sendspin_snapshot()))
+                    }
+                    Command::SourcesGet {} | Command::SourceStageUri { .. } => {
+                        Some(QueryResult::Sources(self.sources.snapshot()))
+                    }
                     Command::State => Some(QueryResult::State(Box::new(self.snapshot()))),
+                    Command::SignalPathGet {} | Command::MetricsGet {} => {
+                        self.diagnostic_query(&c.payload).ok().flatten()
+                    }
+                    Command::EventsGet { ref cursor } => self
+                        .diagnostic_events(cursor.as_ref())
+                        .ok()
+                        .map(|read| QueryResult::Events(Arc::new(read))),
+                    Command::DiagnosticsPreview {} => self.diagnostic_preview_reply(&c.request_id),
+                    Command::DiagnosticsCancel { .. } => {
+                        self.diagnostic_cancel_reply(&c.request_id)
+                    }
                     Command::QueueGet { offset, limit } => {
                         self.queue.page(offset, limit).ok().map(QueryResult::Queue)
                     }
                     Command::Capabilities => Some(QueryResult::Capabilities(Capabilities {
+                        diagnostics: crate::diagnostics::DiagnosticCapabilities::default(),
+                        devices: Arc::new(self.device_capabilities()),
                         schema_version: 1,
                         sources: if self.local_playback_enabled {
-                            vec![SourceKind::LocalFile]
+                            let mut sources = vec![SourceKind::LocalFile];
+                            if self.network.enabled {
+                                sources.push(SourceKind::HttpFlac);
+                            }
+                            if self.sendspin.configured {
+                                sources.push(SourceKind::Sendspin);
+                            }
+                            sources
                         } else if self.state.owner_id.is_some() {
                             vec![]
                         } else {
                             vec![SourceKind::Virtual]
                         },
                         physical_output: self.local_playback_enabled,
+                        output_activity: OutputActivityCapabilities {
+                            backends: if self.local_playback_enabled && cfg!(target_os = "macos") {
+                                vec![OutputBackend::CoreAudio]
+                            } else {
+                                vec![]
+                            },
+                            scope: OutputActivityScope::OutputInstanceAcrossNativeReopens,
+                            measurement_boundary: OutputActivityBoundary::CoreAudioSdkEntryCalls,
+                        },
                         profiles: crate::profile_control::ProfileCapabilities {
                             save: true,
                             manual_resolution: true,
-                            exact_associations: false,
-                            apply: false,
+                            exact_associations: self.local_playback_enabled
+                                && cfg!(target_os = "macos"),
+                            exact_association_backends: if self.local_playback_enabled
+                                && cfg!(target_os = "macos")
+                            {
+                                vec![OutputBackend::CoreAudio]
+                            } else {
+                                vec![]
+                            },
+                            apply: self.local_playback_enabled,
+                            application: crate::profile_control::ProfileApplicationCapabilities {
+                                volume_modes: vec![VolumeMode::Software, VolumeMode::Fixed],
+                                fixed_requires_current_arming: true,
+                                fixed_requires_unity_gain: true,
+                                fixed_requires_zero_gain_ramp: true,
+                                requires_current_output: true,
+                                requires_output_consent: true,
+                                requires_matching_fidelity: true,
+                                live_selected_profile_update: false,
+                                finite_aggregate_src_latency: false,
+                            },
                             correction_import: true,
-                            packages: false,
+                            packages: true,
+                            package: crate::profile_control::ProfilePackageCapabilities::default(),
                             max_profiles: crate::profiles::MAX_PROFILES,
                             max_page: crate::profile_control::MAX_PROFILE_PAGE,
                             max_profile_bytes: crate::profiles::MAX_PROFILE_BYTES,
@@ -517,12 +974,30 @@ impl Session {
                     }
                     _ => self.profile_query(&c.payload).ok().flatten(),
                 }
+            } else if c.payload.is_package() && error.is_some() {
+                Some(QueryResult::ProfilePackageIssue(
+                    crate::profile_control::ProfilePackageIssue {
+                        reason: if error
+                            .is_some_and(|e| e.message == "profile package ID already exists")
+                        {
+                            crate::profile_control::ProfilePackageReason::IdentityCollision
+                        } else if error.is_some_and(|e| e.code == ErrorCode::ResourceBudgetExceeded)
+                        {
+                            crate::profile_control::ProfilePackageReason::ResourceLimit
+                        } else {
+                            crate::profile_control::ProfilePackageReason::InvalidObject
+                        },
+                        object: None,
+                        filesystem_state: crate::profile_control::PackageFilesystemState::Unchanged,
+                    },
+                ))
             } else {
                 None
             },
         }
     }
     fn log(&mut self, request_id: Option<RequestId>) {
+        self.capture_renderer_events();
         if self.events.len() == self.limits.events {
             self.events.pop_front();
         }
@@ -555,6 +1030,17 @@ impl Session {
             receipt.activation_frame = activation_frame;
             receipt.revision = self.state.revision;
             receipt.epochs = self.state.epochs;
+            if status == ReceiptStatus::Applied
+                && matches!(
+                    updated.0.payload,
+                    Command::NetworkGrantsReplace { .. } | Command::NetworkGrantsRevoke { .. }
+                )
+            {
+                receipt.result = Some(QueryResult::Network(self.network_snapshot()));
+            }
+            if status == ReceiptStatus::Applied && updated.0.payload.is_renderer() {
+                receipt.result = Some(QueryResult::Renderer(self.renderer_snapshot()));
+            }
             let updated = Arc::new(updated);
             if let Some(slot) = self
                 .receipts
@@ -584,7 +1070,12 @@ impl Session {
         expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
         commit: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Receipt {
-        self.submit_with_graph_effects(command, self.state.monotonic_ns, expand, commit)
+        self.submit_with_graph_effects(
+            command,
+            self.network.admission_ns.max(self.state.monotonic_ns),
+            expand,
+            commit,
+        )
     }
     /// Admits graph jobs through the same staged session and durable mutation hook.
     pub fn submit_with_graph_effects(
@@ -594,8 +1085,69 @@ impl Session {
         expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
         commit: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Receipt {
+        self.submit_with_network_effects(command, now_ns, expand, |_, _| Err(STATE), commit)
+    }
+    /// Validates staged network policy before committing any new authority.
+    pub fn submit_with_network_effects(
+        &mut self,
+        command: CommandEnvelope,
+        now_ns: u64,
+        expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
+        validate_network: impl FnOnce(&Session, &CommandEnvelope) -> Result<(), EngineError>,
+        commit: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Receipt {
+        self.submit_with_ingress(
+            command,
+            now_ns,
+            RendererIngress::Local,
+            expand,
+            validate_network,
+            commit,
+        )
+    }
+
+    fn submit_with_ingress(
+        &mut self,
+        command: CommandEnvelope,
+        now_ns: u64,
+        ingress: RendererIngress,
+        expand: impl FnOnce(&str) -> Result<Vec<String>, EngineError>,
+        validate_network: impl FnOnce(&Session, &CommandEnvelope) -> Result<(), EngineError>,
+        commit: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Receipt {
+        let observed_peer = match &ingress {
+            RendererIngress::Peer(peer) => Some(*peer),
+            _ => None,
+        };
+        let renderer_application = match ingress {
+            RendererIngress::Graph(binding) => Some(binding),
+            _ => None,
+        };
+        if let Err(error) = self.expire_network_authority(now_ns) {
+            return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+        }
+        if let Err(error) = self.validate_renderer_ingress(&command, observed_peer, now_ns) {
+            return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+        }
+        if let Some(binding) = &renderer_application {
+            if let Err(error) = self.validate_renderer_graph_submission(&command, binding, now_ns) {
+                return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+            }
+        } else if matches!(command.payload, Command::GraphCommit { .. })
+            && self.renderer_ready_graph_binding().is_some()
+        {
+            return self.receipt(&command, ReceiptStatus::Rejected, Some(STALE));
+        }
         self.expire_graph_work(now_ns);
         self.expire_profile_work(now_ns);
+        self.expire_diagnostic_work(now_ns);
+        self.expire_diagnostic_candidate(now_ns);
+        if let Some(record) = self.diagnostic_record(&command.request_id) {
+            return self.replay_graph_record(&command, record);
+        }
+        if let Some(record) = self.device_receipt(&command.request_id) {
+            return self.replay_graph_record(&command, record);
+        }
         if let Some(record) = self.profile_receipt(&command.request_id) {
             return self.replay_graph_record(&command, record);
         }
@@ -625,25 +1177,84 @@ impl Session {
                 )
             };
         }
+        if let Some(binding) = &renderer_application {
+            // An accepted commit consumes Ready; exact retries use the retained receipt above.
+            if let Err(error) = self.validate_renderer_graph_phase(&command, binding) {
+                return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+            }
+        }
         // Do not retain structurally oversized intent, including rejected commands.
         if let Err(error) = command.validate_retained_storage() {
             return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
         }
         let mut staged = self.clone();
-        let result = staged.apply_command(&command, now_ns, expand);
+        if renderer_application.is_none()
+            && matches!(
+                command.payload,
+                Command::GraphPrepare { .. }
+                    | Command::GraphValidate { .. }
+                    | Command::ProfilesPrepare { .. }
+            )
+            && staged.renderer.continuation.is_some()
+        {
+            staged.renderer.continuation = None;
+            staged.invalidate_graph_work(EngineError::new(
+                ErrorCode::OperationCancelled,
+                "local graph operation replaced renderer continuation",
+            ));
+        }
+        let result = staged
+            .apply_command(&command, now_ns, expand)
+            .and_then(|status| {
+                if let Some(binding) = renderer_application {
+                    staged.bind_renderer_graph_operation(binding, &command.payload)?;
+                }
+                Ok(status)
+            });
         let receipt = match result {
             Ok(status) => {
+                staged.expire_renderer_subscriptions(now_ns);
+                staged.capture_renderer_events();
                 let proposed = staged.receipt(&command, status, None);
+                if let Err(error) = self.validate_network_retention(&staged, &command) {
+                    return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+                }
+                let renderer_play = matches!(
+                    &command.payload,
+                    Command::RendererRequest {
+                        action: crate::renderer::RendererAction::Play { .. },
+                        ..
+                    }
+                ) && self.network.active.as_ref().map(|s| &s.binding)
+                    != staged.network.active.as_ref().map(|s| &s.binding);
+                let effect_command = if renderer_play {
+                    self.renderer_network_start(&command)
+                } else {
+                    None
+                };
+                if (command.payload.is_network() || renderer_play)
+                    && !command.payload.is_query()
+                    && let Err(error) =
+                        validate_network(&staged, effect_command.as_ref().unwrap_or(&command))
+                {
+                    let rejected = self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+                    return self.retain_network_rejection(command, rejected);
+                }
+                if let Err(error) = self.validate_diagnostic_admission(&staged, &command, &proposed)
+                {
+                    return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
+                }
                 if let Err(error) = staged.validate_profile_receipt_admission(&command, &proposed) {
                     return self.receipt(&command, ReceiptStatus::Rejected, Some(error));
                 }
                 let persisted = if staged.state.revision != self.state.revision
+                    || command.payload.prepares_graph()
+                    || command.payload.is_profile_save()
+                    || command.payload.starts_diagnostic_work()
                     || matches!(
                         command.payload,
-                        Command::GraphPrepare { .. } | Command::GraphValidate { .. }
-                    )
-                    || command.payload.is_profile_save()
-                {
+                        Command::DevicesList { .. } | Command::DevicesInspect { .. }
+                    ) {
                     commit(&staged)
                 } else {
                     Ok(())
@@ -651,13 +1262,37 @@ impl Session {
                 match persisted {
                     Ok(()) => {
                         *self = staged;
-                        self.receipt(&command, status, None)
+                        proposed
                     }
-                    Err(error) => self.receipt(&command, ReceiptStatus::Failed, Some(error)),
+                    Err(error) => {
+                        let mut receipt =
+                            self.receipt(&command, ReceiptStatus::Failed, Some(error));
+                        if command.payload.starts_diagnostic_work() {
+                            receipt.result = staged.refused_diagnostic_dispatch(now_ns);
+                        }
+                        receipt
+                    }
                 }
             }
             Err(error) => self.receipt(&command, ReceiptStatus::Rejected, Some(error)),
         };
+        if self.validate_network_retention(self, &command).is_err() {
+            return self.receipt(
+                &command,
+                ReceiptStatus::Rejected,
+                Some(crate::network_source::BUDGET),
+            );
+        }
+        if self
+            .validate_diagnostic_admission(self, &command, &receipt)
+            .is_err()
+        {
+            return self.receipt(
+                &command,
+                ReceiptStatus::Rejected,
+                Some(crate::diagnostics::DIAGNOSTIC_BUDGET),
+            );
+        }
         if self
             .validate_profile_receipt_admission(&command, &receipt)
             .is_err()
@@ -675,8 +1310,11 @@ impl Session {
             self.receipts.pop_front();
         }
         let record = Arc::new((command, receipt.clone()));
+        self.retain_diagnostic_observation(&record.0.payload);
+        self.retain_diagnostic_record(record.clone());
         self.retain_graph_record(record.clone());
         self.retain_profile_receipt(record.clone());
+        self.retain_device_record(record.clone());
         if receipt.status == ReceiptStatus::Accepted
             && self.state.operation.as_ref() == Some(&record.0.request_id)
         {
@@ -695,13 +1333,57 @@ impl Session {
         if command.zone_id != self.state.zone_id {
             return Err(STALE);
         }
+        if command.payload.is_diagnostic_artifact()
+            && (self.state.owner_id.is_none()
+                || command.session_id.is_some() && command.session_id != self.state.session_id)
+        {
+            return Err(STALE);
+        }
+        if self.state.shutdown_requested
+            && (command.payload.starts_diagnostic_work()
+                || command.payload.is_profile_save()
+                || command.payload.prepares_graph()
+                || matches!(
+                    command.payload,
+                    Command::DevicesList { .. } | Command::DevicesInspect { .. }
+                ))
+        {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "owner shutdown has stopped job admission",
+            ));
+        }
+        if (command.payload.is_diagnostic() || command.payload.is_diagnostic_artifact())
+            && command.owner_id.is_some()
+            && command.owner_id != self.state.owner_id
+        {
+            return Err(STALE);
+        }
         if !command.payload.is_query()
             && self.state.owner_id.is_some()
             && command.owner_id != self.state.owner_id
         {
             return Err(STALE);
         }
-        if matches!(command.payload, Command::Mute { .. })
+        if matches!(
+            command.payload,
+            Command::Mute { .. } | Command::VolumeSilence | Command::VolumeFactoryDefaults
+        ) && command.session_id.is_some()
+            && command.session_id != self.state.session_id
+        {
+            return Err(STALE);
+        }
+        if (matches!(command.payload, Command::SourceStageUri { .. })
+            || matches!(
+                command.payload,
+                Command::NetworkGrantsReplace { .. }
+                    | Command::NetworkGrantsRevoke { .. }
+                    | Command::RendererGrantsReplace { .. }
+                    | Command::RendererGrantsRevoke { .. }
+                    | Command::RendererCallbackGrantsReplace { .. }
+                    | Command::RendererCallbackGrantsRevoke { .. }
+                    | Command::RendererSubscription { .. }
+            ))
             && command.session_id.is_some()
             && command.session_id != self.state.session_id
         {
@@ -710,10 +1392,34 @@ impl Session {
         if !matches!(
             command.payload,
             Command::Start { .. }
+                | Command::NetworkStartHttpFlac { .. }
+                | Command::NetworkGet {}
+                | Command::SendspinStart { .. }
+                | Command::SendspinGet {}
+                | Command::NetworkGrantsReplace { .. }
+                | Command::NetworkGrantsRevoke { .. }
                 | Command::Mute { .. }
                 | Command::State
+                | Command::SignalPathGet {}
+                | Command::MetricsGet {}
+                | Command::EventsGet { .. }
+                | Command::DiagnosticsPreview {}
+                | Command::DiagnosticsExport { .. }
+                | Command::DiagnosticsInspect { .. }
+                | Command::DiagnosticsCancel { .. }
                 | Command::Capabilities
+                | Command::DevicesList { .. }
+                | Command::DevicesInspect { .. }
                 | Command::QueueGet { .. }
+                | Command::SourcesGet { .. }
+                | Command::RendererGet {}
+                | Command::RendererGrantsReplace { .. }
+                | Command::RendererGrantsRevoke { .. }
+                | Command::RendererCallbackGrantsReplace { .. }
+                | Command::RendererCallbackGrantsRevoke { .. }
+                | Command::RendererSubscription { .. }
+                | Command::RendererRequest { .. }
+                | Command::SourceStageUri { .. }
                 | Command::GraphInspect { .. }
                 | Command::QueueAppend { .. }
                 | Command::QueueAppendDirectory { .. }
@@ -724,6 +1430,9 @@ impl Session {
                 | Command::OutputSelect { .. }
                 | Command::OutputConsent { .. }
                 | Command::VolumeSet { .. }
+                | Command::VolumeSetGuarded { .. }
+                | Command::VolumeSilence
+                | Command::VolumeFactoryDefaults
                 | Command::VolumeCaps { .. }
                 | Command::FixedArm { .. }
         ) && !command.payload.is_profile()
@@ -734,14 +1443,67 @@ impl Session {
         {
             return Err(STALE);
         }
+        if command.payload.starts_diagnostic_work() {
+            return self.admit_diagnostic_artifact(command, now_ns);
+        }
+        if matches!(command.payload, Command::DiagnosticsCancel { .. }) {
+            return self.apply_diagnostic_cancel(command);
+        }
         if command.payload.is_query() {
+            if let Command::EventsGet { cursor } = &command.payload {
+                self.diagnostic_events(cursor.as_ref())?;
+            }
+            if matches!(command.payload, Command::DiagnosticsPreview {}) {
+                self.prepare_diagnostic_preview(&command.request_id, now_ns)?;
+            }
+            self.diagnostic_query(&command.payload)?;
+            if matches!(
+                command.payload,
+                Command::DevicesList { .. } | Command::DevicesInspect { .. }
+            ) {
+                return self.admit_device_query(command);
+            }
             self.profile_query(&command.payload)?;
             if let Command::QueueGet { offset, limit } = command.payload {
                 self.queue.page(offset, limit)?;
             }
             return Ok(ReceiptStatus::Applied);
         }
-        if !matches!(command.payload, Command::Mute { muted: true })
+        let guarded_volume = if let Command::VolumeSetGuarded {
+            observed,
+            observed_revision,
+            ..
+        } = &command.payload
+        {
+            if command.owner_id.is_none()
+                || command.session_id != self.state.session_id
+                || command
+                    .expected_revision
+                    .is_none_or(|revision| revision > self.state.revision || *observed_revision > revision)
+                // A repeated Silence leaves the boolean unchanged. Never rebase an old zero-based gesture.
+                || observed.software_gain_zero && *observed_revision != self.state.revision
+                || self.state.volume_observation().as_ref() != Some(observed.as_ref())
+            {
+                return Err(EngineError::new(
+                    ErrorCode::StaleRevision,
+                    "volume context changed; review the current output",
+                ));
+            }
+            true
+        } else {
+            false
+        };
+        // Stop reduces output for the exact observed session even if another control advances its revision.
+        let stopping_observed_session = matches!(command.payload, Command::Stop)
+            && command.owner_id == self.state.owner_id
+            && command.session_id.is_some()
+            && command.session_id == self.state.session_id
+            && command.expected_revision.is_some();
+        if !matches!(
+            command.payload,
+            Command::Mute { muted: true } | Command::VolumeSilence
+        ) && !stopping_observed_session
+            && !guarded_volume
             && command.expected_revision != Some(self.state.revision)
         {
             return Err(EngineError::new(
@@ -749,19 +1511,95 @@ impl Session {
                 "refresh expected revision",
             ));
         }
+        if self.state.source == Some(SourceKind::Sendspin) {
+            self.validate_sendspin_control(&command.payload)?;
+        }
+        if let Command::SourceStageUri { uri, metadata } = &command.payload {
+            return self.stage_uri(command, uri, metadata);
+        }
+        if command.payload.is_renderer() {
+            return self.apply_renderer_command(command, now_ns);
+        }
+        if command.payload.is_network() {
+            return self.apply_network_command(command, now_ns);
+        }
+        if self.network.closing.is_some()
+            && matches!(
+                command.payload,
+                Command::Start { .. }
+                    | Command::SendspinStart { .. }
+                    | Command::Resume
+                    | Command::OutputSelect { .. }
+            )
+        {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "network retirement awaits worker acknowledgement",
+            ));
+        }
+        if let Command::SendspinStart {
+            device_id,
+            takeover,
+        } = &command.payload
+        {
+            return self.apply_sendspin_start(command, device_id, *takeover);
+        }
+        if self.state.source == Some(SourceKind::HttpFlac) {
+            self.validate_network_control(&command.payload, now_ns)?;
+        }
+        if self.current_sample_domain() == Some(SampleDomain::Dsd)
+            && (command.payload.prepares_graph()
+                || command.payload.activates_graph()
+                || matches!(
+                    command.payload,
+                    Command::ProfilesPrepare { .. }
+                        | Command::ProfilesApply { .. }
+                        | Command::ProfilesBind { .. }
+                        | Command::VolumeSilence
+                ))
+        {
+            return Err(EngineError::new(
+                ErrorCode::FidelityPolicyConflict,
+                "DSD cannot apply PCM processing or profiles",
+            ));
+        }
         self.validate_graph_control(&command.payload)?;
+        if matches!(command.payload, Command::Stop | Command::OwnerShutdown)
+            && self.network.closing.is_some()
+            && self.renderer.active.as_ref().is_some_and(|owner| {
+                self.network
+                    .active
+                    .as_ref()
+                    .is_some_and(|source| source.binding == owner.binding)
+            })
+        {
+            return self.apply_renderer_local_safety(command);
+        }
+        if matches!(command.payload, Command::ProfilesApply { .. })
+            && (command.session_id.is_none() || command.session_id != self.state.session_id)
+        {
+            return Err(STALE);
+        }
+        if matches!(command.payload, Command::ProfilesBind { .. }) {
+            return self.apply_profile_bind(command, now_ns);
+        }
+        if matches!(command.payload, Command::ProfilesPrepare { .. }) {
+            return self.apply_profile_prepare(command, now_ns);
+        }
         if command.payload.is_profile_save() {
             return self.apply_profile_save(command, now_ns);
         }
-        if self.profile_worker_busy()
+        if self.artifact_worker_busy()
             && matches!(
                 command.payload,
                 Command::GraphPrepare { .. }
                     | Command::GraphValidate { .. }
                     | Command::GraphCommit { .. }
+                    | Command::ProfilesApply { .. }
                     | Command::Start { .. }
                     | Command::Resume
                     | Command::Seek { .. }
+                    | Command::SeekDsd { .. }
             )
         {
             return Err(EngineError::new(
@@ -769,15 +1607,17 @@ impl Session {
                 "profile save owns the preparation slot",
             ));
         }
-        if matches!(
-            command.payload,
-            Command::GraphPrepare { .. }
-                | Command::GraphValidate { .. }
-                | Command::GraphCommit { .. }
-        ) {
+        if command.payload.prepares_graph() || command.payload.activates_graph() {
+            if self.state.sample_domain() == SampleDomain::Dsd {
+                return Err(EngineError::new(
+                    ErrorCode::FidelityPolicyConflict,
+                    "DSD cannot apply a PCM graph",
+                ));
+            }
             return self.apply_graph_command(command, now_ns);
         }
         self.validate_live_queue_edit(&command.payload)?;
+        let dsd_source = self.current_sample_domain() == Some(SampleDomain::Dsd);
         let mut next = self.state.clone();
         next.revision = increment(next.revision)?;
         next.event_sequence = self.next_session_event_sequence(matches!(
@@ -806,7 +1646,10 @@ impl Session {
                 next.output_id = Some(output.device_id.clone());
                 next.device_epoch = increment(next.device_epoch)?;
                 next.output = Some(output.clone());
-                next.playback = None;
+                Self::validate_software_zero(&next)?;
+                next.configured_profile = None;
+                next.volume_policy = next.local_volume_policy.clone();
+                next.observation = Default::default();
                 next.audible_position_frames = None;
                 next.decoded_position_frames = 0;
                 next.output_consented = false;
@@ -849,10 +1692,18 @@ impl Session {
                 software_millidecibels,
                 hardware_millidecibels,
             } => {
-                next.volume_policy = VolumePolicy::new(
+                next.local_volume_policy = VolumePolicy::new(
                     f64::from(*software_millidecibels) / 1000.0,
                     hardware_millidecibels.map(|value| f64::from(value) / 1000.0),
                 )?;
+                next.volume_policy = if let Some(reference) = &next.configured_profile {
+                    self.profile_record(reference)?
+                        .profile
+                        .volume
+                        .effective_policy(&next.local_volume_policy)?
+                } else {
+                    next.local_volume_policy.clone()
+                };
                 next.software_gain_db = next
                     .software_gain_db
                     .min(next.volume_policy.software_cap_db());
@@ -862,6 +1713,11 @@ impl Session {
             Command::VolumeSet {
                 millidecibels,
                 ramp_frames,
+            }
+            | Command::VolumeSetGuarded {
+                millidecibels,
+                ramp_frames,
+                ..
             } => {
                 let gain = f64::from(*millidecibels) / 1000.0;
                 if !(-120.0..=0.0).contains(&gain)
@@ -874,12 +1730,36 @@ impl Session {
                     ));
                 }
                 next.software_gain_db = gain;
+                next.software_gain_zero = false;
                 if let Some(active) = &self.graph.active {
                     active.validate_headroom(gain, next.volume_policy.software_cap_db())?;
                 }
                 next.gain_ramp_frames = *ramp_frames;
+                if self.current_sample_domain() == Some(SampleDomain::Dsd) {
+                    next.validate_dsd_passthrough()?;
+                }
                 if !next.muted {
                     Self::validate_local_unmute(&next)?;
+                }
+                ReceiptStatus::Applied
+            }
+            Command::VolumeSilence => {
+                next.software_gain_zero = true;
+                Self::validate_software_zero(&next)?;
+                next.gain_ramp_frames = 0;
+                ReceiptStatus::Applied
+            }
+            Command::VolumeFactoryDefaults => {
+                next.software_gain_db = self.factory_defaults_gain(&next)?;
+                next.software_gain_zero = false;
+                next.gain_ramp_frames = 0;
+                next.muted = true;
+                if next
+                    .output
+                    .as_ref()
+                    .is_some_and(|o| o.volume_mode == VolumeMode::Fixed)
+                {
+                    next.volume_policy.disarm();
                 }
                 ReceiptStatus::Applied
             }
@@ -919,7 +1799,11 @@ impl Session {
                 next.transport = TransportState::Paused;
                 next.epochs = next.epochs.next_stream()?;
                 cancel_previous = true;
-                ReceiptStatus::Applied
+                if next.source == Some(SourceKind::HttpFlac) || dsd_source {
+                    ReceiptStatus::Accepted
+                } else {
+                    ReceiptStatus::Applied
+                }
             }
             Command::Start {
                 source,
@@ -927,10 +1811,14 @@ impl Session {
                 takeover,
                 seekable,
             } => {
+                if *source == SourceKind::HttpFlac {
+                    return Err(STATE);
+                }
                 if *source == SourceKind::LocalFile {
                     if !self.local_playback_enabled {
                         return Err(STATE);
                     }
+                    Self::validate_software_zero(&next)?;
                     let output = self.state.output.as_ref().ok_or(EngineError::new(
                         ErrorCode::SafetyPolicyBlocked,
                         "select and approve an output before preparing playback",
@@ -962,7 +1850,7 @@ impl Session {
                         .position(|entry| Some(&entry.id) == next.active_entry_id.as_ref())
                         .and_then(|index| self.queue.entries().get(index + 1))
                         .map(|entry| entry.id.clone());
-                    next.playback = None;
+                    next.observation = Default::default();
                 } else if self.state.owner_id.is_some() {
                     return Err(STATE);
                 }
@@ -994,7 +1882,10 @@ impl Session {
                 next.epochs = next.epochs.next_stream()?;
                 next.muted = true;
                 cancel_previous = true;
-                if next.source == Some(SourceKind::LocalFile) {
+                if matches!(
+                    next.source,
+                    Some(SourceKind::LocalFile | SourceKind::HttpFlac)
+                ) {
                     intent = PlaybackIntent::Paused;
                     next.transport = TransportState::Paused;
                     ReceiptStatus::Accepted
@@ -1008,19 +1899,32 @@ impl Session {
                     ReceiptStatus::Applied
                 }
             }
+            // A Sendspin source cannot hold a stream, so Pause ends the session as Stop does.
+            Command::Pause if next.source == Some(SourceKind::Sendspin) => {
+                next.epochs = next.epochs.next_stream()?;
+                next.muted = true;
+                cancel_previous = true;
+                next.transport = TransportState::Idle;
+                next.session_id = None;
+                next.source = None;
+                next.seekable = false;
+                ReceiptStatus::Applied
+            }
             Command::Pause
-                if next.source == Some(SourceKind::LocalFile)
-                    && matches!(
-                        next.transport,
-                        TransportState::Preparing
-                            | TransportState::Buffering
-                            | TransportState::Playing
-                            | TransportState::Paused
-                    ) =>
+                if matches!(
+                    next.source,
+                    Some(SourceKind::LocalFile | SourceKind::HttpFlac)
+                ) && matches!(
+                    next.transport,
+                    TransportState::Preparing
+                        | TransportState::Buffering
+                        | TransportState::Playing
+                        | TransportState::Paused
+                ) =>
             {
                 next.transport = TransportState::Paused;
                 intent = PlaybackIntent::Paused;
-                if next.playback.is_some() {
+                if next.observation.0.is_some() {
                     next.epochs = next.epochs.next_stream()?;
                     cancel_previous = true;
                     ReceiptStatus::Accepted
@@ -1034,17 +1938,19 @@ impl Session {
                 ReceiptStatus::Applied
             }
             Command::Resume if next.transport == TransportState::Paused => {
-                next.transport =
-                    if next.source == Some(SourceKind::LocalFile) && next.playback.is_none() {
-                        TransportState::Preparing
-                    } else {
-                        TransportState::Buffering
-                    };
+                next.transport = if next.source == Some(SourceKind::LocalFile)
+                    && next.observation.local().is_none()
+                {
+                    TransportState::Preparing
+                } else {
+                    TransportState::Buffering
+                };
                 intent = PlaybackIntent::Playing;
                 ReceiptStatus::Accepted
             }
             Command::Seek { position_frames }
                 if next.seekable
+                    && self.current_sample_domain() == Some(SampleDomain::Pcm)
                     && matches!(
                         next.transport,
                         TransportState::Playing
@@ -1082,8 +1988,65 @@ impl Session {
                 cancel_previous = true;
                 ReceiptStatus::Accepted
             }
+            Command::SeekDsd { position_bits }
+                if next.seekable
+                    && next.source == Some(SourceKind::LocalFile)
+                    && matches!(
+                        next.transport,
+                        TransportState::Playing
+                            | TransportState::Paused
+                            | TransportState::Buffering
+                    ) =>
+            {
+                let observation = next.observation.dsd().ok_or(STATE)?;
+                if !position_bits.is_multiple_of(16)
+                    || *position_bits > observation.total_source_bits
+                {
+                    return Err(EngineError::new(
+                        ErrorCode::AssetInvalid,
+                        "DSD seek must align to sixteen source bits within the entry",
+                    ));
+                }
+                next.epochs = next.epochs.next_stream()?;
+                next.transport = if matches!(intent, PlaybackIntent::Paused) {
+                    TransportState::Paused
+                } else {
+                    TransportState::Buffering
+                };
+                next.audible_position_frames = None;
+                next.decoded_position_frames = 0;
+                cancel_previous = true;
+                ReceiptStatus::Accepted
+            }
             Command::Mute { muted } => {
                 if !muted && self.local_playback_enabled {
+                    match self.current_sample_domain() {
+                        None => {
+                            return Err(EngineError::new(
+                                ErrorCode::SafetyPolicyBlocked,
+                                "wait for local source-domain admission before unmuting",
+                            ));
+                        }
+                        Some(SampleDomain::Dsd) => {
+                            return Err(EngineError::new(
+                                ErrorCode::SafetyPolicyBlocked,
+                                "DSD endpoint qualification is unavailable",
+                            ));
+                        }
+                        Some(SampleDomain::Pcm) => {}
+                    }
+                    if next.source == Some(SourceKind::HttpFlac) && self.graph.active.is_none() {
+                        return Err(EngineError::new(
+                            ErrorCode::SafetyPolicyBlocked,
+                            "activate an explicit network graph before unmuting",
+                        ));
+                    }
+                    if next.source == Some(SourceKind::Sendspin) && !self.sendspin_prepared() {
+                        return Err(EngineError::new(
+                            ErrorCode::SafetyPolicyBlocked,
+                            "wait for the Sendspin source to prepare before unmuting",
+                        ));
+                    }
                     self.validate_graph_unmute(&next)?;
                     Self::validate_local_unmute(&next)?;
                 }
@@ -1115,7 +2078,7 @@ impl Session {
                 | Command::OwnerShutdown
                 | Command::OutputSelect { .. }
         );
-        if self.graph.active.is_some()
+        if (self.graph.active.is_some() || next.sample_domain() == SampleDomain::Dsd)
             && next.muted
             && !self.state.muted
             && next.epochs == self.state.epochs
@@ -1126,9 +2089,63 @@ impl Session {
             next.epochs != self.state.epochs || next.device_epoch != self.state.device_epoch;
         if clear_active {
             self.local_boundary = None;
+            self.local_admission = None;
+        }
+        if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
+            if let Some(owner) = self.renderer.active.as_mut().filter(|o| {
+                self.network
+                    .active
+                    .as_ref()
+                    .is_some_and(|s| s.binding == o.binding)
+            }) {
+                Arc::make_mut(owner).retirement_request = Some(command.request_id.clone());
+            } else if self.network.active.is_none()
+                && let Some(owner) = self
+                    .renderer
+                    .closing
+                    .as_mut()
+                    .filter(|o| Some(&o.binding.session_id) == self.state.session_id.as_ref())
+            {
+                Arc::make_mut(owner).retirement_request = Some(command.request_id.clone());
+            }
+        }
+        if self.network.active.is_some()
+            && matches!(
+                command.payload,
+                Command::Start { .. } | Command::Stop | Command::OwnerShutdown
+            )
+        {
+            self.close_network_at(self.state.epochs, None)?;
+            if let Some(p) = next.observation.network_mut() {
+                p.lifecycle = if next.error.is_some() {
+                    crate::network_source::NetworkLifecycle::Failed
+                } else {
+                    crate::network_source::NetworkLifecycle::Retiring
+                };
+            }
+        }
+        if matches!(
+            command.payload,
+            Command::Start { .. } | Command::OutputSelect { .. }
+        ) {
+            next.observation = Default::default();
+        }
+        // A takeover ends the Sendspin session that held the output. The new state replaces it below.
+        if matches!(command.payload, Command::Start { .. }) {
+            self.release_sendspin();
         }
         self.state = next;
+        // Only a Sendspin session holds an open connection, so other pauses release nothing.
+        if matches!(
+            command.payload,
+            Command::Stop | Command::Pause | Command::OwnerShutdown
+        ) {
+            self.release_sendspin();
+        }
         self.cancel_profile_work();
+        if self.state.shutdown_requested {
+            self.cancel_artifact_work();
+        }
         if invalidated || clear_active {
             self.invalidate_graph_work(EngineError::new(
                 ErrorCode::OperationCancelled,
@@ -1152,8 +2169,9 @@ impl Session {
             self.state.operation = Some(command.request_id.clone());
             self.local_boundary = match &command.payload {
                 Command::Pause => Some(LocalBoundary::Pause),
-                Command::Seek { .. } => Some(LocalBoundary::Seek),
+                Command::Seek { .. } | Command::SeekDsd { .. } => Some(LocalBoundary::Seek),
                 Command::Stop => Some(LocalBoundary::Stop),
+                Command::OwnerShutdown if dsd_source => Some(LocalBoundary::Stop),
                 _ => None,
             };
         }
@@ -1162,6 +2180,7 @@ impl Session {
         Ok(status)
     }
     fn validate_local_unmute(state: &SessionSnapshot) -> Result<(), EngineError> {
+        Self::validate_software_zero(state)?;
         let blocked = EngineError::new(
             ErrorCode::SafetyPolicyBlocked,
             "select and approve the current output before unmuting",
@@ -1182,11 +2201,80 @@ impl Session {
                 profile_id: output.profile_id.clone(),
             },
             output.volume_mode,
-            SampleDomain::Pcm,
+            state.sample_domain(),
             output.fidelity,
             state.software_gain_db,
             None,
+        )?;
+        if state.sample_domain() == SampleDomain::Dsd {
+            state.validate_dsd_passthrough()?;
+            return Err(EngineError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "DSD endpoint qualification is unavailable",
+            ));
+        }
+        Ok(())
+    }
+    pub(super) fn validate_software_zero(state: &SessionSnapshot) -> Result<(), EngineError> {
+        if !state.software_gain_zero {
+            return Ok(());
+        }
+        let output = state.output.as_ref().ok_or(EngineError::new(
+            ErrorCode::SafetyPolicyBlocked,
+            "select a software output before selecting exact zero",
+        ))?;
+        state.volume_policy.validate_software_zero(
+            output.volume_mode,
+            state.sample_domain(),
+            output.fidelity,
         )
+    }
+    /// Lists only presets whose complete mutation satisfies current output and graph policy.
+    pub fn renderer_presets(&self) -> &'static [&'static str] {
+        if self.factory_defaults_gain(&self.state).is_ok() {
+            &["FactoryDefaults"]
+        } else {
+            &[]
+        }
+    }
+    fn factory_defaults_gain(&self, state: &SessionSnapshot) -> Result<f64, EngineError> {
+        if self.graph_activation().is_some() {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "graph activation owns the finite gain setting",
+            ));
+        }
+        let output = state.output.as_ref().ok_or(STATE)?;
+        let gain = match output.volume_mode {
+            VolumeMode::Software => {
+                state.volume_policy.validate_software_zero(
+                    output.volume_mode,
+                    state.sample_domain(),
+                    output.fidelity,
+                )?;
+                (-40.0_f64).min(state.volume_policy.software_cap_db())
+            }
+            VolumeMode::Fixed => {
+                state.volume_policy.validate_gain_constraints(
+                    output.volume_mode,
+                    state.sample_domain(),
+                    output.fidelity,
+                    state.software_gain_db,
+                    None,
+                )?;
+                state.software_gain_db
+            }
+            VolumeMode::Hardware => {
+                return Err(EngineError::new(
+                    ErrorCode::CapabilityUnsupported,
+                    "hardware presets require actual volume set and readback",
+                ));
+            }
+        };
+        if let Some(active) = &self.graph.active {
+            active.validate_headroom(gain, state.volume_policy.software_cap_db())?;
+        }
+        Ok(gain)
     }
     fn validate_live_queue_edit(&self, command: &Command) -> Result<(), EngineError> {
         if self.state.source != Some(SourceKind::LocalFile)
@@ -1255,13 +2343,43 @@ impl Session {
         }
         let sequence = self.next_session_event_sequence(false)?;
         self.queue.update_status(id, status)?;
+        if self.state.source == Some(SourceKind::LocalFile)
+            && self.state.active_entry_id.as_ref() == Some(id)
+        {
+            let domain = match status {
+                crate::queue::PreparationStatus::Ready { .. } => Some(SampleDomain::Pcm),
+                crate::queue::PreparationStatus::DsdReady { .. } => Some(SampleDomain::Dsd),
+                _ => None,
+            };
+            self.local_admission = domain.map(|domain| LocalSourceAdmission {
+                epochs,
+                entry_id: id.clone(),
+                domain,
+            });
+        }
         self.state.event_sequence = sequence;
         self.clear_deferred_graph_readiness(id);
         Ok(())
     }
     pub fn advance(&mut self, event: EngineEvent) -> Result<(), EngineError> {
+        if matches!(
+            self.state.source,
+            Some(SourceKind::HttpFlac | SourceKind::Sendspin)
+        ) {
+            return Err(STALE);
+        }
         if event.epochs != self.state.epochs {
             return Err(STALE);
+        }
+        match &event.kind {
+            EngineEventKind::LocalPrepared { observation }
+            | EngineEventKind::LocalProgress { observation }
+            | EngineEventKind::LocalPaused { observation }
+            | EngineEventKind::LocalCompleted { observation }
+            | EngineEventKind::LocalStopped {
+                observation: Some(observation),
+            } => observation.validate(event.epochs)?,
+            _ => {}
         }
         if event.monotonic_ns < self.state.monotonic_ns {
             return Err(EngineError::new(
@@ -1352,9 +2470,9 @@ impl Session {
                     positioning.then_some(ended),
                     None,
                 ));
-                next.decoded_position_frames = observation.source_position_frames;
-                next.audible_position_frames = observation.audible_source_position_frames;
-                next.playback = Some(observation);
+                next.decoded_position_frames = observation.decoded_pcm_frames();
+                next.audible_position_frames = observation.audible_pcm_frames();
+                next.observation = (observation).into();
                 next.transport = TransportState::Idle;
                 next.muted = true;
                 next.session_id = None;
@@ -1367,9 +2485,9 @@ impl Session {
             EngineEventKind::LocalPrepared { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
             {
-                next.audible_position_frames = observation.audible_source_position_frames;
-                next.decoded_position_frames = observation.source_position_frames;
-                next.playback = Some(observation);
+                next.audible_position_frames = observation.audible_pcm_frames();
+                next.decoded_position_frames = observation.decoded_pcm_frames();
+                next.observation = (observation).into();
                 next.transport = if self.wants_playback() {
                     TransportState::Buffering
                 } else {
@@ -1382,9 +2500,9 @@ impl Session {
             EngineEventKind::LocalProgress { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
             {
-                next.decoded_position_frames = observation.source_position_frames;
-                next.audible_position_frames = observation.audible_source_position_frames;
-                next.playback = Some(observation);
+                next.decoded_position_frames = observation.decoded_pcm_frames();
+                next.audible_position_frames = observation.audible_pcm_frames();
+                next.observation = (observation).into();
             }
             EngineEventKind::LocalReserved {
                 active,
@@ -1396,10 +2514,10 @@ impl Session {
             EngineEventKind::LocalPaused { observation }
                 if next.source == Some(SourceKind::LocalFile) =>
             {
-                next.active_entry_id = Some(observation.source_entry_id.clone());
-                next.audible_position_frames = observation.audible_source_position_frames;
-                next.decoded_position_frames = observation.source_position_frames;
-                next.playback = Some(observation);
+                next.active_entry_id = Some(observation.entry_id().clone());
+                next.audible_position_frames = observation.audible_pcm_frames();
+                next.decoded_position_frames = observation.decoded_pcm_frames();
+                next.observation = (observation).into();
                 next.transport = if self.wants_playback() {
                     TransportState::Buffering
                 } else {
@@ -1415,8 +2533,8 @@ impl Session {
                     "source stopped",
                 ));
                 if let Some(observation) = observation {
-                    next.decoded_position_frames = observation.source_position_frames;
-                    next.playback = Some(observation);
+                    next.decoded_position_frames = observation.decoded_pcm_frames();
+                    next.observation = (observation).into();
                 }
                 next.audible_position_frames = None;
                 next.transport = TransportState::Idle;
@@ -1434,7 +2552,7 @@ impl Session {
                 graph_completion_error = Some(error);
                 next.device_epoch = next_counter(next.device_epoch)?;
                 next.audible_position_frames = None;
-                if let Some(playback) = &mut next.playback {
+                if let Some(playback) = next.observation.pcm_mut() {
                     playback.consumed_frames = None;
                     playback.backend_delay_frames = None;
                     playback.audible_entry_id = None;
@@ -1613,6 +2731,7 @@ impl Session {
         if clear_active {
             self.graph.active = None;
             self.local_boundary = None;
+            self.local_admission = None;
         }
         if let Some((status, error, activation)) = completion {
             self.finish_pending(status, error, activation);

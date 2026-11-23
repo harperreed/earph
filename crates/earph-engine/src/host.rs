@@ -4,13 +4,16 @@ use crate::{
     directory,
     graph::{GraphCancellation, GraphService, PreparedPipeline},
     ipc, runtime,
-    worker::{Action, Event, Settings, SourceTerminalToken, StopRequest, Worker},
+    worker::{
+        Action, DsdRetirementFailure, Event, Settings, SourceTerminalToken, StopRequest, Worker,
+    },
 };
 use earph_core::{
     EngineError, ErrorCode,
     control::{Command, CommandEnvelope, ReceiptStatus, SourceKind},
     graph_control::{GraphActivationAck, GraphServiceObservation},
     ids::{Epochs, RequestId},
+    renderer::{RendererAction, RendererGraphBinding},
     session::{EngineEvent, EngineEventKind, Session},
 };
 use std::{
@@ -18,7 +21,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::AtomicBool,
+        atomic::{AtomicBool, Ordering},
         mpsc::{RecvTimeoutError, TryRecvError},
     },
     time::{Duration, Instant},
@@ -33,17 +36,88 @@ pub(crate) fn serve(
     listener: UnixListener,
     directory: PathBuf,
     token: String,
+    device_helper: Option<crate::DeviceDiscoveryHelper>,
+    mut renderer: Option<crate::renderer::RendererRuntime>,
+    mut sendspin: Option<crate::sendspin_runtime::SendspinRuntime>,
 ) -> Result<(), EngineError> {
     let server = ipc::Server::spawn(listener)?;
     let mut graphs = GraphJobs::spawn(directory.clone())?;
-    let mut profiles = crate::profiles::ProfileJobs::spawn(directory.clone());
+    let mut artifacts = crate::profiles::ArtifactJobs::spawn(directory.clone());
+    let mut devices = crate::devices::DeviceJobs::spawn(device_helper)?;
     // Worker pipelines must retire before the preparation service shuts down.
     let mut worker = Worker::spawn();
     let mut terminal_acknowledgement = None;
+    let mut retirement_acknowledgement = None;
+    let mut dsd_retirement = DsdRetirementEvidence::default();
     let clock = Instant::now();
+    let live_binding = Arc::new(std::sync::Mutex::new(None));
+    let mut network_retirement = None;
     loop {
+        session.expire_network_authority(monotonic(&clock))?;
+        if let Some(renderer) = renderer.as_mut() {
+            renderer.poll(&mut session, monotonic(&clock))?;
+        }
+        if let Some(sendspin) = sendspin.as_mut() {
+            sendspin.poll(&mut session, &mut worker, monotonic(&clock));
+        }
+        synchronize_network(
+            &session,
+            &mut worker,
+            &live_binding,
+            &mut network_retirement,
+        )?;
         loop {
             match worker.events.try_recv() {
+                Ok(Event::DsdRetirementFailed(failure)) => {
+                    if dsd_retirement.adopt(failure) {
+                        retirement_acknowledgement = dsd_retirement
+                            .failure
+                            .as_ref()
+                            .map(|failure| failure.token.clone());
+                    }
+                }
+                Ok(Event::NetworkGraphFailed {
+                    request_id,
+                    error,
+                    actual,
+                }) => {
+                    let _ = session.fail_network_graph_activation(&request_id, error, actual);
+                }
+                Ok(Event::Network(mut event)) => {
+                    event.monotonic_ns = monotonic(&clock);
+                    let _ = session.advance_network(event);
+                }
+                Ok(Event::Sendspin(event)) => {
+                    if let Some(sendspin) = sendspin.as_mut() {
+                        sendspin.route(&mut session, event, monotonic(&clock));
+                    }
+                }
+                Ok(Event::NetworkRetired(ack)) => {
+                    if session
+                        .complete_network_retirement(ack, monotonic(&clock))
+                        .is_ok()
+                    {
+                        network_retirement = None;
+                    }
+                }
+                Ok(Event::NetworkGraphActivated(ack)) => {
+                    if let Err(error) = reconcile_network_graph_activation(
+                        &mut session,
+                        ack,
+                        monotonic(&clock),
+                        |staged| {
+                            let bytes = serde_json::to_vec(&staged.checkpoint()).map_err(|_| IO)?;
+                            runtime::write_checkpoint(
+                                &directory,
+                                &format!("{token}-graph-{}", staged.snapshot().revision),
+                                &bytes,
+                            )
+                        },
+                    ) {
+                        worker.cancel_active();
+                        return Err(error);
+                    }
+                }
                 Ok(Event::GraphActivated(acknowledgement)) => {
                     if let Err(error) = reconcile_graph_activation(
                         &mut session,
@@ -103,8 +177,40 @@ pub(crate) fn serve(
         {
             terminal_acknowledgement = None;
         }
-        if session.shutdown_requested() {
-            return Ok(());
+        if let Some(token) = retirement_acknowledgement.as_ref()
+            && worker
+                .send(Action::AcknowledgeDsdRetirement(token.clone()))
+                .is_ok()
+        {
+            retirement_acknowledgement = None;
+        }
+        // Adoption acknowledges evidence ownership, never successful native closure.
+        // Keep failed writes in this bounded slot without holding shutdown on stderr.
+        if dsd_retirement.failure.is_some() && !dsd_retirement.reported {
+            let _ = dsd_retirement.report(&mut std::io::stderr().lock());
+        }
+        devices.poll(&mut session, monotonic(&clock));
+        if session.shutdown_requested() && session.closing_network_source().is_none() {
+            devices.cancel();
+            artifacts.cancel(&mut session);
+            artifacts.poll(&mut session, monotonic(&clock), &directory, &token)?;
+            let resources = graphs.service.resources();
+            if session.pending_local_stop_request().is_none()
+                && devices.is_idle()
+                && artifacts.is_idle()
+                && resources.resident_bytes == 0
+                && resources.pending_retirements == 0
+                && !resources.preparing_or_candidate
+                && renderer
+                    .as_ref()
+                    .is_none_or(|renderer| renderer.is_idle(&session))
+                // An overdue retirement finishes when the runtime drops and joins its workers.
+                && sendspin
+                    .as_ref()
+                    .is_none_or(|sendspin| sendspin.is_idle() || sendspin.retirement_overdue())
+            {
+                return Ok(());
+            }
         }
         let progress = worker
             .progress
@@ -120,155 +226,115 @@ pub(crate) fn serve(
             );
         }
         graphs.poll(&mut session, monotonic(&clock))?;
-        profiles.poll(&mut session, monotonic(&clock), &directory, &token)?;
-        match server.requests.recv_timeout(Duration::from_millis(1)) {
-            Ok(pending) => {
-                let command = pending.command;
-                let before = session.snapshot();
-                let actual_check = worker
-                    .view
-                    .lock()
-                    .map_err(|_| IO)?
-                    .validate_edit(&command.payload);
-                let needs_worker = action_required(&command.payload, before.source);
-                let safety = safety_control(&command.payload);
-                let capacity = !needs_worker || worker.has_capacity(safety);
-                let view = worker.view.clone();
-                let mut persistence_error = None;
-                let mut dispatched_early = false;
-                let mut admission_failure = None;
-                let mut receipt = session.submit_with_graph_effects(
-                    command.clone(),
-                    monotonic(&clock),
-                    directory::paths,
-                    |staged| {
-                        actual_check?;
-                        if command.payload.is_profile_save() {
-                            return profiles.submit(staged);
+        artifacts.poll(&mut session, monotonic(&clock), &directory, &token)?;
+        if let Some(renderer) = renderer.as_mut()
+            && let Some((command, binding)) =
+                renderer.next_graph_command(&session, monotonic(&clock))
+        {
+            let executed = OwnerControl {
+                session: &mut session,
+                worker: &mut worker,
+                graphs: &mut graphs,
+                artifacts: &mut artifacts,
+                devices: &mut devices,
+                directory: &directory,
+                token: &token,
+                clock: &clock,
+                live_binding: &live_binding,
+                network_retirement: &mut network_retirement,
+            }
+            .execute(command, Ingress::Graph(binding))?;
+            if let Some(error) = executed.persistence_error {
+                return Err(error);
+            }
+        }
+        if let Some(renderer) = renderer.as_mut()
+            && let Some(pending) = renderer.try_recv()
+        {
+            match pending {
+                earph_network::upnp::IncomingRequest::Action(pending) => {
+                    match renderer.admit(&mut session, &pending, monotonic(&clock)) {
+                        Ok(crate::renderer::Admission::Read(values)) => {
+                            let values: Vec<_> =
+                                values.iter().map(|(k, v)| (*k, v.as_str())).collect();
+                            pending.respond(Ok(&values));
                         }
-                        if matches!(
-                            command.payload,
-                            Command::GraphPrepare { .. } | Command::GraphValidate { .. }
-                        ) {
-                            return graphs.submit(staged, &worker);
-                        }
-                        if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
-                            worker.cancel_active();
-                        }
-                        if !capacity {
-                            if safety {
-                                worker.cancel_active();
-                                admission_failure = Some(ErrorCode::SourceBusy);
+                        Ok(crate::renderer::Admission::Command(command)) => {
+                            let peer = pending.peer().into();
+                            let executed = OwnerControl {
+                                session: &mut session,
+                                worker: &mut worker,
+                                graphs: &mut graphs,
+                                artifacts: &mut artifacts,
+                                devices: &mut devices,
+                                directory: &directory,
+                                token: &token,
+                                clock: &clock,
+                                live_binding: &live_binding,
+                                network_retirement: &mut network_retirement,
                             }
-                            return Err(EngineError::new(
-                                ErrorCode::SourceBusy,
-                                "playback control queue is full",
-                            ));
-                        }
-                        if matches!(command.payload, Command::GraphCommit { .. }) {
-                            graphs.validate_activation(staged)?;
-                        }
-                        if before.source == Some(SourceKind::LocalFile) {
-                            let settings = Settings {
-                                snapshot: staged.snapshot(),
-                                playing: staged.wants_playback(),
-                            };
-                            let safety_action = match command.payload {
-                                Command::Pause => Some(Action::Pause(settings)),
-                                Command::Mute { muted: true } | Command::VolumeCaps { .. } => {
-                                    Some(Action::Settings(settings))
-                                }
-                                _ => None,
-                            };
-                            if let Some(action) = safety_action {
-                                if let Err(error) = worker.send(action) {
-                                    admission_failure = Some(error.code);
-                                    return Err(error);
-                                }
-                                dispatched_early = true;
+                            .execute(*command, Ingress::Peer(peer))?;
+                            renderer.poll(&mut session, monotonic(&clock))?;
+                            let result = crate::renderer::receipt_result(
+                                &executed.receipt,
+                                pending.request().service,
+                            );
+                            pending.respond(result.map(|()| &[][..]));
+                            if let Some(error) = executed.persistence_error {
+                                return Err(error);
                             }
                         }
+                        Err(fault) => {
+                            pending.respond(Err(fault));
+                        }
+                    }
+                }
+                earph_network::upnp::IncomingRequest::Subscription(pending) => {
+                    let mut persistence_error = None;
+                    renderer.subscription(&mut session, pending, monotonic(&clock), |staged| {
                         let bytes = serde_json::to_vec(&staged.checkpoint()).map_err(|_| IO)?;
-                        let mut gate = None;
-                        let persisted = runtime::checkpoint_transaction(
+                        runtime::checkpoint_transaction(
                             &directory,
                             &format!("{token}-{}", staged.snapshot().revision),
                             &bytes,
-                            || {
-                                let acquired = view.lock().map_err(|_| IO)?;
-                                acquired.validate_edit(&command.payload)?;
-                                gate = Some(acquired);
-                                Ok(())
-                            },
-                        );
-                        if let Err(error) = persisted {
+                            || Ok(()),
+                        )
+                        .map_err(|error| {
                             if let runtime::CheckpointError::Storage(error) = error {
                                 persistence_error = Some(error);
                             }
-                            return Err(error.error());
-                        }
-                        let mut gate = gate.ok_or(IO)?;
-                        if matches!(
-                            command.payload,
-                            Command::Start {
-                                source: SourceKind::LocalFile,
-                                ..
-                            }
-                        ) {
-                            gate.active = staged.snapshot().active_entry_id;
-                            gate.reserved = staged.snapshot().reserved_next_entry_id;
-                            gate.epochs = Some(staged.snapshot().epochs);
-                        }
-                        if matches!(command.payload, Command::Stop | Command::OwnerShutdown) {
-                            gate.active = None;
-                            gate.reserved = None;
-                        }
-                        gate.publish(staged.queue_snapshot());
-                        Ok(())
-                    },
-                );
-                cancel_rejected_safety(&mut session, &worker, &command, &receipt);
-                if let Some(code) = admission_failure {
-                    // Cancellation protects output even when safety traffic filled the reserve.
-                    // Report failure until an explicit control restores a usable stream.
-                    advance(
-                        &mut session,
-                        EngineEventKind::LocalFailed { code },
-                        None,
-                        &clock,
-                    );
-                }
-                let after = session.snapshot();
-                if matches!(
-                    receipt.status,
-                    ReceiptStatus::Applied | ReceiptStatus::Accepted
-                ) && after.revision != before.revision
-                    && !dispatched_early
-                    && let Err(error) = if matches!(command.payload, Command::GraphCommit { .. }) {
-                        graphs.activate(&mut worker, &session)
-                    } else {
-                        dispatch(&command, &mut worker, &session)
-                    }
-                {
-                    if matches!(command.payload, Command::GraphCommit { .. }) {
-                        session.fail_graph_activation(&command.request_id, error);
-                        worker.cancel_active();
-                        receipt = session.submit_graph(command.clone(), monotonic(&clock));
-                    } else {
-                        advance(
-                            &mut session,
-                            EngineEventKind::LocalFailed { code: error.code },
-                            None,
-                            &clock,
-                        );
+                            error.error()
+                        })
+                    });
+                    renderer.poll(&mut session, monotonic(&clock))?;
+                    if let Some(error) = persistence_error {
+                        return Err(error);
                     }
                 }
-                let _ = pending.reply.try_send(receipt);
-                if let Some(error) = persistence_error {
+            }
+        }
+        match server.requests.recv_timeout(Duration::from_millis(1)) {
+            Ok(pending) => {
+                let command = pending.command;
+                let executed = OwnerControl {
+                    session: &mut session,
+                    worker: &mut worker,
+                    graphs: &mut graphs,
+                    artifacts: &mut artifacts,
+                    devices: &mut devices,
+                    directory: &directory,
+                    token: &token,
+                    clock: &clock,
+                    live_binding: &live_binding,
+                    network_retirement: &mut network_retirement,
+                }
+                .execute(command, Ingress::Local)?;
+                if let Some(renderer) = renderer.as_mut() {
+                    renderer.poll(&mut session, monotonic(&clock))?;
+                }
+                let _ = pending.reply.try_send(executed.receipt);
+                if let Some(error) = executed.persistence_error {
                     return Err(error);
-                }
-                if session.shutdown_requested() {
-                    return Ok(());
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -276,14 +342,273 @@ pub(crate) fn serve(
         }
     }
 }
+enum Ingress {
+    Local,
+    Peer(std::net::IpAddr),
+    Graph(Arc<RendererGraphBinding>),
+}
+struct OwnerExecution {
+    receipt: earph_core::control::Receipt,
+    persistence_error: Option<EngineError>,
+}
+struct OwnerControl<'a> {
+    session: &'a mut Session,
+    worker: &'a mut Worker,
+    graphs: &'a mut GraphJobs,
+    artifacts: &'a mut crate::profiles::ArtifactJobs,
+    devices: &'a mut crate::devices::DeviceJobs,
+    directory: &'a std::path::Path,
+    token: &'a str,
+    clock: &'a Instant,
+    live_binding: &'a crate::network_source::LiveBinding,
+    network_retirement: &'a mut Option<earph_core::network_source::NetworkSourceBinding>,
+}
+impl OwnerControl<'_> {
+    fn execute(
+        &mut self,
+        command: CommandEnvelope,
+        ingress: Ingress,
+    ) -> Result<OwnerExecution, EngineError> {
+        let session = &mut *self.session;
+        let worker = &mut *self.worker;
+        let graphs = &mut *self.graphs;
+        let artifacts = &mut *self.artifacts;
+        let devices = &mut *self.devices;
+        let directory = self.directory;
+        let token = self.token;
+        let clock = self.clock;
+        let live_binding = self.live_binding;
+        let network_retirement = &mut *self.network_retirement;
+        let before = session.snapshot();
+        let actual_check = worker
+            .view
+            .lock()
+            .map_err(|_| IO)?
+            .validate_edit(&command.payload);
+        let needs_worker = action_required(&command.payload, before.source);
+        let safety = safety_control(&command.payload);
+        // This actor is the sole command producer. Replacement queues retirement before start.
+        let replacing_network = before.source == Some(SourceKind::HttpFlac)
+            && matches!(
+                command.payload,
+                Command::NetworkStartHttpFlac { .. }
+                    | Command::RendererRequest {
+                        action: RendererAction::Play { .. },
+                        ..
+                    }
+                    | Command::Start {
+                        source: SourceKind::LocalFile,
+                        ..
+                    }
+            );
+        let capacity =
+            !needs_worker || worker.has_capacity_for(safety, 1 + usize::from(replacing_network));
+        let view = worker.view.clone();
+        let mut persistence_error = None;
+        let mut dispatched_early = false;
+        let mut admission_failure = None;
+        let submitted_ns = monotonic(clock);
+        let commit = |staged: &Session| {
+            actual_check?;
+            if matches!(
+                command.payload,
+                Command::DevicesList { .. } | Command::DevicesInspect { .. }
+            ) {
+                return devices.submit(staged);
+            }
+            if command.payload.is_profile_save() || command.payload.starts_diagnostic_work() {
+                return artifacts.submit(staged, monotonic(clock));
+            }
+            if command.payload.prepares_graph() {
+                return graphs.submit(staged, worker);
+            }
+            if matches!(
+                command.payload,
+                Command::Stop
+                    | Command::OwnerShutdown
+                    | Command::RendererRequest {
+                        action: RendererAction::Stop { binding: Some(_) },
+                        ..
+                    }
+            ) || before.source == Some(SourceKind::HttpFlac)
+                && matches!(command.payload, Command::NetworkGrantsRevoke { .. })
+            {
+                worker.cancel_active();
+            }
+            if !capacity {
+                if safety {
+                    worker.cancel_active();
+                    admission_failure = Some(ErrorCode::SourceBusy);
+                }
+                return Err(EngineError::new(
+                    ErrorCode::SourceBusy,
+                    "playback control queue is full",
+                ));
+            }
+            if command.payload.activates_graph() {
+                graphs.validate_activation(staged)?;
+            }
+            if matches!(
+                before.source,
+                Some(SourceKind::LocalFile | SourceKind::HttpFlac | SourceKind::Sendspin)
+            ) {
+                let settings = Settings {
+                    pcm_processing: staged.has_pcm_processing(),
+                    snapshot: staged.snapshot(),
+                    playing: staged.wants_playback(),
+                };
+                let safety_action = match command.payload {
+                    // Pause ends a Sendspin session. A generic pause would fail a worker
+                    // that has not received this source yet.
+                    Command::Pause if before.source == Some(SourceKind::Sendspin) => {
+                        worker.cancel_active();
+                        Some(Action::StopSendspin)
+                    }
+                    Command::Pause => Some(Action::Pause(settings)),
+                    Command::Mute { muted: true }
+                    | Command::VolumeSilence
+                    | Command::VolumeFactoryDefaults
+                    | Command::VolumeCaps { .. } => Some(Action::Settings(settings)),
+                    Command::RendererRequest { ref action, .. } => match action {
+                        RendererAction::Pause { .. } => Some(Action::Pause(settings)),
+                        RendererAction::Stop { .. } => None,
+                        action if action.is_safety() => Some(Action::Settings(settings)),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(action) = safety_action {
+                    if let Err(error) = worker.send(action) {
+                        admission_failure = Some(error.code);
+                        return Err(error);
+                    }
+                    dispatched_early = true;
+                }
+            }
+            let bytes = serde_json::to_vec(&staged.checkpoint()).map_err(|_| IO)?;
+            let mut gate = None;
+            let persisted = runtime::checkpoint_transaction(
+                directory,
+                &format!("{token}-{}", staged.snapshot().revision),
+                &bytes,
+                || {
+                    let acquired = view.lock().map_err(|_| IO)?;
+                    acquired.validate_edit(&command.payload)?;
+                    gate = Some(acquired);
+                    Ok(())
+                },
+            );
+            if let Err(error) = persisted {
+                if let runtime::CheckpointError::Storage(error) = error {
+                    persistence_error = Some(error);
+                }
+                return Err(error.error());
+            }
+            let mut gate = gate.ok_or(IO)?;
+            if matches!(
+                command.payload,
+                Command::Start {
+                    source: SourceKind::LocalFile,
+                    ..
+                }
+            ) {
+                gate.active = staged.snapshot().active_entry_id;
+                gate.reserved = staged.snapshot().reserved_next_entry_id;
+                gate.epochs = Some(staged.snapshot().epochs);
+            }
+            if matches!(
+                command.payload,
+                Command::Stop | Command::OwnerShutdown | Command::SendspinStart { .. }
+            ) {
+                gate.active = None;
+                gate.reserved = None;
+            }
+            gate.publish(staged.queue_snapshot());
+            Ok(())
+        };
+        let mut receipt = match ingress {
+            Ingress::Local => session.submit_with_network_effects(
+                command.clone(),
+                submitted_ns,
+                directory::paths,
+                |s, c| crate::network_source::validate(s, c, clock),
+                commit,
+            ),
+            Ingress::Peer(peer) => session.submit_renderer_with_network_effects(
+                command.clone(),
+                peer,
+                submitted_ns,
+                |s, c| crate::network_source::validate(s, c, clock),
+                commit,
+            ),
+            Ingress::Graph(binding) => session.submit_renderer_graph_with_effects(
+                command.clone(),
+                binding,
+                submitted_ns,
+                commit,
+            ),
+        };
+        cancel_rejected_safety(session, worker, &command, &receipt);
+        if let Some(code) = admission_failure {
+            // Cancellation protects output even when safety traffic filled the reserve.
+            // Report failure until an explicit control restores a usable stream.
+            advance(session, EngineEventKind::LocalFailed { code }, None, clock);
+        }
+        let after = session.snapshot();
+        synchronize_network(session, worker, live_binding, network_retirement)?;
+        if matches!(
+            receipt.status,
+            ReceiptStatus::Applied | ReceiptStatus::Accepted
+        ) && after.revision != before.revision
+            && !dispatched_early
+            && let Err(error) = if command.payload.activates_graph() {
+                graphs.activate(worker, session)
+            } else if matches!(command.payload, Command::SendspinStart { .. }) {
+                retire_for_sendspin(before.source, worker)
+            } else if before.source == Some(SourceKind::Sendspin)
+                // A takeover starts a new session, and its start action retires this source.
+                && after.epochs.session == before.epochs.session
+            {
+                dispatch_sendspin(&command, worker, session)
+            } else {
+                dispatch_with_network(&command, worker, session, live_binding, clock)
+            }
+        {
+            if command.payload.activates_graph() {
+                session.fail_graph_activation(&command.request_id, error);
+                worker.cancel_active();
+                receipt = session.submit_graph(command.clone(), monotonic(clock));
+            } else {
+                advance(
+                    session,
+                    EngineEventKind::LocalFailed { code: error.code },
+                    None,
+                    clock,
+                );
+            }
+        }
+
+        Ok(OwnerExecution {
+            receipt,
+            persistence_error,
+        })
+    }
+}
+
 fn safety_control(command: &Command) -> bool {
+    if let Command::RendererRequest { action, .. } = command {
+        return action.is_safety();
+    }
     matches!(
         command,
         Command::Stop
             | Command::OwnerShutdown
             | Command::Pause
             | Command::Mute { muted: true }
+            | Command::VolumeSilence
+            | Command::VolumeFactoryDefaults
             | Command::VolumeCaps { .. }
+            | Command::NetworkGrantsRevoke { .. }
     )
 }
 fn reconcile_graph_activation(
@@ -306,12 +631,37 @@ fn reconcile_graph_activation(
     }
     Ok(())
 }
+fn reconcile_network_graph_activation(
+    session: &mut Session,
+    ack: earph_core::network_source::NetworkGraphActivationAck,
+    now_ns: u64,
+    persist: impl FnOnce(&Session) -> Result<(), EngineError>,
+) -> Result<(), EngineError> {
+    let current = session.graph_activation().is_some_and(|activation| {
+        activation.request_id == ack.request_id && activation.epochs == ack.epochs
+    }) && session
+        .network_source()
+        .is_some_and(|source| source.binding == ack.observation.binding);
+    let result = session.complete_network_graph_activation(ack, now_ns, persist);
+    if current
+        && session.graph_activation().is_none()
+        && session.graph_inspection().recovery_required
+    {
+        return result;
+    }
+    Ok(())
+}
 fn cancel_rejected_safety(
     session: &mut Session,
     worker: &Worker,
     command: &CommandEnvelope,
     receipt: &earph_core::control::Receipt,
 ) {
+    if matches!(command.payload, Command::NetworkGrantsRevoke { .. })
+        && session.snapshot().source != Some(SourceKind::HttpFlac)
+    {
+        return;
+    }
     if receipt.status != ReceiptStatus::Rejected || !safety_control(&command.payload) {
         return;
     }
@@ -330,6 +680,58 @@ fn cancel_rejected_safety(
     session.fail_graph_activation(&activation.request_id, error);
 }
 fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
+    if let Command::RendererRequest { action, .. } = command {
+        return match action {
+            RendererAction::StageUri { .. } => false,
+            RendererAction::Play { .. } => true,
+            RendererAction::Stop { binding } => binding.is_some(),
+            _ => source == Some(SourceKind::HttpFlac),
+        };
+    }
+    if matches!(command, Command::NetworkStartHttpFlac { .. }) {
+        return true;
+    }
+    // A takeover stops the outgoing local source. A network source retires through its own action.
+    if matches!(command, Command::SendspinStart { .. }) {
+        return source == Some(SourceKind::LocalFile);
+    }
+    if source == Some(SourceKind::Sendspin) {
+        return matches!(
+            command,
+            Command::Start {
+                source: SourceKind::LocalFile,
+                ..
+            } | Command::Stop
+                | Command::Pause
+                | Command::OwnerShutdown
+                | Command::Mute { .. }
+                | Command::VolumeSet { .. }
+                | Command::VolumeSetGuarded { .. }
+                | Command::VolumeSilence
+                | Command::VolumeFactoryDefaults
+                | Command::VolumeCaps { .. }
+        );
+    }
+    if source == Some(SourceKind::HttpFlac)
+        && matches!(
+            command,
+            Command::NetworkGrantsReplace { .. }
+                | Command::NetworkGrantsRevoke { .. }
+                | Command::Pause
+                | Command::GraphCommit { .. }
+                | Command::Resume
+                | Command::Stop
+                | Command::Mute { .. }
+                | Command::VolumeSet { .. }
+                | Command::VolumeSetGuarded { .. }
+                | Command::VolumeSilence
+                | Command::VolumeFactoryDefaults
+                | Command::VolumeCaps { .. }
+                | Command::OwnerShutdown
+        )
+    {
+        return true;
+    }
     matches!(
         command,
         Command::Start {
@@ -341,11 +743,16 @@ fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
             command,
             Command::Pause
                 | Command::GraphCommit { .. }
+                | Command::ProfilesApply { .. }
                 | Command::Resume
                 | Command::Stop
                 | Command::Seek { .. }
+                | Command::SeekDsd { .. }
                 | Command::Mute { .. }
                 | Command::VolumeSet { .. }
+                | Command::VolumeSetGuarded { .. }
+                | Command::VolumeSilence
+                | Command::VolumeFactoryDefaults
                 | Command::VolumeCaps { .. }
                 | Command::OwnerShutdown
         )
@@ -356,6 +763,7 @@ fn dispatch(
     session: &Session,
 ) -> Result<(), EngineError> {
     let settings = Settings {
+        pcm_processing: session.has_pcm_processing(),
         snapshot: session.snapshot(),
         playing: session.wants_playback(),
     };
@@ -383,9 +791,20 @@ fn dispatch(
                 position: position_frames,
             })
         }
+        Command::SeekDsd { position_bits }
+            if settings.snapshot.source == Some(SourceKind::LocalFile) =>
+        {
+            Some(Action::SeekDsd {
+                settings,
+                position_bits,
+            })
+        }
         Command::Resume
         | Command::Mute { .. }
         | Command::VolumeSet { .. }
+        | Command::VolumeSetGuarded { .. }
+        | Command::VolumeSilence
+        | Command::VolumeFactoryDefaults
         | Command::VolumeCaps { .. }
             if settings.snapshot.source == Some(SourceKind::LocalFile) =>
         {
@@ -398,7 +817,175 @@ fn dispatch(
     }
     Ok(())
 }
+/// Closes the local source that a Sendspin takeover replaces, before the credential load begins.
+/// The Sendspin start reaches the worker later, so the outgoing source must not play until then.
+/// The worker keeps a close failure and refuses that start with it.
+fn retire_for_sendspin(
+    outgoing: Option<SourceKind>,
+    worker: &mut Worker,
+) -> Result<(), EngineError> {
+    if outgoing != Some(SourceKind::LocalFile) {
+        return Ok(());
+    }
+    worker.send(Action::RetireSource)
+}
+/// The Sendspin source takes settings and one stop. Pause reaches the worker before the commit.
+fn dispatch_sendspin(
+    command: &CommandEnvelope,
+    worker: &mut Worker,
+    session: &Session,
+) -> Result<(), EngineError> {
+    match command.payload {
+        Command::Stop | Command::OwnerShutdown => worker.send(Action::StopSendspin),
+        Command::Mute { .. }
+        | Command::VolumeSet { .. }
+        | Command::VolumeSetGuarded { .. }
+        | Command::VolumeSilence
+        | Command::VolumeFactoryDefaults
+        | Command::VolumeCaps { .. } => worker.send(Action::Settings(Settings {
+            pcm_processing: false,
+            snapshot: session.snapshot(),
+            playing: true,
+        })),
+        _ => Ok(()),
+    }
+}
+fn synchronize_network(
+    session: &Session,
+    worker: &mut Worker,
+    live: &crate::network_source::LiveBinding,
+    retirement: &mut Option<earph_core::network_source::NetworkSourceBinding>,
+) -> Result<(), EngineError> {
+    let binding = session
+        .network_source()
+        .map(|source| source.binding.clone());
+    {
+        let mut current = live.lock().map_err(|_| IO)?;
+        if *current != binding {
+            worker.cancel_active();
+            *current = binding;
+        }
+    }
+    if let Some(closing) = session.closing_network_source()
+        && retirement.as_ref() != Some(&closing.context.binding)
+    {
+        worker.cancel_active();
+        if worker.send(Action::RetireNetwork(closing.clone())).is_ok() {
+            *retirement = Some(closing.context.binding.clone());
+        }
+    }
+    Ok(())
+}
+fn dispatch_with_network(
+    command: &CommandEnvelope,
+    worker: &mut Worker,
+    session: &Session,
+    live: &crate::network_source::LiveBinding,
+    clock: &Instant,
+) -> Result<(), EngineError> {
+    let settings = Settings {
+        pcm_processing: session.has_pcm_processing(),
+        snapshot: session.snapshot(),
+        playing: session.wants_playback(),
+    };
+    if matches!(
+        command.payload,
+        Command::NetworkStartHttpFlac { .. }
+            | Command::RendererRequest {
+                action: RendererAction::Play { .. },
+                ..
+            }
+    ) {
+        // Revocation precedes fallible permit construction after a successful commit.
+        worker.cancel_active();
+        let context = session.network_source().ok_or(IO)?;
+        let permit = crate::network_source::permit(session, &context, clock)?;
+        return worker.send(Action::StartNetwork {
+            settings,
+            context,
+            permit,
+            live: live.clone(),
+            clock: *clock,
+            cancel: Arc::new(AtomicBool::new(false)),
+        });
+    }
+    if settings.snapshot.source == Some(SourceKind::HttpFlac)
+        || session.closing_network_source().is_some()
+    {
+        return match command.payload {
+            Command::Pause => worker.send(Action::Pause(settings)),
+            Command::RendererRequest {
+                action: RendererAction::Pause { .. },
+                ..
+            } => worker.send(Action::Pause(settings)),
+            Command::RendererRequest {
+                action:
+                    RendererAction::Resume { .. }
+                    | RendererAction::SetMute { .. }
+                    | RendererAction::SetVolume { .. }
+                    | RendererAction::SetVolumeDb { .. }
+                    | RendererAction::FactoryDefaults { .. },
+                ..
+            } => worker.send(Action::Settings(settings)),
+            Command::Resume
+            | Command::Mute { .. }
+            | Command::VolumeSet { .. }
+            | Command::VolumeSetGuarded { .. }
+            | Command::VolumeSilence
+            | Command::VolumeFactoryDefaults
+            | Command::VolumeCaps { .. } => worker.send(Action::Settings(settings)),
+            Command::Start {
+                source: SourceKind::LocalFile,
+                ..
+            } => dispatch(command, worker, session),
+            _ => Ok(()),
+        };
+    }
+    dispatch(command, worker, session)
+}
 fn advance(session: &mut Session, kind: EngineEventKind, epochs: Option<Epochs>, clock: &Instant) {
+    if let EngineEventKind::LocalFailed { code } = &kind
+        && let Some(connection) = session.sendspin_connection()
+    {
+        // The Sendspin session fails through its own fenced close event.
+        let (frames, reconnects) = session
+            .snapshot()
+            .observation
+            .sendspin()
+            .map_or((0, 0), |observation| {
+                (observation.submitted_frames, observation.reconnects)
+            });
+        let mut observation = earph_core::sendspin_source::SendspinSourceObservation::new(
+            earph_core::sendspin_source::SendspinTransportPhase::Closed,
+            frames,
+        );
+        observation.reconnects = reconnects;
+        let _ = session.advance_sendspin(
+            connection.generation,
+            earph_core::sendspin_source::SendspinSourceEvent {
+                epochs: connection.epochs,
+                observation,
+                error: Some(*code),
+            },
+            monotonic(clock),
+        );
+        return;
+    }
+    if let EngineEventKind::LocalFailed { code } = &kind
+        && let Some(context) = session.network_source()
+    {
+        let snapshot = session.snapshot();
+        let _ = session.advance_network(earph_core::network_source::NetworkEvent {
+            binding: context.binding.clone(),
+            source_epochs: context.source_epochs,
+            output_epochs: snapshot.epochs,
+            graph_epoch: snapshot.graph_epoch,
+            device_epoch: snapshot.device_epoch,
+            monotonic_ns: monotonic(clock),
+            kind: earph_core::network_source::NetworkEventKind::Failed { code: *code },
+        });
+        return;
+    }
     let epochs = epochs.unwrap_or_else(|| session.snapshot().epochs);
     let _ = session.advance(EngineEvent {
         epochs,
@@ -406,14 +993,63 @@ fn advance(session: &mut Session, kind: EngineEventKind, epochs: Option<Epochs>,
         kind,
     });
 }
+#[derive(Default)]
+struct DsdRetirementEvidence {
+    failure: Option<Arc<DsdRetirementFailure>>,
+    reported: bool,
+}
+impl DsdRetirementEvidence {
+    fn adopt(&mut self, failure: Arc<DsdRetirementFailure>) -> bool {
+        if failure.validate().is_err() {
+            return false;
+        }
+        if let Some(current) = &self.failure {
+            if current.token == failure.token {
+                return Arc::ptr_eq(current, &failure);
+            }
+            if !self.reported {
+                return false;
+            }
+        }
+        self.failure = Some(failure);
+        self.reported = false;
+        true
+    }
+    fn report(&mut self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
+        if self.reported {
+            return Ok(());
+        }
+        if let Some(failure) = &self.failure {
+            let mut bytes = serde_json::to_vec(&serde_json::json!({
+                "dsd_retirement_failure": failure,
+            }))?;
+            bytes.push(b'\n');
+            writer.write_all(&bytes)?;
+            writer.flush()?;
+            self.reported = true;
+        }
+        Ok(())
+    }
+}
 fn observation(
     session: &mut Session,
     event: Event,
     clock: &Instant,
 ) -> Result<Option<SourceTerminalToken>, EngineError> {
     match event {
-        Event::GraphActivated(_) | Event::GraphFailed { .. } => {
+        Event::DsdRetirementFailed(_) => {
+            unreachable!("retirement evidence is adopted independently from current playback")
+        }
+        Event::GraphActivated(_)
+        | Event::GraphFailed { .. }
+        | Event::Network(_)
+        | Event::NetworkRetired(_)
+        | Event::NetworkGraphActivated(_)
+        | Event::NetworkGraphFailed { .. } => {
             unreachable!("graph events reconcile with persistence in the owner loop")
+        }
+        Event::Sendspin(_) => {
+            unreachable!("Sendspin events route through their runtime in the owner loop")
         }
         Event::Item { epochs, id, status } => {
             let _ = session.set_queue_preparation(epochs, &id, status);
@@ -464,7 +1100,7 @@ fn observation(
             clock,
         ),
         Event::End { epochs } => advance(session, EngineEventKind::EndOfInput, Some(epochs), clock),
-        Event::Drained {
+        Event::Completed {
             epochs,
             token,
             observation,
@@ -473,7 +1109,7 @@ fn observation(
             if !token.matches_source(&snapshot)
                 || epochs != snapshot.epochs
                 || epochs.stream < token.origin_epochs.stream
-                || observation.source_entry_id != token.final_entry_id
+                || observation.entry_id() != &token.final_entry_id
             {
                 return Err(EngineError::new(
                     ErrorCode::StaleSession,
@@ -500,7 +1136,7 @@ fn observation(
                     || epochs.stream < token.origin_epochs.stream
                     || observation
                         .as_ref()
-                        .is_some_and(|value| value.source_entry_id != token.final_entry_id)
+                        .is_some_and(|value| value.entry_id() != &token.final_entry_id)
                 {
                     return Err(EngineError::new(
                         ErrorCode::StaleSession,
@@ -537,7 +1173,7 @@ fn observation(
                 || !request.matches_source(&token)
                 || observation
                     .as_ref()
-                    .is_some_and(|value| value.source_entry_id != token.final_entry_id)
+                    .is_some_and(|value| value.entry_id() != &token.final_entry_id)
             {
                 return Err(EngineError::new(
                     ErrorCode::StaleSession,
@@ -570,18 +1206,34 @@ fn monotonic(clock: &Instant) -> u64 {
 struct GraphJobs {
     service: GraphService,
     job: Option<(RequestId, GraphCancellation)>,
+    pending: Option<PendingGraph>,
     ready: Option<PreparedPipeline>,
+}
+struct PendingGraph {
+    request: earph_core::graph_control::GraphJobRequest,
+    snapshot: earph_core::session::SessionSnapshot,
+    source_cancel: Arc<AtomicBool>,
 }
 impl GraphJobs {
     fn spawn(asset_store: PathBuf) -> Result<Self, EngineError> {
         Ok(Self {
             service: GraphService::spawn(Some(asset_store))?,
             job: None,
+            pending: None,
             ready: None,
         })
     }
     fn poll(&mut self, session: &mut Session, now_ns: u64) -> Result<(), EngineError> {
         session.expire_graph_work(now_ns);
+        if self.pending.as_ref().is_some_and(|pending| {
+            session.graph_job().is_none_or(|job| {
+                job.request_id != pending.request.request_id
+                    || job.binding != pending.request.binding
+                    || job.renderer_application != pending.request.renderer_application
+            })
+        }) {
+            self.pending = None;
+        }
         if self
             .job
             .as_ref()
@@ -635,6 +1287,41 @@ impl GraphJobs {
                 }
             }
         }
+        if let Some(pending) = self.pending.take() {
+            let state = session.snapshot();
+            let binding = &pending.request.binding;
+            let current = state.owner_id.as_ref() == Some(&binding.owner_id)
+                && state.session_id.as_ref() == Some(&binding.session_id)
+                && state.epochs == binding.epochs
+                && state.device_epoch == binding.device_epoch
+                && state.revision == binding.expected_revision
+                && !pending.source_cancel.load(Ordering::Acquire)
+                && pending
+                    .request
+                    .renderer_application
+                    .as_ref()
+                    .is_none_or(|renderer| session.renderer_graph_binding_valid(renderer, now_ns));
+            let submitted = if current {
+                self.start(&pending)
+            } else {
+                Err(EngineError::new(
+                    ErrorCode::StaleSession,
+                    "queued graph authority changed",
+                ))
+            };
+            match submitted {
+                Ok(cancel) => self.job = Some((pending.request.request_id, cancel)),
+                Err(error) if error.code == ErrorCode::SourceBusy => self.pending = Some(pending),
+                Err(error) => {
+                    let _ = session.complete_graph_preparation(
+                        &pending.request.request_id,
+                        &pending.request.binding,
+                        now_ns,
+                        Err(error.into()),
+                    );
+                }
+            }
+        }
         let observed = self.service.resources();
         session.observe_graph_resources(
             GraphServiceObservation {
@@ -646,13 +1333,31 @@ impl GraphJobs {
         )
     }
     fn submit(&mut self, session: &Session, worker: &Worker) -> Result<(), EngineError> {
-        let job = session.graph_job().ok_or(IO)?;
-        let id = job.request_id.clone();
-        let cancel = self
-            .service
-            .submit(job, session.snapshot(), worker.source_cancellation()?)?;
-        self.job = Some((id, cancel));
-        Ok(())
+        let pending = PendingGraph {
+            request: session.graph_job().ok_or(IO)?,
+            snapshot: session.snapshot(),
+            source_cancel: worker.source_cancellation()?,
+        };
+        match self.start(&pending) {
+            Ok(cancel) => {
+                self.job = Some((pending.request.request_id, cancel));
+                self.pending = None;
+                Ok(())
+            }
+            Err(error) if error.code == ErrorCode::SourceBusy => {
+                // Core adopts replacement before poll retires its displaced candidate.
+                self.pending = Some(pending);
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+    fn start(&mut self, pending: &PendingGraph) -> Result<GraphCancellation, EngineError> {
+        self.service.submit(
+            pending.request.clone(),
+            pending.snapshot.clone(),
+            pending.source_cancel.clone(),
+        )
     }
     fn validate_activation(&self, session: &Session) -> Result<(), EngineError> {
         let activation = session.graph_activation().ok_or(IO)?;
@@ -673,6 +1378,7 @@ impl GraphJobs {
         let pipeline = self.ready.take().ok_or(IO)?;
         worker.send(Action::ActivateGraph {
             settings: Settings {
+                pcm_processing: session.has_pcm_processing(),
                 snapshot: session.snapshot(),
                 playing: session.wants_playback(),
             },
@@ -690,9 +1396,131 @@ impl Drop for GraphJobs {
     }
 }
 
+#[cfg(all(test, target_os = "linux"))]
+#[path = "host_renderer_tests.rs"]
+mod renderer_ownership;
+
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
+    pub(crate) fn assert_dsd_retirement_evidence(
+        failure: Arc<DsdRetirementFailure>,
+        directory: &std::path::Path,
+    ) {
+        let mut history = DsdRetirementEvidence::default();
+        assert!(history.adopt(failure.clone()));
+        assert!(Arc::ptr_eq(history.failure.as_ref().unwrap(), &failure));
+        // Adoption transfers evidence ownership even when the diagnostic sink cannot write.
+        let mut full = std::fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/full")
+            .unwrap();
+        assert!(history.report(&mut full).is_err());
+        assert!(!history.reported);
+        assert_eq!(history.failure.as_ref().unwrap().error, failure.error);
+        assert!(history.adopt(failure.clone()));
+        let next: DsdRetirementFailure = DsdRetirementFailure {
+            token: SourceTerminalToken {
+                origin_epochs: Epochs {
+                    session: 2,
+                    stream: 0,
+                },
+                ..failure.token.clone()
+            },
+            error: failure.error,
+            observation: Box::new(earph_core::dop::DsdPlaybackObservation {
+                source_epochs: Epochs {
+                    session: 2,
+                    stream: 0,
+                },
+                last_boundary: failure.observation.last_boundary.as_ref().map(|boundary| {
+                    earph_core::dop::DsdOutputBoundary {
+                        output_epochs: Epochs {
+                            session: 2,
+                            stream: 0,
+                        },
+                        ..boundary.clone()
+                    }
+                }),
+                ..(*failure.observation).clone()
+            }),
+        };
+        let next = Arc::new(next);
+        assert!(!history.adopt(next.clone()));
+        assert!(Arc::ptr_eq(history.failure.as_ref().unwrap(), &failure));
+
+        let path = directory.join("retirement-evidence.jsonl");
+        let mut file = std::fs::File::create(&path).unwrap();
+        history.report(&mut file).unwrap();
+        let report: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let reported = &report["dsd_retirement_failure"];
+        assert_eq!(reported["token"]["session_id"], "dsd-session");
+        assert_eq!(reported["token"]["origin_epochs"]["session"], 1);
+        assert_eq!(reported["observation"]["source_position_bits"], 496);
+        assert_eq!(
+            reported["observation"]["last_boundary"]["submitted_carrier_frames"],
+            31
+        );
+        assert_eq!(reported["observation"]["last_boundary"]["reason"], "failed");
+        assert_eq!(reported["error"]["code"], "OUTPUT_FAULT");
+        assert!(history.adopt(next.clone()));
+        assert!(Arc::ptr_eq(history.failure.as_ref().unwrap(), &next));
+        assert!(!history.reported);
+    }
+    #[test]
+    fn stale_network_graph_ack_does_not_stop_or_relabel_a_local_activation() {
+        use earph_core::network_source::{
+            NetworkGraphActivationAck, NetworkLifecycle, NetworkPlaybackObservation,
+            NetworkSourceBinding,
+        };
+        let (mut session, local) = activation();
+        let before = session.snapshot();
+        let observation = local.observation;
+        let ack = NetworkGraphActivationAck {
+            request_id: local.request_id,
+            epochs: local.epochs,
+            graph_hash: local.graph_hash,
+            activation_frame: local.activation_frame,
+            observation: NetworkPlaybackObservation {
+                binding: NetworkSourceBinding {
+                    owner_id: before.owner_id.clone().unwrap(),
+                    session_id: before.session_id.clone().unwrap(),
+                    media_id: earph_core::ids::StagedMediaId::new("stale-network-media").unwrap(),
+                    source_generation: 1,
+                    grant_generation: 1,
+                },
+                source_epochs: local.epochs,
+                output_epochs: local.epochs,
+                graph_epoch: before.graph_epoch + 1,
+                device_epoch: before.device_epoch,
+                lifecycle: NetworkLifecycle::Ready,
+                format: observation.format,
+                output_format: observation.format,
+                total_frames: Some(local.source_total_frames),
+                source_position_frames: 0,
+                audible_source_position_frames: None,
+                submitted_frames: 0,
+                consumed_frames: None,
+                backend_delay_frames: None,
+                consumption_basis: "alsa_client_estimate",
+                input_peak: None,
+                output_peak: None,
+                modified: true,
+                backend: observation.backend,
+                output_activity: observation.output_activity,
+                processing: None,
+                replacement_boundary: None,
+            },
+        };
+        reconcile_network_graph_activation(&mut session, ack, 7, |_| {
+            panic!("stale network graph cannot persist")
+        })
+        .unwrap();
+        assert_eq!(session.snapshot(), before);
+        assert!(session.graph_activation().is_some());
+    }
     use earph_core::{
         audio::{ChannelLayout, PcmFormat, PcmRepresentation},
         control::{ControlLimits, OutputBackend, OutputConfiguration, OutputRoute, ReceiptStatus},
@@ -816,6 +1644,7 @@ mod tests {
             None
         };
         let observation = PlaybackObservation {
+            output_activity: None,
             processing: None,
             format,
             submitted_frames: 0,
@@ -836,7 +1665,7 @@ mod tests {
                 epochs: session.snapshot().epochs,
                 monotonic_ns: 3,
                 kind: EngineEventKind::LocalPrepared {
-                    observation: observation.clone(),
+                    observation: (observation.clone()).into(),
                 },
             })
             .unwrap();
@@ -978,6 +1807,8 @@ mod tests {
         use std::sync::atomic::Ordering;
         for payload in [
             Command::Mute { muted: true },
+            Command::VolumeSilence,
+            Command::VolumeFactoryDefaults,
             Command::VolumeCaps {
                 software_millidecibels: -48000,
                 hardware_millidecibels: None,
@@ -989,6 +1820,7 @@ mod tests {
             worker
                 .send(Action::Start {
                     settings: Settings {
+                        pcm_processing: session.has_pcm_processing(),
                         snapshot: session.snapshot(),
                         playing: false,
                     },
@@ -1102,10 +1934,12 @@ mod tests {
         let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
         let accepted = observation(
             &mut session,
-            Event::Drained {
+            Event::Completed {
                 epochs,
                 token: token.clone(),
-                observation: final_observation.clone(),
+                observation: earph_core::session::LocalPlaybackObservation::from(
+                    final_observation.clone(),
+                ),
             },
             &clock,
         )
@@ -1114,7 +1948,10 @@ mod tests {
         assert!(session.snapshot().output_consented);
         assert!(!session.graph_inspection().recovery_required);
         assert!(session.graph_activation().is_none());
-        assert_eq!(session.snapshot().playback.unwrap(), final_observation);
+        assert_eq!(
+            session.snapshot().observation.pcm().cloned().unwrap(),
+            final_observation
+        );
         assert_eq!(accepted, Some(token));
         let replay = session.submit_graph(commit, monotonic(&clock) + 1);
         assert_eq!(replay.status, ReceiptStatus::Failed);
@@ -1126,7 +1963,7 @@ mod tests {
             let (mut session, acknowledgement) = activation();
             reconcile_graph_activation(&mut session, acknowledgement, 7, |_| Ok(())).unwrap();
             let before = session.snapshot();
-            let final_observation = before.playback.clone().unwrap();
+            let final_observation = before.observation.pcm().cloned().unwrap();
             session
                 .set_queue_preparation(
                     before.epochs,
@@ -1147,10 +1984,12 @@ mod tests {
             let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
             let accepted = observation(
                 &mut session,
-                Event::Drained {
+                Event::Completed {
                     epochs,
                     token: token.clone(),
-                    observation: final_observation,
+                    observation: earph_core::session::LocalPlaybackObservation::from(
+                        final_observation.clone(),
+                    ),
                 },
                 &clock,
             )
@@ -1179,10 +2018,12 @@ mod tests {
         let clock = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
         let result = observation(
             &mut session,
-            Event::Drained {
+            Event::Completed {
                 epochs: activation.previous_binding.epochs,
                 token,
-                observation: observation_value,
+                observation: earph_core::session::LocalPlaybackObservation::from(
+                    observation_value.clone(),
+                ),
             },
             &clock,
         );
@@ -1209,10 +2050,10 @@ mod tests {
         assert_eq!(
             observation(
                 &mut session,
-                Event::Drained {
+                Event::Completed {
                     epochs,
                     token: token.clone(),
-                    observation: value
+                    observation: earph_core::session::LocalPlaybackObservation::from(value.clone())
                 },
                 &clock
             )
@@ -1249,7 +2090,7 @@ mod tests {
             ReceiptStatus::Accepted
         );
         let pause_epochs = session.snapshot().epochs;
-        let value = session.snapshot().playback.unwrap();
+        let value = session.snapshot().observation.pcm().cloned().unwrap();
         let token = terminal_token(&session, pause_epochs, &value);
         let mute = command(&session, "mute-during-pause", Command::Mute { muted: true });
         assert_eq!(
@@ -1268,7 +2109,9 @@ mod tests {
                     epochs: pause_epochs,
                     token: Some(token.clone()),
                     error: fault,
-                    observation: Some(value.clone())
+                    observation: Some(earph_core::session::LocalPlaybackObservation::from(
+                        value.clone()
+                    ))
                 },
                 &clock
             )
@@ -1283,7 +2126,9 @@ mod tests {
                 epochs,
                 token: Some(token.clone()),
                 error: fault,
-                observation: Some(value),
+                observation: Some(earph_core::session::LocalPlaybackObservation::from(
+                    value.clone(),
+                )),
             },
             &clock,
         )
@@ -1314,7 +2159,9 @@ mod tests {
                 epochs,
                 token: Some(token.clone()),
                 error: EngineError::new(ErrorCode::OutputFault, "native output failed"),
-                observation: Some(acknowledgement.observation),
+                observation: Some(earph_core::session::LocalPlaybackObservation::from(
+                    acknowledgement.observation,
+                )),
             },
             &clock,
         )
@@ -1335,7 +2182,7 @@ mod tests {
     fn a_failure_from_a_replaced_source_cannot_close_the_current_source() {
         let (mut session, acknowledgement) = activation();
         reconcile_graph_activation(&mut session, acknowledgement, 7, |_| Ok(())).unwrap();
-        let value = session.snapshot().playback.unwrap();
+        let value = session.snapshot().observation.pcm().cloned().unwrap();
         let token = terminal_token(&session, session.snapshot().epochs, &value);
         let stop = command(&session, "replace-stop", Command::Stop);
         assert_eq!(
@@ -1373,7 +2220,9 @@ mod tests {
                     epochs: before.epochs,
                     token: Some(token),
                     error: EngineError::new(ErrorCode::OutputFault, "old source fault"),
-                    observation: Some(value),
+                    observation: Some(earph_core::session::LocalPlaybackObservation::from(
+                        value.clone()
+                    )),
                 },
                 &clock
             )
@@ -1417,6 +2266,7 @@ mod tests {
         let (mut session, _, pipeline) = activation_resources(0, path.to_str().unwrap(), true);
         let activation = session.graph_activation().unwrap();
         let mut settings = Settings {
+            pcm_processing: session.has_pcm_processing(),
             snapshot: session.snapshot(),
             playing: false,
         };
@@ -1455,6 +2305,7 @@ mod tests {
         worker
             .send(Action::ActivateGraph {
                 settings: Settings {
+                    pcm_processing: session.has_pcm_processing(),
                     snapshot: session.snapshot(),
                     playing: false,
                 },
@@ -1526,6 +2377,7 @@ mod tests {
             let request = StopRequest {
                 request_id: stop.request_id.clone(),
                 settings: Settings {
+                    pcm_processing: false,
                     snapshot,
                     playing: false,
                 },
@@ -1536,7 +2388,9 @@ mod tests {
                     request: Box::new(request),
                     token,
                     error: EngineError::new(ErrorCode::OutputFault, "native Stop failed"),
-                    observation: Some(ack.observation),
+                    observation: Some(earph_core::session::LocalPlaybackObservation::from(
+                        ack.observation,
+                    )),
                 },
                 &clock,
             )
@@ -1578,6 +2432,7 @@ mod tests {
             let mut request = StopRequest {
                 request_id: stop.request_id,
                 settings: Settings {
+                    pcm_processing: false,
                     snapshot: snapshot.clone(),
                     playing: false,
                 },
@@ -1626,7 +2481,9 @@ mod tests {
                         request: Box::new(request),
                         token,
                         error: EngineError::new(ErrorCode::OutputFault, "stale native Stop fault"),
-                        observation: Some(value)
+                        observation: Some(earph_core::session::LocalPlaybackObservation::from(
+                            value.clone()
+                        ))
                     },
                     &clock
                 )
@@ -1653,6 +2510,7 @@ mod tests {
         let request = StopRequest {
             request_id: pause.request_id,
             settings: Settings {
+                pcm_processing: false,
                 snapshot: snapshot.clone(),
                 playing: false,
             },
@@ -1688,7 +2546,9 @@ mod tests {
             &mut session,
             Event::Stopped {
                 epochs: snapshot.epochs,
-                observation: Some(ack.observation.clone()),
+                observation: Some(earph_core::session::LocalPlaybackObservation::from(
+                    ack.observation.clone(),
+                )),
             },
             &clock,
         )
@@ -1704,10 +2564,12 @@ mod tests {
         assert!(
             observation(
                 &mut session,
-                Event::Drained {
+                Event::Completed {
                     epochs: ack.epochs,
                     token: stale_token,
-                    observation: ack.observation
+                    observation: earph_core::session::LocalPlaybackObservation::from(
+                        ack.observation
+                    )
                 },
                 &clock
             )
@@ -1723,6 +2585,7 @@ mod tests {
         drop(pipeline);
         let origin = session.graph_activation().unwrap().previous_binding.epochs;
         let mut settings = Settings {
+            pcm_processing: session.has_pcm_processing(),
             snapshot: session.snapshot(),
             playing: false,
         };
@@ -1763,6 +2626,7 @@ mod tests {
             .send(Action::Stop(StopRequest {
                 request_id: stop.request_id.clone(),
                 settings: Settings {
+                    pcm_processing: session.has_pcm_processing(),
                     snapshot: session.snapshot(),
                     playing: false,
                 },

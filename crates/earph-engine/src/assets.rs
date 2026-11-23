@@ -27,6 +27,9 @@ pub(crate) struct PreparedFirSource {
 impl PreparedFirSource {
     pub(crate) fn read(path: &Path) -> Result<Self, EngineError> {
         let bytes = read_fir_source(path)?;
+        Self::from_bytes(bytes)
+    }
+    pub(crate) fn from_bytes(bytes: Vec<u8>) -> Result<Self, EngineError> {
         let correction = decode_fir_wav(&bytes)?;
         let coefficients = earph_dsp::FirCoefficients::new(correction.reference, correction.taps)
             .map_err(|error| EngineError::new(error.code, error.message))?;
@@ -40,6 +43,9 @@ impl PreparedFirSource {
     }
     pub(crate) fn source_bytes(&self) -> usize {
         self.bytes.len()
+    }
+    pub(crate) fn original_bytes(&self) -> &[u8] {
+        &self.bytes
     }
     pub(crate) fn retained_bytes(&self) -> Result<u64, EngineError> {
         (self.bytes.capacity() as u64)
@@ -94,24 +100,34 @@ impl<'a> GraphAssets<'a> {
                 }
             }
         }
-        let declared_bytes = references
-            .values()
-            .try_fold(0_u64, |n, a| {
-                n.checked_add(
-                    (a.taps_per_channel as u64)
-                        .checked_mul(a.channels.count() as u64)?
-                        .checked_mul(8)?
-                        .checked_add(1024)?,
-                )
-            })
-            .ok_or(EngineError::new(
-                ErrorCode::ResourceBudgetExceeded,
-                "correction storage exceeds admission",
-            ))?;
+        let declared_bytes = references.values().try_fold(0_u64, |n, a| {
+            n.checked_add(Self::coefficient_bytes(a)?)
+                .ok_or(EngineError::new(
+                    ErrorCode::ResourceBudgetExceeded,
+                    "correction storage exceeds admission",
+                ))
+        })?;
         Ok(Self {
             references,
             declared_bytes,
         })
+    }
+    pub(crate) fn coefficient_bytes(reference: &FirAssetReference) -> Result<u64, EngineError> {
+        reference.validate()?;
+        (reference.taps_per_channel as u64)
+            .checked_mul(reference.channels.count() as u64)
+            .and_then(|n| n.checked_mul(8))
+            .and_then(|n| n.checked_add(1024))
+            .ok_or(EngineError::new(
+                ErrorCode::ResourceBudgetExceeded,
+                "correction storage exceeds admission",
+            ))
+    }
+    pub(crate) fn declared_bytes(&self) -> u64 {
+        self.declared_bytes
+    }
+    pub(crate) fn references(&self) -> impl Iterator<Item = &'a FirAssetReference> + '_ {
+        self.references.values().copied()
     }
     /// One bounded source, packet, decoder buffer, and metadata during sequential resolution.
     pub fn scratch_bytes(&self) -> u64 {

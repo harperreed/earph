@@ -43,6 +43,22 @@ fn command(session: &Session, request: &str, payload: Command) -> CommandEnvelop
 }
 
 #[test]
+fn output_activity_capabilities_distinguish_support_from_observation() {
+    let mut session = owner("activity-owner");
+    let request = command(&session, "activity-capabilities", Command::Capabilities);
+    let receipt = serde_json::to_value(session.submit(request)).unwrap();
+    assert_eq!(
+        receipt["result"]["value"].get("output_activity"),
+        Some(&serde_json::json!({
+            "backends": [],
+            "scope": "output_instance_across_native_reopens",
+            "measurement_boundary": "core_audio_sdk_entry_calls"
+        }))
+    );
+    assert!(session.snapshot().observation.pcm().cloned().is_none());
+}
+
+#[test]
 fn scoped_owner_requires_current_identity_only_for_mutations() {
     let mut session = owner("owner-a");
     let mut append = command(
@@ -283,7 +299,10 @@ fn queue_query_bounds_worst_case_escaped_paths() {
         queue.append("\u{1}".repeat(1024)).unwrap();
     }
     let checkpoint = earph_core::session::SessionCheckpoint {
+        local_volume_policy: None,
+        configured_profile: None,
         profile_catalog: vec![],
+        profile_associations: vec![],
         graph_intent: None,
         volume_policy: Default::default(),
         output: None,

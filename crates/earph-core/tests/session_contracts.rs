@@ -205,6 +205,59 @@ fn retries_stale_revisions_and_request_id_conflicts_are_atomic() {
 }
 
 #[test]
+fn stop_keeps_its_exact_session_across_control_revisions() {
+    let mut s = session();
+    playing(&mut s);
+    let stop = command(&s, "stop-after-mute", Command::Stop);
+    let stale_unmute = command(&s, "stale-unmute", Command::Mute { muted: false });
+    let before = s.snapshot();
+    assert_eq!(
+        s.submit(command(&s, "mute-first", Command::Mute { muted: true }))
+            .status,
+        ReceiptStatus::Applied
+    );
+    assert!(s.snapshot().revision > before.revision);
+    assert_eq!(s.snapshot().session_id, before.session_id);
+    assert_eq!(s.snapshot().owner_id, before.owner_id);
+    assert_eq!(s.snapshot().epochs, before.epochs);
+    assert_eq!(
+        s.submit(stale_unmute).error.unwrap().code,
+        ErrorCode::StaleRevision
+    );
+    let mut missing_revision = command(&s, "stop-without-revision", Command::Stop);
+    missing_revision.expected_revision = None;
+    assert_eq!(
+        s.submit(missing_revision).error.unwrap().code,
+        ErrorCode::StaleRevision
+    );
+    let receipt = s.submit(stop.clone());
+    assert_eq!(receipt.status, ReceiptStatus::Applied, "{receipt:?}");
+    let stopped = s.snapshot();
+    assert!(stopped.muted);
+    assert_eq!(stopped.transport, TransportState::Idle);
+    assert!(stopped.session_id.is_none());
+    assert_eq!(s.submit(stop), receipt);
+    assert_eq!(s.snapshot(), stopped);
+}
+
+#[test]
+fn stop_rejects_changed_or_missing_session() {
+    let mut s = session();
+    playing(&mut s);
+    let before = s.snapshot();
+    for variant in 0..2 {
+        let mut stop = command(&s, &format!("wrong-stop-{variant}"), Command::Stop);
+        stop.expected_revision = Some(0);
+        match variant {
+            0 => stop.session_id = Some(SessionId::new("another-session").unwrap()),
+            _ => stop.session_id = None,
+        }
+        assert_eq!(s.submit(stop).error.unwrap().code, ErrorCode::StaleSession);
+        assert_eq!(s.snapshot(), before);
+    }
+}
+
+#[test]
 fn output_faults_cancellation_and_replacement_invalidate_pending_work() {
     let mut s = session();
     let start = start(&s, "pending", false);

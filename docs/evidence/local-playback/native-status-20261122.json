@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-22",
+  "scope": "Quiet playback status during background reads and explicit attach-only native startup.",
+  "requirement_ids": [
+    "ARCH-03",
+    "CTL-03"
+  ],
+  "acceptance_ids": [
+    "AC-03",
+    "AC-37"
+  ],
+  "source": {
+    "kind": "working_tree_snapshot",
+    "parent_commit": "fcfc8920a9d7dedc5e3206dc930dd6bcff86ccb2",
+    "source_commit": null,
+    "swift_archive_sha256": "743d28bd0b43657568eb7c52887a5a9bcdd6a85f7903aad413babe36d7cb4e4f",
+    "swift_files_verified": 15,
+    "changed_files": [
+      {
+        "file": "macos/Sources/Earph/ContentView.swift",
+        "sha256": "feae9ab6e83d4deb2f897bd3b8c833cfaffdf6d416e3c8aeff21c846acc3dfdd"
+      },
+      {
+        "file": "macos/Sources/Earph/ControllerStore.swift",
+        "sha256": "d575e325de76f30fd08ef4c96c2e96effc914eb93d67e5bcfc1e2fa6aa792c14"
+      },
+      {
+        "file": "macos/Sources/Earph/Presentation.swift",
+        "sha256": "073f5ea4ad6ceceb27f11291bd52d886d5d11bd2280003a40e9aef8a36db69b9"
+      },
+      {
+        "file": "macos/Tests/OwnerIntegrationTests.swift",
+        "sha256": "7c8b4c101ea977be5fd9ab483f8ee43a51a5a340757ec17147e48ea9ae80712e"
+      },
+      {
+        "file": "macos/Tests/PresentationTests.swift",
+        "sha256": "52b8f72e3ca30a98fd3a6f2ef3e884c7b3b9a591d8b62d4628cbc0b48f360dbd"
+      }
+    ]
+  },
+  "behavior": [
+    "Background State and Queue reads do not animate steady Playing or Paused status.",
+    "Connection attempts, source preparation, buffering, and pending Play retain progress feedback.",
+    "Automatic startup and Retry Connection use only Attach when process arguments include --attach-only.",
+    "Failed Attach reports its actual error without launching an Engine.",
+    "Ordinary startup retains automatic Engine launch."
+  ],
+  "native_checks": {
+    "target": "arm64-apple-macosx26.0",
+    "actual_exit": 0,
+    "compiler_linker_warnings": 0,
+    "checks": {
+      "controls": "pass",
+      "presentation": "pass",
+      "lifecycle": "pass",
+      "view": "pass",
+      "owner-integration": "pass",
+      "regressions": "pass"
+    },
+    "attach_only_absent_owner": {
+      "connected": false,
+      "host_kind": "idle",
+      "visible_error": true
+    },
+    "attach_only_existing_owner": {
+      "connected": true,
+      "same_owner_verified": true,
+      "host_kind": "idle"
+    },
+    "default_startup_real_owner_regressions_passed": true,
+    "all_owned_test_engines_retired": true,
+    "output_selected": false,
+    "source_started": false,
+    "expected_failure": {
+      "compile_exit": 0,
+      "actual_exit": 133,
+      "assertion": "Attach-only startup must never launch an Engine",
+      "exact_accidental_owner_retired": true
+    },
+    "private_green_outcome_sha256": "fcb1bdd290cbc458c5151949ae1ca4e3176af480988d3ae4ca2a3e3c79e25927",
+    "private_manifest_sha256": "afebc87271aeedb821098e192f33ed2e0ec6efd3eb1f7a2c117a75d6dfea09e5"
+  },
+  "products": {
+    "desktop_sha256": "2ad7837f6a6b06a11023464a22fa3dd2a8e328a2f3aab1cfe04fa363d6b09765",
+    "engine_sha256": "b76cdbeff4bc99eec8c3a11beab7b8ac49c7c174a5bedf3f816646358631d347",
+    "rust_rebuilt": false,
+    "retained_rust_provenance": "Original qualified working snapshot with parent700ad16; not a named current-commit build.",
+    "retained_rust_source_archive_sha256": "5a4c77a9d94572c37c6defdc022e5add6a55f114d3aa2836ef38fb4d16d3a223",
+    "retained_rust_source_inputs_verified": 449
+  },
+  "linux_gate": {
+    "scope": "Earlier four-file footer snapshot; predates the attach-only Swift delta and later metadata.",
+    "source_files": 2101,
+    "canonical_exit": 0,
+    "product_build_exit": 0,
+    "canonical_log_sha256": "f7b1d9f3e4ef708823ae158bbcb212d87eafe682e08a0201a9ab76a2f7ddfe32"
+  },
+  "reviews": {
+    "footer_source": "85719c9433df8d4a265afca658464c3dcf177d1dbfba40413fe72c6779d0d006",
+    "attach_only_source": "c1bf71402b4c78c2c8c46d2053a20cc58fe1f34a3220196471bea7b1a054ac6c",
+    "prior_delivery_finding": "Normal GUI startup could launch an owner after a failed read. That proposal remains uninstalled."
+  },
+  "limits": [
+    "This record does not establish installation of the new desktop.",
+    "Native view construction does not establish a composited visual result.",
+    "Silent checks do not establish audible playback or physical synchronization.",
+    "The separate delivery record names the earlier desktop heard by Doctor Biz.",
+    "Unsigned development products and the full first release remain unqualified."
+  ]
+}

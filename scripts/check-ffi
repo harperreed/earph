@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# ABOUTME: Builds pinned bindings and runs a real foreign client against the owner and CLI.
+# ABOUTME: Requires explicit test tools and preserves generated files and failure logs.
+set -euo pipefail
+umask 077
+cd "$(dirname "$0")/.."
+earph_language='' earph_output='' earph_kotlinc='' earph_jna='' earph_swiftc='swiftc'
+while (($#)); do
+  case "$1" in
+    --language|--output|--kotlinc|--jna|--swiftc)
+      if (($# < 2)); then printf 'error: %s requires a value\n' "$1" >&2; exit 2; fi
+      case "$1" in
+        --language) earph_language=$2;; --output) earph_output=$2;; --kotlinc) earph_kotlinc=$2;;
+        --jna) earph_jna=$2;; --swiftc) earph_swiftc=$2;;
+      esac
+      shift 2;;
+    --help) printf '%s\n' 'usage: scripts/check-ffi --language kotlin|swift --output NEW_ABSOLUTE_DIRECTORY [--kotlinc PATH --jna PATH] [--swiftc PATH]'; exit 0;;
+    *) printf 'error: unknown argument %s\n' "$1" >&2; exit 2;;
+  esac
+done
+if [[ $earph_output != /* || -e $earph_output || ! $earph_language =~ ^(kotlin|swift)$ ]]; then
+  printf '%s\n' 'error: choose kotlin or swift and a new absolute output directory' >&2; exit 2
+fi
+command -v cargo >/dev/null
+command -v node >/dev/null
+if [[ $earph_language == kotlin ]]; then
+  [[ -x $earph_kotlinc && -f $earph_jna ]] || { printf '%s\n' 'error: Kotlin requires --kotlinc and --jna' >&2; exit 2; }
+  command -v java >/dev/null
+else
+  command -v "$earph_swiftc" >/dev/null
+fi
+mkdir -p "$(dirname "$earph_output")"
+mkdir "$earph_output"
+node --test scripts/ffi-owner-readiness.test.mjs > "$earph_output/readiness-tests.log" 2>&1
+cargo build --locked -p earph-ffi --features bindgen --bin earph-bindgen > "$earph_output/bindgen-build.log" 2>&1
+cargo clippy --locked -p earph-ffi --all-targets --features bindgen -- -D warnings > "$earph_output/bindgen-clippy.log" 2>&1
+cargo build --locked -p earph-ffi --lib > "$earph_output/library-build.log" 2>&1
+cargo build --locked -p earph-engine --bin earph-engine > "$earph_output/engine-build.log" 2>&1
+cargo metadata --locked --format-version 1 --no-deps > "$earph_output/metadata-private.json"
+earph_target_dir=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1])).target_directory)' "$earph_output/metadata-private.json")
+case $(uname -s) in
+  Linux) earph_library="$earph_target_dir/debug/libearph_ffi.so";;
+  Darwin) earph_library="$earph_target_dir/debug/libearph_ffi.dylib";;
+  *) printf '%s\n' 'error: only Linux and macOS are supported by this gate' >&2; exit 2;;
+esac
+"$earph_target_dir/debug/earph-bindgen" generate "$earph_library" --language "$earph_language" --no-format --out-dir "$earph_output/generated" > "$earph_output/generate.log" 2>&1
+if [[ $earph_language == kotlin ]]; then
+  node scripts/prepare-jna.mjs "$earph_jna" "$earph_output/jna-native" > "$earph_output/prepare-jna.log" 2>&1
+  mkdir "$earph_output/compiler-tmp"
+  earph_java_options=("-J-Djna.nounpack=true" "-J-Djna.noclasspath=true" "-J-Djna.nosys=true" "-J-Djna.boot.library.path=$earph_output/jna-native" "-J-Djna.tmpdir=$earph_output/compiler-tmp" "-J-Djava.io.tmpdir=$earph_output/compiler-tmp")
+  "$earph_kotlinc" "${earph_java_options[@]}" -version > "$earph_output/compiler-version.log" 2>&1
+  java -version > "$earph_output/java-version.log" 2>&1
+  "$earph_kotlinc" "${earph_java_options[@]}" -Werror -classpath "$earph_jna" "$earph_output/generated/uniffi/earph_ffi/earph_ffi.kt" crates/earph-ffi/tests/foreign/Smoke.kt -include-runtime -d "$earph_output/smoke.jar" > "$earph_output/compile.log" 2>&1
+  node scripts/ffi-scenario.mjs --engine "$earph_target_dir/debug/earph-engine" --library "$earph_library" --language kotlin --output "$earph_output/scenario" --java "$(command -v java)" --jar "$earph_output/smoke.jar" --jna "$earph_jna" --jna-native "$earph_output/jna-native" > "$earph_output/scenario.log" 2>&1
+else
+  "$earph_swiftc" --version > "$earph_output/compiler-version.log" 2>&1
+  "$earph_swiftc" -parse-as-library -warnings-as-errors -I "$earph_output/generated" -L "$(dirname "$earph_library")" -learph_ffi -Xcc "-fmodule-map-file=$earph_output/generated/earph_ffiFFI.modulemap" "$earph_output/generated/earph_ffi.swift" crates/earph-ffi/tests/foreign/Smoke.swift -o "$earph_output/smoke" > "$earph_output/compile.log" 2>&1
+  node scripts/ffi-scenario.mjs --engine "$earph_target_dir/debug/earph-engine" --library "$earph_library" --language swift --output "$earph_output/scenario" --program "$earph_output/smoke" > "$earph_output/scenario.log" 2>&1
+fi
+cat "$earph_output/scenario/summary.json"
+printf 'Preserved full logs: %s\n' "$earph_output"

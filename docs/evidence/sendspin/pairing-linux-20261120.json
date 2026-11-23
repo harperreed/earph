@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "scope": "Bounded Pairing PSK token, protected catalog, reducer, and synthetic durable fixture on Linux",
+  "spec_revision": "9d2f15ee8f172c67ce00dc0d9f6603c3b1030d9f",
+  "baseline_commit": "ce0be5bd1dd5da8782cd89b5f14cc9f4248115d2",
+  "source_dirty": true,
+  "implementation_patch_sha256": "131f973d6db9e2d196f4df58384c86724e04aa4ba360d02e8a30d8dccc1f31b8",
+  "before_manifest_sha256": "9e11ef3326bc9d763746960f6c43639ef1a3dd1de715b82fc5e87b863e2adfea",
+  "after_manifest_sha256": "6a2374125454214802d6ce151fe66eb7ef6d8468029a163a3c09cee3cf4d8fc5",
+  "source_files": [
+    {
+      "path": "crates/earph-sendspin/README.md",
+      "sha256": "69dfe5ab02de1f417b1c791047fe890dfa14e0487f7e2ddded86b0a23f5add08"
+    },
+    {
+      "path": "crates/earph-sendspin/src/lib.rs",
+      "sha256": "5269cdb983d28ac97bf6638adcbe7bfd8389c14dcfc66f1e3690639f43858270"
+    },
+    {
+      "path": "crates/earph-sendspin/src/pairing.rs",
+      "sha256": "8523fb63659a897d62fa8e1779764fe3a58cd4b0f42468ea342ae8de1d21b13e"
+    },
+    {
+      "path": "crates/earph-sendspin/src/pairing_token.rs",
+      "sha256": "f46d0b3286ae11fc19c4b6888f9c09df9142c6a9e3fedf9e99851d4d453ccffd"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/pairing.rs",
+      "sha256": "b7ef2e2ffaab8202154879a623fca621504cb67eca63c504cd1270aafe58d45f"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/pairing_end_to_end.rs",
+      "sha256": "b3172236840dfbbc239f235943b149a437b6b6caac0aff65d47510560f4e4361"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/pairing_python.rs",
+      "sha256": "c5f0dd24b9ce1d033825469f8b389055f9ecabc33f320a4a92b980bae0ed2b0e"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/pairing_token.rs",
+      "sha256": "4db7938ed445e45f4c289649a9cbe7135083d7be4769259d100fb40624e8b81d"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/support/pairing_fixture.rs",
+      "sha256": "5ff82c06a7883dfdcc7297770589e1ea48ce98f21de609568409bead9184d3e4"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/support/pairing_peer.py",
+      "sha256": "18b0b52146dc43f209561e0f681a744a5bce16dcc8e0d18174777396b96d8b35"
+    },
+    {
+      "path": "docs/sendspin-pairing.md",
+      "sha256": "7ff3bbfe003d4b2158ee8a8573b3bbae87a08495e3d285d8c0ba32445658c091"
+    }
+  ],
+  "noise_source_sha256": "d0fe4db3ccc2515d32f17041e851b9aadf6b2b3ae8070f286ad54b6e0666d9b8",
+  "cargo_lock_sha256": "3f9225b14df8589a64af14020698ad6ac1ce3dc4062f89e0b9cb786314b48801",
+  "dependencies_changed": false,
+  "checks": {
+    "focused-final": {
+      "command": "cargo test --locked -p earph-sendspin",
+      "exit_code": 0,
+      "log_sha256": "786f34af26a4851f508e0be5ebb8d47e01c80e5d8c03c012898aa51b0ebe02b0"
+    },
+    "python-final": {
+      "command": "cargo test --locked -p earph-sendspin -- --ignored --nocapture",
+      "exit_code": 0,
+      "log_sha256": "3eac7b304e1efb4f6ce9312860232c18bc6d3bc9943e5599fd434e6bacca1d6c"
+    },
+    "clippy-final": {
+      "command": "cargo clippy --locked -p earph-sendspin --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log_sha256": "c3753cb0ced3f79321ac02484314017340538532825eec4f81a42638b056a56e"
+    },
+    "fmt-final": {
+      "command": "cargo fmt -p earph-sendspin -- --check",
+      "exit_code": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "tests": {
+    "portable_passed": 54,
+    "portable_failed": 0,
+    "portable_ignored": 4,
+    "new_portable_passed": 33,
+    "existing_portable_passed": 21,
+    "explicit_peer_tests_passed": 4,
+    "existing_noise_modes": 11,
+    "pairing_modes": [
+      "token_both_directions",
+      "actual_python_client_reference",
+      "actual_python_server_consumer",
+      "actual_python_server_lost_ack"
+    ]
+  },
+  "peer": {
+    "implementation": "aiosendspin 10.2.1",
+    "commit": "692831b07bc453a38d5a39a16ee566141547bfa1",
+    "python": "3.12.11",
+    "launcher": "Existing isolated pinned uv project; offline and no-sync",
+    "launcher_sha256": "58b12344cde2cb90c3db7a2c2be87132d07a6244feb55b46ec47a831f45b5d8f",
+    "installed_module_hashes_verified": [
+      "pairing.py",
+      "pairing_token.py",
+      "trust_store.py",
+      "session.py"
+    ]
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "reported_tests": {
+      "passed": 1454,
+      "failed": 0,
+      "ignored": 9,
+      "groups": 161
+    },
+    "log_sha256": "bd51c4898a3cdbf3bd91e22f3f80a62aff4507212a639c148154226d4a1dd553",
+    "product_build_exit": 0,
+    "count_note": "Reported blocks include child results. All four ignored Sendspin peer tests ran separately."
+  },
+  "independent_review": {
+    "status": "complete",
+    "material_findings": 0,
+    "review_sha256": "d2f6038518f7257d45193139bd4d501cbf54adfa0b149df302efb063fa4b6f4a"
+  },
+  "boundaries": {
+    "operator_credentials_used": false,
+    "network_listeners": false,
+    "network_connections": false,
+    "audio_output": false,
+    "app_started": false,
+    "production_persistence_added": false,
+    "production_plaintext_fallback": false,
+    "full_rehandshake_added": false
+  },
+  "limitations": [
+    "Production credential adapter and metadata placement remain undecided.",
+    "One ordered owner must fence writes and serialize commit completion.",
+    "The owner must cap open paired connections below catalog capacity.",
+    "The current Pairing PSK session remains unpaired after record storage.",
+    "No app/UI/network Music Assistant or macOS qualification is claimed."
+  ],
+  "source": {
+    "baseline_commit": "ce0be5bd1dd5da8782cd89b5f14cc9f4248115d2",
+    "source_dirty": true,
+    "qualified_archive_sha256": "2dc7ab29e61eea6533968693a2ddeb7fbeda72417e473d6cba947d9300c0919b",
+    "qualified_source_files": 1935,
+    "source_unchanged_during_checks": true
+  },
+  "integrated_peer": {
+    "command": "cargo test --locked -p earph-sendspin -- --ignored --nocapture",
+    "exit": 0,
+    "tests_passed": 4,
+    "noise_modes": 11,
+    "log_sha256": "054731bf6b3d082278cefe7c1249d6bcf8257658dc562a9fa5d0c10991e6aa64",
+    "launcher_sha256": "544b561d4c7c9cc3a9803f4e0f125126c4925222d0e5223ed3178e7f06ce78a4",
+    "network_connections": false,
+    "audio_output": false,
+    "operator_credentials_used": false
+  }
+}

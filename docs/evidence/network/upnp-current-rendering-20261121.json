@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "scope": "current-source native rendering reads and no-active-source mutation refusals",
+  "source_head": "fcfc8920a9d7dedc5e3206dc930dd6bcff86ccb2",
+  "source_files_verified": 2098,
+  "engine_source_inputs_sha256": "f540bce4f5e535ee5d445eff648530a08c8e91f895c1119cc44871c9339a4148",
+  "renderer_fixture_sha256": "0903015b780292ce3f70dc5b74dff8078331d2f0c94696e4364e76ccb3113b42",
+  "device_helper_binary_sha256": "8f44e92406607719ee234d5a850a8b2184b42c227ea42694c6d41c944ee6f3bf",
+  "device_helper_is_renderer_binary": false,
+  "renderer_is_final_named_release_binary": false,
+  "private_result_sha256": "42bd93eb87581da6c5664b92a728db7260a8ba965fca3c9471fe92f25bf844af",
+  "native_discovered_services": 3,
+  "native_actions": [
+    {
+      "action": "GetMute",
+      "ordered_arguments": [
+        {
+          "name": "InstanceID",
+          "gtype": "guint",
+          "value": 0
+        },
+        {
+          "name": "Channel",
+          "gtype": "gchararray",
+          "value": "Master"
+        }
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": [
+        {
+          "name": "CurrentMute",
+          "value": true
+        }
+      ],
+      "fault_code": null
+    },
+    {
+      "action": "GetVolume",
+      "ordered_arguments": [
+        {
+          "name": "InstanceID",
+          "gtype": "guint",
+          "value": 0
+        },
+        {
+          "name": "Channel",
+          "gtype": "gchararray",
+          "value": "Master"
+        }
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": [
+        {
+          "name": "CurrentVolume",
+          "value": 20467
+        }
+      ],
+      "fault_code": null
+    },
+    {
+      "action": "SetMute",
+      "ordered_arguments": [
+        {
+          "name": "InstanceID",
+          "gtype": "guint",
+          "value": 0
+        },
+        {
+          "name": "Channel",
+          "gtype": "gchararray",
+          "value": "Master"
+        },
+        {
+          "name": "DesiredMute",
+          "gtype": "gboolean",
+          "value": true
+        }
+      ],
+      "http_status": 500,
+      "native_success": false,
+      "outputs": null,
+      "fault_code": 501
+    },
+    {
+      "action": "GetMute",
+      "ordered_arguments": [
+        {
+          "name": "InstanceID",
+          "gtype": "guint",
+          "value": 0
+        },
+        {
+          "name": "Channel",
+          "gtype": "gchararray",
+          "value": "Master"
+        }
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": [
+        {
+          "name": "CurrentMute",
+          "value": true
+        }
+      ],
+      "fault_code": null
+    },
+    {
+      "action": "SetVolume",
+      "ordered_arguments": [
+        {
+          "name": "InstanceID",
+          "gtype": "guint",
+          "value": 0
+        },
+        {
+          "name": "Channel",
+          "gtype": "gchararray",
+          "value": "Master"
+        },
+        {
+          "name": "DesiredVolume",
+          "gtype": "guint",
+          "value": 0
+        }
+      ],
+      "http_status": 500,
+      "native_success": false,
+      "outputs": null,
+      "fault_code": 501
+    },
+    {
+      "action": "GetVolume",
+      "ordered_arguments": [
+        {
+          "name": "InstanceID",
+          "gtype": "guint",
+          "value": 0
+        },
+        {
+          "name": "Channel",
+          "gtype": "gchararray",
+          "value": "Master"
+        }
+      ],
+      "http_status": 200,
+      "native_success": true,
+      "outputs": [
+        {
+          "name": "CurrentVolume",
+          "value": 20467
+        }
+      ],
+      "fault_code": null
+    }
+  ],
+  "evidence_boundary": "Native GUPnP actions and normalized Soup semantic logs; not exact outgoing HTTP bytes",
+  "unchanged_silent_fences": true,
+  "rendering_grant_revoked": true,
+  "sdk_all_joined": true,
+  "sdk_poisoned_after_intentional_browser_retirement": true,
+  "sdk_shutdown_error": null,
+  "owner_joined": true,
+  "ssdp_closed": true,
+  "containers_stopped_pid_zero": true,
+  "bridge_peers_remaining": 0,
+  "operations": {
+    "build_exit": 0,
+    "native_runtime_exit": 0,
+    "result_collection_exit": 0
+  },
+  "limits": [
+    "No successful renderer mutation or active-source playback",
+    "No Music Assistant rerun, subscriptions, events, seek, restart, fault proxy, or next-URI matrix",
+    "No macOS, physical-output, acoustic, or final named-release qualification",
+    "Normalized semantic SOAP does not establish exact outgoing HTTP bytes",
+    "Old GTK controller402 root cause remains unproven"
+  ],
+  "ac15_complete": false,
+  "whole_release_complete": false
+}

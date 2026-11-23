@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "uniffi",
+    "uniffi_bindgen",
+    "uniffi_core",
+    "uniffi_internal_macros",
+    "uniffi_macros",
+    "uniffi_meta",
+    "uniffi_pipeline",
+    "uniffi_udl"
+  ],
+  "version": "0.32.2",
+  "repository": "https://github.com/mozilla/uniffi-rs",
+  "revision": "7bc621ee9d0d15371d792612707ba5ed4111f950",
+  "license_expression": "MPL-2.0",
+  "license_file": "LICENSE",
+  "license_sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+  "source_url": "https://raw.githubusercontent.com/mozilla/uniffi-rs/7bc621ee9d0d15371d792612707ba5ed4111f950/LICENSE",
+  "verified_on": "2026-11-18"
+}

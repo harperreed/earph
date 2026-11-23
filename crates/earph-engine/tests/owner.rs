@@ -81,6 +81,10 @@ fn real_owner_persists_queue_and_restarts_paused_without_output() {
     assert_eq!(state["receipt"]["result"]["value"]["transport"], "paused");
     assert_eq!(state["receipt"]["result"]["value"]["muted"], true);
     assert_eq!(state["receipt"]["result"]["value"]["source"], Value::Null);
+    assert_eq!(
+        state["receipt"]["result"]["value"].get("playback"),
+        Some(&Value::Null)
+    );
     let queue: Value = serde_json::from_slice(
         &request(
             &runtime,
@@ -368,7 +372,18 @@ fn directory_capacity_and_scan_limits_reject_without_partial_append() {
     for (name, count) in [("wav", 257), ("txt", 4097)] {
         let runtime = runtime();
         let owner = EngineOwner::bind(&runtime).unwrap();
-        let music = runtime.join("music");
+        // Keep large retained entry sets outside shared temporary storage.
+        let fixtures =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/owner-directory-limits");
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&fixtures)
+            .unwrap();
+        let music = fixtures
+            .canonicalize()
+            .unwrap()
+            .join(runtime.file_name().unwrap());
         fs::DirBuilder::new().mode(0o700).create(&music).unwrap();
         for index in 0..count {
             fs::write(music.join(format!("{index}.{name}")), []).unwrap();
@@ -563,7 +578,10 @@ fn maximum_escaped_queue_restores_and_returns_bounded_pages() {
         queue.append("\u{1}".repeat(1024)).unwrap();
     }
     let checkpoint = earph_core::session::SessionCheckpoint {
+        local_volume_policy: None,
+        configured_profile: None,
         profile_catalog: vec![],
+        profile_associations: vec![],
         graph_intent: None,
         volume_policy: Default::default(),
         output: None,

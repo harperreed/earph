@@ -69,6 +69,70 @@ fn shutdown(runtime: &Path) {
 }
 
 #[test]
+fn owner_advertises_bounded_application_and_refuses_imported_device_trust() {
+    let runtime = support::runtime();
+    let owner = EngineOwner::bind(&runtime).unwrap();
+    let host = thread::spawn(move || owner.serve().unwrap());
+    let before = state(&runtime);
+    let capabilities = call(
+        &runtime,
+        &envelope(
+            "capabilities",
+            &before,
+            json!({"method":"capabilities.get"}),
+        ),
+    );
+    let profiles = &capabilities["receipt"]["result"]["value"]["profiles"];
+    assert_eq!(
+        capabilities["receipt"]["result"]["value"]["output_activity"],
+        json!({
+            "backends": if cfg!(target_os = "macos") { vec!["core_audio"] } else { vec![] },
+            "scope": "output_instance_across_native_reopens",
+            "measurement_boundary": "core_audio_sdk_entry_calls"
+        })
+    );
+    assert_eq!(profiles["apply"], true);
+    assert_eq!(profiles["exact_associations"], cfg!(target_os = "macos"));
+    assert_eq!(
+        profiles["exact_association_backends"],
+        if cfg!(target_os = "macos") {
+            json!(["core_audio"])
+        } else {
+            json!([])
+        }
+    );
+    assert_eq!(
+        profiles["application"],
+        json!({"volume_modes":["software","fixed"],"requires_current_output":true,
+        "fixed_requires_current_arming":true,"fixed_requires_unity_gain":true,"fixed_requires_zero_gain_ramp":true,
+        "requires_output_consent":true,"requires_matching_fidelity":true,
+        "live_selected_profile_update":false,"finite_aggregate_src_latency":false})
+    );
+    let bind = envelope(
+        "bind",
+        &before,
+        json!({"method":"profiles.bind","id":"headphones",
+        "expected_profile_revision":1,"profile_sha256":"c".repeat(64),"expected_device_epoch":0}),
+    );
+    let denied = call(&runtime, &bind);
+    assert_eq!(denied["receipt"]["error"]["code"], "STALE_SESSION");
+    let mut imported_trust = bind;
+    imported_trust["payload"]["device_identity_sha256"] = json!("d".repeat(64));
+    assert_eq!(
+        earph_core::control::decode_command(
+            &serde_json::to_vec(&imported_trust).unwrap(),
+            &earph_core::control::ControlLimits::default()
+        )
+        .unwrap_err()
+        .code,
+        earph_core::ErrorCode::AssetInvalid
+    );
+    assert_eq!(state(&runtime)["revision"], before["revision"]);
+    shutdown(&runtime);
+    host.join().unwrap();
+}
+
+#[test]
 fn real_owner_saves_updates_resolves_and_restores_without_output_authority() {
     let runtime = support::runtime();
     let owner = EngineOwner::bind(&runtime).unwrap();

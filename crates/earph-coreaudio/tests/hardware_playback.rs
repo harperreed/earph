@@ -51,13 +51,13 @@ fn device_clock(device: u32) -> Value {
         "sample_time_frames":(status==0 && stamp.mFlags.contains(AudioTimeStampFlags::SampleTimeValid) && stamp.mSampleTime.is_finite()).then_some(stamp.mSampleTime)})
 }
 fn checkpoint(output: &CoreAudioOutput, phase: &str, observations: &mut Vec<Value>) {
-    observations.push(json!({"phase":phase,"progress":output.progress(),"callback_timing":output.callback_timing(),
+    observations.push(json!({"phase":phase,"progress":output.progress(),"restart_cursor_frames":output.restart_cursor_frames().ok().flatten(),"callback_timing":output.callback_timing(),
         "device_clock":if output.state()==OutputState::Running {device_clock(output.report().observed.object_id)}else{Value::Null},
         "scheduled_output_complete":match output.scheduled_output_complete() {Ok(value)=>json!(value),Err(error)=>json!({"error":error})}}));
 }
 fn wait_for(
     output: &CoreAudioOutput,
-    condition: impl Fn(OutputProgress) -> bool,
+    condition: impl Fn(OutputProgress, Option<u64>) -> bool,
 ) -> Result<OutputProgress, String> {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -65,7 +65,12 @@ fn wait_for(
         if progress.fault || progress.state != OutputState::Running {
             return Err("output faulted during native acceptance".into());
         }
-        if condition(progress) {
+        if condition(
+            progress,
+            output
+                .restart_cursor_frames()
+                .map_err(|error| error.to_string())?,
+        ) {
             return Ok(progress);
         }
         if Instant::now() >= deadline {
@@ -92,24 +97,32 @@ fn exercise(
         .start(SignalPermission::Granted)
         .map_err(|error| error.to_string())?;
     checkpoint(output, "started", observations);
-    let pause = wait_for(output, |progress| {
-        progress.callback_delivered_frames >= fixture.pause_at_frames
+    wait_for(output, |_, frontier| {
+        frontier.is_some_and(|frame| frame >= fixture.pause_at_frames)
     })?;
-    if pause.callback_delivered_frames >= fixture.quiet_until_frames {
+    if output
+        .restart_cursor_frames()
+        .map_err(|error| error.to_string())?
+        .is_none_or(|frame| frame >= fixture.quiet_until_frames)
+    {
         return Err("worker missed the prepared silent pause window".into());
     }
     checkpoint(output, "before_pause", observations);
     output.pause().map_err(|error| error.to_string())?;
     checkpoint(output, "paused", observations);
-    let paused = output.progress();
+    let paused_frontier = output
+        .restart_cursor_frames()
+        .map_err(|error| error.to_string())?;
     let timing = output.callback_timing();
     if timing.output_host_time_ticks.is_some() || timing.output_sample_time_frames.is_some() {
         return Err("pause retained an old SDK timestamp".into());
     }
     std::thread::sleep(Duration::from_millis(100));
     let held = output.progress();
-    if held.callback_delivered_frames != paused.callback_delivered_frames
-        || held.callbacks_observed != paused.callbacks_observed
+    if output
+        .restart_cursor_frames()
+        .map_err(|error| error.to_string())?
+        != paused_frontier
         || held.fault
     {
         return Err("callback delivery advanced or faulted while paused".into());
@@ -119,18 +132,11 @@ fn exercise(
         .resume(SignalPermission::Granted)
         .map_err(|error| error.to_string())?;
     checkpoint(output, "resumed", observations);
-    if output.callback_timing().generation <= timing.generation {
-        return Err("resume did not invalidate its SDK clock generation".into());
-    }
     output.finish().map_err(|error| error.to_string())?;
-    let delivered = wait_for(output, |progress| {
-        progress.callback_delivered_frames == frames as u64
+    wait_for(output, |progress, _| {
+        progress.queue_acquired_frames == Some(frames as u64)
     })?;
-    checkpoint(output, "application_ring_drained", observations);
-    wait_for(output, |progress| {
-        progress.callbacks_observed >= delivered.callbacks_observed + 2
-    })?;
-    checkpoint(output, "two_following_callbacks", observations);
+    checkpoint(output, "queue_buffers_acquired_not_played", observations);
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         if output
@@ -229,10 +235,9 @@ fn run() -> Check {
     let unchanged = after
         .as_ref()
         .is_ok_and(|after| settings(&before) == settings(after));
-    let timestamps = observations.iter().any(|item| {
-        !item["callback_timing"]["output_host_time_ticks"].is_null()
-            && !item["callback_timing"]["output_sample_time_frames"].is_null()
-    });
+    let timestamps = observations
+        .iter()
+        .any(|item| !item["restart_cursor_frames"].is_null());
     let clock = observations.iter().any(|item| {
         item["device_clock"]["os_status"] == 0
             && !item["device_clock"]["sample_time_frames"].is_null()
@@ -252,9 +257,9 @@ fn run() -> Check {
         "format":format,"buffer_frames":before.buffer_frames,"generated_frames":fixture.block.header().frame_count,
         "stimulus_payload_encoding":"signed24_little_endian_interleaved","stimulus_payload_sha256":stimulus_sha256,
         "planned_operations":["start","pause","resume","finish","stop","close"],"final_progress":output.progress(),
-        "valid_sdk_output_timestamps_observed":timestamps,"current_device_sample_clock_observed":clock,
+        "validated_audio_queue_client_clock_observed":timestamps,"current_device_sample_clock_observed":clock,
         "sdk_hardware_handoff_complete":handoff,
-        "pause_delivery_held":result.is_ok(),"settings_unchanged":unchanged,"hardware_presentation":"unknown","dac_preservation":"unverified",
+        "pause_queue_clock_held":result.is_ok(),"settings_unchanged":unchanged,"hardware_presentation":"unknown","dac_preservation":"unverified",
         "build":earph_harness::build_provenance()});
     write_report(
         &mut raw_file,

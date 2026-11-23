@@ -1,0 +1,3881 @@
+// ABOUTME: Coordinates bounded native workflows using actual owner snapshots and receipts.
+// ABOUTME: Fences queue pages and captured edits without repairing stale targets.
+use super::diagnostics::Views as DiagnosticViews;
+use super::profile_files::{CorrectionPreview, CorrectionPreviewRequest, CorrectionWorker};
+use super::{HostStatus, host::OwnerHost, request_id};
+use super::{
+    package_files::{self, PackageRead},
+    packages::Review as PackageReview,
+    profile_files::LocalFileWorker,
+};
+use crate::{
+    CapabilitiesView, DeliveryFailure, DesktopClient, DeviceQueryResultView, DispatchError,
+    GraphDiagnosticView, GraphInspectionView, GraphPreparedView, GraphPreviewView, Lane,
+    Presentation, PresentationModel, ProfilePageView, ProfileRecordView, ProfileResolutionView,
+    QueueView, Reply, Request, RequestRecord, ResultView, StateView, SubmitError,
+};
+use earph_core::{
+    control::{Command, OutputBackend},
+    ids::{OwnerId, RequestId, SessionId, ZoneId},
+};
+use std::{
+    path::{Component, Path, PathBuf},
+    sync::Arc,
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
+};
+#[path = "workflow_playback.rs"]
+mod playback;
+use playback::{LocalPlay, PlayMutation, StopTarget};
+
+pub enum UiIntent {
+    Attach {
+        runtime: String,
+    },
+    Launch {
+        runtime: String,
+        executable: PathBuf,
+    },
+    Disconnect,
+    Refresh,
+    QueueEdit {
+        basis: Arc<StateView>,
+        command: Command,
+    },
+    ControlEdit {
+        basis: Arc<StateView>,
+        command: Command,
+    },
+    StartLocal {
+        basis: Arc<StateView>,
+        takeover: bool,
+    },
+    PlayLocal {
+        basis: Arc<StateView>,
+        takeover: bool,
+        entry_id: Option<earph_core::ids::QueueEntryId>,
+    },
+    SetVolume {
+        basis: Arc<StateView>,
+        millidecibels: i32,
+        ramp_frames: u32,
+    },
+    Discover {
+        backend: OutputBackend,
+        endpoint: Option<String>,
+    },
+    ProfileAction {
+        basis: Arc<StateView>,
+        command: Command,
+    },
+    DiagnosticAction {
+        basis: Arc<StateView>,
+        command: Command,
+    },
+    DiagnosticDestination(String),
+    ReviewDiagnosticPreview,
+    PreviewCorrection {
+        basis: Arc<StateView>,
+        request: CorrectionPreviewRequest,
+    },
+    InvalidateCorrection,
+    ReviewCorrection {
+        owner: OwnerId,
+        reference: earph_core::profile_control::ProfileCatalogReference,
+    },
+    ReviewFirAsset {
+        owner: OwnerId,
+        asset: earph_core::dsp_nodes::FirAssetReference,
+    },
+    PackageInputs {
+        directory: String,
+        destination: String,
+    },
+    ReadPackageObject {
+        index: usize,
+    },
+    MarkPackageObjectReviewed,
+    PackageAcknowledgments {
+        exact: bool,
+        private: bool,
+        measurements: bool,
+    },
+    ExportReviewedPackage,
+    CancelLocalPackageReview,
+    DiscardPreparedGraph,
+    Mute,
+    Stop,
+    Reconcile(RequestId),
+    ShutdownAndQuit,
+    CloseController,
+    /// Stops the attached Engine, then closes. Quit never leaves audio playing.
+    Quit,
+}
+pub struct Receipt<'a> {
+    pub request: &'a Request,
+    pub presentation: Presentation,
+    pub in_flight: bool,
+    pub owner_changed: bool,
+    pub outcome: &'a Option<Result<Reply, DeliveryFailure>>,
+}
+fn record_view(r: &RequestRecord) -> Receipt<'_> {
+    Receipt {
+        request: &r.request,
+        presentation: r.presentation,
+        in_flight: r.in_flight,
+        owner_changed: r.owner_changed,
+        outcome: &r.outcome,
+    }
+}
+fn same_context(a: &StateView, b: &StateView) -> bool {
+    a.owner_id == b.owner_id
+        && a.zone_id == b.zone_id
+        && a.session_id == b.session_id
+        && a.revision == b.revision
+        && a.epochs == b.epochs
+        && a.output == b.output
+        && a.device_epoch == b.device_epoch
+        && a.graph_epoch == b.graph_epoch
+        && a.active_entry_id == b.active_entry_id
+}
+fn same_review_context(a: &StateView, b: &StateView) -> bool {
+    a.owner_id == b.owner_id
+        && a.zone_id == b.zone_id
+        && a.session_id == b.session_id
+        && a.epochs == b.epochs
+        && a.output == b.output
+        && a.device_epoch == b.device_epoch
+        && a.graph_epoch == b.graph_epoch
+        && a.active_entry_id == b.active_entry_id
+        && a.source == b.source
+}
+pub(super) struct ObservedProfile<T> {
+    pub basis: Arc<StateView>,
+    pub request_ids: Vec<RequestId>,
+    pub command: Command,
+    pub value: T,
+}
+#[derive(Default)]
+pub(super) struct ProfileViews {
+    pub catalog: Option<ObservedProfile<ProfilePageView>>,
+    pub record: Option<ObservedProfile<Arc<ProfileRecordView>>>,
+    pub resolution: Option<ObservedProfile<ProfileResolutionView>>,
+    pub graph: Option<ObservedProfile<Arc<GraphInspectionView>>>,
+    pub preview: Option<ObservedProfile<Arc<GraphPreviewView>>>,
+    pub prepared: Option<ObservedProfile<GraphPreparedView>>,
+    pub diagnostic: Option<(RequestId, Arc<GraphDiagnosticView>)>,
+    pub fir_asset: Option<ObservedProfile<Arc<earph_core::dsp_nodes::FirAssetReference>>>,
+    pub package: Option<ObservedProfile<Arc<crate::ProfilePackageResultView>>>,
+    pub package_issue: Option<(RequestId, Arc<crate::ProfilePackageIssueView>)>,
+    pub bound: Option<ObservedProfile<Arc<earph_core::profiles::ProfileAssociation>>>,
+}
+enum FileWorker {
+    Correction(CorrectionWorker),
+    Package(LocalFileWorker<PackageRead>, Option<Command>),
+}
+enum FileResult {
+    Correction(Result<CorrectionPreview, String>),
+    Package(Result<PackageRead, String>, Option<Command>),
+}
+impl FileWorker {
+    fn cancel(&self) {
+        match self {
+            Self::Correction(worker) => worker.cancel(),
+            Self::Package(worker, _) => worker.cancel(),
+        }
+    }
+    fn poll(&mut self) -> Option<FileResult> {
+        match self {
+            Self::Correction(worker) => worker.poll().map(FileResult::Correction),
+            Self::Package(worker, command) => worker
+                .poll()
+                .map(|result| FileResult::Package(result, command.take())),
+        }
+    }
+}
+struct LocalWork {
+    basis: Arc<StateView>,
+    draft_epoch: u64,
+    worker: FileWorker,
+    canceled: bool,
+}
+struct CapturedCorrection {
+    basis: Arc<StateView>,
+    draft_epoch: u64,
+    value: CorrectionPreview,
+}
+struct UnresolvedPackageWrite {
+    request: RequestId,
+    directory: String,
+    issue: Arc<crate::ProfilePackageIssueView>,
+}
+struct ProfileRead {
+    basis: Arc<StateView>,
+    command: Command,
+    foreground: bool,
+    pages: Option<ProfilePageView>,
+    ids: Vec<RequestId>,
+}
+enum Task {
+    PackageFiles {
+        basis: Arc<StateView>,
+        manifest: earph_core::profiles::ProfileObjectHash,
+        index: Option<usize>,
+        operation: Option<Command>,
+        draft_epoch: u64,
+    },
+    LocalPreview {
+        basis: Arc<StateView>,
+        request: CorrectionPreviewRequest,
+        draft_epoch: u64,
+    },
+    Before,
+    Capabilities,
+    Page(usize),
+    After,
+    Preflight {
+        basis: Arc<StateView>,
+        command: Command,
+        session: Option<SessionId>,
+        draft_epoch: u64,
+        play: Option<PlayMutation>,
+    },
+    VolumePreflight {
+        basis: Arc<StateView>,
+        command: Command,
+    },
+    Mutation {
+        draft_epoch: u64,
+    },
+    Discovery {
+        command: Command,
+        owner: OwnerId,
+    },
+    Diagnostic {
+        basis: Arc<StateView>,
+        command: Command,
+    },
+    Reconcile(RequestId),
+    ProfileBefore {
+        basis: Option<Arc<StateView>>,
+        command: Command,
+        foreground: bool,
+    },
+    ProfileResult(ProfileRead),
+    ProfileAfter {
+        read: ProfileRead,
+        result: ResultView,
+    },
+}
+impl Task {
+    fn edits_foreground(&self) -> bool {
+        matches!(
+            self,
+            Self::Preflight { .. }
+                | Self::VolumePreflight { .. }
+                | Self::Mutation { .. }
+                | Self::Discovery { .. }
+                | Self::Diagnostic { .. }
+                | Self::Reconcile(_)
+                | Self::LocalPreview { .. }
+                | Self::PackageFiles { .. }
+        ) || match self {
+            Self::ProfileBefore { foreground, .. } => *foreground,
+            Self::ProfileResult(read) | Self::ProfileAfter { read, .. } => read.foreground,
+            _ => false,
+        }
+    }
+}
+/// Bounds one Quit, including an Engine that never confirms its shutdown.
+const QUIT_LIMIT: Duration = Duration::from_secs(5);
+/// Tracks one Quit: a fresh State read, then the fenced Engine shutdown.
+struct Quit {
+    read: Option<RequestId>,
+    retries: u8,
+    deadline: Instant,
+}
+pub struct GuiController {
+    client: Option<DesktopClient>,
+    disconnected: Option<PresentationModel>,
+    capabilities: Option<CapabilitiesView>,
+    queue: Option<QueueView>,
+    queue_basis: Option<Arc<StateView>>,
+    queue_stale: bool,
+    candidate: Option<QueueView>,
+    basis: Option<Arc<StateView>>,
+    pending: Option<(RequestId, Task)>,
+    waiting_edit: Option<Task>,
+    safety: Vec<RequestId>,
+    stop_preflights: Vec<(RequestId, StopTarget)>,
+    local_play: Option<LocalPlay>,
+    operation_cursor: usize,
+    discovery: Option<Arc<DeviceQueryResultView>>,
+    inspection: Option<Arc<DeviceQueryResultView>>,
+    shutdown: Option<RequestId>,
+    quit: Option<Quit>,
+    wait_for_child: bool,
+    refresh: bool,
+    next_poll: Instant,
+    next_replay: Instant,
+    replay_cursor: usize,
+    connected: bool,
+    error: Option<String>,
+    observation_error: Option<String>,
+    cleanup: Option<JoinHandle<Result<(), String>>>,
+    closing: bool,
+    host: OwnerHost,
+    host_error_reported: bool,
+    runtime: Option<String>,
+    pub(super) profiles: ProfileViews,
+    pub(super) diagnostics: DiagnosticViews,
+    draft_epoch: u64,
+    local_work: Option<LocalWork>,
+    local_preview: Option<CapturedCorrection>,
+    local_status: String,
+    correction_review: Option<(
+        Arc<StateView>,
+        earph_core::profile_control::ProfileCatalogReference,
+    )>,
+    fir_review: Option<(Arc<StateView>, earph_core::dsp_nodes::FirAssetReference)>,
+    pub(super) package_review: PackageReview,
+    package_inspect_required: Option<UnresolvedPackageWrite>,
+}
+impl Default for GuiController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl GuiController {
+    pub fn new() -> Self {
+        Self {
+            client: None,
+            disconnected: Some(PresentationModel::default()),
+            capabilities: None,
+            queue: None,
+            queue_basis: None,
+            queue_stale: true,
+            candidate: None,
+            basis: None,
+            pending: None,
+            waiting_edit: None,
+            safety: Vec::new(),
+            stop_preflights: Vec::new(),
+            local_play: None,
+            operation_cursor: 0,
+            discovery: None,
+            inspection: None,
+            shutdown: None,
+            quit: None,
+            wait_for_child: false,
+            refresh: false,
+            next_poll: Instant::now(),
+            next_replay: Instant::now(),
+            replay_cursor: 0,
+            connected: false,
+            error: None,
+            observation_error: None,
+            cleanup: None,
+            closing: false,
+            host: OwnerHost::default(),
+            host_error_reported: false,
+            runtime: None,
+            profiles: ProfileViews::default(),
+            diagnostics: DiagnosticViews::default(),
+            draft_epoch: 0,
+            local_work: None,
+            local_preview: None,
+            local_status: "No local correction worker".into(),
+            correction_review: None,
+            fir_review: None,
+            package_review: PackageReview::default(),
+            package_inspect_required: None,
+        }
+    }
+    pub fn state(&self) -> Option<&StateView> {
+        self.model()
+            .latest_state()
+            .map(|observed| observed.state.as_ref())
+    }
+    pub(super) fn state_basis(&self) -> Option<Arc<StateView>> {
+        self.model()
+            .latest_state()
+            .map(|observed| observed.state.clone())
+    }
+    pub(super) fn queue_state_basis(&self) -> Option<Arc<StateView>> {
+        self.queue_basis.clone()
+    }
+    pub fn package_candidate(&self) -> Option<&crate::ProfilePackageResultView> {
+        self.profiles
+            .package
+            .as_ref()
+            .filter(|p| {
+                self.state()
+                    .is_some_and(|s| s.owner_id == p.basis.owner_id && s.zone_id == p.basis.zone_id)
+            })
+            .map(|p| p.value.as_ref())
+    }
+    pub fn package_files_pending(&self) -> bool {
+        self.local_work
+            .as_ref()
+            .is_some_and(|local| matches!(local.worker, FileWorker::Package(..)))
+            || matches!(self.waiting_edit, Some(Task::PackageFiles { .. }))
+    }
+    pub fn unresolved_package_write(
+        &self,
+    ) -> Option<(&RequestId, &str, &crate::ProfilePackageIssueView)> {
+        self.package_inspect_required.as_ref().map(|pending| {
+            (
+                &pending.request,
+                pending.directory.as_str(),
+                pending.issue.as_ref(),
+            )
+        })
+    }
+    pub fn package_export_available(&self) -> bool {
+        self.control_edit_available()
+            && self.package_candidate().is_some_and(|candidate| {
+                self.package_review
+                    .export(candidate)
+                    .is_ok_and(|command| self.validate_package_action(&command).is_ok())
+            })
+    }
+    pub fn package_import_available(&self, directory: &str) -> bool {
+        self.control_edit_available()
+            && self.package_candidate().is_some_and(|candidate| {
+                self.validate_package_action(&Command::ProfilesImportPackage {
+                    directory: directory.into(),
+                    expected_manifest_sha256: candidate.manifest_sha256,
+                    profile: candidate.manifest.profile.clone(),
+                })
+                .is_ok()
+            })
+    }
+    fn retain_package_issue(
+        &mut self,
+        id: RequestId,
+        command: &Command,
+        issue: Arc<crate::ProfilePackageIssueView>,
+    ) {
+        if self
+            .profiles
+            .package_issue
+            .as_ref()
+            .is_some_and(|(previous, _)| previous == &id)
+        {
+            return;
+        }
+        self.invalidate_packages();
+        if issue.filesystem_state == crate::PackageFilesystemStateView::InspectRequired {
+            let directory = match command {
+                Command::ProfilesPackageInspect { directory }
+                | Command::ProfilesImportPackage { directory, .. }
+                | Command::ProfilesExport { directory, .. } => Some(directory.clone()),
+                _ => None,
+            };
+            if let Some(directory) = directory {
+                self.package_inspect_required = Some(UnresolvedPackageWrite {
+                    request: id.clone(),
+                    directory,
+                    issue: issue.clone(),
+                });
+            }
+        }
+        self.profiles.package_issue = Some((id, issue));
+    }
+    fn observe_package_issues(&mut self) {
+        let owner = self.state().and_then(|state| state.owner_id.as_ref());
+        let issue = self.model().records().iter().rev().find_map(|record| {
+            if record.owner_changed || record.request.envelope().owner_id.as_ref() != owner {
+                return None;
+            }
+            let Some(Ok(Reply::Receipt(receipt))) = &record.outcome else {
+                return None;
+            };
+            if let Some(ResultView::ProfilePackageIssue(issue)) = &receipt.result {
+                Some((
+                    record.request.envelope().request_id.clone(),
+                    record.request.envelope().payload.clone(),
+                    issue.clone(),
+                ))
+            } else {
+                None
+            }
+        });
+        if let Some((id, command, issue)) = issue {
+            self.retain_package_issue(id, &command, issue);
+        }
+    }
+    pub fn association_available(&self) -> bool {
+        self.control_edit_available()
+            && self
+                .capabilities()
+                .zip(self.state())
+                .is_some_and(|(caps, state)| {
+                    let identity = state
+                        .playback
+                        .as_ref()
+                        .and_then(|p| p.backend.as_ref())
+                        .and_then(|b| b.device_identity_sha256);
+                    let backend = state
+                        .playback
+                        .as_ref()
+                        .and_then(|p| p.backend.as_ref())
+                        .map(|b| b.backend);
+                    caps.profiles.exact_associations
+                        && identity.is_some()
+                        && state.output.as_ref().is_some_and(|output| {
+                            backend == Some(output.backend)
+                                && caps
+                                    .profiles
+                                    .exact_association_backends
+                                    .contains(&output.backend)
+                        })
+                })
+    }
+    fn invalidate_packages(&mut self) {
+        self.package_review.reset();
+        if matches!(self.waiting_edit, Some(Task::PackageFiles { .. })) {
+            self.waiting_edit = None;
+        }
+        if let Some(local) = self.local_work.as_mut()
+            && matches!(local.worker, FileWorker::Package(..))
+        {
+            local.canceled = true;
+            local.worker.cancel();
+        }
+    }
+    fn package_files(
+        &mut self,
+        index: Option<usize>,
+        operation: Option<Command>,
+    ) -> Result<(), String> {
+        if !self.control_edit_available() {
+            return Err("A foreground action is waiting, pending, or uncertain".into());
+        }
+        let candidate = self
+            .package_candidate()
+            .ok_or("Inspect or preview an exact package first")?;
+        let task = Task::PackageFiles {
+            basis: Arc::new(self.state().ok_or("Observe an owner first")?.clone()),
+            manifest: candidate.manifest_sha256,
+            index,
+            operation,
+            draft_epoch: self.draft_epoch,
+        };
+        if self.pending.is_some() {
+            self.waiting_edit = Some(task);
+            Ok(())
+        } else {
+            self.start_package_files(task)
+        }
+    }
+    fn start_package_files(&mut self, task: Task) -> Result<(), String> {
+        let Task::PackageFiles {
+            basis,
+            manifest,
+            index,
+            operation,
+            draft_epoch,
+        } = task
+        else {
+            return Err("Package file capture unavailable".into());
+        };
+        if self.local_work.is_some()
+            || draft_epoch != self.draft_epoch
+            || self
+                .state()
+                .is_none_or(|state| !same_context(&basis, state))
+        {
+            return Err("Package review context changed before reading; review again".into());
+        }
+        let candidate = self
+            .package_candidate()
+            .filter(|c| c.manifest_sha256 == manifest)
+            .ok_or("Package candidate changed before reading")?;
+        let worker = match (index, &operation) {
+            (Some(index), None) => {
+                let source = candidate
+                    .review_sources
+                    .get(index)
+                    .ok_or("Select an exact package object")?
+                    .clone();
+                self.package_review.exact = false;
+                self.package_review.private = false;
+                self.package_review.measurements = false;
+                self.package_review
+                    .read
+                    .retain(|object| object != &source.object);
+                self.package_review.displayed = None;
+                package_files::object(source)?
+            }
+            (None, Some(command)) => {
+                self.validate_package_action(command)?;
+                package_files::verify(candidate.review_sources.clone())?
+            }
+            _ => return Err("Invalid package file action capture".into()),
+        };
+        self.local_work = Some(LocalWork {
+            basis,
+            draft_epoch,
+            worker: FileWorker::Package(worker, operation),
+            canceled: false,
+        });
+        self.local_status = "Reading exact package bytes; local worker running".into();
+        Ok(())
+    }
+    fn validate_package_action(&self, command: &Command) -> Result<(), String> {
+        use crate::ProfilePackageStageView;
+        match command {
+            Command::ProfilesImportPackage {
+                directory,
+                expected_manifest_sha256,
+                profile,
+            } => {
+                let observed = self
+                    .profiles
+                    .package
+                    .as_ref()
+                    .ok_or("Inspect the exact package directory first")?;
+                let candidate = self
+                    .package_candidate()
+                    .ok_or("Package owner changed; inspect again")?;
+                if !matches!(&observed.command, Command::ProfilesPackageInspect { directory: captured } if captured == directory)
+                    || candidate.operation != ProfilePackageStageView::Inspected
+                    || candidate.manifest_sha256 != *expected_manifest_sha256
+                    || &candidate.manifest.profile != profile
+                    || !self.package_review.exact
+                    || !self.package_review.all_read(candidate)
+                    || self
+                        .package_inspect_required
+                        .as_ref()
+                        .is_some_and(|pending| &pending.directory == directory)
+                {
+                    return Err("Import requires the exact inspected directory, manifest, reference, and reviewed original bytes".into());
+                }
+            }
+            Command::ProfilesExport { directory, .. } => {
+                let candidate = self
+                    .package_candidate()
+                    .ok_or("Preview the exact saved profile before export")?;
+                if self.package_review.export(candidate)? != *command
+                    || self
+                        .package_inspect_required
+                        .as_ref()
+                        .is_some_and(|pending| &pending.directory == directory)
+                {
+                    return Err("Package review, destination, or filesystem facts changed; inspect and review again".into());
+                }
+            }
+            Command::ProfilesBind {
+                id,
+                expected_profile_revision,
+                profile_sha256,
+                expected_device_epoch,
+            } => {
+                let reference = earph_core::profile_control::ProfileCatalogReference {
+                    id: id.clone(),
+                    revision: *expected_profile_revision,
+                    profile_sha256: *profile_sha256,
+                };
+                if !self.association_available()
+                    || !self.profile_review_available(&reference)
+                    || self
+                        .state()
+                        .is_none_or(|s| s.device_epoch != *expected_device_epoch)
+                {
+                    return Err("Exact binding requires a supported actual opened identity, exact saved reference, and current device epoch".into());
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    pub fn correction_preview(&self) -> Option<&CorrectionPreview> {
+        self.local_preview.as_ref().map(|capture| &capture.value)
+    }
+    pub fn correction_preview_current(&self) -> bool {
+        self.local_preview.as_ref().is_some_and(|capture| {
+            capture.draft_epoch == self.draft_epoch
+                && self
+                    .state()
+                    .is_some_and(|state| same_context(&capture.basis, state))
+        })
+    }
+    pub fn local_correction_pending(&self) -> bool {
+        self.local_work
+            .as_ref()
+            .is_some_and(|local| matches!(local.worker, FileWorker::Correction(_)))
+            || matches!(self.waiting_edit, Some(Task::LocalPreview { .. }))
+    }
+    pub fn local_correction_status(&self) -> &str {
+        &self.local_status
+    }
+    pub fn fir_asset(&self) -> Option<&earph_core::dsp_nodes::FirAssetReference> {
+        self.profiles.fir_asset.as_ref().map(|a| a.value.as_ref())
+    }
+    pub fn correction_reviewed(
+        &self,
+        reference: &earph_core::profile_control::ProfileCatalogReference,
+    ) -> bool {
+        self.correction_review
+            .as_ref()
+            .is_some_and(|(basis, saved)| {
+                self.state()
+                    .is_some_and(|state| same_review_context(basis, state))
+                    && saved == reference
+            })
+    }
+    pub fn fir_asset_reviewed(&self) -> bool {
+        self.fir_review.as_ref().is_some_and(|(basis, asset)| {
+            self.state()
+                .is_some_and(|state| same_review_context(basis, state))
+                && self.fir_asset() == Some(asset)
+        })
+    }
+    pub fn profile_review_available(
+        &self,
+        reference: &earph_core::profile_control::ProfileCatalogReference,
+    ) -> bool {
+        self.profile_record().is_some_and(|record| {
+            record.profile.id == reference.id
+                && record.profile.revision == reference.revision
+                && record.profile_sha256 == reference.profile_sha256
+                && (record.corrections.is_empty() || self.correction_reviewed(reference))
+        })
+    }
+    fn invalidate_correction(&mut self) {
+        self.invalidate_packages();
+        self.local_preview = None;
+        self.correction_review = None;
+        self.fir_review = None;
+        if self.waiting_edit.as_ref().is_some_and(correction_unsent) {
+            if matches!(self.waiting_edit, Some(Task::LocalPreview { .. })) {
+                self.local_status = "Correction preview canceled before worker start".into();
+            }
+            self.waiting_edit = None;
+        }
+        if let Some((_, task)) = self.pending.as_mut()
+            && correction_unsent(task)
+        {
+            *task = Task::Before;
+        }
+        if let Some(local) = self.local_work.as_mut() {
+            local.worker.cancel();
+            local.canceled = true;
+            self.local_status = "Local file cancellation requested; worker retiring".into();
+        }
+    }
+    fn start_local(&mut self, task: Task) -> Result<(), String> {
+        let Task::LocalPreview {
+            basis,
+            request,
+            draft_epoch,
+        } = task
+        else {
+            return Err("Missing local correction capture".into());
+        };
+        if self.local_work.is_some()
+            || draft_epoch != self.draft_epoch
+            || self.state().is_none_or(|s| !same_context(&basis, s))
+        {
+            return Err(
+                "Correction capture changed before preview; review and submit again".into(),
+            );
+        }
+        self.local_work = Some(LocalWork {
+            basis,
+            draft_epoch,
+            worker: FileWorker::Correction(CorrectionWorker::start(request)?),
+            canceled: false,
+        });
+        self.local_status = "Reading and parsing correction source; worker running".into();
+        Ok(())
+    }
+    fn poll_local(&mut self) {
+        let Some(result) = self
+            .local_work
+            .as_mut()
+            .and_then(|local| local.worker.poll())
+        else {
+            return;
+        };
+        let local = self.local_work.take().unwrap();
+        if local.canceled
+            || local.draft_epoch != self.draft_epoch
+            || !self.connected()
+            || self.state().is_none_or(|s| !same_context(&local.basis, s))
+        {
+            self.local_status = "Local file result discarded; worker retired".into();
+            return;
+        }
+        self.local_status = "Local file worker retired".into();
+        match result {
+            FileResult::Correction(Ok(preview)) => {
+                self.local_preview = Some(CapturedCorrection {
+                    basis: local.basis,
+                    draft_epoch: local.draft_epoch,
+                    value: preview,
+                });
+            }
+            FileResult::Correction(Err(error)) => self.error = Some(error),
+            FileResult::Package(Ok(PackageRead::Object(bytes)), _) => {
+                self.package_review.displayed = Some(*bytes)
+            }
+            FileResult::Package(Ok(PackageRead::Verified), Some(command)) => {
+                if let Err(error) = self
+                    .validate_package_action(&command)
+                    .and_then(|_| self.capture(local.basis, command))
+                {
+                    self.package_review.reset();
+                    self.error = Some(error);
+                }
+            }
+            FileResult::Package(Ok(PackageRead::Verified), None) => {
+                self.error = Some("Verified package action capture unavailable".into())
+            }
+            FileResult::Package(Err(error), _) => {
+                self.package_review.reset();
+                self.error = Some(error);
+            }
+        }
+    }
+    fn validate_correction_action(
+        &self,
+        basis: &StateView,
+        command: &Command,
+    ) -> Result<(), String> {
+        if !matches!(
+            command,
+            Command::ProfilesImport { .. } | Command::FirImport { .. }
+        ) {
+            return Ok(());
+        }
+        if !self.correction_preview_current()
+            || self.state().is_none_or(|state| !same_context(basis, state))
+        {
+            return Err(
+                "Correction preview context or draft changed; preview again before import".into(),
+            );
+        }
+        let preview = self
+            .correction_preview()
+            .ok_or("Preview the correction source before import")?;
+        let matches = match (command, preview) {
+            (Command::ProfilesImport { input, .. }, preview) => input.as_ref() == &preview.input(),
+            (
+                Command::FirImport { path, purpose },
+                CorrectionPreview::Fir {
+                    path: selected,
+                    manifest,
+                },
+            ) => path == selected && *purpose == manifest.asset.purpose,
+            _ => false,
+        };
+        if matches {
+            Ok(())
+        } else {
+            Err("Correction command differs from the exact previewed input".into())
+        }
+    }
+    pub fn queue(&self) -> Option<&QueueView> {
+        self.queue.as_ref()
+    }
+    pub fn profile_catalog(&self) -> Option<&ProfilePageView> {
+        self.profiles.catalog.as_ref().map(|o| &o.value)
+    }
+    pub fn profile_record(&self) -> Option<&ProfileRecordView> {
+        self.profiles.record.as_ref().map(|o| o.value.as_ref())
+    }
+    pub fn profile_resolution(&self) -> Option<&ProfileResolutionView> {
+        self.profiles.resolution.as_ref().map(|o| &o.value)
+    }
+    pub fn graph_inspection(&self) -> Option<&GraphInspectionView> {
+        self.profiles.graph.as_ref().map(|o| o.value.as_ref())
+    }
+    pub fn prepared_graph(&self) -> Option<&GraphPreparedView> {
+        self.profiles.prepared.as_ref().map(|o| &o.value)
+    }
+    pub fn prepared_action_available(&self) -> bool {
+        self.control_edit_available()
+            && self
+                .prepared_graph()
+                .zip(self.state())
+                .is_some_and(|(prepared, state)| {
+                    prepared_matches_state(prepared, state)
+                        && prepared
+                            .preview
+                            .profile_application
+                            .as_ref()
+                            .is_none_or(|application| {
+                                self.profile_review_available(&application.profile)
+                            })
+                })
+    }
+    fn validate_prepared_action(&self, state: &StateView, command: &Command) -> Result<(), String> {
+        if state.source == Some(earph_core::control::SourceKind::HttpFlac)
+            && matches!(
+                command,
+                Command::ProfilesPrepare { .. } | Command::ProfilesApply { .. }
+            )
+        {
+            return Err("HTTP FLAC profile application is unavailable".into());
+        }
+        if let Command::GraphPrepare { graph, .. } = command
+            && let Some(record) = self.profile_record().filter(|record| {
+                !record.corrections.is_empty() && record.graph.graph.as_ref() == graph.as_ref()
+            })
+            && !self.correction_reviewed(&earph_core::profile_control::ProfileCatalogReference {
+                id: record.profile.id.clone(),
+                revision: record.profile.revision,
+                profile_sha256: record.profile_sha256,
+            })
+        {
+            return Err("Review the actual owner-returned correction before Prepare".into());
+        }
+        let profile = match command {
+            Command::ProfilesPrepare {
+                id,
+                expected_profile_revision,
+                profile_sha256,
+            }
+            | Command::ProfilesApply {
+                id,
+                expected_profile_revision,
+                profile_sha256,
+                ..
+            } => Some(earph_core::profile_control::ProfileCatalogReference {
+                id: id.clone(),
+                revision: *expected_profile_revision,
+                profile_sha256: *profile_sha256,
+            }),
+            _ => None,
+        };
+        if let Some(reference) = profile {
+            let record = self
+                .profile_record()
+                .filter(|r| {
+                    r.profile.id == reference.id
+                        && r.profile.revision == reference.revision
+                        && r.profile_sha256 == reference.profile_sha256
+                })
+                .ok_or("Observe the exact saved profile before Prepare or Apply")?;
+            if !record.corrections.is_empty() && !self.correction_reviewed(&reference) {
+                return Err(
+                    "Review the actual owner-returned correction before Prepare or Apply".into(),
+                );
+            }
+        }
+        let (token, hash) = match command {
+            Command::GraphCommit { token, graph_hash }
+            | Command::ProfilesApply {
+                token, graph_hash, ..
+            } => (token, graph_hash),
+            _ => return Ok(()),
+        };
+        let prepared = self
+            .prepared_graph()
+            .ok_or("Review a fresh prepared candidate first")?;
+        if token != &prepared.token
+            || hash != prepared.preview.graph_hash.as_str()
+            || !prepared_matches_state(prepared, state)
+        {
+            return Err("Prepared graph token or context changed; prepare and review again".into());
+        }
+        match (command, prepared.preview.profile_application.as_ref()) {
+            (Command::GraphCommit { .. }, None) => Ok(()),
+            (
+                Command::ProfilesApply {
+                    id,
+                    expected_profile_revision,
+                    profile_sha256,
+                    ..
+                },
+                Some(binding),
+            ) if &binding.profile.id == id
+                && binding.profile.revision == *expected_profile_revision
+                && binding.profile.profile_sha256 == *profile_sha256 =>
+            {
+                Ok(())
+            }
+            _ => Err(
+                "Prepared candidate kind or saved profile reference differs from this action"
+                    .into(),
+            ),
+        }
+    }
+    fn adopt_profile_mutation(
+        &mut self,
+        id: &RequestId,
+        command: &Command,
+        receipt: &crate::ReceiptView,
+        draft_epoch: u64,
+    ) -> Result<(), String> {
+        let captured = self
+            .model()
+            .record(id)
+            .ok_or("Profile action request identity unavailable")?;
+        let envelope = captured.request.envelope();
+        if captured.owner_changed
+            || self.state().is_none_or(|state| {
+                state.owner_id != envelope.owner_id || state.zone_id != envelope.zone_id
+            })
+        {
+            return Err(
+                "Profile action owner or zone changed; its exact receipt remains in history".into(),
+            );
+        }
+        if matches!(
+            command,
+            Command::GraphCommit { .. } | Command::ProfilesApply { .. }
+        ) {
+            if receipt.result.is_some() || receipt.activation_frame.is_none() {
+                return Err(
+                    "Activation acknowledgment lacks its actual frame or has an unexpected result"
+                        .into(),
+                );
+            }
+            self.profiles.prepared = None;
+            return Ok(());
+        }
+        let result = receipt
+            .result
+            .clone()
+            .ok_or("Profile action result unavailable")?;
+        validate_profile_result(command, &result)?;
+        let basis = Arc::new(
+            self.state()
+                .ok_or("Profile action basis unavailable")?
+                .clone(),
+        );
+        if let ResultView::ProfileBound(association) = &result {
+            let output = basis
+                .output
+                .as_ref()
+                .ok_or("Association result lacks its opened output context")?;
+            let backend = basis
+                .playback
+                .as_ref()
+                .and_then(|p| p.backend.as_ref())
+                .ok_or("Association result lacks its actual opened identity")?;
+            if association.backend != output.backend
+                || association.route != output.route
+                || backend.backend != output.backend
+                || Some(association.device_identity_sha256) != backend.device_identity_sha256
+            {
+                return Err(
+                    "Association result differs from its captured actual opened identity".into(),
+                );
+            }
+        }
+        if let ResultView::GraphPreview(preview) = &result
+            && !preview_matches_state(preview, &basis)
+        {
+            return Err("Graph validation binding differs from the captured source context".into());
+        }
+        if let ResultView::GraphPrepared(prepared) = &result {
+            if !prepared_matches_state(prepared, &basis) {
+                return Err(
+                    "Prepared candidate owner binding differs from the submitted source context"
+                        .into(),
+                );
+            }
+            if draft_epoch != self.draft_epoch {
+                return Err("Draft or selected profile changed while preparation was pending; its receipt remains retained".into());
+            }
+            if let Some(application) = &prepared.preview.profile_application {
+                let output = basis
+                    .output
+                    .as_ref()
+                    .ok_or("Prepared profile lacks current output context")?;
+                let identity = basis
+                    .playback
+                    .as_ref()
+                    .and_then(|p| p.backend.as_ref())
+                    .and_then(|b| b.device_identity_sha256);
+                if application.volume_mode != output.volume_mode
+                    || application.fidelity != output.fidelity
+                    || application.device_identity_sha256 != identity
+                    || Some(application.source) != basis.source
+                {
+                    return Err("Prepared profile application facts differ from the observed output/source context".into());
+                }
+                if let Some(record) = self.profile_record()
+                    && record.profile.id == application.profile.id
+                    && record.profile.revision == application.profile.revision
+                    && record.profile_sha256 == application.profile.profile_sha256
+                    && record.profile.graph_sha256 != application.graph_sha256
+                {
+                    return Err(
+                        "Prepared profile graph object differs from the reviewed saved record"
+                            .into(),
+                    );
+                }
+            }
+        }
+        self.adopt_profile_result(basis, vec![id.clone()], command.clone(), result)
+    }
+    fn adopt_profile_result(
+        &mut self,
+        basis: Arc<StateView>,
+        request_ids: Vec<RequestId>,
+        command: Command,
+        result: ResultView,
+    ) -> Result<(), String> {
+        validate_profile_result(&command, &result)?;
+        macro_rules! observed {
+            ($value:expr) => {
+                ObservedProfile {
+                    basis,
+                    request_ids,
+                    command,
+                    value: $value,
+                }
+            };
+        }
+        match result {
+            ResultView::Profiles(value) => {
+                self.profiles.catalog = Some(observed!((*value).clone()))
+            }
+            ResultView::Profile(value) | ResultView::ProfileSaved(value) => {
+                if self.profiles.record.as_ref().is_none_or(|old| {
+                    old.basis.owner_id != basis.owner_id || old.value.as_ref() != value.as_ref()
+                }) {
+                    self.correction_review = None;
+                }
+                self.profiles.record = Some(observed!(value))
+            }
+            ResultView::FirAsset(value) => {
+                self.fir_review = None;
+                self.profiles.fir_asset = Some(observed!(value));
+            }
+            ResultView::ProfilePackage(value) => {
+                self.invalidate_packages();
+                if let Command::ProfilesPackageInspect { directory } = &command
+                    && self
+                        .package_inspect_required
+                        .as_ref()
+                        .is_some_and(|pending| &pending.directory == directory)
+                {
+                    self.package_inspect_required = None;
+                }
+                self.profiles.package = Some(observed!(value));
+            }
+            ResultView::ProfileBound(value) => self.profiles.bound = Some(observed!(value)),
+            ResultView::ProfileResolution(value) => {
+                self.profiles.resolution = Some(observed!(value))
+            }
+            ResultView::GraphInspection(value) => self.profiles.graph = Some(observed!(value)),
+            ResultView::GraphPreview(value) => self.profiles.preview = Some(observed!(value)),
+            ResultView::GraphPrepared(value) => {
+                self.profiles.diagnostic = None;
+                self.profiles.prepared = Some(observed!(value));
+            }
+            _ => return Err("Unexpected profile observation result".into()),
+        }
+        Ok(())
+    }
+    pub fn queue_basis(&self) -> Option<&StateView> {
+        self.queue_basis.as_deref()
+    }
+    pub fn queue_stale(&self) -> bool {
+        self.queue_stale
+    }
+    pub fn queue_edit_pending(&self) -> bool {
+        self.local_play.is_some()
+            || self.local_work.is_some()
+            || self.waiting_edit.is_some()
+            || self
+                .pending
+                .as_ref()
+                .is_some_and(|(_, task)| task.edits_foreground())
+    }
+    pub fn waiting_queue_edit(&self) -> Option<&Command> {
+        match self.waiting_edit.as_ref() {
+            Some(
+                Task::Preflight { command, .. }
+                | Task::VolumePreflight { command, .. }
+                | Task::Discovery { command, .. }
+                | Task::Diagnostic { command, .. }
+                | Task::ProfileBefore { command, .. },
+            ) => Some(command),
+            _ => None,
+        }
+    }
+    pub fn waiting_reconciliation(&self) -> Option<&RequestId> {
+        match self.waiting_edit.as_ref() {
+            Some(Task::Reconcile(id)) => Some(id),
+            _ => None,
+        }
+    }
+    pub fn queue_edit_available(&self) -> bool {
+        self.control_edit_available()
+            && !self.queue_stale
+            && self
+                .queue_basis
+                .as_ref()
+                .zip(self.state())
+                .is_some_and(|(basis, current)| same_context(basis, current))
+    }
+    pub fn control_edit_available(&self) -> bool {
+        self.foreground_available()
+            && !self.model().pause_ack_pending()
+            && !self.model().records().iter().any(|record| {
+                !record.owner_changed
+                    && !record.request.envelope().payload.is_query()
+                    && (record.presentation == Presentation::Uncertain
+                        || (record.presentation == Presentation::Accepted
+                            && !is_transport_operation(&record.request.envelope().payload)
+                            && record.request.lane() == Lane::Ordinary))
+            })
+    }
+    fn foreground_available(&self) -> bool {
+        self.connected
+            && self.client.is_some()
+            && !self.queue_edit_pending()
+            && !self.closing
+            && self.shutdown.is_none()
+            && self.quit.is_none()
+            && self.cleanup.is_none()
+            && !self.host.launching()
+    }
+    fn ordinary_in_flight(&self) -> bool {
+        self.model()
+            .records()
+            .iter()
+            .any(|record| record.in_flight && record.request.lane() == Lane::Ordinary)
+    }
+    pub fn diagnostic_read_available(&self) -> bool {
+        self.foreground_available() && self.capabilities.is_some()
+    }
+    pub fn diagnostic_signal_path(&self) -> Option<&earph_core::diagnostics::SignalPathRead> {
+        self.diagnostics
+            .signal_path
+            .as_ref()
+            .map(|(_, read)| read.as_ref())
+    }
+    pub fn diagnostic_metrics(&self) -> Option<&earph_core::diagnostics::MetricsRead> {
+        self.diagnostics
+            .metrics
+            .as_ref()
+            .map(|(_, read)| read.as_ref())
+    }
+    pub fn diagnostic_events(&self) -> Option<&earph_core::diagnostics::EventsRead> {
+        self.diagnostics
+            .events
+            .as_ref()
+            .map(|(_, read)| read.as_ref())
+    }
+    pub fn diagnostic_preview(&self) -> Option<&earph_core::diagnostics::PreviewRead> {
+        self.diagnostics
+            .preview
+            .as_ref()
+            .map(|(_, read)| read.as_ref())
+    }
+    pub fn diagnostic_preview_reviewed(&self) -> bool {
+        self.state()
+            .is_some_and(|state| self.diagnostics.export_command(state).is_ok())
+    }
+    pub fn capabilities(&self) -> Option<&CapabilitiesView> {
+        self.capabilities.as_ref()
+    }
+    pub fn discovery(&self) -> Option<&DeviceQueryResultView> {
+        self.discovery.as_deref()
+    }
+    pub fn inspection(&self) -> Option<&DeviceQueryResultView> {
+        self.inspection.as_deref()
+    }
+    pub fn connected(&self) -> bool {
+        self.connected
+    }
+    pub fn attached(&self) -> bool {
+        self.client.is_some()
+    }
+    pub fn busy(&self) -> bool {
+        self.model().pause_ack_pending()
+            || self.local_play.is_some()
+            || !self.stop_preflights.is_empty()
+            || self.local_work.is_some()
+            || self.pending.is_some()
+            || self.waiting_edit.is_some()
+            || self.cleanup.is_some()
+            || self.host.launching()
+            || self.shutdown.is_some()
+            || self.quit.is_some()
+    }
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref().or(self.observation_error.as_deref())
+    }
+    pub fn action_error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+    pub fn observation_error(&self) -> Option<&str> {
+        self.observation_error.as_deref()
+    }
+    pub fn observed_at(&self) -> Option<Instant> {
+        self.model()
+            .latest_state()
+            .map(|observed| observed.received_at)
+    }
+    pub fn host_status(&self) -> &HostStatus {
+        &self.host.status
+    }
+    pub fn runtime(&self) -> Option<&str> {
+        self.runtime.as_deref()
+    }
+    pub fn ready_to_close(&self) -> bool {
+        self.closing
+            && self.client.is_none()
+            && self.cleanup.is_none()
+            && self.local_work.is_none()
+            && !self.host.launching()
+            && (!self.wait_for_child || !self.host.has_child())
+    }
+    pub fn receipts(&self) -> impl Iterator<Item = Receipt<'_>> {
+        self.model().records().iter().map(record_view)
+    }
+    fn model(&self) -> &PresentationModel {
+        self.client.as_ref().map_or_else(
+            || {
+                self.disconnected
+                    .as_ref()
+                    .expect("disconnected controller owns its presentation model")
+            },
+            DesktopClient::model,
+        )
+    }
+    pub fn handle(&mut self, intent: UiIntent) {
+        self.error = None;
+        if let Err(error) = self.intent(intent) {
+            self.error = Some(error);
+        }
+    }
+    fn intent(&mut self, intent: UiIntent) -> Result<(), String> {
+        if self.closing || self.quit.is_some() {
+            return Err("Controller cleanup is in progress".into());
+        }
+        if !matches!(
+            &intent,
+            UiIntent::PlayLocal { .. }
+                | UiIntent::Refresh
+                | UiIntent::Reconcile(_)
+                | UiIntent::Mute
+                | UiIntent::Stop
+        ) {
+            self.cancel_local_play();
+        }
+        match intent {
+            UiIntent::PlayLocal {
+                basis,
+                takeover,
+                entry_id,
+            } => self.play_local(basis, takeover, entry_id),
+            UiIntent::SetVolume {
+                basis,
+                millidecibels,
+                ramp_frames,
+            } => self.set_volume(basis, millidecibels, ramp_frames),
+            UiIntent::Attach { runtime } => self.attach(runtime),
+            UiIntent::Launch {
+                runtime,
+                executable,
+            } => {
+                validate_runtime(&runtime)?;
+                if self.client.is_some() || self.cleanup.is_some() {
+                    return Err("Disconnect the current client before launching".into());
+                }
+                self.host_error_reported = false;
+                self.host.launch(executable, runtime)
+            }
+            UiIntent::Disconnect => {
+                self.disconnect(false);
+                Ok(())
+            }
+            UiIntent::CloseController => {
+                self.shutdown = None;
+                self.wait_for_child = false;
+                self.disconnect(true);
+                Ok(())
+            }
+            UiIntent::Quit => {
+                self.cancel_unsent();
+                self.pending = None;
+                self.refresh = false;
+                self.quit = Some(Quit {
+                    read: None,
+                    retries: 2,
+                    deadline: Instant::now() + QUIT_LIMIT,
+                });
+                // An outstanding confirmed shutdown already targets this Engine; Quit adopts it.
+                if self.shutdown.is_none() {
+                    self.read_before_quit();
+                }
+                Ok(())
+            }
+            UiIntent::Refresh => {
+                self.refresh = true;
+                self.next_poll = Instant::now();
+                Ok(())
+            }
+            UiIntent::DiscardPreparedGraph => {
+                self.invalidate_correction();
+                self.profiles.prepared = None;
+                self.draft_epoch = self
+                    .draft_epoch
+                    .checked_add(1)
+                    .ok_or("Graph draft generation exhausted")?;
+                Ok(())
+            }
+            UiIntent::InvalidateCorrection => {
+                self.invalidate_correction();
+                self.profiles.prepared = None;
+                self.draft_epoch = self
+                    .draft_epoch
+                    .checked_add(1)
+                    .ok_or("Draft generation exhausted")?;
+                Ok(())
+            }
+            UiIntent::PreviewCorrection { basis, request } => {
+                if !self.control_edit_available() {
+                    return Err("A foreground action is waiting, pending, or uncertain".into());
+                }
+                self.invalidate_correction();
+                let task = Task::LocalPreview {
+                    basis,
+                    request,
+                    draft_epoch: self.draft_epoch,
+                };
+                if self.pending.is_some() {
+                    self.local_status =
+                        "Correction preview captured; waiting for foreground slot".into();
+                    self.waiting_edit = Some(task);
+                    Ok(())
+                } else {
+                    self.start_local(task)
+                }
+            }
+            UiIntent::ReviewCorrection { owner, reference } => {
+                let observed = self
+                    .profiles
+                    .record
+                    .as_ref()
+                    .ok_or("Get the actual imported profile before review")?;
+                if self.state().and_then(|s| s.owner_id.as_ref()) != Some(&owner)
+                    || observed.basis.owner_id.as_ref() != Some(&owner)
+                    || observed.value.profile.id != reference.id
+                    || observed.value.profile.revision != reference.revision
+                    || observed.value.profile_sha256 != reference.profile_sha256
+                    || observed.value.corrections.is_empty()
+                {
+                    return Err(
+                        "Actual correction owner or saved facts changed; review again".into(),
+                    );
+                }
+                self.correction_review = Some((
+                    Arc::new(self.state().ok_or("Owner state unavailable")?.clone()),
+                    reference,
+                ));
+                Ok(())
+            }
+            UiIntent::ReviewFirAsset { owner, asset } => {
+                if self.state().and_then(|s| s.owner_id.as_ref()) != Some(&owner)
+                    || self.fir_asset() != Some(&asset)
+                {
+                    return Err("Actual verified FIR owner or asset changed; review again".into());
+                }
+                self.fir_review = Some((
+                    Arc::new(self.state().ok_or("Owner state unavailable")?.clone()),
+                    asset,
+                ));
+                Ok(())
+            }
+            UiIntent::PackageInputs {
+                directory: _,
+                destination,
+            } => {
+                self.invalidate_packages();
+                self.package_review.destination = destination;
+                self.draft_epoch = self
+                    .draft_epoch
+                    .checked_add(1)
+                    .ok_or("Draft generation exhausted")?;
+                if self.waiting_edit.as_ref().is_some_and(|task| matches!(task, Task::Preflight { command, .. } if package_mutation(command))) { self.waiting_edit = None; }
+                Ok(())
+            }
+            UiIntent::ReadPackageObject { index } => self.package_files(Some(index), None),
+            UiIntent::MarkPackageObjectReviewed => {
+                let displayed = self
+                    .package_review
+                    .displayed
+                    .as_ref()
+                    .ok_or("Read the exact object bytes before marking review")?;
+                if self
+                    .package_candidate()
+                    .is_none_or(|c| !c.manifest.objects.contains(&displayed.object))
+                {
+                    return Err("Package candidate changed; read its actual bytes again".into());
+                }
+                if !self.package_review.read.contains(&displayed.object) {
+                    self.package_review.read.push(displayed.object.clone());
+                }
+                Ok(())
+            }
+            UiIntent::PackageAcknowledgments {
+                exact,
+                private,
+                measurements,
+            } => {
+                let candidate = self
+                    .package_candidate()
+                    .ok_or("Inspect or preview an exact candidate first")?;
+                if !self.package_review.all_read(candidate) {
+                    return Err("Read and explicitly review every exact object first".into());
+                }
+                self.package_review.exact = exact;
+                self.package_review.private = private;
+                self.package_review.measurements = measurements;
+                Ok(())
+            }
+            UiIntent::ExportReviewedPackage => {
+                let command = self.package_review.export(
+                    self.package_candidate()
+                        .ok_or("Preview the exact saved profile before export")?,
+                )?;
+                self.package_files(None, Some(command))
+            }
+            UiIntent::CancelLocalPackageReview => {
+                self.invalidate_packages();
+                Ok(())
+            }
+            UiIntent::DiagnosticDestination(directory) => {
+                if self.diagnostics.set_destination(directory) {
+                    self.cancel_unsent_diagnostic_export();
+                }
+                Ok(())
+            }
+            UiIntent::ReviewDiagnosticPreview => {
+                if !self.diagnostic_read_available() {
+                    return Err(
+                        "Observe the owner and finish pending foreground work before review".into(),
+                    );
+                }
+                let state = self
+                    .state()
+                    .cloned()
+                    .ok_or("Observe an owner before review")?;
+                self.diagnostics.mark_review(&state)
+            }
+            UiIntent::DiagnosticAction { basis, command } => {
+                if !command.is_diagnostic() && !command.is_diagnostic_artifact() {
+                    return Err("Only shared diagnostic commands belong to this action".into());
+                }
+                if !self.diagnostic_read_available() {
+                    return Err(
+                        "A foreground action is waiting, pending, or the owner is unavailable"
+                            .into(),
+                    );
+                }
+                if self.state().is_none_or(|state| {
+                    state.owner_id != basis.owner_id || state.zone_id != basis.zone_id
+                }) {
+                    return Err("Diagnostic owner or zone changed before capture".into());
+                }
+                if matches!(command, Command::DiagnosticsExport { .. }) {
+                    if !self.control_edit_available() {
+                        return Err(
+                            "Reconcile pending or uncertain actions before another export".into(),
+                        );
+                    }
+                    self.validate_diagnostic_export(&basis, &command)?;
+                    return self.capture(basis, command);
+                }
+                if let Command::DiagnosticsInspect { directory, .. } = &command {
+                    earph_core::diagnostics::validate_diagnostic_directory(directory)
+                        .map_err(|error| error.to_string())?;
+                }
+                if let Command::DiagnosticsCancel { request_id } = &command {
+                    let record = self
+                        .model()
+                        .record(request_id)
+                        .ok_or("Choose a retained diagnostic operation before cancellation")?;
+                    let envelope = record.request.envelope();
+                    if record.owner_changed
+                        || envelope.owner_id != basis.owner_id
+                        || envelope.zone_id != basis.zone_id
+                        || !envelope.payload.starts_diagnostic_work()
+                    {
+                        return Err(
+                            "Cancellation target belongs to a different diagnostic owner or zone"
+                                .into(),
+                        );
+                    }
+                }
+                if matches!(command, Command::DiagnosticsPreview {}) {
+                    self.diagnostics.begin_preview();
+                }
+                let task = Task::Diagnostic {
+                    basis,
+                    command: command.clone(),
+                };
+                if self.pending.is_some() || self.ordinary_in_flight() {
+                    self.waiting_edit = Some(task);
+                    Ok(())
+                } else {
+                    self.start_query(command, task)
+                }
+            }
+            UiIntent::ProfileAction { basis, command } => {
+                validate_profile_command(&command)?;
+                self.validate_correction_action(&basis, &command)?;
+                self.validate_package_action(&command)?;
+                if !self.control_edit_available() {
+                    return Err("A foreground action is waiting, pending, or uncertain".into());
+                }
+                if matches!(
+                    command,
+                    Command::ProfilesExport { .. } | Command::ProfilesImportPackage { .. }
+                ) {
+                    if self
+                        .state()
+                        .is_none_or(|state| !same_context(&basis, state))
+                    {
+                        return Err(
+                            "Package action owner or revision changed; review and submit again"
+                                .into(),
+                        );
+                    }
+                    return self.package_files(None, Some(command));
+                }
+                if matches!(
+                    command,
+                    Command::ProfilesPackageInspect { .. } | Command::ProfilesPackagePreview { .. }
+                ) {
+                    self.invalidate_packages();
+                }
+                if command.is_query() {
+                    let task = Task::ProfileBefore {
+                        basis: Some(basis),
+                        command,
+                        foreground: true,
+                    };
+                    if self.pending.is_some() || self.ordinary_in_flight() {
+                        self.waiting_edit = Some(task);
+                        Ok(())
+                    } else {
+                        self.start_query(Command::State, task)
+                    }
+                } else {
+                    self.validate_prepared_action(&basis, &command)?;
+                    self.capture(basis, command)
+                }
+            }
+            UiIntent::QueueEdit { basis, command } => {
+                validate_queue(&command)?;
+                if self.queue_edit_pending() {
+                    return Err(
+                        "A queue edit is already waiting or pending; inspect its progress".into(),
+                    );
+                }
+                if !self.queue_edit_available() {
+                    return Err("Observe a fresh published queue context before editing".into());
+                }
+                self.capture(basis, command)
+            }
+            UiIntent::ControlEdit { basis, command } => {
+                if !matches!(
+                    command,
+                    Command::OutputSelect { .. }
+                        | Command::OutputConsent { .. }
+                        | Command::VolumeCaps { .. }
+                        | Command::VolumeSet { .. }
+                        | Command::FixedArm { .. }
+                        | Command::Pause
+                        | Command::Resume
+                        | Command::Seek { .. }
+                        | Command::SeekDsd { .. }
+                        | Command::Mute { muted: false }
+                ) {
+                    return Err(
+                        "Only output and transport commands belong to a control edit".into(),
+                    );
+                }
+                if basis.source == Some(earph_core::control::SourceKind::HttpFlac)
+                    && matches!(&command, Command::OutputSelect { output } if output.fidelity == earph_core::safety::FidelityPolicy::StrictPreservation)
+                {
+                    return Err("HTTP FLAC requires flexible PCM fidelity".into());
+                }
+                if !self.control_edit_available() {
+                    return Err("A foreground edit is waiting, pending, or uncertain; observe and reconcile first".into());
+                }
+                if let Command::Seek { position_frames } = command {
+                    let bounds = self.seek_bounds();
+                    if !basis.seekable || bounds.is_none_or(|(_, total)| position_frames > total) {
+                        return Err(
+                            "Observe a seekable active entry and its source-frame bounds first"
+                                .into(),
+                        );
+                    }
+                }
+                if let Command::SeekDsd { position_bits } = command
+                    && (!basis.seekable
+                        || !position_bits.is_multiple_of(16)
+                        || basis
+                            .dsd_playback
+                            .as_ref()
+                            .is_none_or(|dsd| position_bits > dsd.total_source_bits))
+                {
+                    return Err("Observe a DSD source and choose sixteen-bit alignment within its bit bounds first".into());
+                }
+                self.capture(basis, command)
+            }
+            UiIntent::StartLocal { basis, takeover } => {
+                if !self.queue_edit_available() {
+                    return Err(
+                        "Observe a fresh selected queue and reconcile pending playback first"
+                            .into(),
+                    );
+                }
+                if self
+                    .queue
+                    .as_ref()
+                    .and_then(|q| q.selected.as_ref())
+                    .is_none()
+                {
+                    return Err("Select a local queue entry first".into());
+                }
+                let device_id = basis
+                    .output
+                    .as_ref()
+                    .ok_or("Select an output first")?
+                    .device_id
+                    .clone();
+                self.capture(
+                    basis,
+                    Command::Start {
+                        source: earph_core::control::SourceKind::LocalFile,
+                        device_id,
+                        takeover,
+                        seekable: true,
+                    },
+                )
+            }
+            UiIntent::Discover { backend, endpoint } => {
+                if !self.control_edit_available() {
+                    return Err("A foreground action is waiting, pending, or uncertain".into());
+                }
+                if !self
+                    .capabilities
+                    .as_ref()
+                    .is_some_and(|c| c.devices.backends.contains(&backend))
+                {
+                    return Err("This owner does not advertise discovery for that backend".into());
+                }
+                let command = match endpoint {
+                    Some(endpoint) => Command::DevicesInspect { backend, endpoint },
+                    None => Command::DevicesList { backend },
+                };
+                let task = Task::Discovery {
+                    command: command.clone(),
+                    owner: self
+                        .state()
+                        .and_then(|s| s.owner_id.clone())
+                        .ok_or("Observe an owner before discovery")?,
+                };
+                if self.pending.is_some() || self.ordinary_in_flight() {
+                    self.waiting_edit = Some(task);
+                    Ok(())
+                } else {
+                    self.start_query(command, task)
+                }
+            }
+            UiIntent::Mute => self.safety_command(Command::Mute { muted: true }),
+            UiIntent::Stop => self.safety_command(Command::Stop),
+            UiIntent::Reconcile(id) => self.capture_reconciliation(id),
+            UiIntent::ShutdownAndQuit => {
+                self.invalidate_correction();
+                self.waiting_edit = None;
+                if self.shutdown.is_some() {
+                    return Err("Shutdown already has an outstanding receipt".into());
+                }
+                if self.model().records().iter().any(|record| {
+                    matches!(record.request.envelope().payload, Command::OwnerShutdown)
+                        && !record.owner_changed
+                        && matches!(
+                            record.presentation,
+                            Presentation::Accepted | Presentation::Uncertain
+                        )
+                }) {
+                    return Err("Reconcile the retained shutdown request before submitting another shutdown".into());
+                }
+                let state = self.state().ok_or("Observe an owner before shutdown")?;
+                let wait_for_child = matches!(&self.host.status, HostStatus::OwnedRunning { owner_id, .. } if state.owner_id.as_ref() == Some(owner_id));
+                let request = Request::mutation(request_id()?, state, Command::OwnerShutdown)
+                    .map_err(|e| format!("{e:?}"))?;
+                let id = self.submit(request)?;
+                self.shutdown = Some(id);
+                self.wait_for_child = wait_for_child;
+                self.pending = None;
+                self.refresh = false;
+                Ok(())
+            }
+        }
+    }
+    fn capture(&mut self, basis: Arc<StateView>, command: Command) -> Result<(), String> {
+        self.capture_mutation(basis, command, None)
+    }
+    fn capture_mutation(
+        &mut self,
+        basis: Arc<StateView>,
+        command: Command,
+        play: Option<PlayMutation>,
+    ) -> Result<(), String> {
+        let session = if matches!(
+            command,
+            Command::Start { .. } | Command::NetworkStartHttpFlac { .. }
+        ) {
+            Some(SessionId::new(request_id()?.as_str()).map_err(|e| e.to_string())?)
+        } else {
+            None
+        };
+        let task = Task::Preflight {
+            basis,
+            command,
+            session,
+            draft_epoch: self.draft_epoch,
+            play,
+        };
+        if self.pending.is_some() || self.ordinary_in_flight() {
+            self.waiting_edit = Some(task);
+            Ok(())
+        } else {
+            self.start_query(Command::State, task)
+        }
+    }
+    fn validate_diagnostic_export(
+        &self,
+        state: &StateView,
+        command: &Command,
+    ) -> Result<(), String> {
+        let Command::DiagnosticsExport {
+            directory,
+            expected_sha256,
+        } = command
+        else {
+            return Ok(());
+        };
+        let Command::DiagnosticsExport {
+            directory: reviewed_directory,
+            expected_sha256: reviewed_digest,
+        } = self.diagnostics.export_command(state)?
+        else {
+            unreachable!("reviewed diagnostic export")
+        };
+        if directory != &reviewed_directory || expected_sha256 != &reviewed_digest {
+            return Err("Diagnostic preview or destination changed before export".into());
+        }
+        Ok(())
+    }
+    fn cancel_unsent_diagnostic_export(&mut self) {
+        if self.waiting_edit.as_ref().is_some_and(|task| {
+            matches!(
+                task,
+                Task::Preflight {
+                    command: Command::DiagnosticsExport { .. },
+                    ..
+                }
+            )
+        }) {
+            self.waiting_edit = None;
+        }
+        if let Some((_, task)) = self.pending.as_mut()
+            && matches!(
+                task,
+                Task::Preflight {
+                    command: Command::DiagnosticsExport { .. },
+                    ..
+                }
+            )
+        {
+            *task = Task::Before;
+        }
+    }
+    pub fn seek_bounds(&self) -> Option<(&earph_core::ids::QueueEntryId, u64)> {
+        let state = self.state()?;
+        if state.source == Some(earph_core::control::SourceKind::HttpFlac)
+            || !state.seekable
+            || self.queue_stale
+        {
+            return None;
+        }
+        let active = state.active_entry_id.as_ref()?;
+        let entry = self
+            .queue
+            .as_ref()?
+            .entries
+            .iter()
+            .find(|entry| &entry.id == active)?;
+        match entry.status {
+            earph_core::queue::PreparationStatus::Ready { total_frames, .. } => {
+                Some((active, total_frames))
+            }
+            _ => None,
+        }
+    }
+    fn cancel_unsent(&mut self) {
+        self.invalidate_correction();
+        self.waiting_edit = None;
+        if let Some((_, task)) = self.pending.as_mut()
+            && matches!(
+                task,
+                Task::Preflight { .. } | Task::VolumePreflight { .. } | Task::ProfileBefore { .. }
+            )
+        {
+            *task = Task::Before;
+        }
+    }
+    fn attach(&mut self, runtime: String) -> Result<(), String> {
+        validate_runtime(&runtime)?;
+        if self.cleanup.is_some() {
+            return Err("Client workers are still retiring".into());
+        }
+        if self.client.is_some() {
+            if self.runtime.as_deref() == Some(&runtime) {
+                self.refresh = true;
+                return Ok(());
+            }
+            return Err("Disconnect before attaching another runtime".into());
+        }
+        let model = self
+            .disconnected
+            .take()
+            .expect("disconnected controller owns its presentation model");
+        match DesktopClient::resume(runtime.clone(), model) {
+            Ok(client) => self.client = Some(client),
+            Err((error, model)) => {
+                self.disconnected = Some(*model);
+                return Err(format!("{error:?}"));
+            }
+        }
+        self.runtime = Some(runtime);
+        self.connected = false;
+        self.capabilities = None;
+        self.queue_stale = true;
+        self.refresh = true;
+        self.next_poll = Instant::now();
+        Ok(())
+    }
+    fn submit(&mut self, request: Request) -> Result<RequestId, String> {
+        let id = request.envelope().request_id.clone();
+        match self
+            .client
+            .as_mut()
+            .ok_or("Attach to an owner first")?
+            .submit(request)
+            .map_err(|e| format!("Client admission: {e:?}"))?
+        {
+            crate::Submission::Admitted => Ok(id),
+            crate::Submission::Coalesced(existing) => Ok(existing),
+        }
+    }
+    fn start_query(&mut self, command: Command, task: Task) -> Result<(), String> {
+        if let Task::Discovery { owner, .. } = &task
+            && self.state().and_then(|s| s.owner_id.as_ref()) != Some(owner)
+        {
+            return Err("Discovery owner changed before submission; refresh explicitly".into());
+        }
+        let request = if let Task::Diagnostic { basis, .. } = &task {
+            if self.state().is_none_or(|state| {
+                state.owner_id != basis.owner_id || state.zone_id != basis.zone_id
+            }) {
+                return Err("Diagnostic owner or zone changed before submission".into());
+            }
+            if command.is_diagnostic() {
+                Request::diagnostic_query(request_id()?, basis, command)
+            } else {
+                Request::diagnostic_artifact(request_id()?, basis, command)
+            }
+        } else if matches!(task, Task::Discovery { .. }) {
+            Request::device_query(
+                request_id()?,
+                self.state().ok_or("Observe an owner before discovery")?,
+                command,
+            )
+        } else {
+            Request::query(
+                request_id()?,
+                ZoneId::new("main").map_err(|e| e.to_string())?,
+                command,
+            )
+        }
+        .map_err(|e| format!("{e:?}"))?;
+        let id = self.submit(request)?;
+        self.pending = Some((id, task));
+        Ok(())
+    }
+    fn safety_command(&mut self, command: Command) -> Result<(), String> {
+        let play_target = self.local_play.as_ref().and_then(LocalPlay::stop_target);
+        self.cancel_local_play();
+        self.cancel_unsent();
+        if self.safety.len() + self.stop_preflights.len() == 2 {
+            return Err("Safety requests are pending".into());
+        }
+        let state = Arc::new(
+            self.state()
+                .ok_or("Observe an owner before sending safety commands")?
+                .clone(),
+        );
+        if matches!(command, Command::Stop) && (state.session_id.is_some() || play_target.is_some())
+        {
+            let request = Request::safety_state(request_id()?, &state)
+                .map_err(|error| format!("{error:?}"))?;
+            let id = self.submit(request)?;
+            self.stop_preflights.push((
+                id,
+                play_target.unwrap_or_else(|| StopTarget::observed(&state)),
+            ));
+            return Ok(());
+        }
+        let request =
+            Request::mutation(request_id()?, &state, command).map_err(|e| format!("{e:?}"))?;
+        let id = self.submit(request)?;
+        self.safety.push(id);
+        Ok(())
+    }
+    fn complete_stop_preflights(&mut self) {
+        let completed: Vec<_> = self
+            .stop_preflights
+            .iter()
+            .filter(|(id, _)| {
+                self.outcome(id).is_some_and(|(p, _)| {
+                    !matches!(p, Presentation::Queued | Presentation::Accepted)
+                })
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in completed {
+            let index = self
+                .stop_preflights
+                .iter()
+                .position(|(saved, _)| saved == &id)
+                .unwrap();
+            let (_, captured) = self.stop_preflights.remove(index);
+            let result = (|| {
+                let Some((Presentation::Applied, Some(Ok(Reply::Receipt(receipt))))) =
+                    self.outcome(&id)
+                else {
+                    return Err(
+                        "Stop could not read current Engine state; inspect its retained receipt"
+                            .into(),
+                    );
+                };
+                let Some(ResultView::State(state)) = &receipt.result else {
+                    return Err("Stop received no current Engine state".into());
+                };
+                if !captured.matches(state) {
+                    return Err(
+                        "Stop target changed; review the current session before stopping it".into(),
+                    );
+                }
+                let request = Request::mutation(request_id()?, state, Command::Stop)
+                    .map_err(|error| format!("{error:?}"))?;
+                let stop_id = self.submit(request)?;
+                self.safety.push(stop_id);
+                self.client.as_mut().unwrap().retire_observation(&id);
+                Ok(())
+            })();
+            if let Err(error) = result {
+                self.error = Some(error);
+                self.refresh = true;
+            }
+        }
+    }
+    fn capture_reconciliation(&mut self, id: RequestId) -> Result<(), String> {
+        let record = self
+            .model()
+            .record(&id)
+            .ok_or("Retained request is unavailable")?;
+        if record.request.lane() == Lane::Safety {
+            return self.reconcile(&id);
+        }
+        if record.owner_changed {
+            return self.reconcile(&id);
+        }
+        if self.queue_edit_pending() {
+            return Err("A foreground action is already waiting or pending".into());
+        }
+        if self.pending.is_some() || self.ordinary_in_flight() {
+            self.waiting_edit = Some(Task::Reconcile(id));
+            Ok(())
+        } else {
+            self.reconcile(&id)
+        }
+    }
+    fn reconcile(&mut self, id: &RequestId) -> Result<(), String> {
+        if let Some(record) = self.model().record(id)
+            && matches!(
+                record.request.envelope().payload,
+                Command::DevicesList { .. } | Command::DevicesInspect { .. }
+            )
+            && record.request.envelope().owner_id.as_ref()
+                != self.state().and_then(|s| s.owner_id.as_ref())
+        {
+            return Err("Discovery target owner changed or is unobserved; refresh explicitly after attachment".into());
+        }
+        let restore_safety = self
+            .client
+            .as_ref()
+            .and_then(|client| client.model().record(id))
+            .is_some_and(|record| {
+                record.request.lane() == Lane::Safety
+                    && !matches!(record.request.envelope().payload, Command::OwnerShutdown)
+                    && !is_transport_operation(&record.request.envelope().payload)
+            })
+            && !self.safety.contains(id);
+        if restore_safety && self.safety.len() + self.stop_preflights.len() == 2 {
+            return Err(
+                "Safety requests are pending; reconcile after a tracking slot retires".into(),
+            );
+        }
+        self.client
+            .as_mut()
+            .ok_or("Attach before reconciliation")?
+            .reconcile(id)
+            .map_err(|e| format!("Cannot reconcile: {e:?}"))?;
+        if restore_safety {
+            self.safety.push(id.clone());
+        }
+        Ok(())
+    }
+    /// Reads current State on the safety lane, so the shutdown carries a fresh revision.
+    /// The read also probes reachability. With no observed Engine, the controller only closes.
+    /// A refused admission leaves the read unset; the next tick tries again until the deadline.
+    fn read_before_quit(&mut self) {
+        let Some(state) = self.state_basis().filter(|_| self.client.is_some()) else {
+            self.disconnect(true);
+            return;
+        };
+        let read = request_id()
+            .ok()
+            .and_then(|id| Request::safety_state(id, &state).ok())
+            .and_then(|request| self.submit(request).ok());
+        if let Some(quit) = self.quit.as_mut() {
+            quit.read = read;
+        }
+    }
+    fn advance_quit(&mut self, now: Instant) {
+        let Some(quit) = self.quit.as_mut() else {
+            return;
+        };
+        if now >= quit.deadline {
+            // Quit must finish. An Engine that never confirms cannot hold the application open.
+            self.wait_for_child = false;
+            if !self.closing {
+                self.disconnect(true);
+            }
+            return;
+        }
+        let Some(id) = quit.read.clone() else {
+            if self.shutdown.is_none() && !self.closing {
+                self.read_before_quit();
+            }
+            return;
+        };
+        let shutdown = match self.outcome(&id) {
+            None | Some((Presentation::Queued | Presentation::Accepted, _)) => return,
+            Some((Presentation::Applied, Some(Ok(Reply::Receipt(receipt))))) => {
+                match &receipt.result {
+                    Some(ResultView::State(state)) => request_id().ok().and_then(|id| {
+                        let owned = matches!(&self.host.status, HostStatus::OwnedRunning { owner_id, .. } if state.owner_id.as_ref() == Some(owner_id));
+                        Request::mutation(id, state, Command::OwnerShutdown)
+                            .ok()
+                            .map(|request| (request, owned))
+                    }),
+                    _ => None,
+                }
+            }
+            Some(_) => None,
+        };
+        self.quit.as_mut().unwrap().read = None;
+        let Some((request, owned)) = shutdown else {
+            self.disconnect(true);
+            return;
+        };
+        // A refused admission falls back to a fresh read on the next tick.
+        if let Ok(id) = self.submit(request) {
+            self.shutdown = Some(id);
+            self.wait_for_child = owned;
+        }
+    }
+    fn disconnect(&mut self, close: bool) {
+        self.cancel_local_play();
+        self.invalidate_correction();
+        self.diagnostics.clear_owner();
+        self.closing |= close;
+        self.shutdown = None;
+        if !close {
+            self.wait_for_child = false;
+        }
+        self.pending = None;
+        self.waiting_edit = None;
+        self.refresh = false;
+        self.connected = false;
+        self.queue_stale = true;
+        self.safety.clear();
+        self.stop_preflights.clear();
+        self.discovery = None;
+        self.inspection = None;
+        self.profiles = ProfileViews::default();
+        if let Some(client) = self.client.take() {
+            let (model, shutdown) = client.disconnect();
+            self.disconnected = Some(model);
+            self.cleanup = Some(thread::spawn(move || {
+                shutdown
+                    .join()
+                    .map_err(|_| "Client worker panicked during cleanup".into())
+            }));
+        }
+    }
+    pub fn tick(&mut self, now: Instant) {
+        self.expire_local_play(now);
+        self.poll_local();
+        if let Some(runtime) = self.host.poll()
+            && !self.closing
+            && let Err(e) = self.attach(runtime)
+        {
+            self.error = Some(e);
+        }
+        if let HostStatus::Failed { detail } = &self.host.status
+            && !self.host_error_reported
+        {
+            self.error = Some(detail.clone());
+            self.host_error_reported = true;
+        }
+        if self.cleanup.as_ref().is_some_and(|j| j.is_finished()) {
+            match self.cleanup.take().unwrap().join() {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => self.error = Some(e),
+                Err(_) => self.error = Some("Cleanup worker panicked".into()),
+            }
+        }
+        let previous_owner = self.state().and_then(|state| state.owner_id.clone());
+        if let Some(client) = self.client.as_mut() {
+            client.poll();
+        }
+        if let Some(observed) = self.model().latest_state().map(|o| o.state.clone()) {
+            if previous_owner != observed.owner_id {
+                self.cancel_local_play();
+                self.invalidate_correction();
+                self.capabilities = None;
+                self.discovery = None;
+                self.inspection = None;
+                self.profiles = ProfileViews::default();
+                self.diagnostics.clear_owner();
+                if self.pending.as_ref().is_some_and(|(_, task)| {
+                    matches!(task, Task::Discovery { .. } | Task::Diagnostic { .. })
+                }) {
+                    self.pending = None;
+                    self.error = Some(
+                        "Observation owner changed; its sent receipt remains in history".into(),
+                    );
+                }
+                if self.waiting_edit.is_some()
+                    || self.pending.as_ref().is_some_and(|(_, t)| {
+                        matches!(
+                            t,
+                            Task::Preflight { .. }
+                                | Task::VolumePreflight { .. }
+                                | Task::ProfileBefore { .. }
+                        )
+                    })
+                {
+                    self.cancel_unsent();
+                    self.error = Some(
+                        "Owner changed; waiting queue edit cancelled before submission".into(),
+                    );
+                }
+            }
+            if self
+                .queue_basis
+                .as_ref()
+                .is_some_and(|basis| !same_context(basis, &observed))
+            {
+                self.queue_stale = true;
+            }
+        }
+        self.observe_discovery();
+        self.advance_quit(now);
+        if let Some(id) = self.shutdown.clone() {
+            match self.outcome(&id) {
+                Some((Presentation::Applied, _)) => {
+                    self.disconnect(true);
+                }
+                Some((p, _))
+                    if self.quit.is_some()
+                        && !matches!(p, Presentation::Queued | Presentation::Accepted) =>
+                {
+                    // A stale revision deserves a fresh read. Any other refusal still lets Quit close.
+                    self.shutdown = None;
+                    self.wait_for_child = false;
+                    let quit = self.quit.as_mut().unwrap();
+                    if p == Presentation::Rejected && quit.retries > 0 {
+                        quit.retries -= 1;
+                        self.read_before_quit();
+                    } else {
+                        self.disconnect(true);
+                    }
+                }
+                Some((p, _)) if !matches!(p, Presentation::Queued | Presentation::Accepted) => {
+                    self.shutdown = None;
+                    self.wait_for_child = false;
+                    self.refresh = true;
+                    self.queue_stale = true;
+                    if p == Presentation::Uncertain {
+                        self.connected = false;
+                    }
+                    self.error = Some(format!(
+                        "Shutdown {p:?}; inspect its receipt before closing"
+                    ));
+                }
+                _ => {}
+            }
+            if self.shutdown.is_some() || self.closing {
+                self.poll_accepted(now);
+                return;
+            }
+        }
+        if self.closing {
+            return;
+        }
+        // Long operations retain their exact model identity after the send workflow finishes.
+        // Artifact cancellation and observation must remain available during worker completion.
+        if let Some((id, Task::Mutation { .. } | Task::Diagnostic { .. })) = self.pending.as_ref()
+            && self
+                .outcome(id)
+                .is_some_and(|(p, _)| p == Presentation::Accepted)
+            && self.model().record(id).is_some_and(|r| {
+                is_transport_operation(&r.request.envelope().payload)
+                    || r.request.envelope().payload.starts_diagnostic_work()
+            })
+        {
+            self.pending = None;
+            self.refresh = true;
+            self.queue_stale = true;
+        }
+        let completed = self
+            .pending
+            .as_ref()
+            .and_then(|(id, _)| self.outcome(id))
+            .map(|(p, r)| (p, r.cloned()));
+        if let Some((presentation, reply)) = completed
+            && !matches!(presentation, Presentation::Accepted | Presentation::Queued)
+        {
+            let (id, task) = self.pending.take().unwrap();
+            let command = self
+                .model()
+                .record(&id)
+                .unwrap()
+                .request
+                .envelope()
+                .payload
+                .clone();
+            let background_observation = matches!(
+                task,
+                Task::Before | Task::Capabilities | Task::Page(_) | Task::After
+            );
+            let play_preflight = matches!(&task, Task::Preflight { play: Some(_), .. });
+            let holds_read = matches!(task, Task::ProfileResult(_));
+            if let Some(Ok(Reply::Receipt(receipt))) = &reply
+                && let Some(ResultView::GraphDiagnostic(diagnostic)) = &receipt.result
+            {
+                self.profiles.diagnostic = Some((id.clone(), diagnostic.clone()));
+            }
+            if let Some(Ok(Reply::Receipt(receipt))) = &reply
+                && let Some(ResultView::ProfilePackageIssue(issue)) = &receipt.result
+            {
+                self.retain_package_issue(id.clone(), &command, issue.clone());
+            }
+            if presentation == Presentation::Applied {
+                if let Some(Ok(Reply::Receipt(receipt))) = reply {
+                    match self.complete(task, receipt, now, &id, &command) {
+                        Ok(()) => {
+                            if !holds_read && let Some(client) = self.client.as_mut() {
+                                client.retire_observation(&id);
+                            }
+                        }
+                        Err(e) => {
+                            if play_preflight {
+                                self.cancel_local_play();
+                            }
+                            self.cancel_waiting_after_observation_error(background_observation);
+                            if background_observation {
+                                self.observation_error = Some(e);
+                            } else {
+                                self.error = Some(e);
+                            }
+                            self.queue_stale = true;
+                            self.next_poll = now + Duration::from_millis(500);
+                        }
+                    }
+                }
+            } else {
+                if play_preflight {
+                    self.cancel_local_play();
+                }
+                self.cancel_waiting_after_observation_error(background_observation);
+                let volume_detail = if matches!(command, Command::VolumeSetGuarded { .. }) {
+                    match &reply {
+                        Some(Ok(Reply::Receipt(receipt))) => {
+                            receipt.error.as_ref().map(|error| error.message.as_str())
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                self.error = Some(match volume_detail {
+                    Some(detail) => format!("Volume {presentation:?}: {detail}"),
+                    None => format!("Request {presentation:?}; inspect its retained receipt"),
+                });
+                if presentation == Presentation::Uncertain {
+                    self.connected = false;
+                }
+                self.next_poll = now + Duration::from_millis(500);
+            }
+        }
+        self.complete_stop_preflights();
+        let completed_safety: Vec<_> = self
+            .safety
+            .iter()
+            .filter(|id| {
+                self.outcome(id)
+                    .is_some_and(|(p, _)| p != Presentation::Queued && p != Presentation::Accepted)
+            })
+            .cloned()
+            .collect();
+        for id in completed_safety {
+            if let Some((presentation, reply)) = self.outcome(&id)
+                && presentation != Presentation::Applied
+            {
+                let label = if self.model().record(&id).is_some_and(|record| {
+                    matches!(record.request.envelope().payload, Command::Stop)
+                }) {
+                    "Stop"
+                } else {
+                    "Mute"
+                };
+                let detail = match reply {
+                    Some(Ok(Reply::Receipt(receipt))) => {
+                        receipt.error.as_ref().map(|error| error.message.as_str())
+                    }
+                    _ => None,
+                };
+                self.error = Some(format!(
+                    "{label} {presentation:?}: {}",
+                    detail.unwrap_or("inspect its retained receipt")
+                ));
+            }
+            self.safety.retain(|saved| saved != &id);
+            self.refresh = true;
+        }
+        self.poll_accepted(now);
+        self.observe_package_issues();
+        self.poll_local_play(now);
+        if self.client.is_some()
+            && self.pending.is_none()
+            && self.local_work.is_none()
+            && !self.ordinary_in_flight()
+        {
+            if let Some(task) = self.waiting_edit.take() {
+                if let Task::Reconcile(id) = task {
+                    if let Err(error) = self.reconcile(&id) {
+                        self.error = Some(error);
+                    }
+                    return;
+                }
+                if matches!(task, Task::PackageFiles { .. }) {
+                    if let Err(error) = self.start_package_files(task) {
+                        self.error = Some(error);
+                    }
+                    return;
+                }
+                if matches!(task, Task::LocalPreview { .. }) {
+                    if let Err(error) = self.start_local(task) {
+                        self.error = Some(error);
+                    }
+                    return;
+                }
+                let command = match &task {
+                    Task::Discovery { command, .. } | Task::Diagnostic { command, .. } => {
+                        command.clone()
+                    }
+                    _ => Command::State,
+                };
+                if let Err(error) = self.start_query(command, task) {
+                    self.error = Some(error);
+                }
+            } else if self.refresh || now >= self.next_poll {
+                self.refresh = false;
+                if let Err(e) = self.start_query(Command::State, Task::Before) {
+                    self.error = Some(e);
+                }
+                self.next_poll = now + Duration::from_millis(500);
+            }
+        }
+    }
+    fn observe_discovery(&mut self) {
+        if !self.connected || self.client.is_none() {
+            return;
+        }
+        let results: Vec<_> = self
+            .model()
+            .records()
+            .iter()
+            .filter_map(|record| {
+                if let Some(Ok(Reply::Receipt(receipt))) = &record.outcome
+                    && let Some(ResultView::Devices(result)) = &receipt.result
+                    && self.state().and_then(|s| s.owner_id.as_ref()) == Some(&result.owner_id)
+                    && record.request.envelope().owner_id.as_ref() == Some(&result.owner_id)
+                {
+                    Some((
+                        matches!(
+                            record.request.envelope().payload,
+                            Command::DevicesList { .. }
+                        ),
+                        result.clone(),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // Retain the actual shared result, including failures. Archived exact replay cannot
+        // replace a more recent observation or populate another owner's inventory.
+        for (list, result) in results {
+            let slot = if list {
+                &mut self.discovery
+            } else {
+                &mut self.inspection
+            };
+            if slot
+                .as_ref()
+                .is_none_or(|old| old.completed_monotonic_ns < result.completed_monotonic_ns)
+            {
+                *slot = Some(result);
+            }
+        }
+    }
+    fn cancel_waiting_after_observation_error(&mut self, background_observation: bool) {
+        // Product actions perform their own fresh preflight after this failed read.
+        // A read fence failure must not silently discard that explicit intent.
+        if !background_observation
+            || !matches!(
+                self.waiting_edit.as_ref(),
+                Some(Task::VolumePreflight { .. } | Task::Preflight { play: Some(_), .. })
+            )
+        {
+            self.waiting_edit = None;
+        }
+    }
+    fn outcome(
+        &self,
+        id: &RequestId,
+    ) -> Option<(Presentation, Option<&Result<Reply, DeliveryFailure>>)> {
+        let record = self.client.as_ref()?.model().record(id)?;
+        (!record.in_flight).then_some((record.presentation, record.outcome.as_ref()))
+    }
+    fn poll_accepted(&mut self, now: Instant) {
+        if now < self.next_replay || self.client.is_none() {
+            return;
+        }
+        // Fixed slots keep changing ordinary request identities from starving safety work.
+        let operations: Vec<_> = self
+            .model()
+            .records()
+            .iter()
+            .filter(|r| {
+                !r.owner_changed
+                    && !r.in_flight
+                    && r.presentation == Presentation::Accepted
+                    && !self
+                        .pending
+                        .as_ref()
+                        .is_some_and(|(id, _)| id == &r.request.envelope().request_id)
+                    && !self.safety.contains(&r.request.envelope().request_id)
+                    && operation_replayable(r.request.envelope(), self.state(), self.connected)
+            })
+            .map(|r| r.request.envelope().request_id.clone())
+            .collect();
+        let operation = if operations.is_empty() {
+            None
+        } else {
+            Some(operations[self.operation_cursor % operations.len()].clone())
+        };
+        let slots = [
+            self.pending.as_ref().map(|(id, _)| id.clone()),
+            operation,
+            self.safety.first().cloned(),
+            self.safety.get(1).cloned(),
+            self.shutdown.clone(),
+        ];
+        for offset in 0..slots.len() {
+            let slot = (self.replay_cursor + offset) % slots.len();
+            let Some(id) = &slots[slot] else {
+                continue;
+            };
+            if self
+                .model()
+                .record(id)
+                .is_some_and(|record| record.request.lane() == Lane::Ordinary)
+                && (self.ordinary_in_flight() || self.waiting_edit.is_some())
+            {
+                continue;
+            }
+            if !self
+                .outcome(id)
+                .is_some_and(|(presentation, _)| presentation == Presentation::Accepted)
+            {
+                continue;
+            }
+            self.replay_cursor = (slot + 1) % slots.len();
+            if slot == 1 {
+                self.operation_cursor = self.operation_cursor.wrapping_add(1);
+            }
+            self.next_replay = now + Duration::from_millis(100);
+            if let Err(error) = self.client.as_mut().unwrap().reconcile(id) {
+                if !matches!(error, SubmitError::Dispatch(DispatchError::Full(_))) {
+                    self.safety.retain(|saved| saved != id);
+                    if self.pending.as_ref().is_some_and(|(saved, _)| saved == id) {
+                        self.pending = None;
+                        self.waiting_edit = None;
+                        self.queue_stale = true;
+                    }
+                    if self.shutdown.as_ref() == Some(id) {
+                        self.shutdown = None;
+                        self.wait_for_child = false;
+                    }
+                    self.refresh = true;
+                    self.error = Some(format!("Receipt polling stopped: {error:?}"));
+                } else {
+                    self.error = Some(format!("Receipt polling delayed: {error:?}"));
+                }
+            }
+            break;
+        }
+    }
+    fn complete(
+        &mut self,
+        task: Task,
+        receipt: crate::ReceiptView,
+        now: Instant,
+        request_id: &RequestId,
+        command: &Command,
+    ) -> Result<(), String> {
+        match task {
+            Task::Reconcile(_) => {
+                Err("Reconciliation observes the original retained request".into())
+            }
+            Task::PackageFiles { .. } => {
+                Err("Local package review cannot consume an owner receipt".into())
+            }
+            Task::LocalPreview { .. } => {
+                Err("Local correction preview cannot consume an owner receipt".into())
+            }
+            Task::Before => {
+                let Some(ResultView::State(state)) = receipt.result else {
+                    return Err("State result unavailable".into());
+                };
+                self.connected = true;
+                self.basis = Some(state);
+                self.candidate = None;
+                if self.capabilities.is_none() {
+                    self.start_query(Command::Capabilities, Task::Capabilities)
+                } else {
+                    self.start_query(
+                        Command::QueueGet {
+                            offset: 0,
+                            limit: 64,
+                        },
+                        Task::Page(0),
+                    )
+                }
+            }
+            Task::Capabilities => {
+                let Some(ResultView::Capabilities(caps)) = receipt.result else {
+                    return Err("Capabilities unavailable".into());
+                };
+                self.capabilities = Some(caps);
+                self.start_query(
+                    Command::QueueGet {
+                        offset: 0,
+                        limit: 64,
+                    },
+                    Task::Page(0),
+                )
+            }
+            Task::Page(offset) => {
+                let Some(ResultView::Queue(page)) = receipt.result else {
+                    return Err("Queue result unavailable".into());
+                };
+                let basis = self.basis.as_ref().ok_or("Missing queue read context")?;
+                if receipt.revision != basis.revision
+                    || page.offset != offset
+                    || page.total > 256
+                    || page.entries.len() > 64
+                    || offset + page.entries.len() > page.total
+                    || (page.entries.is_empty() && offset < page.total)
+                {
+                    return Err("Queue changed or returned an invalid page; refresh again".into());
+                }
+                let candidate = self.candidate.get_or_insert_with(|| QueueView {
+                    entries: Vec::new(),
+                    selected: page.selected.clone(),
+                    offset: 0,
+                    total: page.total,
+                });
+                if candidate.total != page.total
+                    || candidate.selected != page.selected
+                    || candidate.entries.len() != offset
+                {
+                    return Err("Queue changed between pages".into());
+                }
+                for entry in page.entries {
+                    if candidate.entries.iter().any(|old| old.id == entry.id) {
+                        return Err("Queue repeated an entry identity".into());
+                    }
+                    candidate.entries.push(entry);
+                }
+                let next = candidate.entries.len();
+                if next == candidate.total {
+                    self.start_query(Command::State, Task::After)
+                } else {
+                    self.start_query(
+                        Command::QueueGet {
+                            offset: next,
+                            limit: 64,
+                        },
+                        Task::Page(next),
+                    )
+                }
+            }
+            Task::After => {
+                let Some(ResultView::State(state)) = receipt.result else {
+                    return Err("Queue fence State unavailable".into());
+                };
+                if !self
+                    .basis
+                    .as_ref()
+                    .is_some_and(|basis| same_context(basis, &state))
+                {
+                    return Err(
+                        "Owner or queue changed during read; previous queue stays stale".into(),
+                    );
+                }
+                self.queue = self.candidate.take();
+                self.queue_basis = Some(state);
+                self.basis = None;
+                self.queue_stale = false;
+                self.observation_error = None;
+                self.connected = true;
+                self.next_poll = now + Duration::from_millis(500);
+                Ok(())
+            }
+            Task::Preflight {
+                basis,
+                command,
+                session,
+                draft_epoch,
+                play,
+            } => {
+                if play.is_some()
+                    && self
+                        .local_play
+                        .as_ref()
+                        .is_none_or(|intent| now >= intent.deadline())
+                {
+                    return Err("Playback preparation expired before submission".into());
+                }
+                let Some(ResultView::State(state)) = receipt.result else {
+                    return Err("Edit preflight State unavailable".into());
+                };
+                let context_matches = if play.is_some() {
+                    same_review_context(&basis, &state)
+                        && basis.output_consented == state.output_consented
+                        && basis.volume_policy == state.volume_policy
+                        && basis.local_volume_policy == state.local_volume_policy
+                } else {
+                    same_context(&basis, &state)
+                };
+                if !context_matches {
+                    self.refresh = true;
+                    return Err(
+                        "Owner, session, or revision changed; review the draft and submit again"
+                            .into(),
+                    );
+                }
+                if is_profile_mutation(&command) && draft_epoch != self.draft_epoch {
+                    return Err("Draft changed before submission; review and submit again".into());
+                }
+                if self.model().records().iter().any(|r| {
+                    !r.owner_changed
+                        && !r.request.envelope().payload.is_query()
+                        && r.presentation == Presentation::Uncertain
+                }) {
+                    return Err("A sent action became uncertain; reconcile its exact request before another edit".into());
+                }
+                if is_profile_mutation(&command) {
+                    self.validate_correction_action(&state, &command)?;
+                    self.validate_package_action(&command)?;
+                    self.validate_prepared_action(&state, &command)?;
+                }
+                self.validate_diagnostic_export(&state, &command)?;
+                let request = match session {
+                    Some(session) => Request::start(super::request_id()?, &state, session, command),
+                    None if command.is_diagnostic_artifact() => {
+                        Request::diagnostic_artifact(super::request_id()?, &state, command)
+                    }
+                    None => Request::mutation(super::request_id()?, &state, command),
+                }
+                .map_err(|e| format!("{e:?}"))?;
+                let target_session = request.envelope().session_id.clone();
+                let id = self.submit(request)?;
+                if let Some(play) = play {
+                    self.local_play_submitted(play, &state, id.clone(), target_session)?;
+                }
+                self.pending = Some((id, Task::Mutation { draft_epoch }));
+                Ok(())
+            }
+            Task::VolumePreflight { basis, command } => {
+                self.complete_volume_preflight(basis, command, receipt)
+            }
+            Task::Mutation { draft_epoch } => {
+                if is_profile_mutation(command) {
+                    self.adopt_profile_mutation(request_id, command, &receipt, draft_epoch)?;
+                    self.refresh = true;
+                    self.queue_stale = true;
+                    let observe = if matches!(
+                        command,
+                        Command::ProfilesCreate { .. }
+                            | Command::ProfilesUpdate { .. }
+                            | Command::ProfilesImport { .. }
+                            | Command::FirImport { .. }
+                            | Command::ProfilesImportPackage { .. }
+                            | Command::ProfilesPackageInspect { .. }
+                            | Command::ProfilesPackagePreview { .. }
+                            | Command::ProfilesExport { .. }
+                    ) {
+                        Command::ProfilesList {
+                            offset: 0,
+                            limit: 16,
+                        }
+                    } else {
+                        Command::GraphInspect {}
+                    };
+                    return self.start_query(
+                        Command::State,
+                        Task::ProfileBefore {
+                            basis: None,
+                            command: observe,
+                            foreground: false,
+                        },
+                    );
+                }
+                self.refresh = true;
+                self.queue_stale = true;
+                Ok(())
+            }
+            Task::Discovery { .. } => Ok(()),
+            Task::Diagnostic { basis, command } => {
+                if self.state().is_none_or(|state| {
+                    state.owner_id != basis.owner_id || state.zone_id != basis.zone_id
+                }) {
+                    return Err("Diagnostic owner or zone changed before adoption".into());
+                }
+                if command.is_diagnostic() {
+                    let result = receipt.result.ok_or("Diagnostic result unavailable")?;
+                    self.diagnostics
+                        .adopt(request_id.clone(), &command, result, &basis)
+                } else {
+                    Ok(())
+                }
+            }
+            Task::ProfileBefore {
+                basis,
+                command,
+                foreground,
+            } => {
+                let Some(ResultView::State(state)) = receipt.result else {
+                    return Err("Profile preflight State unavailable".into());
+                };
+                if basis.as_ref().is_some_and(|basis| {
+                    basis.owner_id != state.owner_id || basis.zone_id != state.zone_id
+                }) {
+                    return Err("Profile owner or zone changed; review and submit again".into());
+                }
+                let read = ProfileRead {
+                    basis: state,
+                    command: command.clone(),
+                    foreground,
+                    pages: None,
+                    ids: Vec::new(),
+                };
+                self.start_query(command, Task::ProfileResult(read))
+            }
+            Task::ProfileResult(mut read) => {
+                if receipt.revision != read.basis.revision {
+                    return Err(
+                        "Profile query revision differs from its captured observation".into(),
+                    );
+                }
+                let result = receipt.result.ok_or("Profile query result unavailable")?;
+                validate_profile_result(&read.command, &result)?;
+                read.ids.push(request_id.clone());
+                let result =
+                    if let (Command::ProfilesList { offset, limit }, ResultView::Profiles(page)) =
+                        (&read.command, &result)
+                    {
+                        if page.total
+                            > self
+                                .capabilities
+                                .as_ref()
+                                .map_or(32, |c| c.profiles.max_profiles)
+                            || page.entries.len() > *limit
+                            || offset + page.entries.len() > page.total
+                            || (page.entries.is_empty() && *offset < page.total)
+                            || page.next_offset.is_some_and(|next| {
+                                next != offset + page.entries.len() || next >= page.total
+                            })
+                            || (page.next_offset.is_none()
+                                && offset + page.entries.len() != page.total)
+                        {
+                            return Err("Profile catalog returned an invalid page".into());
+                        }
+                        if let Some(all) = read.pages.as_mut() {
+                            if all.total != page.total
+                                || all.operation != page.operation
+                                || all.entries.len() != *offset
+                            {
+                                return Err("Profile catalog changed between pages".into());
+                            }
+                            for entry in &page.entries {
+                                if all.entries.iter().any(|old| old.id == entry.id) {
+                                    return Err("Profile catalog repeated an ID".into());
+                                }
+                                all.entries.push(entry.clone());
+                            }
+                            all.next_offset = page.next_offset;
+                        } else {
+                            read.pages = Some((**page).clone());
+                        }
+                        if let Some(offset) = page.next_offset {
+                            let command = Command::ProfilesList {
+                                offset,
+                                limit: *limit,
+                            };
+                            read.command = command.clone();
+                            return self.start_query(command, Task::ProfileResult(read));
+                        }
+                        read.command = Command::ProfilesList {
+                            offset: 0,
+                            limit: *limit,
+                        };
+                        ResultView::Profiles(Arc::new(read.pages.take().unwrap()))
+                    } else {
+                        result
+                    };
+                self.start_query(Command::State, Task::ProfileAfter { read, result })
+            }
+            Task::ProfileAfter { read, result } => {
+                let Some(ResultView::State(state)) = receipt.result else {
+                    return Err("Profile result fence State unavailable".into());
+                };
+                if !same_context(&read.basis, &state) {
+                    return Err("Profile query owner or revision changed before adoption".into());
+                }
+                if read.ids.is_empty() {
+                    return Err("Profile query identity unavailable".into());
+                }
+                self.adopt_profile_result(read.basis, read.ids.clone(), read.command, result)?;
+                if let Some(client) = self.client.as_mut() {
+                    for id in read.ids {
+                        client.retire_observation(&id);
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+impl Drop for GuiController {
+    fn drop(&mut self) {
+        self.disconnect(false);
+        if let Some(join) = self.cleanup.take() {
+            let _ = join.join();
+        }
+        self.local_work.take();
+    }
+}
+fn validate_runtime(runtime: &str) -> Result<(), String> {
+    let path = Path::new(runtime);
+    if !path.is_absolute() || path.components().any(|p| p == Component::ParentDir) {
+        return Err("Runtime must be an absolute path without parent traversal".into());
+    }
+    if runtime.len() > 60 {
+        return Err("Runtime exceeds the owner's 60-byte path limit".into());
+    }
+    Ok(())
+}
+fn validate_queue(command: &Command) -> Result<(), String> {
+    match command {
+        Command::QueueAppend { path } | Command::QueueAppendDirectory { path } => {
+            if path.is_empty() || path.len() > 1024 || path.contains('\0') {
+                return Err("Queue path must contain 1–1,024 UTF-8 bytes without NUL".into());
+            }
+            Ok(())
+        }
+        Command::QueueSelect { .. } | Command::QueueMove { .. } | Command::QueueRemove { .. } => {
+            Ok(())
+        }
+        _ => Err("Only queue commands belong to a queue edit".into()),
+    }
+}
+fn is_transport_operation(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Start { .. }
+            | Command::NetworkStartHttpFlac { .. }
+            | Command::Resume
+            | Command::Pause
+            | Command::Seek { .. }
+    )
+}
+fn operation_replayable(
+    envelope: &earph_core::control::CommandEnvelope,
+    state: Option<&StateView>,
+    connected: bool,
+) -> bool {
+    is_transport_operation(&envelope.payload)
+        || (connected
+            && state.is_some_and(|state| {
+                envelope.owner_id == state.owner_id && envelope.zone_id == state.zone_id
+            })
+            && (matches!(
+                envelope.payload,
+                Command::DevicesList { .. } | Command::DevicesInspect { .. }
+            ) || is_profile_mutation(&envelope.payload)
+                || envelope.payload.is_diagnostic_artifact()))
+}
+fn correction_unsent(task: &Task) -> bool {
+    matches!(
+        task,
+        Task::LocalPreview { .. }
+            | Task::Preflight {
+                command: Command::ProfilesImport { .. } | Command::FirImport { .. },
+                ..
+            }
+    )
+}
+fn package_mutation(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::ProfilesPackageInspect { .. }
+            | Command::ProfilesPackagePreview { .. }
+            | Command::ProfilesImportPackage { .. }
+            | Command::ProfilesExport { .. }
+            | Command::ProfilesBind { .. }
+    )
+}
+fn is_profile_mutation(command: &Command) -> bool {
+    package_mutation(command)
+        || matches!(
+            command,
+            Command::ProfilesCreate { .. }
+                | Command::ProfilesImport { .. }
+                | Command::FirImport { .. }
+                | Command::ProfilesUpdate { .. }
+                | Command::ProfilesPrepare { .. }
+                | Command::ProfilesApply { .. }
+                | Command::GraphValidate { .. }
+                | Command::GraphPrepare { .. }
+                | Command::GraphCommit { .. }
+        )
+}
+fn validate_profile_command(command: &Command) -> Result<(), String> {
+    if matches!(command, Command::ProfilesList { offset, .. } if *offset != 0) {
+        return Err("Refresh the profile catalog from its first page".into());
+    }
+    if matches!(
+        command,
+        Command::ProfilesList { .. }
+            | Command::ProfilesGet { .. }
+            | Command::ProfilesResolve { .. }
+            | Command::GraphInspect { .. }
+    ) || is_profile_mutation(command)
+    {
+        Ok(())
+    } else {
+        Err("Only released profile and DSP commands belong to this workflow".into())
+    }
+}
+fn validate_profile_result(command: &Command, result: &ResultView) -> Result<(), String> {
+    let valid = match (command, result) {
+        (Command::ProfilesList { .. }, ResultView::Profiles(_)) => true,
+        (Command::ProfilesGet { id }, ResultView::Profile(record)) => &record.profile.id == id,
+        (Command::ProfilesPackageInspect { .. }, ResultView::ProfilePackage(package)) => {
+            valid_package(package) && package.operation == crate::ProfilePackageStageView::Inspected
+        }
+        (Command::ProfilesPackagePreview { profile }, ResultView::ProfilePackage(package)) => {
+            valid_package(package)
+                && package.operation == crate::ProfilePackageStageView::Previewed
+                && &package.manifest.profile == profile
+        }
+        (
+            Command::ProfilesExport {
+                profile,
+                expected_manifest_sha256,
+                ..
+            },
+            ResultView::ProfilePackage(package),
+        ) => {
+            valid_package(package)
+                && package.operation == crate::ProfilePackageStageView::Exported
+                && &package.manifest.profile == profile
+                && package.manifest_sha256 == *expected_manifest_sha256
+        }
+        (Command::ProfilesImportPackage { profile, .. }, ResultView::ProfileSaved(record)) => {
+            record.profile.id == profile.id
+                && record.profile.revision == profile.revision
+                && record.profile_sha256 == profile.profile_sha256
+        }
+        (Command::ProfilesBind { id, .. }, ResultView::ProfileBound(association)) => {
+            &association.profile_id == id
+        }
+        (Command::ProfilesCreate { id, draft, graph }, ResultView::ProfileSaved(record)) => {
+            &record.profile.id == id
+                && record.profile.revision == 1
+                && saved_matches_draft(record, draft, graph)
+        }
+        (
+            Command::ProfilesImport {
+                id,
+                expected_profile_revision,
+                draft,
+                input,
+            },
+            ResultView::ProfileSaved(record),
+        ) => {
+            &record.profile.id == id
+                && expected_profile_revision.unwrap_or(0).checked_add(1)
+                    == Some(record.profile.revision)
+                && saved_profile_policy_matches(record, draft)
+                && imported_matches_input(record, input)
+        }
+        (Command::FirImport { purpose, .. }, ResultView::FirAsset(asset)) => {
+            asset.purpose == *purpose && asset.validate().is_ok()
+        }
+        (
+            Command::ProfilesUpdate {
+                id,
+                expected_profile_revision,
+                draft,
+                graph,
+            },
+            ResultView::ProfileSaved(record),
+        ) => {
+            &record.profile.id == id
+                && expected_profile_revision.checked_add(1) == Some(record.profile.revision)
+                && saved_matches_draft(record, draft, graph)
+        }
+        (
+            Command::ProfilesResolve {
+                manual_profile_id, ..
+            },
+            ResultView::ProfileResolution(resolution),
+        ) => match resolution {
+            ProfileResolutionView::Selected { profile, reason } => match manual_profile_id {
+                Some(id) => {
+                    id == &profile.id && *reason == crate::ProfileSelectionReasonView::Manual
+                }
+                None => *reason == crate::ProfileSelectionReasonView::ExactDevice,
+            },
+            ProfileResolutionView::SelectionRequired { .. } => true,
+        },
+        (Command::GraphInspect { .. }, ResultView::GraphInspection(_)) => true,
+        (Command::GraphValidate { .. }, ResultView::GraphPreview(preview)) => {
+            preview.profile_application.is_none()
+        }
+        (Command::GraphPrepare { .. }, ResultView::GraphPrepared(prepared)) => {
+            prepared.preview.profile_application.is_none()
+        }
+        (
+            Command::ProfilesPrepare {
+                id,
+                expected_profile_revision,
+                profile_sha256,
+            },
+            ResultView::GraphPrepared(prepared),
+        ) => prepared
+            .preview
+            .profile_application
+            .as_ref()
+            .is_some_and(|binding| {
+                &binding.profile.id == id
+                    && binding.profile.revision == *expected_profile_revision
+                    && binding.profile.profile_sha256 == *profile_sha256
+            }),
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err("Profile/DSP result kind or target does not match the captured command".into())
+    }
+}
+fn valid_package(package: &crate::ProfilePackageResultView) -> bool {
+    use earph_core::profile_packages::{
+        MAX_PACKAGE_BYTES, MAX_PACKAGE_MANIFEST_BYTES, PackageManifest,
+    };
+    let manifest = PackageManifest {
+        schema_version: package.manifest.schema_version,
+        profile: package.manifest.profile.clone(),
+        objects: package.manifest.objects.clone(),
+    };
+    manifest.validate().is_ok()
+        && package.manifest_bytes > 0
+        && package.manifest_bytes <= MAX_PACKAGE_MANIFEST_BYTES as u64
+        && package.total_bytes <= MAX_PACKAGE_BYTES
+        && manifest
+            .total_object_bytes()
+            .ok()
+            .and_then(|n| n.checked_add(package.manifest_bytes))
+            == Some(package.total_bytes)
+        && package.review_sources.len() == manifest.objects.len()
+        && package
+            .review_sources
+            .iter()
+            .enumerate()
+            .all(|(index, source)| {
+                manifest.objects.contains(&source.object)
+                    && !package.review_sources[..index]
+                        .iter()
+                        .any(|previous| previous.object == source.object)
+                    && !source.local_path.is_empty()
+                    && source.local_path.len() <= 1024
+                    && !source.local_path.contains('\0')
+            })
+}
+fn prepared_matches_state(prepared: &GraphPreparedView, state: &StateView) -> bool {
+    preview_matches_state(&prepared.preview, state)
+        && state.monotonic_ns < prepared.expires_monotonic_ns
+}
+fn saved_matches_draft(
+    record: &ProfileRecordView,
+    draft: &earph_core::profile_control::ProfileDraft,
+    graph: &earph_core::graph_control::GraphIntent,
+) -> bool {
+    record.graph.as_ref() == graph
+        && record.profile.corrections == draft.corrections
+        && saved_profile_policy_matches(record, draft)
+}
+fn saved_profile_policy_matches(
+    record: &ProfileRecordView,
+    draft: &earph_core::profile_control::ProfileDraft,
+) -> bool {
+    let profile = &record.profile;
+    profile.name == draft.name
+        && profile.source_policy == draft.source_policy
+        && profile.fidelity == draft.fidelity
+        && profile.output.backend == draft.output.backend
+        && profile.output.route == draft.output.route
+        && profile.output.device_id == draft.output.device_id
+        && profile.output.manual_setup == draft.output.manual_setup
+        && profile.volume.mode == draft.volume.mode
+        && profile.volume.software_cap_db
+            == f64::from(draft.volume.software_cap_millidecibels) / 1000.0
+        && profile.volume.hardware_cap_db
+            == draft
+                .volume
+                .hardware_cap_millidecibels
+                .map(|v| f64::from(v) / 1000.0)
+        && profile.latency.mode == draft.latency.mode
+        && profile.latency.max_resident_bytes == draft.latency.max_resident_bytes
+        && profile.latency.max_preparation_bytes == draft.latency.max_preparation_bytes
+        && profile.latency.max_latency_frames == draft.latency.max_latency_frames
+}
+fn imported_matches_input(
+    record: &ProfileRecordView,
+    input: &earph_core::profile_control::ProfileCorrectionInput,
+) -> bool {
+    use earph_core::profile_control::ProfileCorrectionInput;
+    if record.corrections.len() != 1
+        || record.profile.corrections.len() != 1
+        || record.correction_preview.is_none()
+        || record.graph.processing
+            != (earph_core::graph::GraphProcessingRequest::Float64 {
+                quantization: earph_core::graph::QuantizationPolicy::RoundTiesAwaySaturateNoDither,
+            })
+    {
+        return false;
+    }
+    let object = &record.corrections[0];
+    let digest: String = {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(object.document_json.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    };
+    if object.object_sha256.as_str() != digest
+        || record.profile.corrections[0].object_sha256 != object.object_sha256
+        || record.profile.corrections[0].kind != object.kind
+    {
+        return false;
+    }
+    match input {
+        ProfileCorrectionInput::TextReport { report_json, .. } => {
+            let expected =
+                earph_media::correction_text::read_correction_report(report_json.as_bytes());
+            let actual = earph_media::correction_text::read_correction_report(
+                object.document_json.as_bytes(),
+            );
+            match (expected, actual) {
+                (Ok(expected), Ok(actual)) => {
+                    object.kind == earph_core::profiles::ProfileCorrectionKind::TextReport
+                        && expected == actual
+                        && record.graph.graph.as_ref() == &actual.graph
+                        && correction_preview_matches(record, actual.context, actual.preamp_db)
+                }
+                _ => false,
+            }
+        }
+        ProfileCorrectionInput::Fir {
+            purpose,
+            context,
+            metadata_json,
+            preamp_db,
+            ..
+        } => {
+            let actual = earph_media::read_fir_manifest(object.document_json.as_bytes());
+            actual.is_ok_and(|manifest| {
+                object.kind == earph_core::profiles::ProfileCorrectionKind::FirManifest
+                    && manifest.asset.purpose == *purpose
+                    && manifest.context.sample_rate_hz == context.sample_rate_hz
+                    && manifest.context.channels == context.channels
+                    && manifest.context.quantum_frames == context.quantum_frames
+                    && manifest.preamp_db == *preamp_db
+                    && correction_preview_matches(
+                        record,
+                        manifest.context,
+                        manifest.preamp_db.get(),
+                    )
+                    && serde_json::from_str::<earph_media::correction_text::ImportMetadata>(
+                        metadata_json,
+                    )
+                    .is_ok_and(|metadata| metadata == manifest.metadata)
+                    && manifest
+                        .graph()
+                        .is_ok_and(|graph| record.graph.graph.as_ref() == &graph)
+            })
+        }
+    }
+}
+fn correction_preview_matches(
+    record: &ProfileRecordView,
+    context: earph_media::correction_text::ImportContext,
+    preamp: f64,
+) -> bool {
+    record.correction_preview.as_ref().is_some_and(|preview| {
+        preview.context.sample_rate_hz == context.sample_rate_hz
+            && preview.context.channels == context.channels
+            && preview.context.quantum_frames == context.quantum_frames
+            && preview.preamp_db.get() == preamp
+    })
+}
+fn preview_matches_state(preview: &GraphPreviewView, state: &StateView) -> bool {
+    let binding = &preview.binding;
+    state.owner_id.as_ref() == Some(&binding.owner_id)
+        && state.session_id.as_ref() == Some(&binding.session_id)
+        && state.revision == binding.expected_revision
+        && state.device_epoch == binding.device_epoch
+        && state.epochs == binding.epochs
+        && state
+            .playback_facts()
+            .is_some_and(|p| p.format == preview.source_format)
+        && state
+            .output
+            .as_ref()
+            .is_some_and(|o| o.period_frames as usize == preview.quantum_frames)
+}
+
+#[cfg(test)]
+#[path = "../../tests/common/mod.rs"]
+mod test_common;
+
+#[cfg(test)]
+#[path = "../../tests/gui_diagnostics_admission/mod.rs"]
+mod diagnostic_admission_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::OwnerClient;
+    use crate::network_fixture;
+
+    #[test]
+    fn network_graph_validation_matches_received_facts_without_a_local_observation() {
+        let session = network_fixture::ready(None);
+        let state: StateView =
+            serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap();
+        let preview: GraphPreviewView = serde_json::from_value(
+            serde_json::to_value(network_fixture::preview(&session)).unwrap(),
+        )
+        .unwrap();
+        assert!(state.playback.is_none());
+        assert!(preview_matches_state(&preview, &state));
+        let mut stale = preview;
+        stale.binding.epochs.stream += 1;
+        assert!(!preview_matches_state(&stale, &state));
+    }
+    #[test]
+    fn network_graph_controls_close_when_the_actual_source_retires() {
+        let mut session = network_fixture::ready(None);
+        let state: StateView =
+            serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap();
+        assert!(state.graph_source_available());
+        let command = network_fixture::command(
+            &session,
+            "closing",
+            serde_json::json!({"method":"sources.grants.revoke","expected_generation":1}),
+        );
+        session.submit_with_network_effects(
+            command,
+            40,
+            |_| unreachable!(),
+            |_, _| Ok(()),
+            |_| Ok(()),
+        );
+        let closing: StateView =
+            serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap();
+        assert!(closing.network_playback.is_some());
+        assert!(!closing.graph_source_available());
+    }
+    #[test]
+    fn network_control_factory_rejects_strict_output_before_sending() {
+        let session = network_fixture::ready(None);
+        let state: StateView =
+            serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap();
+        let mut output = state.output.clone().unwrap();
+        output.fidelity = earph_core::safety::FidelityPolicy::StrictPreservation;
+        let error = GuiController::new()
+            .intent(UiIntent::ControlEdit {
+                basis: Arc::new(state),
+                command: Command::OutputSelect { output },
+            })
+            .unwrap_err();
+        assert_eq!(error, "HTTP FLAC requires flexible PCM fidelity");
+    }
+    #[test]
+    fn network_profile_preparation_reports_unsupported_before_local_review_requirements() {
+        let session = network_fixture::ready(None);
+        let state: StateView =
+            serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap();
+        let error = GuiController::new()
+            .validate_prepared_action(
+                &state,
+                &Command::ProfilesPrepare {
+                    id: earph_core::ids::ProfileId::new("local-only").unwrap(),
+                    expected_profile_revision: 1,
+                    profile_sha256: "a".repeat(64).try_into().unwrap(),
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error, "HTTP FLAC profile application is unavailable");
+    }
+
+    fn correction_state() -> Arc<StateView> {
+        let session = earph_core::session::Session::new_owner(
+            ZoneId::new("main").unwrap(),
+            OwnerId::new("owned-correction-context").unwrap(),
+            earph_core::control::ControlLimits::default(),
+        );
+        Arc::new(serde_json::from_value(serde_json::to_value(session.snapshot()).unwrap()).unwrap())
+    }
+    #[test]
+    fn accepted_package_reconciliation_remains_pollable_only_for_its_connected_owner_and_zone() {
+        let state = correction_state();
+        let profile = earph_core::profile_control::ProfileCatalogReference {
+            id: earph_core::ids::ProfileId::new("owned-replay").unwrap(),
+            revision: 1,
+            profile_sha256: earph_core::profiles::ProfileObjectHash::try_from("0".repeat(64))
+                .unwrap(),
+        };
+        let command = Command::ProfilesPackagePreview { profile };
+        let request = Request::mutation(request_id().unwrap(), &state, command).unwrap();
+        assert!(
+            operation_replayable(request.envelope(), Some(&state), true),
+            "reconciled Accepted package work must keep its existing exact replay slot"
+        );
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&state),
+            false
+        ));
+        let mut replaced = (*state).clone();
+        replaced.owner_id = Some(OwnerId::new("replacement-owner").unwrap());
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&replaced),
+            true
+        ));
+        replaced = (*state).clone();
+        replaced.zone_id = ZoneId::new("other-zone").unwrap();
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&replaced),
+            true
+        ));
+    }
+
+    #[test]
+    fn accepted_diagnostic_work_keeps_exact_polling_only_for_its_connected_owner_and_zone() {
+        let state = correction_state();
+        let request = Request::diagnostic_artifact(
+            request_id().unwrap(),
+            &state,
+            Command::DiagnosticsExport {
+                directory: "/owned/diagnostic-artifact".into(),
+                expected_sha256: "0".repeat(64).try_into().unwrap(),
+            },
+        )
+        .unwrap();
+        assert!(
+            operation_replayable(request.envelope(), Some(&state), true),
+            "Accepted diagnostic work lost its fair exact-poll slot"
+        );
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&state),
+            false
+        ));
+        let mut replaced = (*state).clone();
+        replaced.owner_id = Some(OwnerId::new("replacement-owner").unwrap());
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&replaced),
+            true
+        ));
+        replaced = (*state).clone();
+        replaced.zone_id = ZoneId::new("another-zone").unwrap();
+        assert!(!operation_replayable(
+            request.envelope(),
+            Some(&replaced),
+            true
+        ));
+        assert!(!operation_replayable(request.envelope(), None, true));
+    }
+    #[test]
+    fn unchanged_package_inspection_preserves_the_actual_earlier_unresolved_write_facts() {
+        let mut gui = GuiController::new();
+        let directory = String::from("/owned/unresolved-export");
+        let write_id = RequestId::new("owned-package-write").unwrap();
+        let hash = earph_core::profiles::ProfileObjectHash::try_from("0".repeat(64)).unwrap();
+        let export = Command::ProfilesExport {
+            directory: directory.clone(),
+            profile: earph_core::profile_control::ProfileCatalogReference {
+                id: earph_core::ids::ProfileId::new("declared-package-review").unwrap(),
+                revision: 1,
+                profile_sha256: hash,
+            },
+            expected_manifest_sha256: hash,
+            export_review: earph_core::profile_control::PackageExportReview::ReviewedExactCandidate,
+            content_review:
+                earph_core::profile_control::PackageContentReview::ReviewedNoPrivateData,
+            redistribution:
+                earph_core::profile_control::PackageRedistribution::RefuseMeasurementBytes,
+        };
+        let issue = |reason, filesystem_state| {
+            Arc::new(
+                serde_json::from_value::<crate::ProfilePackageIssueView>(
+                    serde_json::to_value(earph_core::profile_control::ProfilePackageIssue {
+                        reason,
+                        object: None,
+                        filesystem_state,
+                    })
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+        };
+        gui.retain_package_issue(
+            write_id.clone(),
+            &export,
+            issue(
+                earph_core::profile_control::ProfilePackageReason::RedistributionReviewRequired,
+                earph_core::profile_control::PackageFilesystemState::InspectRequired,
+            ),
+        );
+        let read_id = RequestId::new("owned-package-inspection").unwrap();
+        gui.retain_package_issue(
+            read_id.clone(),
+            &Command::ProfilesPackageInspect {
+                directory: directory.clone(),
+            },
+            issue(
+                earph_core::profile_control::ProfilePackageReason::MissingObject,
+                earph_core::profile_control::PackageFilesystemState::Unchanged,
+            ),
+        );
+        let (request, path, unresolved) = gui.unresolved_package_write().unwrap();
+        assert_eq!(request, &write_id);
+        assert_eq!(path, directory);
+        assert_eq!(
+            unresolved.filesystem_state,
+            crate::PackageFilesystemStateView::InspectRequired
+        );
+        assert_eq!(gui.profiles.package_issue.as_ref().unwrap().0, read_id);
+        gui.handle(UiIntent::PackageInputs {
+            directory: directory.clone(),
+            destination: "/owned/separate-explicit-destination".into(),
+        });
+        assert_eq!(gui.unresolved_package_write().unwrap().0, &write_id);
+    }
+    #[test]
+    fn correction_input_changes_cancel_only_their_unsent_work_and_preserve_a_waiting_queue_edit() {
+        let basis = correction_state();
+        let queue = Command::QueueAppend {
+            path: "/owned-queued-source.wav".into(),
+        };
+        let mut gui = GuiController::new();
+        gui.waiting_edit = Some(Task::Preflight {
+            basis: basis.clone(),
+            command: queue.clone(),
+            session: None,
+            draft_epoch: 0,
+            play: None,
+        });
+        gui.handle(UiIntent::InvalidateCorrection);
+        assert_eq!(gui.waiting_queue_edit(), Some(&queue));
+        let request = CorrectionPreviewRequest {
+            source: super::super::CorrectionSource::Text {
+                text: "owned pending source".into(),
+                format: earph_media::correction_text::CorrectionFormat::AutoEq,
+            },
+            context: earph_media::correction_text::ImportContext {
+                sample_rate_hz: 48000,
+                channels: earph_core::audio::ChannelLayout::Stereo,
+                quantum_frames: 256,
+            },
+            metadata: Default::default(),
+            fir_preamp: None,
+        };
+        gui.waiting_edit = Some(Task::LocalPreview {
+            basis,
+            request,
+            draft_epoch: gui.draft_epoch,
+        });
+        assert!(gui.local_correction_pending());
+        gui.handle(UiIntent::InvalidateCorrection);
+        assert!(!gui.local_correction_pending());
+        assert!(!gui.queue_edit_pending());
+        assert!(
+            gui.local_correction_status()
+                .contains("before worker start")
+        );
+    }
+    #[test]
+    fn actual_correction_review_ignores_only_control_revision_and_refuses_changed_source_facts() {
+        let state = correction_state();
+        let mut changed = (*state).clone();
+        changed.revision += 1;
+        assert!(same_review_context(&state, &changed));
+        changed.epochs.stream += 1;
+        assert!(!same_review_context(&state, &changed));
+    }
+
+    #[test]
+    fn actual_core_partial_inventory_keeps_unselectable_endpoint_and_failures_visible() {
+        use earph_core::{
+            control::{CommandEnvelope, ControlLimits},
+            devices::{DeviceObservation, DeviceQueryError, DeviceSummary},
+            session::Session,
+        };
+        use eframe::egui;
+        let owner = OwnerId::new("controlled-discovery-owner").unwrap();
+        let mut session = Session::new_owner(
+            ZoneId::new("main").unwrap(),
+            owner,
+            ControlLimits::default(),
+        );
+        session.enable_device_discovery(OutputBackend::CoreAudio);
+        let command = CommandEnvelope {
+            schema_version: 1,
+            request_id: request_id().unwrap(),
+            zone_id: ZoneId::new("main").unwrap(),
+            owner_id: None,
+            session_id: None,
+            expected_revision: None,
+            payload: Command::DevicesList {
+                backend: OutputBackend::CoreAudio,
+            },
+        };
+        session.submit(command.clone());
+        let endpoint = "owned-uid-".repeat(40);
+        session
+            .complete_device_query(
+                &session.device_query_job().unwrap(),
+                1,
+                DeviceObservation::List {
+                    devices: vec![DeviceSummary::advertised(
+                        OutputBackend::CoreAudio,
+                        endpoint.clone(),
+                        Some("Controlled long endpoint".into()),
+                        None,
+                        None,
+                    )],
+                    complete: false,
+                    failures: vec![DeviceQueryError {
+                        code: earph_core::ErrorCode::DeviceUnavailable,
+                        message: "Controlled native property failure".into(),
+                        native_status: Some(-1),
+                        native_object_id: Some(42),
+                    }],
+                },
+            )
+            .unwrap();
+        let bytes =
+            serde_json::to_vec(&serde_json::json!({"receipt": session.submit(command)})).unwrap();
+        let Reply::Receipt(receipt) = crate::decode_reply(bytes).unwrap() else {
+            panic!("Core receipt")
+        };
+        let Some(ResultView::Devices(result)) = receipt.result else {
+            panic!("Core inventory")
+        };
+        let mut controller = GuiController::new();
+        controller.discovery = Some(result);
+        let mut app = super::super::GuiApp::new(controller);
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let mut output = context.run_ui(egui::RawInput::default(), |ui| app.draw(ui));
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.unwrap();
+        let target = tree
+            .nodes
+            .iter()
+            .find(|(_, n)| {
+                n.role() != egui::accesskit::Role::TextRun && n.label() == Some("Output / Safety")
+            })
+            .unwrap()
+            .0;
+        let mut output = context.run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::AccessKitActionRequest(
+                    egui::accesskit::ActionRequest {
+                        action: egui::accesskit::Action::Click,
+                        target_tree: tree.tree_id,
+                        target_node: target,
+                        data: None,
+                    },
+                )],
+                ..Default::default()
+            },
+            |ui| app.draw(ui),
+        );
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.unwrap();
+        let labels: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter_map(|(_, n)| n.label().or_else(|| n.value()))
+            .collect();
+        assert!(
+            labels
+                .iter()
+                .any(|s| *s == format!("Exact endpoint: {endpoint}"))
+        );
+        assert!(
+            labels
+                .iter()
+                .any(|s| s.contains("Inventory complete: false")
+                    && s.contains("Controlled native property failure"))
+        );
+        assert!(!labels.contains(&"Copy backend and endpoint to draft"));
+    }
+
+    #[test]
+    fn archived_snapshot_replay_cannot_replace_a_newer_cache_after_reconnect() {
+        let runtime = PathBuf::from("/tmp").join(request_id().unwrap().as_str());
+        let owner = earph_engine::EngineOwner::bind(&runtime).unwrap();
+        let serve = thread::spawn(move || owner.serve());
+        let observer = OwnerClient::attach(runtime.to_str().unwrap().into()).unwrap();
+        let old = Request::query(
+            request_id().unwrap(),
+            ZoneId::new("main").unwrap(),
+            Command::State,
+        )
+        .unwrap();
+        let Reply::Receipt(old_reply) = observer.request(&old).unwrap() else {
+            panic!("old State")
+        };
+        let mutation = Request::mutation(
+            request_id().unwrap(),
+            old_reply.state().unwrap(),
+            Command::QueueAppend {
+                path: "/newer-observation.wav".into(),
+            },
+        )
+        .unwrap();
+        observer.request(&mutation).unwrap();
+        let fresh = Request::query(
+            request_id().unwrap(),
+            ZoneId::new("main").unwrap(),
+            Command::State,
+        )
+        .unwrap();
+        let Reply::Receipt(new_reply) = observer.request(&fresh).unwrap() else {
+            panic!("new State")
+        };
+        let new_state = Arc::new(new_reply.state().unwrap().clone());
+        let mut gui = GuiController::new();
+        gui.handle(UiIntent::Attach {
+            runtime: runtime.to_str().unwrap().into(),
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !gui.connected() || gui.busy() {
+            gui.tick(Instant::now());
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(1));
+        }
+        let observed = gui.observed_at();
+        gui.handle(UiIntent::Disconnect);
+        while gui.busy() {
+            gui.tick(Instant::now());
+            thread::sleep(Duration::from_millis(1));
+        }
+        gui.handle(UiIntent::Attach {
+            runtime: runtime.to_str().unwrap().into(),
+        });
+        gui.next_poll = Instant::now() + Duration::from_secs(60);
+        let id = old.envelope().request_id.clone();
+        gui.client.as_mut().unwrap().submit(old).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let client = gui.client.as_mut().unwrap();
+            client.poll();
+            if !client.model().record(&id).unwrap().in_flight {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(1));
+        }
+        gui.tick(Instant::now());
+        let actual_revision = gui.state().unwrap().revision;
+        let actual_time = gui.observed_at();
+        observer
+            .request(
+                &Request::mutation(request_id().unwrap(), &new_state, Command::OwnerShutdown)
+                    .unwrap(),
+            )
+            .unwrap();
+        serve.join().unwrap().unwrap();
+        assert_eq!(actual_revision, new_state.revision);
+        assert_eq!(actual_time, observed);
+    }
+}

@@ -1,0 +1,285 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "source": {
+    "baseline_commit": "d2fa9f76544ed253e8ee0c067fa62914cf4c1bc3",
+    "source_dirty": true,
+    "qualified_archive_sha256": "ba0bd7a3c8cdc9366fa2becfbc78115ec9672aa6affd35c7d1fe935be1fe21e8",
+    "qualified_source_files": 1955,
+    "source_unchanged_during_checks": true
+  },
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "measurement_boundary": "Software contracts and generated fixtures; physical hardware unqualified"
+  },
+  "dependency_lock_sha256": "3f9225b14df8589a64af14020698ad6ac1ce3dc4062f89e0b9cb786314b48801",
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "reported_results": {
+      "passed": 1530,
+      "failed": 0,
+      "ignored": 11,
+      "groups": 169
+    },
+    "log_sha256": "c518d2412418df24572c383049baada23552168de2a00c81ebf40981654e2988",
+    "product_build_exit": 0,
+    "count_note": "Reported blocks include child results and are not a unique-test total. Six ignored Sendspin peer tests ran separately."
+  },
+  "integrated_peer": {
+    "command": "cargo test --locked -p earph-sendspin -- --ignored --nocapture",
+    "exit": 0,
+    "tests_passed": 6,
+    "log_sha256": "3727450c708b92f511d8eb04a61f6287189d95ecdbd88e024edbc033d93b2c23",
+    "launcher_sha256": "544b561d4c7c9cc3a9803f4e0f125126c4925222d0e5223ed3178e7f06ce78a4",
+    "network_connections": false,
+    "audio_output": false,
+    "operator_credentials_used": false
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "2a016870f3457c9ad933b3c7a701facbd3896cb427b09b3ccb61173e65207773"
+    },
+    {
+      "name": "earph-desktop",
+      "sha256": "22a4975a4a7fa8372570f8a8d536bd5af6623e860b85a84af0a2664b6fd2c299"
+    }
+  ],
+  "scope": "Bounded encrypted Sendspin client session, pairing write ownership and complete in-band re-handshake",
+  "requirement_status": "partial",
+  "source_files": [
+    {
+      "path": "crates/earph-sendspin/src/lib.rs",
+      "sha256": "20aa022fd31632632b7af48d1b3c7d36caafd86a2d1cd6b5c1d3e431de65cb67"
+    },
+    {
+      "path": "crates/earph-sendspin/src/noise.rs",
+      "sha256": "441ae7484d1761c3cb821d1db40fc07b00e1a2322ae4a83609728301e4632987"
+    },
+    {
+      "path": "crates/earph-sendspin/src/pairing.rs",
+      "sha256": "76bb2a950989c1e50467463f247b2fb1d374551378e07c4967ad0473f67c0530"
+    },
+    {
+      "path": "crates/earph-sendspin/src/message.rs",
+      "sha256": "d1a934600eb7b4f1f130eafb72f6bc77fa55cc773290f245fd387e0ab7182c0f"
+    },
+    {
+      "path": "crates/earph-sendspin/src/session.rs",
+      "sha256": "dc55a96da41bf729fd98af228a8c473188804bc83aef954dcb8a4a53a8683fa8"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/message.rs",
+      "sha256": "ea696c038b4d45520b617c3f0ad045744c49eccd30741c4ad6f8efdbccbb3dd7"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/session.rs",
+      "sha256": "bfda42a3b3d2017339fa23c312ca5b489655bda43bae18b9bc05673fbb13bf36"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/rehandshake.rs",
+      "sha256": "0af5d7e823ebcc83face785106094ec167a167de572e10a9d0cf7731aac6792b"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/session_end_to_end.rs",
+      "sha256": "270edebf44d78465f52527dc661b52c38ff3b5337369fb880d41dd9e0d213d1c"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/session_python.rs",
+      "sha256": "d4ea7cac46d250549962a1f2dca8717098af8af62932c9d4c97c5b2169e7b950"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/support/session_fixture.rs",
+      "sha256": "1b2f3e1c8373199ba2eb002ceffe3ecec9ae3e2f993f7e405f380deb9eef5d16"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/support/session_bridge.rs",
+      "sha256": "58584fb88f180023fe6d717c29ba50b3cf02bc4a2c750a3ac4d498e4aaf419c8"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/support/session_peer.py",
+      "sha256": "7fdc0dbef0b2c437251be3bab2877e3656e9e2a04983062db7e57230fadcdb61"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/pairing_write_fences.rs",
+      "sha256": "2b76a35fe9c53e427b9bc59fe6ebf9b010719bce830c93ec5ad7591af8ecde43"
+    }
+  ],
+  "unit": {
+    "baseline_commit": "ce0be5bd1dd5da8782cd89b5f14cc9f4248115d2",
+    "foundation_sha256": "c9a33ebf38e34f28721f3c21f62035ba6b37b09d2b2776688c5d724e8e698033",
+    "manifest_sha256": "8b9d886fd3daa22b14bfb7ed3f40ab264a7a317e117dd5bb6186ba50f819df97",
+    "patch_sha256": "23c8a2ee4eb9b42b8815ae9db4895e61a8926de325d395c6bba253d71c2b280e",
+    "original_review_findings": 2,
+    "repaired_findings": [
+      "Revoked unstarted pairing flight authorization",
+      "Old attempt timeout during key-rotation quiet period"
+    ]
+  },
+  "focused": {
+    "findings-green-complete": {
+      "exit": 0,
+      "log_sha256": "c385a261d38c7ca0ee1635064e62f634242a1657fc6aa8f37f4b9c2ed48619e9",
+      "results": [
+        {
+          "status": "ok",
+          "passed": 14,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    "final-portable": {
+      "exit": 0,
+      "log_sha256": "13cf7aec4306701a53c30b59b631ad040c4b3456271a39fcc898e7c30a53c2a8",
+      "results": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 1
+        },
+        {
+          "status": "ok",
+          "passed": 25,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 3
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 14,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    "final-explicit-python": {
+      "exit": 0,
+      "log_sha256": "233562e031e7125941d06c5dd8023e23723ca927d5701254c2fab8a09f23d499",
+      "results": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    "final-strict-clippy": {
+      "exit": 0,
+      "log_sha256": "9976c1311994a5d6e7b6b3b7231b21ec97d926f94d4fbb1b0435b7e0d2925ccf",
+      "results": []
+    },
+    "final-fmt-check": {
+      "exit": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "results": []
+    }
+  },
+  "independent_review": {
+    "status": "complete",
+    "material_findings": 0,
+    "report_sha256": "6ddf5217b1fb86c08e3f2c7c7e9487acc9148c6c760ff3c0b8a05d07592dc468",
+    "kind": "Full original review followed by one targeted fix review"
+  },
+  "boundaries": {
+    "listener_started": false,
+    "production_store_added": false,
+    "application_session_started": false,
+    "player_payloads_qualified": false,
+    "clock_ready_produced": false,
+    "output_ready_produced": false,
+    "audio_output": false
+  },
+  "limits": [
+    "Encoded-octet budgets do not certify resident allocator memory.",
+    "Actual Python drivers communicate through bounded private pipes, not a production WebSocket listener.",
+    "Production credentials, transport integration, application roles, clocks, Music Assistant interoperability and playback remain later gates."
+  ]
+}

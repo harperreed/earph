@@ -74,19 +74,83 @@ pub enum WriteProgress {
     Accepted { frames: usize },
     WouldBlock,
 }
+
+/// Exact outstanding accepted-to-queue placement, independent of buffer acquisition.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct NativeEnqueueSpan {
+    pub epochs: Epochs,
+    pub accepted_start: u64,
+    pub accepted_end: u64,
+    pub queue_start: f64,
+    pub queue_end_whole: u64,
+    pub queue_end_fraction: f64,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimingAvailability {
+    Available,
+    Prepared,
+    Priming,
+    Paused,
+    Draining,
+    Stopped,
+    Unsupported,
+}
+#[derive(Debug, Clone, Copy)]
+pub struct TimingObservation {
+    pub epochs: Epochs,
+    pub state: OutputState,
+    pub accepted_frames: u64,
+    pub client_rate_hz: u32,
+    pub availability: TimingAvailability,
+    pub queue_sample: Option<f64>,
+    pub flags: Option<u32>,
+    pub discontinuity: Option<bool>,
+    pub running_before: Option<bool>,
+    pub running_after: Option<bool>,
+    pub enqueued_frames: Option<u64>,
+    pub restart_prefix: Option<u64>,
+    pub initialized_spans: usize,
+    /// No native-to-port accuracy bound has been qualified.
+    pub native_accuracy_ns: Option<u64>,
+    pub native_update_age_ns: Option<u64>,
+}
 #[derive(Debug, Clone, Serialize)]
 pub struct OutputReport {
     pub requested: OutputRequest,
     pub observed: DeviceSnapshot,
+    pub queue_client_format: Option<crate::StreamFormat>,
     pub evidence_level: &'static str,
     pub payload_preservation: &'static str,
     pub downstream_transformations: &'static str,
+}
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct QueueScheduleDiagnostic {
+    pub sample_time_bits: Option<u64>,
+    pub flags: u32,
+    pub payload_start: u64,
+    pub frames: u32,
+    pub epochs: Epochs,
 }
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct OutputProgress {
     pub state: OutputState,
     pub submitted_frames: u64,
     pub callback_delivered_frames: u64,
+    pub queue_acquired_frames: Option<u64>,
+    pub queue_running_observed: Option<bool>,
+    pub queue_clock_status: Option<i32>,
+    pub queue_clock_ready: Option<bool>,
+    pub queue_clock_sample_time_bits: Option<u64>,
+    pub queue_clock_sample_time_finite: Option<f64>,
+    pub queue_clock_flags: Option<u32>,
+    pub queue_clock_discontinuity: Option<bool>,
+    pub queue_clock_observed_enqueued_frames: Option<u64>,
+    pub queue_enqueued_frames: Option<u64>,
+    pub queue_clock_last_valid_frame: Option<u64>,
+    pub queue_schedule: Option<QueueScheduleDiagnostic>,
+    pub queue_retired_frames: Option<u64>,
+    /// Queue frames that passed with nothing queued since this output opened. See `Schedule::starved`.
+    pub queue_starved_frames: Option<u64>,
     pub queued_frames: u64,
     pub callbacks_observed: u64,
     pub measurement_boundary: &'static str,
@@ -94,6 +158,40 @@ pub struct OutputProgress {
     pub backend_delay_frames: Option<u64>,
     pub fault: bool,
     pub fault_detail: Option<OutputFaultDetail>,
+}
+#[derive(Debug, Clone, Copy, Default)]
+struct QueueDiagnostics {
+    running: Option<bool>,
+    status: Option<i32>,
+    ready: Option<bool>,
+    sample_bits: Option<u64>,
+    sample_finite: Option<f64>,
+    flags: Option<u32>,
+    discontinuity: Option<bool>,
+    observed_enqueued: Option<u64>,
+    enqueued: Option<u64>,
+    last_valid: Option<u64>,
+    schedule: Option<QueueScheduleDiagnostic>,
+    retired: Option<u64>,
+    starved: Option<u64>,
+}
+impl OutputProgress {
+    fn with_queue_diagnostics(mut self, diagnostics: QueueDiagnostics) -> Self {
+        self.queue_running_observed = diagnostics.running;
+        self.queue_clock_status = diagnostics.status;
+        self.queue_clock_ready = diagnostics.ready;
+        self.queue_clock_sample_time_bits = diagnostics.sample_bits;
+        self.queue_clock_sample_time_finite = diagnostics.sample_finite;
+        self.queue_clock_flags = diagnostics.flags;
+        self.queue_clock_discontinuity = diagnostics.discontinuity;
+        self.queue_clock_observed_enqueued_frames = diagnostics.observed_enqueued;
+        self.queue_enqueued_frames = diagnostics.enqueued;
+        self.queue_clock_last_valid_frame = diagnostics.last_valid;
+        self.queue_schedule = diagnostics.schedule;
+        self.queue_retired_frames = diagnostics.retired;
+        self.queue_starved_frames = diagnostics.starved;
+        self
+    }
 }
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct CallbackTiming {
@@ -134,6 +232,23 @@ fn permission(permission: SignalPermission) -> Result<(), CoreAudioError> {
 }
 #[cfg(any(target_os = "macos", test))]
 fn negotiate(request: &OutputRequest, device: &DeviceSnapshot) -> Result<usize, CoreAudioError> {
+    if request.route == PlaybackRoute::StrictInteger {
+        return negotiate_hal(request, device);
+    }
+    request.validate()?;
+    if device.uid != request.device_uid || !device.alive || device.output_streams.len() != 1 {
+        return Err(error(
+            ErrorCode::DeviceUnavailable,
+            "System playback requires the exact live selected output",
+        ));
+    }
+    Ok(request.format.channels().count() * 4)
+}
+#[cfg(any(target_os = "macos", test))]
+fn negotiate_hal(
+    request: &OutputRequest,
+    device: &DeviceSnapshot,
+) -> Result<usize, CoreAudioError> {
     request.validate()?;
     let assessment = assess(&request.precision(), device)?;
     if request.route == PlaybackRoute::StrictInteger {
@@ -483,7 +598,7 @@ pub struct CoreAudioOutput {
     report: OutputReport,
     state: OutputState,
     #[cfg(target_os = "macos")]
-    native: native::Registration,
+    native: Driver,
 }
 impl CoreAudioOutput {
     pub fn open(request: OutputRequest, epochs: Epochs) -> Result<Self, CoreAudioError> {
@@ -501,12 +616,35 @@ impl CoreAudioOutput {
             let observed = crate::inspect(&request.device_uid)?;
             negotiate(&request, &observed)?;
             let producer = Producer::new(request.clone(), epochs)?;
-            let native = native::Registration::new(
-                observed.object_id,
-                observed.output_streams[0].object_id,
-                producer.ring.clone(),
-                request.format.channels().count() as u32,
-            )?;
+            let native = match request.route {
+                PlaybackRoute::StrictInteger => Driver::Hal(native::Registration::new(
+                    observed.object_id,
+                    observed.output_streams[0].object_id,
+                    producer.ring.clone(),
+                    request.format.channels().count() as u32,
+                )?),
+                PlaybackRoute::Float32Compatibility => {
+                    Driver::System(Box::new(system::native::Registration::new(
+                        &request,
+                        &observed,
+                        producer.ring.clone(),
+                        epochs,
+                    )?))
+                }
+            };
+            if request.route == PlaybackRoute::Float32Compatibility {
+                let fresh = crate::inspect(&request.device_uid)?;
+                if !system::same_device_configuration(&observed, &fresh) {
+                    producer
+                        .ring
+                        .fail(OutputFaultReason::DeviceConfigurationChanged);
+                    return Err(error(
+                        ErrorCode::OutputFault,
+                        "selected device changed while preparing AudioQueue",
+                    ));
+                }
+            }
+            let queue_client_format = native.client_format();
             Ok(Self {
                 producer,
                 native,
@@ -521,6 +659,7 @@ impl CoreAudioOutput {
                         "modified_integer_to_float32"
                     },
                     downstream_transformations: "unknown",
+                    queue_client_format,
                 },
             })
         }
@@ -528,9 +667,17 @@ impl CoreAudioOutput {
     pub fn report(&self) -> &OutputReport {
         &self.report
     }
-    /// Actual Rust-owned audio capacity, excluding metadata, allocator overhead, and SDK storage.
+    /// Controlled PCM capacity: Rust staging plus fixed SDK slots, excluding metadata and opaque OS storage.
     pub fn audio_storage_bytes(&self) -> Result<u64, CoreAudioError> {
-        self.producer.ring.audio_storage_bytes()
+        let bytes = self.producer.ring.audio_storage_bytes()?;
+        #[cfg(target_os = "macos")]
+        let bytes = bytes
+            .checked_add(self.native.audio_storage_bytes())
+            .ok_or(error(
+                ErrorCode::ResourceBudgetExceeded,
+                "audio storage count exceeds u64",
+            ))?;
+        Ok(bytes)
     }
     pub fn state(&self) -> OutputState {
         if self.producer.ring.fault.is_set() {
@@ -545,6 +692,8 @@ impl CoreAudioOutput {
         offset: usize,
         frames: usize,
     ) -> Result<WriteProgress, CoreAudioError> {
+        #[cfg(target_os = "macos")]
+        self.native.pump()?;
         self.producer.write(block, offset, frames)
     }
     pub fn finish(&mut self) -> Result<(), CoreAudioError> {
@@ -583,6 +732,17 @@ impl CoreAudioOutput {
                     "selected device identity changed",
                 ));
             }
+            if self.report.requested.route == PlaybackRoute::Float32Compatibility
+                && !system::same_device_configuration(&self.report.observed, &current)
+            {
+                self.producer
+                    .ring
+                    .fail(OutputFaultReason::DeviceConfigurationChanged);
+                return Err(error(
+                    ErrorCode::OutputFault,
+                    "selected device configuration changed before AudioQueue start",
+                ));
+            }
             if let Err(error) = negotiate(&self.report.requested, &current) {
                 self.producer
                     .ring
@@ -590,7 +750,7 @@ impl CoreAudioOutput {
                 return Err(error);
             }
             self.producer.ring.enabled.store(true, Ordering::Release);
-            if let Err(error) = self.native.start() {
+            if let Err(error) = self.native.start(&self.report.requested.device_uid) {
                 self.producer.ring.fail(OutputFaultReason::NativeStart);
                 return Err(error);
             }
@@ -615,7 +775,7 @@ impl CoreAudioOutput {
         }
         self.producer.ring.enabled.store(false, Ordering::Release);
         #[cfg(target_os = "macos")]
-        if let Err(error) = self.native.stop() {
+        if let Err(error) = self.native.pause() {
             self.producer.ring.fail(OutputFaultReason::NativeStop);
             return Err(error);
         }
@@ -623,8 +783,24 @@ impl CoreAudioOutput {
         Ok(())
     }
     pub fn progress(&self) -> OutputProgress {
+        #[cfg(target_os = "macos")]
+        if matches!(self.state, OutputState::Prepared | OutputState::Running) {
+            let _ = self.native.pump();
+        }
         let ring = &self.producer.ring;
         let fault_detail = ring.fault.detail();
+        #[cfg(target_os = "macos")]
+        let queue = self.native.acquisition();
+        #[cfg(not(target_os = "macos"))]
+        let queue: Option<(u64, u64)> = None;
+        #[cfg(target_os = "macos")]
+        let sdk_queued = self.native.queued_frames();
+        #[cfg(not(target_os = "macos"))]
+        let sdk_queued = 0;
+        #[cfg(target_os = "macos")]
+        let clock = self.native.clock_diagnostics();
+        #[cfg(not(target_os = "macos"))]
+        let clock = QueueDiagnostics::default();
         OutputProgress {
             state: if fault_detail.is_some() {
                 OutputState::Failed
@@ -633,14 +809,76 @@ impl CoreAudioOutput {
             },
             submitted_frames: self.producer.submitted,
             callback_delivered_frames: ring.consumed.load(Ordering::Acquire),
-            queued_frames: ring.queued_frames(),
-            callbacks_observed: ring.callbacks.load(Ordering::Acquire),
-            measurement_boundary: "core_audio_ioproc_delivery",
+            queue_acquired_frames: queue.map(|(frames, _)| frames),
+            queue_running_observed: None,
+            queue_clock_status: None,
+            queue_clock_ready: None,
+            queue_clock_sample_time_bits: None,
+            queue_clock_sample_time_finite: None,
+            queue_clock_flags: None,
+            queue_clock_discontinuity: None,
+            queue_clock_observed_enqueued_frames: None,
+            queue_enqueued_frames: None,
+            queue_clock_last_valid_frame: None,
+            queue_schedule: None,
+            queue_retired_frames: None,
+            queue_starved_frames: None,
+            queued_frames: ring.queued_frames() + sdk_queued,
+            callbacks_observed: queue.map_or_else(
+                || ring.callbacks.load(Ordering::Acquire),
+                |(_, callbacks)| callbacks,
+            ),
+            measurement_boundary: if queue.is_some() {
+                "audio_queue_buffer_acquisition_not_playback"
+            } else {
+                "core_audio_ioproc_delivery"
+            },
             audible_position_frames: None,
             backend_delay_frames: None,
             fault: fault_detail.is_some(),
             fault_detail,
         }
+        .with_queue_diagnostics(clock)
+    }
+    /// Collects fresh timing facts without pumping or allocating span storage.
+    pub fn timing_observation(
+        &mut self,
+        spans: &mut [NativeEnqueueSpan],
+    ) -> Result<TimingObservation, CoreAudioError> {
+        let state = self.state();
+        if state == OutputState::Failed {
+            return Err(error(ErrorCode::OutputFault, "output has failed"));
+        }
+        let observation = TimingObservation {
+            epochs: self.producer.epochs,
+            state,
+            accepted_frames: self.producer.submitted,
+            client_rate_hz: self.producer.request.format.sample_rate_hz(),
+            availability: if matches!(state, OutputState::Closed | OutputState::Stopped) {
+                TimingAvailability::Stopped
+            } else {
+                TimingAvailability::Unsupported
+            },
+            queue_sample: None,
+            flags: None,
+            discontinuity: None,
+            running_before: None,
+            running_after: None,
+            enqueued_frames: None,
+            restart_prefix: None,
+            initialized_spans: 0,
+            native_accuracy_ns: None,
+            native_update_age_ns: None,
+        };
+        if matches!(state, OutputState::Closed | OutputState::Stopped) {
+            return Ok(observation);
+        }
+        #[cfg(target_os = "macos")]
+        if let Driver::System(queue) = &self.native {
+            return queue.timing_observation(spans, observation);
+        }
+        let _ = spans;
+        Ok(observation)
     }
     pub fn callback_timing(&self) -> CallbackTiming {
         #[cfg(target_os = "macos")]
@@ -649,7 +887,28 @@ impl CoreAudioOutput {
         let timing = CallbackTiming::unknown(0);
         timing.for_state(self.state())
     }
+    pub fn initial_restart_cursor_pending(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        if let Driver::System(queue) = &self.native {
+            return queue.initial_restart_cursor_pending();
+        }
+        false
+    }
+    pub fn restart_cursor_frames(&self) -> Result<Option<u64>, CoreAudioError> {
+        #[cfg(target_os = "macos")]
+        if let Driver::System(queue) = &self.native {
+            return queue.restart_cursor_frames();
+        }
+        Ok(Some(self.producer.ring.consumed.load(Ordering::Acquire)))
+    }
     pub fn scheduled_output_complete(&self) -> Result<Option<bool>, CoreAudioError> {
+        #[cfg(target_os = "macos")]
+        if let Driver::System(queue) = &self.native {
+            if self.state() != OutputState::Running {
+                return Ok(None);
+            }
+            return queue.scheduled_output_complete();
+        }
         let ring = &self.producer.ring;
         if self.state() != OutputState::Running
             || !ring.finished.load(Ordering::Acquire)
@@ -692,12 +951,13 @@ impl CoreAudioOutput {
         Ok(())
     }
     pub fn close(&mut self) -> Result<(), CoreAudioError> {
-        self.stop()?;
+        let stopped = self.stop();
         #[cfg(target_os = "macos")]
         if let Err(error) = self.native.close() {
             self.producer.ring.fail(OutputFaultReason::NativeClose);
             return Err(error);
         }
+        stopped?;
         self.state = OutputState::Closed;
         Ok(())
     }
@@ -710,3 +970,87 @@ mod tests;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod native;
+
+#[cfg(any(target_os = "macos", test))]
+mod system;
+
+#[cfg(target_os = "macos")]
+enum Driver {
+    Hal(native::Registration),
+    System(Box<system::native::Registration>),
+}
+#[cfg(target_os = "macos")]
+impl Driver {
+    fn clock_diagnostics(&self) -> QueueDiagnostics {
+        match self {
+            Self::Hal(_) => QueueDiagnostics::default(),
+            Self::System(queue) => queue.clock_diagnostics(),
+        }
+    }
+    fn client_format(&self) -> Option<crate::StreamFormat> {
+        match self {
+            Self::Hal(_) => None,
+            Self::System(queue) => Some(queue.client_format()),
+        }
+    }
+    fn audio_storage_bytes(&self) -> u64 {
+        match self {
+            Self::Hal(_) => 0,
+            Self::System(queue) => queue.audio_storage_bytes(),
+        }
+    }
+    fn queued_frames(&self) -> u64 {
+        match self {
+            Self::Hal(_) => 0,
+            Self::System(queue) => queue.queued_frames(),
+        }
+    }
+    fn acquisition(&self) -> Option<(u64, u64)> {
+        match self {
+            Self::Hal(_) => None,
+            Self::System(queue) => Some(queue.acquisition()),
+        }
+    }
+    fn pump(&self) -> Result<(), CoreAudioError> {
+        match self {
+            Self::Hal(_) => Ok(()),
+            Self::System(queue) => queue.pump(),
+        }
+    }
+    fn start(&mut self, uid: &str) -> Result<(), CoreAudioError> {
+        match self {
+            Self::Hal(hal) => hal.start(),
+            Self::System(queue) => queue.start(uid),
+        }
+    }
+    fn pause(&mut self) -> Result<(), CoreAudioError> {
+        match self {
+            Self::Hal(hal) => hal.stop(),
+            Self::System(queue) => queue.pause(),
+        }
+    }
+    fn stop(&mut self) -> Result<(), CoreAudioError> {
+        match self {
+            Self::Hal(hal) => hal.stop(),
+            Self::System(queue) => queue.stop(),
+        }
+    }
+    fn close(&mut self) -> Result<(), CoreAudioError> {
+        match self {
+            Self::Hal(hal) => hal.close(),
+            Self::System(queue) => queue.close(),
+        }
+    }
+    fn callback_timing(&self) -> CallbackTiming {
+        match self {
+            Self::Hal(hal) => hal.callback_timing(),
+            Self::System(_) => CallbackTiming::unknown(0),
+        }
+    }
+    fn scheduled_output_complete(&self, submitted: u64) -> Result<Option<bool>, CoreAudioError> {
+        match self {
+            Self::Hal(hal) => hal.scheduled_output_complete(submitted),
+            Self::System(queue) => queue.scheduled_output_complete(),
+        }
+    }
+}

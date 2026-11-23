@@ -1,0 +1,3 @@
+# ABOUTME: Keeps retained package-local locks outside lasting workspace inputs.
+# ABOUTME: Uses the shared root lock as the only dependency resolution authority.
+/Cargo.lock

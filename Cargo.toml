@@ -1,7 +1,7 @@
 # ABOUTME: Defines the shared engine and offline qualification workspace.
 # ABOUTME: Pins dependencies and keeps native adapters outside the core.
 [workspace]
-members = ["crates/earph-core", "crates/earph-harness", "crates/earph-alsa", "crates/earph-coreaudio", "crates/earph-media", "crates/earph-engine", "crates/earph-dsp"]
+members = ["crates/earph-core", "crates/earph-harness", "crates/earph-alsa", "crates/earph-coreaudio", "crates/earph-media", "crates/earph-network", "crates/earph-sendspin", "crates/earph-credentials", "crates/earph-engine", "crates/earph-dsp", "crates/earph-ffi", "crates/earph-desktop"]
 resolver = "3"
 
 [workspace.package]
@@ -16,4 +16,13 @@ serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
 sha2 = "=0.11.1"
 rubato = { version = "=5.1.0", default-features = false }
 audioadapter-buffers = "=5.2.0"
+eframe = { version = "=0.37.0", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
 signal-hook = { version = "=0.4.6", default-features = false }
+
+[profile.dev]
+# Keep full debug information beside the executable to fit the discovery helper's image budget.
+split-debuginfo = "unpacked"
+
+[profile.dev.package.sha2]
+# An owner hashes its own executable before device discovery. Unoptimized, that costs seconds per start.
+opt-level = 3

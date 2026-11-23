@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "scope": "Bounded Owner directory packages: Linux local precommit checkpoint",
+  "source": {
+    "base_merge_commit": "a4595bf3cba59d3086dce376f76feeacc5696375",
+    "dirty_precommit": true,
+    "files": 1576,
+    "manifest_sha256": "dceea5c4d7bea0ddf715d434a8cbf2baeff1493604d3064c4b69744ed713b37d",
+    "changed_manifest_sha256": "e1b4397dbb94c7830d008b60c17443ef1c944293ed096b164660c42f0a53acb5",
+    "full_patch_sha256": "8155982e7ab82c6c9148a773b9be28cd12de60a8d87be4c194463f6026433a5d",
+    "package_only_patch_sha256": "70ecf001e4e0f6c98dc7ae74deb187a96061ea314f023fc93b0878493d215d9c",
+    "same_review_delta_sha256": "175220f5f28835d64b54c481f088773a91c51972a724fffb4523b6d3d1218fcf",
+    "source_bindings_sha256": "fe1d7deeeae6acbd3dc150caaee8a7224ba0ce158273bbdcd123147258839a92",
+    "candidate_bindings_sha256": "e01edb7bcbfb1299d0ecea954d66af5e190672c4c744c2f49f9776e014b0a449",
+    "composition": {
+      "pure_package_commit": "6f703e739b9093805a21b8a23ad02e6bb9549cc1",
+      "qualified_profile_integration_commit": "dea1e0878aa7fb966c3187bd196d4ccde2bc6a58",
+      "integration_parent": "c0e27b93d8f0ee875dee054d7eef7e6901df424a",
+      "merge_resolution": "Union of the existing listening-profile plan checkpoints only",
+      "approved_root_seed_patch_sha256": "67b895385589a2129ea23196666386f474ac321a4afca28017f8c87b14440676",
+      "approved_publication_patch_sha256": "0aacb4a60c3866a1da05314fc8ecd88e5ee79239d480a81dbf27d1918dd14393",
+      "publication_review_sha256": "df4d8b530ba0a64eb5d05ef2329616bba05c475b5367db607558fd011cd01bf6"
+    }
+  },
+  "runtime": {
+    "source_inputs_sha256": "5b464e2a9f5d750b53225506ada4333d25ae40de1dec19c23a0fb3d91b8cc919",
+    "provenance_sha256": "855d2772ce63c199e5e9d1a2b2389e5df0914b0ff4e04b1997a6da364301501f",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "target": "x86_64-unknown-linux-gnu",
+    "dependency_lock_sha256": "2989a4638b2e2f6297a0cd3740f680324f39651386b5efd09daa196fb09e0574",
+    "executable_manifest_sha256": "99c579b813af4a9851f56129f2e92253f1be44aa4eb6219de07d0183882f3193",
+    "executables": {
+      "earph-engine": "0e7356010078d71b578eda4c52f5631b4d22715407885bb26946df3211bc15ff",
+      "earph-harness": "ebcfbd596ea56bbbf7d7d536b42e99a040d8eced0680e12e0a5b5f55d031d48f",
+      "earph-correction-import": "9e0f2bc7787ad66ceb5a72b8d59e0c473789d0b80991f20efe8e115ee649f19b"
+    }
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "child_exit_code": 0,
+    "passed": 761,
+    "failed": 0,
+    "ignored": 4,
+    "log_sha256": "be19d255936506e869a65afb23b8b3f521738f5006e1cdaa88f118d34e941625",
+    "compiler_warnings_or_errors": []
+  },
+  "focused": {
+    "command": "cargo test --locked -p earph-core -p earph-engine --lib --test profile_owner --test profile_packages --test profiles --test fir_assets --test graph_service",
+    "child_exit_code": 0,
+    "passed": 292,
+    "failed": 0,
+    "ignored": 0,
+    "log_sha256": "d1795ac02a663325482101c8acbb731aaedf708653445f5564be9e512bd1673f"
+  },
+  "verification_artifacts": {
+    "log_manifest_sha256": "d1200cc5510afe485247a261ed7f2d78b5653be3d7cd205af97e3a90b947b77c",
+    "check_receipts_sha256": "1ca8ad8b079a1c8c093d04309eaaa54ab3df6aedc77e8a08be82059ca2f45fe1"
+  },
+  "review": {
+    "kind": "one_independent_main_model_review_with_same_reviewer_reconciliation",
+    "initial_decision": "changes_requested",
+    "initial_receipt_sha256": "9fae60dd7d8667d8c8a9b254d927f4bcd463833a37af56dbdd62a9966bd4a2a7",
+    "initial_evidence_sha256": "83e49efe89b033607191d5e484d90335e84cad12f6d9df573417c4ad7d6fc482",
+    "decision": "approved_same_review_reconciliation",
+    "reconciliation_receipt_sha256": "0c30c8ae03553c26ae6c0c7367ad7210c63e5d82ddfb5275097cabe70873d10a",
+    "reconciliation_evidence_sha256": "d09e2d61236dbc6b4747c9a04c6f454281ccafda8457008654eaf3d4878ef047",
+    "reconciliation_bindings_sha256": "d485e43ca44e8d5e982ff4e938d02361b9501dfd6ffbd659d5de0f6b6b633028",
+    "reviewed_candidate_bindings_sha256": "f4520fcd39912f412a48628d15b4bd641621f80e50b11b8f4e285362e4f66874",
+    "source_records_verified": 1576,
+    "bound_artifact_entries_verified": 55,
+    "resolved_findings": [
+      "fir-preparation-preflight",
+      "storage-error-classification"
+    ],
+    "open_material_findings": 0
+  },
+  "checkpoint": {
+    "local_only": true,
+    "new_macos_owner_package_qualification": false,
+    "full_task4_complete": false,
+    "t12_complete": false,
+    "public_release": false,
+    "pending_integrations": [
+      "Root round2 CLI corrections",
+      "Root round2 Worker corrections",
+      "Root round2 native corrections",
+      "Root short-path fixture corrections"
+    ],
+    "post_gate_documentation": [
+      "docs/evidence/profiles/owner-package-precommit-verification-20261118.json",
+      "docs/superpowers/plans/2026-11-18-listening-profiles.md"
+    ]
+  },
+  "limits": [
+    "Dirty Linux debug source snapshot; the later receipt and plan checkpoint add documentation only.",
+    "No new Mac owner-package, native-output, physical-failure, or clean-release qualification.",
+    "Controlled prefix EIO injection establishes error classification, not physical disk failure.",
+    "Exact-byte export requires explicit content and redistribution review; known-content checks do not prove arbitrary-byte privacy.",
+    "One correction chain and new catalog IDs only; no archive, automatic application, or native association.",
+    "Blocking kernel I/O and individual decoder/compiler calls are not forcibly interruptible; partial artifacts and post-install uncertainty remain preserved.",
+    "Later Root integrations and supported-platform gates remain pending; this checkpoint does not complete Task4 or T12."
+  ]
+}

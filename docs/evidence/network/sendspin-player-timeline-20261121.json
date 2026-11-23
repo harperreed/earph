@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "verified_on": "2026-11-21",
+  "scope": "Pure Sendspin player decoding, clock mapping snapshot, and bounded timeline. No operational or physical synchronization claim.",
+  "source_parent": "ec8d26870662213c37947a7bfaf88c68ca23e8bd",
+  "source_files": [
+    {
+      "path": "crates/earph-sendspin/src/lib.rs",
+      "sha256": "87b6b4f5d94abd754212ab22248dbcab3b669c5dbc5c7df1ff626ce5e6a0315b"
+    },
+    {
+      "path": "crates/earph-sendspin/src/timing.rs",
+      "sha256": "11d81e176558ba858979647c42b2981b98e532439a4be229dbf8044d13d61639"
+    },
+    {
+      "path": "crates/earph-sendspin/src/player.rs",
+      "sha256": "b55ffba7a5160b40e1f6b7174086ea13fbb4507e33ca1c55352b1d24dfac2ab8"
+    },
+    {
+      "path": "crates/earph-sendspin/src/player/timeline.rs",
+      "sha256": "1c0d45b19a93898ea793680f056a649549e99d33cf2f6c75310443edf4e11aff"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/player.rs",
+      "sha256": "ab25b4a976f6138dd7445b3531ccd09fd392dd941aa486d8fbc045a0d977bf32"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/player_timeline.rs",
+      "sha256": "28d0fa1deea510885f0bc64e4412997862faaf5a210aad857d8d432d00acc6e2"
+    },
+    {
+      "path": "crates/earph-sendspin/tests/timing_pipeline.rs",
+      "sha256": "c2ebf17d580b64fa5f8e629725fc5d40c0a2dd9b31782f1bc59ae2d4c3ed090d"
+    }
+  ],
+  "verification": {
+    "focused": {
+      "passed": 59,
+      "failed": 0,
+      "exit": 0,
+      "log_sha256": "241c0bf9a5b4cc1b8260ec4e749903327f3a567e6e13afbe650d0a046e50703c"
+    },
+    "core_ownership_consumer": {
+      "passed": 2,
+      "failed": 0,
+      "production_core_unchanged": true,
+      "retained_private_harness": true,
+      "log_sha256": "66370a905570b41ab8eff6ba64c7ab3a7937d08a582d59f7f6cea52364bc80f7"
+    },
+    "canonical": {
+      "command": "scripts/check",
+      "exit": 0,
+      "log_sha256": "e1b4e9ed5039d1f1ffa814ddc3273bca87ce21ca5d456619ba4bfa03a986824a",
+      "source_files_verified": 2078,
+      "reported_test_groups": 194,
+      "reported_passed": 1802,
+      "reported_failed": 0,
+      "reported_ignored": 22,
+      "count_scope": "Includes nested fixture summaries; not unique tests."
+    },
+    "independent_review": {
+      "initial_findings": 2,
+      "resolved_findings": 2,
+      "remaining_findings": 0,
+      "initial_receipt_sha256": "108366550b54a173376b130f8d1b7500c3ff4146fc1299aea8a5821eae0a7c52",
+      "focused_rereview_sha256": "ddbbe61c6282706cb105f2c184d93e33e409fbc595924a29e565e35e359c0ac9"
+    }
+  },
+  "covered_behaviors": [
+    "Fixed signed16 48000 Hz stereo player messages and shared ID-4 decoder",
+    "Immutable binding-checked and expiring time mapping",
+    "Bounded decoded allocations and protocol accounting",
+    "Full and partial clear with an explicit accepted-output frontier",
+    "Zero-frame packets retain the replacement frontier",
+    "One-shot owned sample transfer with a separate nonclone release lease",
+    "Cancellation retains transferred allocation credits until release"
+  ],
+  "consumer_contract": "Destroy every downstream owner of extracted sample storage before release_chunk.",
+  "remaining": [
+    "Network player admission and role advertisement",
+    "Engine source ownership and native scheduling",
+    "Accepted-output span projection and live correction",
+    "Native clock and endpoint latency qualification",
+    "Music Assistant player interoperability and physical synchronization"
+  ]
+}

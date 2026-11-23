@@ -2,24 +2,28 @@
 // ABOUTME: Preserves integer samples at the worker-to-engine boundary.
 #![forbid(unsafe_code)]
 mod admission;
+pub use admission::is_dsd;
 pub mod cli_io;
 pub mod correction_text;
+pub mod dsd;
 mod fir;
 mod fir_manifest;
+mod pcm;
 mod render;
+mod streaming_flac;
 use earph_core::{
     EngineError, ErrorCode,
-    audio::{
-        BlockHeader, ChannelLayout, PcmBlock, PcmFormat, PcmRepresentation, PcmSamples, TimeDomain,
-    },
+    audio::{BlockHeader, ChannelLayout, PcmBlock, PcmFormat, PcmRepresentation, TimeDomain},
     ids::Epochs,
 };
 pub use fir::{FirCorrection, MAX_FIR_WAV_BYTES, decode_fir_wav, read_fir_file, read_fir_source};
 pub use fir_manifest::{FirCorrectionManifest, MAX_FIR_MANIFEST_BYTES, read_fir_manifest};
+pub use pcm::DecodedPcmFrame;
+use pcm::PcmState;
 pub use render::{RenderReport, render};
 use std::path::Path;
+pub use streaming_flac::StreamingFlac;
 use symphonia::core::{
-    audio::{Audio, GenericAudioBufferRef},
     codecs::audio::AudioDecoder,
     common::Limit,
     formats::{FormatReader, SeekMode, SeekTo, TrackType, probe::Hint},
@@ -47,11 +51,7 @@ pub struct LocalFile {
     reader: Box<dyn FormatReader>,
     decoder: Box<dyn AudioDecoder>,
     track_id: u32,
-    format: PcmFormat,
-    total_frames: u64,
-    position: u64,
-    discard_until: u64,
-    sequence: u64,
+    pcm: PcmState,
     epochs: Epochs,
     pending: Option<PcmBlock>,
     state: ReadState,
@@ -116,11 +116,7 @@ impl LocalFile {
             reader,
             decoder,
             track_id,
-            format,
-            total_frames,
-            position: 0,
-            discard_until: 0,
-            sequence: 0,
+            pcm: PcmState::new(format, Some(total_frames)),
             epochs,
             pending: None,
             state: ReadState::Reading,
@@ -129,10 +125,12 @@ impl LocalFile {
         Ok(file)
     }
     pub fn format(&self) -> PcmFormat {
-        self.format
+        self.pcm.format
     }
     pub fn total_frames(&self) -> u64 {
-        self.total_frames
+        self.pcm
+            .total_frames
+            .expect("local files require known duration")
     }
     pub fn next_block(&mut self) -> Result<Option<PcmBlock>, EngineError> {
         match self.state {
@@ -150,7 +148,7 @@ impl LocalFile {
         result
     }
     pub fn seek(&mut self, frame: u64, epochs: Epochs) -> Result<(), EngineError> {
-        if frame > self.total_frames {
+        if frame > self.total_frames() {
             return Err(INVALID);
         }
         if matches!(self.state, ReadState::Failed) {
@@ -159,7 +157,7 @@ impl LocalFile {
         // A failed native seek may have changed reader state. Never expose the old pending block.
         self.pending = None;
         self.state = ReadState::Failed;
-        if frame < self.total_frames {
+        if frame < self.total_frames() {
             let result = self
                 .reader
                 .seek(
@@ -174,15 +172,15 @@ impl LocalFile {
             if actual > frame {
                 return Err(INVALID);
             }
-            self.position = actual;
+            self.pcm.position = actual;
         } else {
-            self.position = frame;
+            self.pcm.position = frame;
         }
         self.decoder.reset();
-        self.discard_until = frame;
+        self.pcm.discard_until = frame;
         self.epochs = epochs;
-        self.sequence = 0;
-        self.state = if frame == self.total_frames {
+        self.pcm.sequence = 0;
+        self.state = if frame == self.total_frames() {
             ReadState::SeekedEnd
         } else {
             ReadState::Reading
@@ -190,7 +188,7 @@ impl LocalFile {
         Ok(())
     }
     fn decode_block(&mut self) -> Result<Option<PcmBlock>, EngineError> {
-        if self.position == self.total_frames {
+        if self.pcm.position == self.total_frames() {
             if self.reader.next_packet().map_err(|_| INVALID)?.is_some() {
                 return Err(INVALID);
             }
@@ -209,111 +207,25 @@ impl LocalFile {
             if packet.data.len() > 1024 * 1024 || packet.block_dur().get() > MAX_FRAMES as u64 {
                 return Err(BUDGET);
             }
-            if packet.pts.get() != self.position as i64 {
+            if packet.pts.get() != self.pcm.position as i64 {
                 return Err(INVALID);
             }
             let audio = self.decoder.decode(&packet).map_err(|_| INVALID)?;
-            let frames = audio.frames();
-            let channels = self.format.channels().count();
-            if frames == 0
-                || frames > MAX_FRAMES
-                || audio.spec().rate() != self.format.sample_rate_hz()
-                || audio.num_planes() != channels
-            {
-                return Err(UNSUPPORTED);
-            }
-            let end = self
-                .position
-                .checked_add(frames as u64)
-                .filter(|n| *n <= self.total_frames)
-                .ok_or(INVALID)?;
-            let bits = (self.format.representation().bytes() * 8) as u32;
-            let mut values = Vec::with_capacity(frames * channels);
-            for frame in 0..frames {
-                for ch in 0..channels {
-                    let value = match &audio {
-                        GenericAudioBufferRef::S16(b) if bits <= 16 => {
-                            i64::from(b.plane(ch).ok_or(INVALID)?[frame]) >> (16 - bits)
-                        }
-                        GenericAudioBufferRef::S24(b) if bits <= 24 => {
-                            i64::from(b.plane(ch).ok_or(INVALID)?[frame].0) >> (24 - bits)
-                        }
-                        GenericAudioBufferRef::S32(b) => {
-                            i64::from(b.plane(ch).ok_or(INVALID)?[frame]) >> (32 - bits)
-                        }
-                        _ => return Err(UNSUPPORTED),
-                    };
-                    values.push(value);
-                }
-            }
-            if bits >= 24 && detected_dop(&values, channels, bits) {
-                return Err(EngineError::new(
-                    ErrorCode::FidelityPolicyConflict,
-                    "DoP transport cannot enter the PCM lane",
-                ));
-            }
-            let skip = self
-                .discard_until
-                .saturating_sub(self.position)
-                .min(frames as u64) as usize;
-            let start = self.position + skip as u64;
-            self.position = end;
-            if skip == frames {
+            let Some(frame) = self.pcm.convert(audio)? else {
                 continue;
-            }
-            let values = &values[skip * channels..];
-            let samples = match self.format.representation() {
-                PcmRepresentation::Signed16 => {
-                    PcmSamples::Signed16(values.iter().map(|v| *v as i16).collect())
-                }
-                PcmRepresentation::Signed24 => {
-                    PcmSamples::Signed24(values.iter().map(|v| *v as i32).collect())
-                }
-                PcmRepresentation::Signed32 => {
-                    PcmSamples::Signed32(values.iter().map(|v| *v as i32).collect())
-                }
-                _ => return Err(UNSUPPORTED),
             };
             let block = PcmBlock::new(
                 BlockHeader {
                     epochs: self.epochs,
-                    sequence: self.sequence,
-                    frame_position: start,
-                    frame_count: end - start,
-                    format: self.format,
+                    sequence: frame.sequence(),
+                    frame_position: frame.frame_position(),
+                    frame_count: frame.frame_count(),
+                    format: self.pcm.format,
                     time_domain: TimeDomain::LocalFrames,
                 },
-                samples,
+                frame.into_samples(),
             )?;
-            self.sequence = self.sequence.checked_add(1).ok_or(BUDGET)?;
             return Ok(Some(block));
         }
     }
-}
-
-fn detected_dop(values: &[i64], channels: usize, bits: u32) -> bool {
-    let mut previous = None;
-    let mut run = 0;
-    for frame in values.chunks_exact(channels) {
-        let marker = ((frame[0] >> (bits - 8)) & 255) as u8;
-        if matches!(marker, 0x05 | 0xfa)
-            && frame
-                .iter()
-                .all(|s| ((s >> (bits - 8)) & 255) as u8 == marker)
-        {
-            run = if previous.is_some_and(|p| p != marker) {
-                run + 1
-            } else {
-                1
-            };
-            if run >= 16 {
-                return true;
-            }
-            previous = Some(marker);
-        } else {
-            run = 0;
-            previous = None;
-        }
-    }
-    false
 }

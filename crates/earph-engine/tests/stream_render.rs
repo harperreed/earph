@@ -71,6 +71,61 @@ fn block() -> PcmBlock {
 }
 
 #[test]
+fn leaving_exact_zero_applies_the_requested_ramp_to_retained_pre_gain_output() {
+    for ramp in [0, 2] {
+        let mut render =
+            PreparedStreamRender::prepare(plan(), config(), Arc::new(AtomicBool::new(false)))
+                .unwrap();
+        render.set_gain_target(None, 0).unwrap();
+        let input = block();
+        let mut offset = 0;
+        for _ in 0..20 {
+            let step = render
+                .pump(Some(SourceSpan {
+                    block: &input,
+                    offset,
+                    frames: 4 - offset,
+                }))
+                .unwrap();
+            offset += step.consumed_frames;
+            if offset == 4 {
+                break;
+            }
+        }
+        assert_eq!(offset, 4);
+        for _ in 0..20 {
+            if render.output_positions().generated == 4 {
+                break;
+            }
+            render.pump(None).unwrap();
+        }
+        assert_eq!(
+            render.output_positions().generated,
+            4,
+            "source frontier {offset}; {:?}",
+            render.stream().stats()
+        );
+        assert_eq!(render.stage().unwrap().unwrap().frames, 2);
+        assert_eq!(render.period().integer_sample(0), Some(0));
+        assert_eq!(render.period().integer_sample(1), Some(0));
+        render.accepted(2).unwrap();
+        render.observe(2, 2).unwrap();
+        let stats = render.stream().stats();
+        let generated = render.output_positions().generated;
+        render.set_gain_target(Some(0.0), ramp).unwrap();
+        assert_eq!(render.stage().unwrap().unwrap().frames, 2);
+        assert_eq!(render.period().header().frame_position, 2);
+        assert_eq!(
+            render.period().integer_sample(0),
+            Some(if ramp == 0 { 3000 } else { 1500 })
+        );
+        assert_eq!(render.period().integer_sample(1), Some(4000));
+        assert_eq!(render.stream().stats(), stats);
+        assert_eq!(render.output_positions().generated, generated);
+    }
+}
+
+#[test]
 fn partial_native_writes_and_holds_preserve_source_frontier_and_reapply_current_volume() {
     let mut render =
         PreparedStreamRender::prepare(plan(), config(), Arc::new(AtomicBool::new(false))).unwrap();
@@ -133,6 +188,69 @@ fn partial_native_writes_and_holds_preserve_source_frontier_and_reapply_current_
     assert!(render.finished());
     assert_eq!(render.stream().stats().source_frames, 4);
     assert!(render.resources().resident_bytes <= render.resources().preparation_peak_bytes);
+}
+
+#[test]
+fn whole_span_retirement_recovers_replay_backpressure_and_holds_exact_unretired_samples() {
+    let mut render =
+        PreparedStreamRender::prepare(plan(), config(), Arc::new(AtomicBool::new(false))).unwrap();
+    render.set_gain_target(Some(0.0), 0).unwrap();
+    let mut input = block();
+    let capacity = render.resources().replay_frames;
+    let mut source = 0;
+    let mut submitted = 0;
+    for _ in 0..100 {
+        input.set_span(epoch(0), source / 4, source, 4).unwrap();
+        let step = render
+            .pump(Some(SourceSpan {
+                block: &input,
+                offset: 0,
+                frames: 4,
+            }))
+            .unwrap();
+        source += step.consumed_frames as u64;
+        while let Some(report) = render.stage().unwrap() {
+            render.accepted(report.frames).unwrap();
+            submitted += report.frames as u64;
+        }
+        // A queue clock inside an unfinished span still retires no payload.
+        render.observe(submitted, 0).unwrap();
+        if step.need_output && step.consumed_frames == 0 {
+            break;
+        }
+    }
+    let full = render.output_positions();
+    assert_eq!(full.generated - full.retained_start, capacity as u64);
+    assert_eq!(full.retained_start, 0);
+    assert_eq!(full.next_submission, submitted);
+    let blocked = render.pump(None).unwrap();
+    assert!(blocked.need_output);
+    assert_eq!(blocked.produced_frames, 0);
+    let before = render.stream().stats();
+    // One complete native span releases exactly one period of the existing replay budget.
+    render.observe(submitted, 2).unwrap();
+    assert_eq!(render.output_positions().retained_start, 2);
+    let step = render
+        .pump(Some(SourceSpan {
+            block: &input,
+            offset: 0,
+            frames: 4,
+        }))
+        .unwrap();
+    assert!(step.consumed_frames > 0 || step.produced_frames > 0);
+    assert!(render.stream().stats().source_frames >= before.source_frames);
+    let generated = render.output_positions().generated;
+    let source_frontier = render.stream().stats().source_frames;
+    render.hold(submitted, 2, epoch(1)).unwrap();
+    assert_eq!(render.output_positions().backend_origin, 2);
+    assert_eq!(render.output_positions().generated, generated);
+    assert_eq!(render.stream().stats().source_frames, source_frontier);
+    render.set_gain_target(Some(0.0), 0).unwrap();
+    assert_eq!(render.stage().unwrap().unwrap().frames, 2);
+    assert_eq!(render.period().integer_sample(0), Some(3000));
+    assert_eq!(render.period().integer_sample(1), Some(4000));
+    assert_eq!(render.period().header().epochs, epoch(1));
+    assert_eq!(render.period().header().frame_position, 0);
 }
 
 #[test]

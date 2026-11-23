@@ -21,6 +21,7 @@ struct Job {
 }
 #[derive(Clone)]
 struct Ready {
+    renderer_application: Option<Arc<crate::renderer::RendererGraphBinding>>,
     prepared: GraphPrepared,
     intent: Arc<GraphIntent>,
     record: Option<Record>,
@@ -44,6 +45,28 @@ pub(super) struct GraphControl {
     pub(super) recovery_required: bool,
     service: GraphServiceObservation,
 }
+enum InstalledSourceObservation {
+    Local {
+        observation: PlaybackObservation,
+        total_frames: u64,
+    },
+    Network(crate::network_source::NetworkPlaybackObservation),
+}
+impl InstalledSourceObservation {
+    fn format(&self) -> PcmFormat {
+        match self {
+            Self::Local { observation, .. } => observation.format,
+            Self::Network(p) => p.format,
+        }
+    }
+    fn backend(&self) -> Option<&BackendObservation> {
+        match self {
+            Self::Local { observation, .. } => observation.backend.as_ref(),
+            Self::Network(p) => p.backend.as_ref(),
+        }
+    }
+}
+
 impl Session {
     pub(super) fn defer_graph_readiness(
         &mut self,
@@ -128,6 +151,18 @@ impl Session {
     pub fn graph_job(&self) -> Option<GraphJobRequest> {
         self.graph.job.as_ref().map(|j| j.request.clone())
     }
+    pub(super) fn bind_profile_graph_job(
+        &mut self,
+        binding: Arc<crate::profile_control::ProfileApplicationBinding>,
+    ) -> Result<(), EngineError> {
+        self.graph
+            .job
+            .as_mut()
+            .ok_or(STALE)?
+            .request
+            .profile_application = Some(binding);
+        Ok(())
+    }
     pub fn graph_activation(&self) -> Option<GraphActivationRequest> {
         self.graph.activation.as_ref().map(|a| a.request.clone())
     }
@@ -155,6 +190,13 @@ impl Session {
     }
     pub fn submit_graph(&mut self, command: CommandEnvelope, now_ns: u64) -> Receipt {
         self.submit_with_graph_effects(command, now_ns, |_| Err(STATE), |_| Ok(()))
+    }
+    fn current_source_format(&self) -> Option<PcmFormat> {
+        match self.state.source {
+            Some(SourceKind::LocalFile) => self.state.observation.pcm().map(|p| p.format),
+            Some(SourceKind::HttpFlac) => self.state.observation.network().map(|p| p.format),
+            _ => None,
+        }
     }
     fn graph_binding(&self) -> Result<GraphBinding, EngineError> {
         Ok(GraphBinding {
@@ -191,6 +233,49 @@ impl Session {
                     .and_then(|a| a.record.as_ref())
                     .filter(|r| &r.0.request_id == id)
             })
+    }
+    pub(super) fn graph_profile_records(&self) -> impl Iterator<Item = &Record> {
+        [
+            self.graph.job.as_ref().and_then(|j| j.record.as_ref()),
+            self.graph.ready.as_ref().and_then(|r| r.record.as_ref()),
+            self.graph
+                .activation
+                .as_ref()
+                .and_then(|a| a.record.as_ref()),
+            self.graph.terminal.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+    }
+    pub(super) fn graph_profile_metadata_bytes(&self) -> Result<usize, EngineError> {
+        let budget = crate::profile_control::BUDGET;
+        let mut bytes = 0_usize;
+        if let Some(application) = self
+            .graph
+            .job
+            .as_ref()
+            .and_then(|j| j.request.profile_application.as_ref())
+        {
+            bytes = size_of::<crate::profile_control::ProfileApplicationBinding>()
+                + application.profile.id.capacity_bytes();
+        }
+        for preview in [
+            self.graph.ready.as_ref().map(|r| &r.prepared.preview),
+            self.graph
+                .activation
+                .as_ref()
+                .map(|a| &a.request.prepared.preview),
+            self.graph.active.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|p| p.profile_application.is_some())
+        {
+            bytes = bytes
+                .checked_add(preview.retained_capacity_bytes()?)
+                .ok_or(budget)?;
+        }
+        Ok(bytes)
     }
     pub(super) fn replay_graph_record(
         &self,
@@ -302,9 +387,14 @@ impl Session {
                     | Command::GraphPrepare { .. }
                     | Command::GraphValidate { .. }
                     | Command::GraphCommit { .. }
+                    | Command::ProfilesPrepare { .. }
+                    | Command::ProfilesApply { .. }
             ))
             || (self.local_boundary == Some(LocalBoundary::Stop)
-                && matches!(command, Command::Pause | Command::Seek { .. }))
+                && matches!(
+                    command,
+                    Command::Pause | Command::Seek { .. } | Command::SeekDsd { .. }
+                ))
         {
             return Err(EngineError::new(
                 ErrorCode::SourceBusy,
@@ -317,6 +407,8 @@ impl Session {
                 Command::Mute { muted: true }
                     | Command::Stop
                     | Command::OwnerShutdown
+                    | Command::VolumeSilence
+                    | Command::VolumeFactoryDefaults
                     | Command::VolumeCaps { .. }
             )
         {
@@ -329,6 +421,7 @@ impl Session {
         Ok(())
     }
     pub(super) fn validate_graph_unmute(&self, state: &SessionSnapshot) -> Result<(), EngineError> {
+        Self::validate_software_zero(state)?;
         if self.graph.recovery_required
             || self.graph.activation.is_some()
             || self.graph.configured.is_some() && self.graph.active.is_none()
@@ -368,8 +461,10 @@ impl Session {
                 {
                     return Err(BUSY);
                 }
-                if self.state.source != Some(SourceKind::LocalFile)
-                    || self.state.playback.is_none()
+                if !matches!(
+                    self.state.source,
+                    Some(SourceKind::LocalFile | SourceKind::HttpFlac)
+                ) || self.current_source_format().is_none()
                     || self.local_boundary.is_some()
                     || !matches!(
                         self.state.transport,
@@ -382,6 +477,11 @@ impl Session {
                     return Err(STATE);
                 }
                 let output = self.state.output.as_ref().ok_or(STATE)?;
+                if self.state.source == Some(SourceKind::HttpFlac)
+                    && !matches!(processing, GraphProcessingRequest::Float64 { .. })
+                {
+                    return Err(STATE);
+                }
                 if matches!(processing, GraphProcessingRequest::Float64 { .. })
                     && output.fidelity == FidelityPolicy::StrictPreservation
                 {
@@ -395,6 +495,8 @@ impl Session {
                     .ok_or(STATE)?;
                 self.graph.job = Some(Job {
                     request: GraphJobRequest {
+                        profile_application: None,
+                        renderer_application: None,
                         request_id: command.request_id.clone(),
                         binding: self.graph_binding()?,
                         intent: Arc::new(GraphIntent {
@@ -407,8 +509,35 @@ impl Session {
                     record: None,
                 });
             }
-            Command::GraphCommit { token, graph_hash } => {
+            Command::GraphCommit { token, graph_hash }
+            | Command::ProfilesApply {
+                token, graph_hash, ..
+            } => {
                 let ready = self.graph.ready.as_ref().ok_or(STALE)?;
+                let application = match &command.payload {
+                    Command::ProfilesApply {
+                        id,
+                        expected_profile_revision,
+                        profile_sha256,
+                        ..
+                    } => {
+                        let reference = crate::profile_control::ProfileCatalogReference {
+                            id: id.clone(),
+                            revision: *expected_profile_revision,
+                            profile_sha256: *profile_sha256,
+                        };
+                        let binding = self.authorized_profile_application_binding(&reference)?;
+                        if ready.prepared.preview.profile_application.as_ref() != Some(&binding) {
+                            return Err(EngineError::new(
+                                ErrorCode::StaleRevision,
+                                "prepared profile policy or immutable revision changed",
+                            ));
+                        }
+                        Some(binding)
+                    }
+                    _ if ready.prepared.preview.profile_application.is_some() => return Err(STALE),
+                    _ => None,
+                };
                 if &ready.prepared.token != token
                     || &ready.prepared.preview.graph_hash != graph_hash
                 {
@@ -428,8 +557,14 @@ impl Session {
                     return Err(BLOCKED);
                 }
                 ready.prepared.preview.validate_headroom(
-                    self.state.software_gain_db,
-                    self.state.volume_policy.software_cap_db(),
+                    application
+                        .as_ref()
+                        .map_or(self.state.software_gain_db, |a| a.software_gain_db),
+                    application
+                        .as_ref()
+                        .map_or(self.state.volume_policy.software_cap_db(), |a| {
+                            a.effective_policy.software_cap_db()
+                        }),
                 )?;
                 let epochs = self.state.epochs.next_stream()?;
                 let revision = increment(self.state.revision)?;
@@ -439,6 +574,7 @@ impl Session {
                 let ready = self.graph.ready.take().ok_or(STALE)?;
                 self.graph.activation = Some(Activation {
                     request: GraphActivationRequest {
+                        renderer_application: ready.renderer_application,
                         request_id: command.request_id.clone(),
                         previous_binding: binding,
                         epochs,
@@ -451,6 +587,11 @@ impl Session {
                 self.state.revision = revision;
                 self.state.epochs = epochs;
                 self.state.muted = true;
+                if let Some(application) = application {
+                    self.state.output_consented = false;
+                    self.state.volume_policy.disarm();
+                    self.state.software_gain_db = application.software_gain_db;
+                }
                 self.state.transport = TransportState::Reconfiguring;
                 self.state.audible_position_frames = None;
             }
@@ -497,18 +638,49 @@ impl Session {
             if &current != binding {
                 return Err(STALE.into());
             }
+            if let Some(renderer) = &job.request.renderer_application
+                && (job.request.profile_application.is_some()
+                    || !self.renderer_graph_binding_valid(renderer, now_ns))
+            {
+                return Err(STALE.into());
+            }
             let preview = result?;
             preview.validate().map_err(GraphDiagnostic::from)?;
+            if preview.profile_application != job.request.profile_application {
+                return Err(STALE.into());
+            }
+            if preview.profile_application.is_some()
+                && preview.backend != self.state.observation.pcm().and_then(|p| p.backend.clone())
+            {
+                return Err(STALE.into());
+            }
+            let application = if let Some(application) = &job.request.profile_application {
+                let current = self
+                    .authorized_profile_application_binding(&application.profile)
+                    .map_err(GraphDiagnostic::from)?;
+                if &current != application {
+                    return Err(STALE.into());
+                }
+                Some(current)
+            } else {
+                None
+            };
             if !job.request.validate_only {
                 preview
                     .validate_headroom(
-                        self.state.software_gain_db,
-                        self.state.volume_policy.software_cap_db(),
+                        application
+                            .as_ref()
+                            .map_or(self.state.software_gain_db, |a| a.software_gain_db),
+                        application
+                            .as_ref()
+                            .map_or(self.state.volume_policy.software_cap_db(), |a| {
+                                a.effective_policy.software_cap_db()
+                            }),
                     )
                     .map_err(GraphDiagnostic::from)?;
             }
             if &preview.binding != binding
-                || self.state.playback.as_ref().map(|p| p.format) != Some(preview.source_format)
+                || self.current_source_format() != Some(preview.source_format)
                 || self.state.output.as_ref().map(|o| o.period_frames as usize)
                     != Some(preview.quantum_frames)
             {
@@ -533,6 +705,32 @@ impl Session {
                     },
                 ))
             };
+            if let Some((_, prepared)) = &prepared
+                && prepared.preview.profile_application.is_some()
+            {
+                let mut staged = self.clone();
+                let mut record = job.record.clone();
+                staged.settle_graph_record(
+                    &mut record,
+                    ReceiptStatus::Applied,
+                    None,
+                    Some(QueryResult::GraphPrepared(prepared.clone())),
+                );
+                staged.graph.ready = Some(Ready {
+                    renderer_application: job.request.renderer_application.clone(),
+                    prepared: prepared.clone(),
+                    intent: job.request.intent.clone(),
+                    record,
+                });
+                staged
+                    .validate_profile_storage(None)
+                    .map_err(GraphDiagnostic::from)?;
+                if let Some(record) = &staged.graph.terminal {
+                    staged
+                        .validate_profile_response(record)
+                        .map_err(GraphDiagnostic::from)?;
+                }
+            }
             Ok((preview, prepared, sequence))
         })();
         match result {
@@ -545,6 +743,7 @@ impl Session {
                         Some(QueryResult::GraphPrepared(prepared.clone())),
                     );
                     self.graph.ready = Some(Ready {
+                        renderer_application: job.request.renderer_application.clone(),
                         prepared,
                         intent: job.request.intent,
                         record: job.record,
@@ -581,14 +780,100 @@ impl Session {
         now_ns: u64,
         persist: impl FnOnce(&Session) -> Result<(), EngineError>,
     ) -> Result<(), EngineError> {
-        let GraphActivationAck {
-            request_id,
-            epochs,
-            graph_hash,
-            activation_frame,
-            observation,
-            source_total_frames,
-        } = ack;
+        if self.state.source != Some(SourceKind::LocalFile) {
+            return Err(STALE);
+        }
+        self.complete_source_graph_activation(
+            ack.request_id,
+            ack.epochs,
+            ack.graph_hash,
+            ack.activation_frame,
+            InstalledSourceObservation::Local {
+                observation: ack.observation,
+                total_frames: ack.source_total_frames,
+            },
+            now_ns,
+            persist,
+        )
+    }
+    pub fn complete_network_graph_activation(
+        &mut self,
+        ack: crate::network_source::NetworkGraphActivationAck,
+        now_ns: u64,
+        persist: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Result<(), EngineError> {
+        self.expire_network_authority(now_ns)?;
+        let active = self.network.active.as_ref().ok_or(STALE)?;
+        if !self.network_authority_valid(&ack.observation.binding, now_ns)
+            || self.network.closing.is_some()
+            || ack.observation.source_epochs != active.source_epochs
+            || ack.observation.output_epochs != self.state.epochs
+            || ack.observation.graph_epoch != increment(self.state.graph_epoch)?
+            || ack.observation.device_epoch != self.state.device_epoch
+        {
+            return Err(STALE);
+        }
+        if let Some(binding) = self
+            .graph
+            .activation
+            .as_ref()
+            .and_then(|a| a.request.renderer_application.as_ref())
+            && !self.renderer_graph_binding_valid(binding, now_ns)
+        {
+            return Err(STALE);
+        }
+        ack.observation.validate()?;
+        let previous = self.state.observation.network();
+        let retained = previous.and_then(|p| p.replacement_boundary.as_ref());
+        match (ack.observation.replacement_boundary.as_ref(), retained) {
+            (None, Some(_)) => return Err(crate::network_source::INVALID),
+            (Some(boundary), old_boundary) if Some(boundary) != old_boundary => {
+                let activation = self.graph.activation.as_ref().ok_or(STALE)?;
+                let old = activation.request.previous_binding.epochs;
+                if self.graph.active.is_none()
+                    || boundary.output_epochs != ack.epochs
+                    || boundary.previous_output_epochs.session != old.session
+                    || boundary.previous_output_epochs.stream > old.stream
+                    || previous.map(|p| p.output_format) != Some(boundary.previous_output_format)
+                {
+                    return Err(crate::network_source::INVALID);
+                }
+            }
+            _ => {}
+        }
+        self.complete_source_graph_activation(
+            ack.request_id,
+            ack.epochs,
+            ack.graph_hash,
+            ack.activation_frame,
+            InstalledSourceObservation::Network(ack.observation),
+            now_ns,
+            persist,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn complete_source_graph_activation(
+        &mut self,
+        request_id: RequestId,
+        epochs: Epochs,
+        graph_hash: String,
+        activation_frame: u64,
+        installed: InstalledSourceObservation,
+        now_ns: u64,
+        persist: impl FnOnce(&Session) -> Result<(), EngineError>,
+    ) -> Result<(), EngineError> {
+        let failure_fence = match &installed {
+            InstalledSourceObservation::Network(p) => {
+                Some(crate::network_source::NetworkExecutionFence {
+                    binding: p.binding.clone(),
+                    source_epochs: p.source_epochs,
+                    output_epochs: p.output_epochs,
+                    graph_epoch: p.graph_epoch,
+                    device_epoch: p.device_epoch,
+                })
+            }
+            InstalledSourceObservation::Local { .. } => None,
+        };
         let id = &request_id;
         let hash = graph_hash.as_str();
         let activation = self.graph.activation.as_ref().ok_or(STALE)?;
@@ -606,15 +891,34 @@ impl Session {
                 "non-monotonic graph activation",
             ));
         }
-        if observation.source_position_frames > source_total_frames
-            || observation.format != activation.request.prepared.preview.source_format
+        if matches!(&installed, InstalledSourceObservation::Local { observation, total_frames } if observation.source_position_frames > *total_frames)
+            || installed.format() != activation.request.prepared.preview.source_format
         {
             let error = EngineError::new(
                 ErrorCode::AssetInvalid,
                 "invalid activated source readiness",
             );
-            self.fail_graph_activation(id, error);
+            self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
             return Err(error);
+        }
+        if let Some(application) = &activation.request.prepared.preview.profile_application {
+            let observed_identity = installed.backend().and_then(|backend| {
+                (backend.backend == OutputBackend::CoreAudio)
+                    .then_some(backend.device_identity_sha256)
+                    .flatten()
+            });
+            let valid = self
+                .profile_application_binding(&application.profile)
+                .is_ok_and(|current| current == *application)
+                && observed_identity == application.device_identity_sha256;
+            if !valid {
+                let error = EngineError::new(
+                    ErrorCode::StaleRevision,
+                    "profile activation policy or saved revision changed",
+                );
+                self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
+                return Err(error);
+            }
         }
         let counters = (|| {
             Ok::<_, EngineError>((
@@ -626,32 +930,49 @@ impl Session {
         let (graph_epoch, revision, event_sequence) = match counters {
             Ok(values) => values,
             Err(error) => {
-                self.fail_graph_activation(id, error);
+                self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
                 return Err(error);
             }
         };
         let mut staged = self.clone();
-        for (entry, status) in &*activation.readiness {
-            if staged.queue.entries().iter().any(|item| &item.id == entry)
-                && let Err(error) = staged.queue.update_status(entry, *status)
-            {
-                self.fail_graph_activation(id, error);
+        if let InstalledSourceObservation::Local {
+            observation,
+            total_frames,
+        } = &installed
+        {
+            for (entry, status) in &*activation.readiness {
+                if staged.queue.entries().iter().any(|item| &item.id == entry)
+                    && let Err(error) = staged.queue.update_status(entry, *status)
+                {
+                    self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
+                    return Err(error);
+                }
+            }
+            if let Err(error) = staged.queue.update_status(
+                &observation.source_entry_id,
+                crate::queue::PreparationStatus::Ready {
+                    format: observation.format,
+                    total_frames: *total_frames,
+                },
+            ) {
+                self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
                 return Err(error);
             }
-        }
-        if let Err(error) = staged.queue.update_status(
-            &observation.source_entry_id,
-            crate::queue::PreparationStatus::Ready {
-                format: observation.format,
-                total_frames: source_total_frames,
-            },
-        ) {
-            self.fail_graph_activation(id, error);
-            return Err(error);
         }
         let mut activated = staged.graph.activation.take().ok_or(STALE)?;
         staged.graph.active = Some(activated.request.prepared.preview.clone());
         staged.graph.configured = Some(activated.intent);
+        if let Some(application) = &activated.request.prepared.preview.profile_application {
+            staged.state.configured_profile = Some(application.profile.clone());
+            staged.state.volume_policy = application.effective_policy.clone();
+            staged.state.volume_policy.disarm();
+            staged.state.software_gain_db = application.software_gain_db;
+            staged.state.output.as_mut().ok_or(STALE)?.profile_id = application.profile.id.clone();
+            staged.state.output_consented = false;
+        } else if staged.state.configured_profile.take().is_some() {
+            staged.state.volume_policy = staged.state.local_volume_policy.clone();
+            staged.state.volume_policy.disarm();
+        }
         staged.graph.recovery_required = false;
         staged.state.graph_epoch = graph_epoch;
         staged.state.revision = revision;
@@ -663,19 +984,36 @@ impl Session {
             TransportState::Paused
         };
         staged.state.muted = true;
-        staged.state.active_entry_id = Some(observation.source_entry_id.clone());
-        staged.state.reserved_next_entry_id = staged
-            .queue
-            .entries()
-            .iter()
-            .position(|entry| entry.id == observation.source_entry_id)
-            .and_then(|index| staged.queue.entries().get(index + 1))
-            .map(|entry| entry.id.clone());
-        staged.state.decoded_position_frames = observation.source_position_frames;
-        staged.state.audible_position_frames = observation.audible_source_position_frames;
-        staged.state.playback = Some(observation);
+        match installed {
+            InstalledSourceObservation::Local { observation, .. } => {
+                staged.state.active_entry_id = Some(observation.source_entry_id.clone());
+                staged.state.reserved_next_entry_id = staged
+                    .queue
+                    .entries()
+                    .iter()
+                    .position(|entry| entry.id == observation.source_entry_id)
+                    .and_then(|index| staged.queue.entries().get(index + 1))
+                    .map(|entry| entry.id.clone());
+                staged.state.decoded_position_frames = observation.source_position_frames;
+                staged.state.audible_position_frames = observation.audible_source_position_frames;
+                staged.state.observation = (observation).into();
+            }
+            InstalledSourceObservation::Network(observation) => {
+                staged.state.active_entry_id = None;
+                staged.state.reserved_next_entry_id = None;
+                staged.state.decoded_position_frames = observation.source_position_frames;
+                staged.state.audible_position_frames = observation.audible_source_position_frames;
+                staged.state.observation = (observation).into();
+            }
+        }
+        if staged.state.configured_profile.is_some()
+            && let Err(error) = staged.validate_profile_storage(None)
+        {
+            self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
+            return Err(error);
+        }
         if let Err(error) = persist(&staged) {
-            self.fail_graph_activation(id, error);
+            self.fail_source_graph_activation(id, error, failure_fence.as_ref())?;
             return Err(error);
         }
         staged.settle_graph_record(&mut activated.record, ReceiptStatus::Applied, None, None);
@@ -694,7 +1032,30 @@ impl Session {
         *self = staged;
         Ok(())
     }
+    fn fail_source_graph_activation(
+        &mut self,
+        id: &RequestId,
+        error: EngineError,
+        fence: Option<&crate::network_source::NetworkExecutionFence>,
+    ) -> Result<(), EngineError> {
+        if let Some(fence) = fence {
+            self.fail_network_graph_activation(id, error, fence.clone())
+        } else {
+            self.fail_graph_activation(id, error);
+            Ok(())
+        }
+    }
     pub fn fail_graph_activation(&mut self, id: &RequestId, error: EngineError) {
+        if self
+            .graph
+            .activation
+            .as_ref()
+            .is_some_and(|a| &a.request.request_id == id)
+            && self.network.active.is_some()
+        {
+            let _ = self.close_network_at(self.state.epochs, Some(error.code));
+            self.network.closing_failure_observed = error.code != ErrorCode::OperationCancelled;
+        }
         if self
             .graph
             .activation
@@ -727,10 +1088,80 @@ impl Session {
     }
 }
 
+impl Session {
+    pub(super) fn renderer_ready_graph_binding(
+        &self,
+    ) -> Option<Arc<crate::renderer::RendererGraphBinding>> {
+        self.graph
+            .ready
+            .as_ref()
+            .and_then(|r| r.renderer_application.clone())
+    }
+    pub(super) fn bind_renderer_graph_operation(
+        &mut self,
+        binding: Arc<crate::renderer::RendererGraphBinding>,
+        command: &Command,
+    ) -> Result<(), EngineError> {
+        match command {
+            Command::GraphPrepare { .. } => {
+                let job = self.graph.job.as_mut().ok_or(STALE)?;
+                if job.request.profile_application.is_some() {
+                    return Err(STALE);
+                }
+                job.request.renderer_application = Some(binding);
+            }
+            Command::GraphCommit { .. } => {
+                if self
+                    .graph
+                    .activation
+                    .as_ref()
+                    .and_then(|a| a.request.renderer_application.as_ref())
+                    != Some(&binding)
+                {
+                    return Err(STALE);
+                }
+            }
+            _ => return Err(STALE),
+        }
+        Ok(())
+    }
+}
+
+impl Session {
+    pub(super) fn retained_renderer_graph_operations(
+        &self,
+    ) -> [Option<(
+        &Arc<crate::renderer::RendererGraphBinding>,
+        &Arc<GraphIntent>,
+    )>; 3] {
+        [
+            self.graph.job.as_ref().and_then(|j| {
+                j.request
+                    .renderer_application
+                    .as_ref()
+                    .map(|b| (b, &j.request.intent))
+            }),
+            self.graph
+                .ready
+                .as_ref()
+                .and_then(|r| r.renderer_application.as_ref().map(|b| (b, &r.intent))),
+            self.graph.activation.as_ref().and_then(|a| {
+                a.request
+                    .renderer_application
+                    .as_ref()
+                    .map(|b| (b, &a.intent))
+            }),
+        ]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{audio::ChannelLayout, graph::*, safety::VolumeMode};
+
+    include!("session_profile_associations_tests.rs");
+    include!("session_fixed_profiles_tests.rs");
 
     fn fixture() -> Session {
         let mut s = Session::new_owner(
@@ -764,7 +1195,8 @@ mod tests {
         s.playback_intent = PlaybackIntent::Paused;
         let format =
             PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
-        s.state.playback = Some(PlaybackObservation {
+        s.state.observation = (PlaybackObservation {
+            output_activity: None,
             processing: None,
             format,
             submitted_frames: 0,
@@ -779,7 +1211,8 @@ mod tests {
             output_peak: None,
             modified: false,
             backend: None,
-        });
+        })
+        .into();
         s
     }
     fn command(s: &Session, id: &str, payload: Command) -> CommandEnvelope {
@@ -837,11 +1270,13 @@ mod tests {
     }
     fn preview(s: &Session, bound: f64) -> Arc<GraphPreview> {
         let job = s.graph_job().unwrap();
-        let native = s.state.playback.as_ref().unwrap().format;
+        let native = s.state.observation.pcm().unwrap().format;
         let float =
             PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Float64).unwrap();
         Arc::new(GraphPreview {
-            backend: None,
+            diagnostic_nodes: None,
+            profile_application: job.profile_application,
+            backend: s.state.observation.pcm().and_then(|p| p.backend.clone()),
             graph_hash: "a".repeat(64),
             kernel_hash: "b".repeat(64),
             implementation_version: "test-contract".into(),
@@ -883,6 +1318,544 @@ mod tests {
                 graph_hash: p.preview.graph_hash.clone(),
             },
         )
+    }
+    fn profile_fixture() -> Session {
+        let mut s = fixture();
+        let format = s.state.observation.pcm().unwrap().format;
+        s.state.observation.pcm_mut().unwrap().backend = Some(BackendObservation {
+            backend: OutputBackend::Alsa,
+            device_identity_sha256: None,
+            audio_storage_bytes: 256,
+            client_format: format.into(),
+            device_format: Some(format.into()),
+            measurement_boundary: "unit owner observation",
+            preservation: PreservationState::Unverified,
+        });
+        let graph = match prepare(&s, "graph").payload {
+            Command::GraphPrepare { graph, processing } => {
+                Arc::new(GraphIntent { graph, processing })
+            }
+            _ => unreachable!(),
+        };
+        let draft = Arc::new(serde_json::from_value(serde_json::json!({
+            "name":"Headphones", "source_policy":"local_file", "fidelity":"compatible_conversion",
+            "output":{"backend":"alsa","route":"system","device_id":"dac","manual_setup":"headphones"},
+            "volume":{"mode":"software","software_cap_millidecibels":-10000,"hardware_cap_millidecibels":null},
+            "latency":{"mode":"balanced","max_resident_bytes":268435456,"max_preparation_bytes":268435456,"max_latency_frames":null},
+            "corrections":[]
+        })).unwrap());
+        let save = command(
+            &s,
+            "save-profile",
+            Command::ProfilesCreate {
+                id: ProfileId::new("headphones").unwrap(),
+                draft,
+                graph,
+            },
+        );
+        assert_eq!(s.submit_graph(save, 1).status, ReceiptStatus::Accepted);
+        let job = s.profile_job().unwrap();
+        let hash = crate::profiles::ProfileObjectHash::try_from("c".repeat(64)).unwrap();
+        let record = Arc::new(crate::profile_control::ProfileRecord {
+            profile: Arc::new(
+                job.draft
+                    .document(job.id.clone(), job.revision, hash)
+                    .unwrap(),
+            ),
+            profile_sha256: hash,
+            graph: job.graph.clone(),
+            corrections: Arc::new(vec![]),
+            correction_preview: None,
+        });
+        s.complete_profile_save(&job.request_id, &job.binding, 2, Ok(record), |_| Ok(()))
+            .unwrap();
+        s
+    }
+    fn profile_prepare(s: &Session, request_id: &str) -> CommandEnvelope {
+        command(
+            s,
+            request_id,
+            serde_json::from_value(serde_json::json!({
+                "method":"profiles.prepare", "id":"headphones", "expected_profile_revision":1,
+                "profile_sha256":"c".repeat(64)
+            }))
+            .unwrap(),
+        )
+    }
+    #[test]
+    fn profile_preparation_uses_saved_graph_without_publishing_selection() {
+        let mut s = profile_fixture();
+        let caps = command(
+            &s,
+            "caps",
+            Command::VolumeCaps {
+                software_millidecibels: -30000,
+                hardware_millidecibels: None,
+            },
+        );
+        assert_eq!(s.submit_graph(caps, 3).status, ReceiptStatus::Applied);
+        let c = profile_prepare(&s, "prepare-profile");
+        let before = s.checkpoint();
+        let receipt = s.submit_graph(c, 4);
+        assert_eq!(receipt.status, ReceiptStatus::Accepted, "{receipt:?}");
+        let job = s.graph_job().unwrap();
+        assert_eq!(job.intent, s.profile_records().unwrap()[0].graph);
+        assert_eq!(s.checkpoint().revision, before.revision);
+        assert_eq!(s.snapshot().software_gain_db, -40.0);
+        assert!(s.snapshot().output_consented);
+        let observation = serde_json::to_value(s.snapshot()).unwrap();
+        assert!(observation["configured_profile"].is_null());
+    }
+    #[test]
+    fn profile_preparation_keeps_current_authorization_and_output_guards() {
+        for (case, expected) in [
+            ("consent", ErrorCode::SafetyPolicyBlocked),
+            ("device", ErrorCode::SourceBusy),
+            ("fixed", ErrorCode::CapabilityUnsupported),
+            ("fidelity", ErrorCode::CapabilityUnsupported),
+        ] {
+            let mut s = profile_fixture();
+            match case {
+                "consent" => s.state.output_consented = false,
+                "device" => {
+                    s.state.output.as_mut().unwrap().device_id = DeviceId::new("other").unwrap()
+                }
+                "fixed" => s.state.output.as_mut().unwrap().volume_mode = VolumeMode::Fixed,
+                "fidelity" => {
+                    s.state.output.as_mut().unwrap().fidelity = FidelityPolicy::StrictPreservation
+                }
+                _ => unreachable!(),
+            }
+            let c = profile_prepare(&s, case);
+            let receipt = s.submit_graph(c, 3);
+            assert_eq!(receipt.error.unwrap().code, expected, "{case}");
+            assert!(s.graph_job().is_none());
+        }
+    }
+    #[test]
+    fn profile_preparation_requires_observed_backend_facts() {
+        let mut s = profile_fixture();
+        s.state.observation.pcm_mut().unwrap().backend = None;
+        let c = profile_prepare(&s, "missing-backend");
+        assert_eq!(
+            s.submit_graph(c, 3).error.unwrap().code,
+            ErrorCode::DeviceUnavailable
+        );
+        assert!(s.graph_job().is_none());
+    }
+    fn profile_ready(s: &mut Session) -> GraphPrepared {
+        let c = profile_prepare(s, "prepare-profile");
+        assert_eq!(
+            s.submit_graph(c.clone(), 10).status,
+            ReceiptStatus::Accepted
+        );
+        let preview = preview(s, 1.0);
+        s.complete_graph_preparation(&c.request_id, &preview.binding.clone(), 20, Ok(preview))
+            .unwrap();
+        s.graph_inspection().prepared.unwrap()
+    }
+    fn profile_apply(s: &Session, id: &str, prepared: &GraphPrepared) -> CommandEnvelope {
+        command(s, id, serde_json::from_value(serde_json::json!({
+            "method":"profiles.apply", "id":"headphones", "expected_profile_revision":1,
+            "profile_sha256":"c".repeat(64), "token":prepared.token, "graph_hash":prepared.preview.graph_hash,
+        })).unwrap())
+    }
+    fn profile_ack(s: &Session, c: &CommandEnvelope, p: &GraphPrepared) -> GraphActivationAck {
+        GraphActivationAck {
+            request_id: c.request_id.clone(),
+            epochs: s.state.epochs,
+            graph_hash: p.preview.graph_hash.clone(),
+            activation_frame: 64,
+            observation: s.state.observation.pcm().cloned().unwrap(),
+            source_total_frames: 48000,
+        }
+    }
+    #[test]
+    fn profile_application_publishes_exact_selection_only_after_persisted_ack() {
+        let mut s = profile_fixture();
+        let caps = command(
+            &s,
+            "caps",
+            Command::VolumeCaps {
+                software_millidecibels: -30000,
+                hardware_millidecibels: None,
+            },
+        );
+        assert_eq!(s.submit_graph(caps, 3).status, ReceiptStatus::Applied);
+        let p = profile_ready(&mut s);
+        assert_eq!(
+            p.preview
+                .profile_application
+                .as_ref()
+                .unwrap()
+                .effective_policy
+                .software_cap_db(),
+            -30.0
+        );
+        let c = profile_apply(&s, "apply-profile", &p);
+        let receipt = s.submit_graph(c.clone(), 21);
+        assert_eq!(receipt.status, ReceiptStatus::Accepted, "{receipt:?}");
+        assert!(s.state.configured_profile.is_none());
+        assert!(s.checkpoint().configured_profile.is_none());
+        assert!(s.state.muted);
+        assert!(!s.state.output_consented);
+        let ack = profile_ack(&s, &c, &p);
+        s.complete_graph_activation(ack, 22, |staged| {
+            assert_eq!(
+                staged.state.configured_profile.as_ref().unwrap().revision,
+                1
+            );
+            assert_eq!(
+                staged.state.output.as_ref().unwrap().profile_id.as_str(),
+                "headphones"
+            );
+            assert_eq!(staged.state.local_volume_policy.software_cap_db(), -30.0);
+            assert_eq!(staged.state.volume_policy.software_cap_db(), -30.0);
+            assert_eq!(staged.state.software_gain_db, -40.0);
+            assert!(staged.state.muted);
+            assert!(!staged.state.output_consented);
+            Ok(())
+        })
+        .unwrap();
+        let applied = s.submit_graph(c, 23);
+        assert_eq!(applied.status, ReceiptStatus::Applied);
+        assert_eq!(applied.activation_frame, Some(64));
+    }
+    #[test]
+    fn profile_tokens_cannot_cross_commit_or_ignore_reference_changes() {
+        let mut s = profile_fixture();
+        let p = profile_ready(&mut s);
+        let wrong = commit(&s, "ordinary-commit", &p);
+        assert_eq!(
+            s.submit_graph(wrong, 21).error.unwrap().code,
+            ErrorCode::StaleSession
+        );
+        let mut stale = profile_apply(&s, "stale-profile", &p);
+        if let Command::ProfilesApply {
+            expected_profile_revision,
+            ..
+        } = &mut stale.payload
+        {
+            *expected_profile_revision = 2;
+        }
+        assert_eq!(
+            s.submit_graph(stale, 22).error.unwrap().code,
+            ErrorCode::StaleRevision
+        );
+        assert!(s.graph_inspection().prepared.is_some());
+        let caps = command(
+            &s,
+            "change-caps",
+            Command::VolumeCaps {
+                software_millidecibels: -50000,
+                hardware_millidecibels: None,
+            },
+        );
+        s.submit_graph(caps, 23);
+        let stale = profile_apply(&s, "old-caps", &p);
+        assert_eq!(
+            s.submit_graph(stale, 24).error.unwrap().code,
+            ErrorCode::StaleRevision
+        );
+    }
+    #[test]
+    fn failed_profile_checkpoint_never_publishes_selection_or_consent() {
+        let mut s = profile_fixture();
+        let p = profile_ready(&mut s);
+        let c = profile_apply(&s, "apply-profile", &p);
+        assert_eq!(
+            s.submit_graph(c.clone(), 21).status,
+            ReceiptStatus::Accepted
+        );
+        let ack = profile_ack(&s, &c, &p);
+        let error = EngineError::new(ErrorCode::InternalFault, "checkpoint failed");
+        assert_eq!(
+            s.complete_graph_activation(ack, 22, |_| Err(error)),
+            Err(error)
+        );
+        assert!(s.state.configured_profile.is_none());
+        assert!(s.graph_inspection().recovery_required);
+        assert!(!s.state.output_consented);
+        assert_eq!(s.submit_graph(c, 23).status, ReceiptStatus::Failed);
+    }
+    #[test]
+    fn local_caps_do_not_ratchet_through_profile_effective_caps() {
+        let mut s = profile_fixture();
+        let caps = command(
+            &s,
+            "local-caps",
+            Command::VolumeCaps {
+                software_millidecibels: -5000,
+                hardware_millidecibels: None,
+            },
+        );
+        assert_eq!(s.submit_graph(caps, 3).status, ReceiptStatus::Applied);
+        assert_eq!(s.state.local_volume_policy.software_cap_db(), -5.0);
+        let p = profile_ready(&mut s);
+        assert_eq!(
+            p.preview
+                .profile_application
+                .as_ref()
+                .unwrap()
+                .effective_policy
+                .software_cap_db(),
+            -10.0
+        );
+        let c = profile_apply(&s, "apply", &p);
+        assert_eq!(
+            s.submit_graph(c.clone(), 21).status,
+            ReceiptStatus::Accepted
+        );
+        let ack = profile_ack(&s, &c, &p);
+        s.complete_graph_activation(ack, 22, |_| Ok(())).unwrap();
+        let caps = command(
+            &s,
+            "lower-local",
+            Command::VolumeCaps {
+                software_millidecibels: -30000,
+                hardware_millidecibels: None,
+            },
+        );
+        s.submit_graph(caps, 23);
+        let caps = command(
+            &s,
+            "restore-local",
+            Command::VolumeCaps {
+                software_millidecibels: -5000,
+                hardware_millidecibels: None,
+            },
+        );
+        s.submit_graph(caps, 24);
+        assert_eq!(s.state.local_volume_policy.software_cap_db(), -5.0);
+        assert_eq!(s.state.volume_policy.software_cap_db(), -10.0);
+        assert_eq!(s.state.software_gain_db, -40.0);
+    }
+    #[test]
+    fn profile_application_requires_exact_command_session() {
+        let mut s = profile_fixture();
+        let p = profile_ready(&mut s);
+        let mut c = profile_apply(&s, "wrong-session", &p);
+        c.session_id = Some(SessionId::new("another-session").unwrap());
+        assert_eq!(
+            s.submit_graph(c, 21).error.unwrap().code,
+            ErrorCode::StaleSession
+        );
+        assert!(s.graph_inspection().prepared.is_some());
+    }
+    #[test]
+    fn profile_preparation_cannot_resurrect_after_stop_or_emergency_mute() {
+        for stop in [false, true] {
+            let mut s = profile_fixture();
+            let c = profile_prepare(&s, "prepare-profile");
+            assert_eq!(
+                s.submit_graph(c.clone(), 10).status,
+                ReceiptStatus::Accepted
+            );
+            let preview = preview(&s, 1.0);
+            let safety = command(
+                &s,
+                "safety",
+                if stop {
+                    Command::Stop
+                } else {
+                    Command::Mute { muted: true }
+                },
+            );
+            let receipt = s.submit_graph(safety, 11);
+            assert!(matches!(
+                receipt.status,
+                ReceiptStatus::Accepted | ReceiptStatus::Applied
+            ));
+            assert!(
+                s.complete_graph_preparation(
+                    &c.request_id,
+                    &preview.binding.clone(),
+                    12,
+                    Ok(preview)
+                )
+                .is_err()
+            );
+            assert!(s.graph_inspection().prepared.is_none());
+            assert!(s.state.configured_profile.is_none());
+            assert!(s.state.muted);
+        }
+    }
+    #[test]
+    fn prepared_profile_receipts_charge_their_retained_preview() {
+        let mut s = profile_fixture();
+        let c = profile_prepare(&s, "prepare-profile");
+        assert_eq!(
+            s.submit_graph(c.clone(), 10).status,
+            ReceiptStatus::Accepted
+        );
+        let before = s.profile_storage_bytes();
+        let preview = preview(&s, 1.0);
+        let encoded = serde_json::to_vec(&preview).unwrap().len() as u64;
+        s.complete_graph_preparation(&c.request_id, &preview.binding.clone(), 20, Ok(preview))
+            .unwrap();
+        assert!(
+            s.profile_storage_bytes() >= before + encoded,
+            "prepared receipt metadata escaped retention admission"
+        );
+    }
+    #[test]
+    fn profile_cap_change_during_activation_cannot_publish_the_candidate() {
+        let mut s = profile_fixture();
+        let p = profile_ready(&mut s);
+        let c = profile_apply(&s, "apply-profile", &p);
+        assert_eq!(
+            s.submit_graph(c.clone(), 21).status,
+            ReceiptStatus::Accepted
+        );
+        let ack = profile_ack(&s, &c, &p);
+        let caps = command(
+            &s,
+            "lower-caps",
+            Command::VolumeCaps {
+                software_millidecibels: -50000,
+                hardware_millidecibels: None,
+            },
+        );
+        assert_eq!(s.submit_graph(caps, 22).status, ReceiptStatus::Applied);
+        assert_eq!(
+            s.complete_graph_activation(ack, 23, |_| panic!("stale profile cannot persist")),
+            Err(EngineError::new(
+                ErrorCode::StaleRevision,
+                "profile activation policy or saved revision changed"
+            ))
+        );
+        assert!(s.state.configured_profile.is_none());
+        assert!(s.state.muted);
+        assert!(!s.state.output_consented);
+    }
+    #[test]
+    fn selected_profile_update_waits_for_actual_stop_then_revokes_the_old_selection() {
+        let mut s = profile_fixture();
+        let p = profile_ready(&mut s);
+        let c = profile_apply(&s, "apply-profile", &p);
+        s.submit_graph(c.clone(), 21);
+        let ack = profile_ack(&s, &c, &p);
+        s.complete_graph_activation(ack, 22, |_| Ok(())).unwrap();
+        let record = s.profile_records().unwrap()[0].clone();
+        let draft = Arc::new(serde_json::from_value(serde_json::json!({
+            "name":"Speakers", "source_policy":"local_file", "fidelity":"compatible_conversion",
+            "output":{"backend":"alsa","route":"system","device_id":"dac","manual_setup":"speakers"},
+            "volume":{"mode":"software","software_cap_millidecibels":-5000,"hardware_cap_millidecibels":null},
+            "latency":{"mode":"balanced","max_resident_bytes":268435456,"max_preparation_bytes":268435456,"max_latency_frames":null}, "corrections":[]
+        })).unwrap());
+        let payload = Command::ProfilesUpdate {
+            id: record.profile.id.clone(),
+            expected_profile_revision: 1,
+            draft,
+            graph: record.graph.clone(),
+        };
+        let update = command(&s, "update-live", payload.clone());
+        assert_eq!(
+            s.submit_graph(update, 23).error.unwrap().code,
+            ErrorCode::SourceBusy
+        );
+        let stop = command(&s, "stop", Command::Stop);
+        assert_eq!(s.submit_graph(stop, 24).status, ReceiptStatus::Accepted);
+        let update = command(&s, "update-pending-stop", payload.clone());
+        assert_eq!(
+            s.submit_graph(update, 25).error.unwrap().code,
+            ErrorCode::SourceBusy
+        );
+        s.advance(EngineEvent {
+            epochs: s.state.epochs,
+            monotonic_ns: 26,
+            kind: EngineEventKind::LocalStopped { observation: None },
+        })
+        .unwrap();
+        let output = s.snapshot().output.unwrap();
+        let consent = command(
+            &s,
+            "consent-after-stop",
+            Command::OutputConsent {
+                device_id: output.device_id,
+                profile_id: output.profile_id,
+            },
+        );
+        assert_eq!(s.submit_graph(consent, 26).status, ReceiptStatus::Applied);
+        assert!(s.snapshot().output_consented);
+        let update = command(&s, "update-stopped", payload);
+        assert_eq!(s.submit_graph(update, 27).status, ReceiptStatus::Accepted);
+        let job = s.profile_job().unwrap();
+        let replacement = Arc::new(crate::profile_control::ProfileRecord {
+            profile: Arc::new(
+                job.draft
+                    .document(job.id.clone(), job.revision, record.profile.graph_sha256)
+                    .unwrap(),
+            ),
+            profile_sha256: crate::profiles::ProfileObjectHash::try_from("d".repeat(64)).unwrap(),
+            graph: job.graph.clone(),
+            corrections: Arc::new(vec![]),
+            correction_preview: None,
+        });
+        s.complete_profile_save(
+            &job.request_id,
+            &job.binding,
+            28,
+            Ok(replacement),
+            |staged| {
+                assert!(staged.state.configured_profile.is_none());
+                assert!(staged.checkpoint().configured_profile.is_none());
+                assert!(staged.state.muted);
+                assert!(!staged.state.output_consented);
+                assert!(staged.graph.recovery_required);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(!s.snapshot().output_consented);
+        assert!(s.snapshot().configured_profile.is_none());
+        assert!(s.checkpoint().configured_profile.is_none());
+    }
+    #[test]
+    fn profile_restore_verifies_selected_graph_and_independent_caps_without_authority() {
+        let mut s = profile_fixture();
+        let p = profile_ready(&mut s);
+        let c = profile_apply(&s, "apply-profile", &p);
+        s.submit_graph(c.clone(), 21);
+        let ack = profile_ack(&s, &c, &p);
+        s.complete_graph_activation(ack, 22, |_| Ok(())).unwrap();
+        let checkpoint = s.checkpoint();
+        let records = s.profile_records().unwrap().as_ref().clone();
+        let mut missing_local = checkpoint.clone();
+        missing_local.local_volume_policy = None;
+        assert!(
+            Session::restore_owner(
+                s.state.zone_id.clone(),
+                OwnerId::new("missing-local").unwrap(),
+                ControlLimits::default(),
+                missing_local
+            )
+            .is_err(),
+            "a selected-profile checkpoint cannot relabel effective caps as local caps"
+        );
+        let mut restored = Session::restore_owner(
+            s.state.zone_id.clone(),
+            OwnerId::new("fresh-owner").unwrap(),
+            ControlLimits::default(),
+            checkpoint.clone(),
+        )
+        .unwrap();
+        restored.restore_profile_records(records.clone()).unwrap();
+        assert_eq!(restored.state.volume_policy.software_cap_db(), -10.0);
+        assert_eq!(restored.state.local_volume_policy.software_cap_db(), 0.0);
+        assert!(!restored.state.output_consented);
+        assert!(restored.state.muted);
+        assert!(restored.graph.active.is_none());
+        let mut tampered = checkpoint;
+        tampered.volume_policy = VolumePolicy::new(0.0, None).unwrap();
+        let mut restored = Session::restore_owner(
+            s.state.zone_id.clone(),
+            OwnerId::new("fresh-owner").unwrap(),
+            ControlLimits::default(),
+            tampered,
+        )
+        .unwrap();
+        assert!(restored.restore_profile_records(records).is_err());
     }
     #[test]
     fn preparation_is_revision_neutral_bounded_and_exactly_replayed() {
@@ -926,7 +1899,7 @@ mod tests {
             .update_status(
                 &entry,
                 crate::queue::PreparationStatus::Ready {
-                    format: s.state.playback.as_ref().unwrap().format,
+                    format: s.state.observation.pcm().unwrap().format,
                     total_frames: 1000,
                 },
             )
@@ -966,7 +1939,7 @@ mod tests {
                 .update_status(
                     &entry,
                     crate::queue::PreparationStatus::Ready {
-                        format: s.state.playback.as_ref().unwrap().format,
+                        format: s.state.observation.pcm().unwrap().format,
                         total_frames: 1000,
                     },
                 )
@@ -990,7 +1963,7 @@ mod tests {
                 epochs: s.state.epochs,
                 monotonic_ns: 4,
                 kind: EngineEventKind::LocalPaused {
-                    observation: s.state.playback.as_ref().unwrap().clone(),
+                    observation: (s.state.observation.pcm().unwrap().clone()).into(),
                 },
             })
             .unwrap();
@@ -1005,7 +1978,7 @@ mod tests {
         let p = ready(&mut s, "prepare", 1.0);
         let c = commit(&s, "commit", &p);
         s.submit_graph(c.clone(), 21);
-        let mut observation = s.state.playback.clone().unwrap();
+        let mut observation = s.state.observation.pcm().cloned().unwrap();
         observation.source_position_frames = 1000;
         observation.submitted_frames = 1000;
         let epochs = s.state.epochs;
@@ -1014,7 +1987,7 @@ mod tests {
             epochs,
             monotonic_ns: 22,
             kind: EngineEventKind::LocalCompleted {
-                observation: observation.clone(),
+                observation: (observation.clone()).into(),
             },
         })
         .unwrap();
@@ -1022,7 +1995,7 @@ mod tests {
         assert!(s.state.muted && s.state.output_consented);
         assert!(s.state.session_id.is_none() && s.graph_activation().is_none());
         assert!(!s.graph_inspection().recovery_required);
-        assert_eq!(s.state.playback.as_ref(), Some(&observation));
+        assert_eq!(s.state.observation.pcm(), Some(&observation));
         assert_eq!(s.state.error, None);
         let events = s.events_since(cursor).events;
         assert_eq!(events.len(), 1);
@@ -1038,7 +2011,9 @@ mod tests {
             s.advance(EngineEvent {
                 epochs,
                 monotonic_ns: 24,
-                kind: EngineEventKind::LocalCompleted { observation },
+                kind: EngineEventKind::LocalCompleted {
+                    observation: observation.into()
+                },
             })
             .is_err()
         );
@@ -1059,7 +2034,7 @@ mod tests {
                 .update_status(
                     &entry,
                     crate::queue::PreparationStatus::Ready {
-                        format: s.state.playback.as_ref().unwrap().format,
+                        format: s.state.observation.pcm().unwrap().format,
                         total_frames: 1000,
                     },
                 )
@@ -1070,7 +2045,7 @@ mod tests {
                 epochs: s.state.epochs,
                 monotonic_ns: 2,
                 kind: EngineEventKind::LocalCompleted {
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: (s.state.observation.pcm().cloned().unwrap()).into(),
                 },
             })
             .unwrap();
@@ -1099,7 +2074,7 @@ mod tests {
                 epochs: s.state.epochs,
                 monotonic_ns: 1,
                 kind: EngineEventKind::LocalCompleted {
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: (s.state.observation.pcm().cloned().unwrap()).into(),
                 },
             })
             .unwrap();
@@ -1134,7 +2109,7 @@ mod tests {
                 epochs: s.state.epochs,
                 monotonic_ns: 22,
                 kind: EngineEventKind::LocalCompleted {
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: (s.state.observation.pcm().cloned().unwrap()).into(),
                 },
             })
             .unwrap();
@@ -1168,14 +2143,16 @@ mod tests {
                     "stream" => s.state.epochs.stream = u64::MAX - 1,
                     _ => unreachable!(),
                 }
-                let observation = s.state.playback.clone().unwrap();
+                let observation = s.state.observation.pcm().cloned().unwrap();
                 let kind = match terminal {
-                    "complete" => EngineEventKind::LocalCompleted { observation },
+                    "complete" => EngineEventKind::LocalCompleted {
+                        observation: observation.into(),
+                    },
                     "failure" => EngineEventKind::LocalFailed {
                         code: ErrorCode::OutputFault,
                     },
                     "stopped" => EngineEventKind::LocalStopped {
-                        observation: Some(observation),
+                        observation: Some(observation.into()),
                     },
                     _ => unreachable!(),
                 };
@@ -1258,7 +2235,7 @@ mod tests {
             epochs: s.state.epochs,
             monotonic_ns: 23,
             kind: EngineEventKind::LocalCompleted {
-                observation: s.state.playback.clone().unwrap(),
+                observation: (s.state.observation.pcm().cloned().unwrap()).into(),
             },
         })
         .unwrap();
@@ -1344,7 +2321,7 @@ mod tests {
                             epochs: s.state.epochs,
                             monotonic_ns: 22,
                             kind: EngineEventKind::LocalProgress {
-                                observation: s.state.playback.as_ref().unwrap().clone(),
+                                observation: (s.state.observation.pcm().unwrap().clone()).into(),
                             }
                         })
                         .is_err()
@@ -1370,7 +2347,7 @@ mod tests {
                         s.state.epochs,
                         &entry,
                         crate::queue::PreparationStatus::Ready {
-                            format: s.state.playback.as_ref().unwrap().format,
+                            format: s.state.observation.pcm().unwrap().format,
                             total_frames: 48000,
                         },
                     )
@@ -1401,7 +2378,7 @@ mod tests {
             epochs: s.state.epochs,
             monotonic_ns: 22,
             kind: EngineEventKind::LocalStopped {
-                observation: s.state.playback.clone(),
+                observation: (s.state.observation.pcm().cloned()).map(Into::into),
             },
         })
         .unwrap();
@@ -1456,7 +2433,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.as_ref().unwrap().clone()
+                    observation: s.state.observation.pcm().unwrap().clone()
                 },
                 23,
                 |_| panic!("exhausted counters cannot persist activation")
@@ -1570,7 +2547,7 @@ mod tests {
                     epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.as_ref().unwrap().clone()
+                    observation: s.state.observation.pcm().unwrap().clone()
                 },
                 24,
                 |_| Ok(())
@@ -1584,7 +2561,7 @@ mod tests {
                 epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 37,
-                observation: s.state.playback.as_ref().unwrap().clone(),
+                observation: s.state.observation.pcm().unwrap().clone(),
             },
             25,
             |_| Ok(()),
@@ -1604,7 +2581,7 @@ mod tests {
                     epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.as_ref().unwrap().clone()
+                    observation: s.state.observation.pcm().unwrap().clone()
                 },
                 27,
                 |_| Ok(())
@@ -1628,7 +2605,7 @@ mod tests {
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: s.state.playback.as_ref().unwrap().clone(),
+                observation: s.state.observation.pcm().unwrap().clone(),
             },
             22,
             |_| Ok(()),
@@ -1654,6 +2631,81 @@ mod tests {
         assert!(malformed.validate_headroom(-40.0, 0.0).is_err());
     }
     #[test]
+    fn zero_does_not_bypass_finite_exit_or_factory_preset_headroom() {
+        let mut s = fixture();
+        let level = command(
+            &s,
+            "headroom-level",
+            Command::VolumeSet {
+                millidecibels: -60000,
+                ramp_frames: 0,
+            },
+        );
+        assert_eq!(s.submit_graph(level, 1).status, ReceiptStatus::Applied);
+        let prepared = ready(&mut s, "headroom-prepare", 1000.0);
+        let activation = commit(&s, "headroom-activate", &prepared);
+        s.submit_graph(activation.clone(), 21);
+        s.complete_graph_activation(
+            GraphActivationAck {
+                source_total_frames: 48000,
+                request_id: activation.request_id,
+                epochs: s.state.epochs,
+                graph_hash: prepared.preview.graph_hash.clone(),
+                activation_frame: 0,
+                observation: s.state.observation.pcm().unwrap().clone(),
+            },
+            22,
+            |_| Ok(()),
+        )
+        .unwrap();
+        let zero = command(&s, "headroom-zero", Command::VolumeSilence);
+        assert_eq!(s.submit_graph(zero, 23).status, ReceiptStatus::Applied);
+        let before = s.snapshot();
+        assert!(before.software_gain_zero);
+        assert!(s.renderer_presets().is_empty());
+        for (id, payload) in [
+            (
+                "finite-too-loud",
+                Command::VolumeSet {
+                    millidecibels: -59000,
+                    ramp_frames: 0,
+                },
+            ),
+            ("preset-too-loud", Command::VolumeFactoryDefaults),
+        ] {
+            let c = command(&s, id, payload);
+            assert_eq!(
+                s.submit_graph(c, 24).error.unwrap().code,
+                ErrorCode::SafetyPolicyBlocked
+            );
+            assert_eq!(s.snapshot(), before);
+        }
+    }
+    #[test]
+    fn factory_defaults_cannot_raise_gain_before_a_graph_activation_ack() {
+        let mut s = fixture();
+        let level = command(
+            &s,
+            "pending-level",
+            Command::VolumeSet {
+                millidecibels: -60000,
+                ramp_frames: 0,
+            },
+        );
+        assert_eq!(s.submit_graph(level, 1).status, ReceiptStatus::Applied);
+        let prepared = ready(&mut s, "pending-prepare", 1000.0);
+        let activation = commit(&s, "pending-activate", &prepared);
+        assert_eq!(
+            s.submit_graph(activation, 21).status,
+            ReceiptStatus::Accepted
+        );
+        let before = s.snapshot();
+        let preset = command(&s, "pending-preset", Command::VolumeFactoryDefaults);
+        assert_eq!(s.submit_graph(preset, 22).status, ReceiptStatus::Rejected);
+        assert_eq!(s.snapshot(), before);
+        assert!(s.renderer_presets().is_empty());
+    }
+    #[test]
     fn active_graph_mute_rewinds_only_at_a_new_stream_epoch() {
         for payload in [
             Command::Mute { muted: true },
@@ -1673,7 +2725,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: s.state.observation.pcm().cloned().unwrap(),
                 },
                 22,
                 |_| Ok(()),
@@ -1698,7 +2750,7 @@ mod tests {
         s.state.seekable = true;
         let first = s.state.active_entry_id.clone().unwrap();
         let last = s.queue.append("final.wav").unwrap();
-        let format = s.state.playback.as_ref().unwrap().format;
+        let format = s.state.observation.pcm().unwrap().format;
         for (entry, total_frames) in [(&first, 48000), (&last, 12000)] {
             s.queue
                 .update_status(
@@ -1714,7 +2766,7 @@ mod tests {
         let p = ready(&mut s, "prepare-final-join", 1.0);
         let c = commit(&s, "commit-final-join", &p);
         s.submit_graph(c.clone(), 21);
-        let mut observation = s.state.playback.clone().unwrap();
+        let mut observation = s.state.observation.pcm().cloned().unwrap();
         observation.source_entry_id = last.clone();
         observation.source_position_frames = 37;
         s.complete_graph_activation(
@@ -1751,7 +2803,18 @@ mod tests {
         let p = ready(&mut s, "prepare", 1.0);
         let c = commit(&s, "commit", &p);
         s.submit_graph(c.clone(), 21);
-        let mut observation = s.state.playback.as_ref().unwrap().clone();
+        let mut observation = s.state.observation.pcm().unwrap().clone();
+        observation.output_activity = Some(OutputActivity {
+            scope: OutputActivityScope::OutputInstanceAcrossNativeReopens,
+            measurement_boundary: OutputActivityBoundary::CoreAudioSdkEntryCalls,
+            origin_epochs: s.state.epochs,
+            native_open_successes: 2,
+            sdk_write_attempts: u64::MAX,
+            accepted_frames: u64::MAX,
+            sdk_start_attempts: 1,
+            counter_overflow: true,
+            close_confirmed: false,
+        });
         observation.source_position_frames = 37;
         observation.audible_source_position_frames = Some(31);
         observation.processing = Some(PlaybackProcessingObservation {
@@ -1780,7 +2843,7 @@ mod tests {
             },
             22,
             |staged| {
-                assert_eq!(staged.state.playback.as_ref(), Some(&observation));
+                assert_eq!(staged.state.observation.pcm(), Some(&observation));
                 assert_eq!(staged.state.decoded_position_frames, 37);
                 assert_eq!(staged.state.audible_position_frames, Some(31));
                 assert_eq!(
@@ -1791,7 +2854,22 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(s.state.playback.as_ref(), Some(&observation));
+        assert_eq!(s.state.observation.pcm(), Some(&observation));
+        let wire = serde_json::to_value(s.snapshot()).unwrap();
+        assert_eq!(
+            wire["playback"]["output_activity"]["accepted_frames"].as_u64(),
+            Some(u64::MAX)
+        );
+        let restored = Session::restore_owner(
+            s.state.zone_id.clone(),
+            OwnerId::new("activity-restart").unwrap(),
+            ControlLimits::default(),
+            serde_json::from_slice(&serde_json::to_vec(&s.checkpoint()).unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert!(restored.snapshot().observation.pcm().is_none());
+        assert!(restored.snapshot().muted);
+        assert!(!restored.snapshot().output_consented);
     }
     #[test]
     fn persistence_failure_never_publishes_applied_graph_or_unmutes() {
@@ -1807,7 +2885,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.as_ref().unwrap().clone()
+                    observation: s.state.observation.pcm().unwrap().clone()
                 },
                 22,
                 |_| Err(EngineError::new(
@@ -1869,7 +2947,7 @@ mod tests {
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: s.state.playback.as_ref().unwrap().clone(),
+                observation: s.state.observation.pcm().unwrap().clone(),
             },
             22,
             |_| Ok(()),
@@ -1952,7 +3030,7 @@ mod tests {
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: s.state.playback.as_ref().unwrap().clone(),
+                observation: s.state.observation.pcm().unwrap().clone(),
             },
             22,
             |_| Ok(()),
@@ -2019,7 +3097,7 @@ mod tests {
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: s.state.playback.as_ref().unwrap().clone(),
+                observation: s.state.observation.pcm().unwrap().clone(),
             },
             23,
             |_| Ok(()),
@@ -2115,7 +3193,7 @@ mod tests {
         ] {
             let mut s = fixture();
             s.state.seekable = true;
-            let value = s.state.playback.clone().unwrap();
+            let value = s.state.observation.pcm().cloned().unwrap();
             s.queue
                 .update_status(
                     &value.source_entry_id,
@@ -2139,10 +3217,14 @@ mod tests {
             assert_eq!(rejected.error.unwrap().code, ErrorCode::AssetInvalid);
             let kind = match payload {
                 Command::Stop => EngineEventKind::LocalStopped {
-                    observation: Some(value),
+                    observation: Some(value.into()),
                 },
-                Command::Start { .. } => EngineEventKind::LocalCompleted { observation: value },
-                _ => EngineEventKind::LocalPaused { observation: value },
+                Command::Start { .. } => EngineEventKind::LocalCompleted {
+                    observation: (value).into(),
+                },
+                _ => EngineEventKind::LocalPaused {
+                    observation: (value).into(),
+                },
             };
             s.advance(EngineEvent {
                 epochs: s.state.epochs,
@@ -2176,7 +3258,10 @@ mod tests {
         })
         .unwrap();
         assert_eq!(s.state.active_entry_id, old.active_entry_id);
-        assert_eq!(s.state.playback, old.playback);
+        assert_eq!(
+            s.state.observation.pcm().cloned(),
+            old.observation.pcm().cloned()
+        );
     }
     #[test]
     fn activation_restores_readiness_when_the_open_final_tracks_old_ready_was_dropped() {
@@ -2190,7 +3275,7 @@ mod tests {
             s.submit_graph(c.clone(), 21).status,
             ReceiptStatus::Accepted
         );
-        let mut value = s.state.playback.clone().unwrap();
+        let mut value = s.state.observation.pcm().cloned().unwrap();
         value.source_entry_id = last.clone();
         value.source_position_frames = 37;
         assert_eq!(
@@ -2251,7 +3336,7 @@ mod tests {
             );
             let before = s.queue_snapshot();
             let snapshot = s.snapshot();
-            let format = s.state.playback.as_ref().unwrap().format;
+            let format = s.state.observation.pcm().unwrap().format;
             for (id, total_frames) in [(&current, 48000), (&next, 12000)] {
                 s.set_queue_preparation(
                     s.state.epochs,
@@ -2272,7 +3357,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: s.state.observation.pcm().cloned().unwrap(),
                 },
                 22,
                 |staged| {
@@ -2330,7 +3415,7 @@ mod tests {
             s.submit_graph(c.clone(), 21).status,
             ReceiptStatus::Accepted
         );
-        let format = s.state.playback.as_ref().unwrap().format;
+        let format = s.state.observation.pcm().unwrap().format;
         for index in 0..300 {
             let id = s.queue.append(format!("queued-{index}.wav")).unwrap();
             s.set_queue_preparation(
@@ -2352,7 +3437,7 @@ mod tests {
                 epochs: s.state.epochs,
                 graph_hash: p.preview.graph_hash.clone(),
                 activation_frame: 0,
-                observation: s.state.playback.clone().unwrap(),
+                observation: s.state.observation.pcm().cloned().unwrap(),
             },
             22,
             |_| Ok(()),
@@ -2384,7 +3469,7 @@ mod tests {
                 s.submit_graph(c.clone(), 21).status,
                 ReceiptStatus::Accepted
             );
-            let format = s.state.playback.as_ref().unwrap().format;
+            let format = s.state.observation.pcm().unwrap().format;
             let before = s.queue_snapshot();
             s.set_queue_preparation(
                 s.state.epochs,
@@ -2406,7 +3491,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: s.state.observation.pcm().cloned().unwrap(),
                 },
                 22,
                 |staged| {
@@ -2431,7 +3516,7 @@ mod tests {
                 ReceiptStatus::Accepted
             );
             let status = PreparationStatus::Ready {
-                format: s.state.playback.as_ref().unwrap().format,
+                format: s.state.observation.pcm().unwrap().format,
                 total_frames: 12000,
             };
             s.set_queue_preparation(s.state.epochs, &next, status)
@@ -2473,7 +3558,7 @@ mod tests {
                     epochs: s.state.epochs,
                     graph_hash: p.preview.graph_hash.clone(),
                     activation_frame: 0,
-                    observation: s.state.playback.clone().unwrap(),
+                    observation: s.state.observation.pcm().cloned().unwrap(),
                 },
                 22,
                 |_| Ok(()),
@@ -2511,7 +3596,7 @@ mod tests {
             epochs: s.state.epochs,
             monotonic_ns: 4,
             kind: EngineEventKind::LocalPaused {
-                observation: s.state.playback.clone().unwrap(),
+                observation: (s.state.observation.pcm().cloned().unwrap()).into(),
             },
         })
         .unwrap();
@@ -2569,7 +3654,7 @@ mod tests {
                 ReceiptStatus::Accepted
             );
             let queue = s.queue_snapshot();
-            let mut observation = s.state.playback.clone().unwrap();
+            let mut observation = s.state.observation.pcm().cloned().unwrap();
             match invalid {
                 "frames" => observation.source_position_frames = 1001,
                 "format" => {

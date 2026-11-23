@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "scope": "Engine DSD software ownership, typed observations, and private ALSA file/null transport",
+  "source": {
+    "baseline_commit": "4d8f6d5421fd5779a21e33140fb10030e507065b",
+    "source_dirty": true,
+    "changed_rust_files": 45,
+    "changed_rust_manifest_sha256": "672dc8d91a53365a2f937414ee0c257a34e9fd2b4f5bcfa42a452b9746637a5e",
+    "engine_input_files": 292,
+    "engine_source_inputs_sha256": "8649c89dc89d5939d2a49cca7649c2a1ab8aac0f97f268515fb2d66346dca796",
+    "engine_binary_sha256": "27ae7be075c4ba78290598086beee089dfeb4a5faca9b73c95a1c9ac6159b752",
+    "embedded_build_record_verified": true,
+    "dependency_lock_sha256": "f657ecb87df5669106cb87537f30283c98bf498c9f3ef5fe0bfde60317bb1612"
+  },
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "rust_toolchain": "1.98.1",
+    "measurement_boundary": "Generated source files, private worker output, actual ALSA file/null captures, and real local owner IPC",
+    "physical_output_by_this_unit": false
+  },
+  "behavior": {
+    "canonical_source_observation": true,
+    "pcm_and_network_wire_shapes_preserved": true,
+    "dsd_ready_is_source_admission_only": true,
+    "current_admission_epoch_required_before_unmute_or_frame_seek": true,
+    "bit_seek_alignment": 16,
+    "source_bits_per_carrier_frame_per_channel": 16,
+    "carrier_bytes_per_stereo_frame": 6,
+    "pause_mute_seek_close_without_drain_or_filler": true,
+    "software_eof_basis": "source_submitted",
+    "shutdown_acknowledges_matching_source_retirement": true,
+    "late_controls_retain_the_exact_terminal_token": true,
+    "public_dsd_submission_authority": "unavailable",
+    "endpoint_qualification": "unverified",
+    "core_audio_dsd": "unsupported"
+  },
+  "checks": {
+    "core_full": { "exit": 0, "passed": 415, "failed": 0 },
+    "core_media_alsa_package_run": { "exit": 0, "passed": 531, "failed": 0, "ignored": 2, "note": "Core was subsequently rerun after admission and shutdown refinements." },
+    "dsd_worker_focused": { "exit": 0, "passed": 10, "failed": 0 },
+    "engine_unit_target": { "passed": 200, "failed": 0, "ignored": 1 },
+    "engine_dsd_output_target": { "passed": 1, "failed": 0 },
+    "engine_graph_service_target": { "passed": 50, "failed": 0 },
+    "engine_worker_playback": { "exit": 0, "passed": 10, "failed": 0 },
+    "engine_service_playback_unchanged_repeat": { "exit": 0, "passed": 46, "failed": 0 },
+    "desktop_library_and_selected_consumers": { "exit": 0, "passed": 113, "failed": 0 },
+    "strict_scoped_clippy": { "exit": 0 },
+    "formatter": { "exit": 0 },
+    "canonical_workspace_check": "Root owns the integrated run; this unit did not run scripts/check"
+  },
+  "retained_failure": {
+    "combined_engine_command_exit": 101,
+    "kind": "Three local IPC request deadlines in service_playback",
+    "tests": [
+      "network_owner_known_and_chunked_unknown_16_24_bit_mono_stereo_preserve_every_sample",
+      "network_owner_nonseekable_pause_mute_resume_preserves_pcm_and_src_tail_once",
+      "network_owner_reserves_retirement_and_start_before_accepting_a_backpressured_takeover"
+    ],
+    "subsequent_unchanged_full_suite": "46 passed; exit 0",
+    "root_cause": "not established",
+    "deadlines_or_network_code_changed_for_repeat": false
+  },
+  "coverage": [
+    "Both DSD rates, both DSF bit orders, DFF, short final periods, and independent payload/marker recovery",
+    "Compatible queue joins with continuous markers and per-entry accepted bit positions",
+    "Mixed domains and changed rates refused before initial native output",
+    "Bad appended entry preserves the accepted prefix",
+    "Pause, mute, bit seek, EOF, cancellation after read, stale controls, and late terminal reconciliation",
+    "Real /dev/full failure and independent output configurations and epochs",
+    "Public muted preparation and typed Desktop seek-to-EOF without native writes"
+  ],
+  "limits": [
+    "Private software output is not public owner write E2E or physical endpoint qualification.",
+    "Real file/null did not establish native short-write or EAGAIN behavior; pure pending-prefix tests cover retry arithmetic.",
+    "Close-based restart uses accepted source bits and establishes no audible cursor or physical transition safety.",
+    "No macOS DSD output or hardware route was qualified.",
+    "Independent review and integrated canonical verification remain Root responsibilities."
+  ],
+  "acceptance": {
+    "ARCH-04": "Software evidence extended; no physical qualification inferred",
+    "PLAY-07": "partial",
+    "SAFE-04": "partial",
+    "AC-13": "partial; qualified routes on both launch operating systems remain required"
+  },
+  "private_evidence_packet": "dsd-engine-playback-implementation-01"
+}

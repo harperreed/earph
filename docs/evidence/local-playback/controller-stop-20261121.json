@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "scope": "Controller Stop revision, request ownership, and error reporting. Installed Mac controller remains unchanged.",
+  "source_parent": "c39f04911315c54ad0d673e0702be7c5c11ca833",
+  "source_files": [
+    {
+      "file": "crates/earph-desktop/src/client.rs",
+      "sha256": "2e00d52d37d3245de2c303d6b2c9fee168af3efc7e12d1f87c2093f682b3819c"
+    },
+    {
+      "file": "crates/earph-desktop/src/gui/workflow.rs",
+      "sha256": "7dc475dc38be561f717f3d5bba6313cdbc5e654f2233ddb5a321042c1ed3d41c"
+    },
+    {
+      "file": "crates/earph-desktop/src/model.rs",
+      "sha256": "388e727767706901d828a838fbf12578130789a3dfdae26144bc497037cf4c54"
+    },
+    {
+      "file": "crates/earph-desktop/tests/gui_transport.rs",
+      "sha256": "c0ad50686443cedcfc71235b79bb6d96150bf83b80e120661db1474f84bf524c"
+    },
+    {
+      "file": "crates/earph-desktop/tests/gui_workflow.rs",
+      "sha256": "ecf16a8490b41e54f23a5edf321f9407323a569d4ed8c4f2b58e36bdfe4fd016"
+    }
+  ],
+  "reported_failure": "Doctor Biz confirmed local audio, then reported that Stop did nothing.",
+  "reproduced": [
+    "Cached revision caused real owner Stop refusal.",
+    "Failed safety requests disappeared without a displayed error.",
+    "State coalescing could merge safety preflights into an ordinary request and lose their receipt ownership."
+  ],
+  "behavior": [
+    "Read current state on the independent safety lane before stopping an observed active session.",
+    "Preserve captured owner, session, and session epoch.",
+    "Give every safety observation its own request lifetime.",
+    "Keep the aggregate two-slot safety bound.",
+    "Show actual safety refusal details.",
+    "Preserve existing Core admission and revision controls."
+  ],
+  "verification": {
+    "expected_runtime_failures": [
+      "stale revision Stop: exit101",
+      "silent rejected Stop: exit101",
+      "coalesced safety reads: exit101, actual0 versus required2"
+    ],
+    "focused": {
+      "passed": 71,
+      "failed": 0,
+      "log_sha256": "4275a5a92b545a74b514579c24f702bc0495b69e0d0ecce565bf693d0c6e5878"
+    },
+    "stronger_overlap_assertion": {
+      "passed": 1,
+      "failed": 0,
+      "log_sha256": "8b7915d334833b29ae442d148eddf78d439233efdc08af31182c6475d34f6f83",
+      "meaning": "Actual held Ordinary State request remains in_flight when Stop reaches Applied."
+    },
+    "strict_clippy_exit": 0,
+    "format_exit": 0,
+    "independent_review": {
+      "initial_findings": 1,
+      "production_findings_resolved": 1,
+      "scoped_receipt_sha256": "f5cf5e3658c23820f5e9badb608806330a5b64dbc97a13a4f232e6682d86bbc7",
+      "assertion_gap_closed_by_actual_test": true
+    },
+    "canonical": {
+      "exit": 0,
+      "log_sha256": "823ab92cf73c50d74b7241c41636defd2b73aecd2c43050dbee0075ae80220ea",
+      "source_files_verified": 2079,
+      "reported": {
+        "groups": 194,
+        "passed": 1807,
+        "failed": 0,
+        "ignored": 22
+      },
+      "count_scope": "Includes nested fixture summaries; not unique tests."
+    }
+  },
+  "limits": [
+    "Mac GUI build/test and installation remain pending while Orbit is offline.",
+    "The installed app uses the earlier controller.",
+    "Hosted Mac CI on the source parent failed from mismatched native and Swift deployment targets; that build fix is separate.",
+    "Software file/null checks establish no new physical or timing qualification."
+  ]
+}

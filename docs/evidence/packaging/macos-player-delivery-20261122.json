@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-22",
+  "scope": "One same-user unsigned Mac development-app delivery, restored idle owner state, preserved prior window/bundle, and exact bundle integrity.",
+  "requirement_ids": [
+    "REL-03"
+  ],
+  "acceptance_ids": [
+    "AC-50"
+  ],
+  "source": {
+    "kind": "working_tree_snapshot",
+    "parent_commit": "700ad160c25393b86cd4b21d1d1144c60028ca5d",
+    "source_commit": null,
+    "archive_sha256": "5a4c77a9d94572c37c6defdc022e5add6a55f114d3aa2836ef38fb4d16d3a223",
+    "later_source_checkpoint": "fcfc8920a9d7dedc5e3206dc930dd6bcff86ccb2",
+    "note": "The later source checkpoint contains the qualified player runtime files. These products are not a named fcfc892 build."
+  },
+  "candidate": {
+    "target": "aarch64-apple-darwin",
+    "manifest_sha256": "c5a3534f431517111e024c8909736ce38cf92c33328456d3f05ddc929162f29b",
+    "files_verified": 27,
+    "products": [
+      {
+        "name": "earph-engine",
+        "sha256": "b76cdbeff4bc99eec8c3a11beab7b8ac49c7c174a5bedf3f816646358631d347"
+      },
+      {
+        "name": "earph-desktop",
+        "sha256": "b509ceebb846ef5ab990643c27e0da205e356f49748db1b07ed521812acaa3b8"
+      }
+    ],
+    "product_provenance_state": "declared-unverified",
+    "declared_build": {
+      "workspace_version": "0.1.0",
+      "target": "aarch64-apple-darwin",
+      "source_commit": null,
+      "source_archive_sha256": "5a4c77a9d94572c37c6defdc022e5add6a55f114d3aa2836ef38fb4d16d3a223",
+      "profile": "debug",
+      "rustc_version": null
+    },
+    "signing": "unsigned",
+    "release": "unreleased-development-candidate"
+  },
+  "package_tool": {
+    "commit": "700ad160c25393b86cd4b21d1d1144c60028ca5d",
+    "dependency_lock_sha256": "f657ecb87df5669106cb87537f30283c98bf498c9f3ef5fe0bfde60317bb1612",
+    "profile": "debug",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "schema_version": 1,
+    "source_dirty": true,
+    "source_inputs_sha256": "1163d6e962c11df58245fb7d3efbb0e88cb4adaf3f9799c5f7271f04edd92777",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "installation": {
+    "at": "2026-11-22T01:32:09.827Z",
+    "actual_exit": 0,
+    "destination": "~/Applications/Earph.app",
+    "distinct_native_gui_observed": true,
+    "new_owner_process_observed": true,
+    "previous_owner_retired": true,
+    "previous_gui_preserved": true,
+    "previous_bundle_retained": true,
+    "checkpoint_backup_retained": true,
+    "queue_entries_restored": 1,
+    "queue_order_identity_and_selection_restored": true,
+    "output_configuration_restored": true,
+    "post_launch_boundary": {
+      "source": null,
+      "session": null,
+      "active_queue_entry": null,
+      "operation": null,
+      "profile_worker_busy": false,
+      "muted": true,
+      "output_consented": false,
+      "error": null,
+      "transport": "paused"
+    },
+    "installer_started_playback": false,
+    "output_grant_added": false,
+    "permissions_changed": false,
+    "deletions": false,
+    "operator_sha256": "69833875893b371e7c299d1a125b2ee5d786cc16c76543828478514a687ab874",
+    "checkpoint_helper_sha256": "c37702a2b74da671e2e97a5d48311f2e8fc0c0d3668e059ea192f7ba41fc09d3",
+    "outcome_receipt_sha256": "2749f8b471cac29f1725c4634e3a4d5c55c4a855b1e9984d7cf076a954b1a029",
+    "activation_command_receipt_sha256": "4ba5c9dcefee2b0630ff5bc4de7a0d67d6e661c9884ca6a9b8972027a085330a"
+  },
+  "fresh_readback": {
+    "at": "2026-11-22T01:39:39.125Z",
+    "scope": "Read-only installed-bundle hashes/modes/UIDs and exact retained/new process identities. Historical post-install State/Queue collection only; no live playback command.",
+    "all_27_listed_file_hashes_lengths_modes_and_uid_match": true,
+    "prior_gui_and_new_gui_and_engine_present": true,
+    "old_bundle_product_hashes_match": true,
+    "private_collection_sha256": "6b8bf936fe9bcdd8e276718f0d65f5800229e15b9f585e3643fee99290f3a6c9",
+    "live_playback_state_queried": false
+  },
+  "retained_failures": [
+    {
+      "attempt": 1,
+      "actual_exit": 1,
+      "stage": "Bundle preflight before application IPC",
+      "cause": "Archive extraction did not preserve required file modes.",
+      "correction": "Preserve archive modes in a fresh private stage; verify them natively before activation."
+    },
+    {
+      "attempt": 2,
+      "actual_exit": 1,
+      "stage": "Checkpoint backup before owner shutdown or app replacement",
+      "cause": "Raw queue backup and queue observation used the same exclusive filename.",
+      "correction": "Keep raw files in a separate exclusive checkpoint-backup directory; retain real-filesystem RED/GREEN evidence."
+    }
+  ],
+  "limits": [
+    "One same-user development delivery only; AC-50 remains partial.",
+    "No complete install, upgrade, rollback, signing, or notarization matrix.",
+    "User-reported audibility does not qualify measured acoustic timing, synchronization, or the whole release.",
+    "The recorded muted/no-consent state is the historical post-launch installation boundary. Later user playback is outside this evidence.",
+    "The current installed app precedes the pending footer flicker correction.",
+    "Product declarations remain declared-unverified; package-tool build metadata does not upgrade product provenance.",
+    "The audible report follows later user queue and volume changes. The installer restored only the historical idle checkpoint."
+  ],
+  "user_confirmation": {
+    "at": "2026-11-22T02:03:24.883Z",
+    "audible_local_pcm": true,
+    "context": "Doctor Biz confirmed sound after restarting the selected track and raising the app volume.",
+    "installer_receipt_is_historical": true,
+    "physical_synchronization_qualified": false,
+    "footer_correction_installed": false
+  }
+}

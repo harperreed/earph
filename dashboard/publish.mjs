@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { snapshot } from './model.mjs';
+import { verifyMetadata } from './publication.mjs';
 
 const root = fileURLToPath(new URL('../',import.meta.url));
 const host = 'https://artifacts.folk-fujita.ts.net';
@@ -25,9 +26,6 @@ async function request(label,url,options = {}, allowMissing = false) {
   if (!response.ok) throw new Error(`${label} failed (${response.status}). Inspect the retained operation receipt before retrying.`);
   return JSON.parse(body);
 }
-function verifyMetadata(metadata, identity) {
-  if (metadata.slug !== slug || metadata.kind !== 'page' || metadata.owner !== identity.login || metadata.visibility !== 'private') throw new Error('Artifact ownership, kind, or private visibility does not match. No further write is allowed.');
-}
 function run(command,arguments_) {
   const result = spawnSync(command,arguments_,{cwd:root,encoding:'utf8'});
   if (result.status !== 0) throw new Error(`${command} failed: ${result.stderr || result.error || 'unknown error'}`);
@@ -36,7 +34,7 @@ try {
   const identity = await request('identity',`${host}/api/v1/whoami`);
   if (typeof identity.login !== 'string' || !identity.login) throw new Error('Host did not identify the configured machine.');
   const previous = await request('before',base,{},true);
-  if (previous) verifyMetadata(previous,identity);
+  if (previous) verifyMetadata(previous,identity,slug);
   else if (dataOnly) throw new Error('Artifact does not exist. Publish the page before updating its live data.');
   run(process.execPath,['scripts/build-progress.mjs']);
   const progress = snapshot(JSON.parse(await readFile(`${root}/target/progress-dashboard/site/progress.json`,'utf8')));
@@ -48,7 +46,7 @@ try {
       method:'PUT',headers:{'Content-Type':'application/gzip'},body:await readFile(archive),
     });
     metadata = await request('after-publish',base);
-    verifyMetadata(metadata,identity);
+    verifyMetadata(metadata,identity,slug);
     if (metadata.version !== publication.version) throw new Error('Fresh artifact version differs from the publication receipt.');
   }
   await request('data-write',`${base}/data/progress/current`,{
@@ -57,7 +55,7 @@ try {
   const rows = await request('data-read',`${base}/data/progress`);
   if (!isDeepStrictEqual(rows.items?.find(row => row.key === 'current')?.value,progress)) throw new Error('Fresh shared-store read does not match the published progress.');
   const after = await request('after',base);
-  verifyMetadata(after,identity);
+  verifyMetadata(after,identity,slug);
   if (after.version !== metadata.version) throw new Error('Artifact changed during the data update. Inspect receipts before retrying.');
   const summary = {operation,slug,version:after.version,url:`${host}/p/${slug}/`,data_verified:true,source_digest:progress.source_digest};
   await writeFile(`${receipts}/summary.json`,`${JSON.stringify(summary,null,2)}\n`,{mode:0o600});

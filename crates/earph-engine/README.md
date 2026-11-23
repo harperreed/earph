@@ -1,5 +1,7 @@
 # Local engine owner
 
+To play a file from the command line, see [the `earph` player](PLAYER-CLI.md).
+
 The owner controls one private runtime directory.
 It owns the shared `Session`, queue, revisions, receipts, and operational checkpoint.
 It exposes local playback through the host's available native adapter.
@@ -53,6 +55,8 @@ The current queue methods are `queue.get`, `queue.append`, `queue.append_directo
 Use `owner.shutdown` for an orderly stop.
 These commands use the same core definitions as embedded controllers.
 Output methods are `output.select` and `output.consent`.
+Device reads use the shared `devices.list` and `devices.inspect` methods with an explicit backend.
+See [device discovery](../../docs/device-discovery.md) for asynchronous replay, evidence levels, and embedding configuration.
 Volume methods are `volume.set`, `volume.caps.set`, and `volume.arm_fixed`.
 Local playback uses the existing `sessions.start`, pause, resume, seek, stop, and mute methods.
 

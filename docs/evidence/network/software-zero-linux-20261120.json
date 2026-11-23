@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "scope": "Shared exact-zero gain, renderer grid, presets, and Linux software PCM boundary",
+  "source": {
+    "baseline_commit": "ce0be5bd1dd5da8782cd89b5f14cc9f4248115d2",
+    "source_dirty": true,
+    "qualified_archive_sha256": "2dc7ab29e61eea6533968693a2ddeb7fbeda72417e473d6cba947d9300c0919b",
+    "qualified_source_files": 1935,
+    "source_unchanged_during_checks": true
+  },
+  "canonical": {
+    "command": "scripts/check",
+    "exit": 0,
+    "reported_tests": {
+      "passed": 1454,
+      "failed": 0,
+      "ignored": 9,
+      "groups": 161
+    },
+    "log_sha256": "bd51c4898a3cdbf3bd91e22f3f80a62aff4507212a639c148154226d4a1dd553",
+    "product_build_exit": 0,
+    "count_note": "Reported blocks include child results. All four ignored Sendspin peer tests ran separately."
+  },
+  "implementation": {
+    "files": 37,
+    "patch_sha256": "e4bfe24b7aaa281996b2c76babde7da44b8b05668257146cf36ab201b9b70d4d",
+    "required_zero_observation": "software_gain_zero",
+    "mute_independent": true,
+    "finite_setting_preserved": true,
+    "accepted_native_prefix_preserved": true,
+    "cached_unaccepted_suffix_zeroed": true,
+    "volume_maximum": 30700,
+    "volume_db_minimum": -32767,
+    "remote_rendering_control_right_required": true,
+    "mode_check_precedes_finite_noop": true
+  },
+  "pcm": {
+    "format": "stereo signed24 little-endian",
+    "exact_zero": {
+      "bytes": 24576,
+      "sha256": "de676bae28a480011d3d012db14bef539324e62a841a9627863c689bea168af3",
+      "frames": 4096,
+      "nonzero_samples": 0,
+      "minimum": 0,
+      "maximum": 0
+    },
+    "finite_minus120_db": {
+      "bytes": 24576,
+      "sha256": "0e1bec6fbb05238b024046f3fca8eccb562a01d1aedcd0604f8c918df773ad9a",
+      "frames": 4096,
+      "nonzero_samples": 8192,
+      "minimum": -8,
+      "maximum": -8
+    },
+    "factory_defaults": {
+      "capture_sha256": "12d5635260d5a762287fc1321920a64cbd1db2a2988d67c8e745e8291c48dc08",
+      "frames": 300000,
+      "accepted_unity_prefix_frames": 4672,
+      "minus40_db_suffix_frames": 295328,
+      "suffix_mismatches": 0
+    }
+  },
+  "wire": {
+    "tests_passed": 16,
+    "failures": 0,
+    "log_sha256": "44491e646146ae736cbfa061ec46bc59886f65309903a509a59faf2d8d401fa2",
+    "description_and_soap_use_core_constants": true,
+    "real_http_maximum_admitted": true,
+    "real_http_maximum_plus_one_refused": true
+  },
+  "independent_review": {
+    "material_findings": 0,
+    "files": 45,
+    "review_sha256": "b7b0757441fe25887cf986cd130e1efe9b18fa220c8b0eb98856441c2955a9b8"
+  },
+  "limits": [
+    "Software PCM capture establishes no acoustic or physical-device output.",
+    "Core receipts report admission; they do not prove the worker already applied a setting.",
+    "Muted Fixed remote mutations were tested through public commands. Hardware refusal additionally uses an internal reducer fixture.",
+    "Production renderer ingress, events, controller interoperability, current Mac and release remain separate gates."
+  ]
+}

@@ -1,0 +1,22 @@
+# ABOUTME: Defines the attach-only desktop client and bounded presentation model.
+# ABOUTME: Uses the shared workspace resolution and real owner control contract.
+[package]
+name = "earph-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+eframe.workspace = true
+earph-core = { version = "=0.1.0", path = "../earph-core" }
+earph-engine = { version = "=0.1.0", path = "../earph-engine" }
+earph-ffi = { version = "=0.1.0", path = "../earph-ffi" }
+earph-media = { version = "=0.1.0", path = "../earph-media" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+uniffi = { version = "=0.32.2", default-features = false }

@@ -3,6 +3,8 @@
 #![deny(unsafe_code)]
 mod contract;
 pub use contract::*;
+mod latency;
+pub use latency::OutputLatency;
 mod redaction;
 pub use redaction::redact_record;
 mod playback;
@@ -11,4 +13,4 @@ pub use playback::*;
 #[allow(unsafe_code)]
 mod native;
 #[cfg(target_os = "macos")]
-pub use native::{SilentRegistration, devices, inspect};
+pub use native::{SilentRegistration, devices, inspect, output_latency};

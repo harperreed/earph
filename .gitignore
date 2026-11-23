@@ -3,3 +3,5 @@
 /.scratch/
 # Private audio fixtures and their archives stay local.
 /media-ignore/
+# Python test runs leave bytecode beside the scripts.
+__pycache__/

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, Write},
     os::unix::{
         ffi::OsStrExt,
         fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
@@ -366,16 +366,15 @@ pub(crate) fn read(path: &Path, limit: usize) -> Result<Option<Vec<u8>>, EngineE
 }
 
 /// Verify and synchronize one admitted object handle without buffering a second object.
-pub(crate) fn verify_immutable_file(
-    path: &Path,
+fn verify_immutable_handle(
+    file: &File,
     expected: &[u8],
     sync_file: &mut impl FnMut(&File) -> std::io::Result<()>,
 ) -> Result<(), EngineError> {
-    let file = open_private_file(path)?.ok_or(INVALID)?;
     if file.metadata().map_err(|_| IO)?.len() != expected.len() as u64 {
         return Err(INVALID);
     }
-    let mut reader = &file;
+    let mut reader = file;
     let mut buffer = [0_u8; 16 * 1024];
     for chunk in expected.chunks(buffer.len()) {
         let observed = &mut buffer[..chunk.len()];
@@ -387,7 +386,7 @@ pub(crate) fn verify_immutable_file(
     if reader.read(&mut [0_u8; 1]).map_err(|_| IO)? != 0 {
         return Err(INVALID);
     }
-    sync_file(&file).map_err(|_| IO)
+    sync_file(file).map_err(|_| IO)
 }
 
 /// Publish a complete immutable object without replacing an existing hash name.
@@ -408,10 +407,66 @@ fn publish_immutable_with_writer(
     sync_file: &mut impl FnMut(&File) -> std::io::Result<()>,
     write: &mut impl FnMut(&mut File, &[u8]) -> std::io::Result<()>,
 ) -> Result<(), EngineError> {
-    check()?;
     let directory = path.parent().ok_or(INVALID)?;
-    if open_private_file(path)?.is_some() {
-        verify_immutable_file(path, bytes, sync_file)?;
+    let parent = File::open(directory).map_err(|_| IO)?;
+    publish_immutable_at_with_writer(
+        &parent,
+        path.file_name().ok_or(INVALID)?,
+        bytes,
+        check,
+        sync_file,
+        write,
+    )
+}
+
+/// Share exclusive immutable publication with descriptor-relative package staging.
+pub(crate) fn publish_immutable_file_at(
+    directory: &File,
+    name: &std::ffi::OsStr,
+    bytes: &[u8],
+    check: &mut impl FnMut() -> Result<(), EngineError>,
+) -> Result<(), EngineError> {
+    publish_immutable_at_with_writer(
+        directory,
+        name,
+        bytes,
+        check,
+        &mut File::sync_all,
+        &mut |file, chunk| file.write_all(chunk),
+    )
+}
+pub(crate) fn publish_immutable_at_with_writer(
+    directory: &File,
+    name: &std::ffi::OsStr,
+    bytes: &[u8],
+    check: &mut impl FnMut() -> Result<(), EngineError>,
+    sync_file: &mut impl FnMut(&File) -> std::io::Result<()>,
+    write: &mut impl FnMut(&mut File, &[u8]) -> std::io::Result<()>,
+) -> Result<(), EngineError> {
+    use rustix::fs::{Mode, OFlags, openat};
+    let mut components = Path::new(name).components();
+    if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
+        return Err(INVALID);
+    }
+    let open = |name: &std::ffi::OsStr| -> Result<Option<File>, EngineError> {
+        match openat(
+            directory,
+            name,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) {
+            Ok(fd) => {
+                let file = File::from(fd);
+                validate_file(&file.metadata().map_err(|_| IO)?)?;
+                Ok(Some(file))
+            }
+            Err(rustix::io::Errno::NOENT) => Ok(None),
+            Err(_) => Err(IO),
+        }
+    };
+    check()?;
+    if let Some(file) = open(name)? {
+        verify_immutable_handle(&file, bytes, sync_file)?;
     } else {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -419,37 +474,40 @@ fn publish_immutable_with_writer(
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|_| IO)?
             .as_nanos();
-        let stage = directory.join(format!(
-            ".immutable-{}-{time:x}-{sequence:x}",
-            std::process::id()
-        ));
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&stage)
-            .map_err(|_| IO)?;
+        let stage = format!(".immutable-{}-{time:x}-{sequence:x}", std::process::id());
+        let mut file = File::from(
+            openat(
+                directory,
+                &stage,
+                OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::from_raw_mode(0o600),
+            )
+            .map_err(|_| IO)?,
+        );
         validate_file(&file.metadata().map_err(|_| IO)?)?;
         for chunk in bytes.chunks(16 * 1024) {
             check()?;
             write(&mut file, chunk).map_err(|_| IO)?;
         }
-        verify_immutable_file(&stage, bytes, sync_file)?;
+        file.rewind().map_err(|_| IO)?;
+        verify_immutable_handle(&file, bytes, sync_file)?;
         check()?;
         match rustix::fs::renameat_with(
-            rustix::fs::CWD,
+            directory,
             &stage,
-            rustix::fs::CWD,
-            path,
+            directory,
+            name,
             rustix::fs::RenameFlags::NOREPLACE,
         ) {
             Ok(()) => {}
-            Err(rustix::io::Errno::EXIST) => verify_immutable_file(path, bytes, sync_file)?,
+            Err(rustix::io::Errno::EXIST) => {
+                verify_immutable_handle(&open(name)?.ok_or(INVALID)?, bytes, sync_file)?
+            }
             Err(_) => return Err(IO),
         }
     }
     // Keep every abandoned stage. Only complete synced bytes can acquire the final hash name.
-    sync_directory(directory).map_err(|_| IO)?;
+    directory.sync_all().map_err(|_| IO)?;
     check()
 }
 

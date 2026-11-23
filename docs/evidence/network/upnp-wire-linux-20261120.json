@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "scope": "Bounded UPnP wire surface on Linux",
+  "source": {
+    "base_commit": "5f30b5b5db9444eb2181a7af2c2ca875e6401c04",
+    "owned_files": 18,
+    "manifest_sha256": "095a99d32f044d5ce59061e468d8a4021056ddf3fc986366c51e90c4e0598822",
+    "patch_sha256": "e8a26b299328c9e25ba5da5e83a8b97e56b1eef1f40d46488c6d281974635afb",
+    "archive_sha256": "377f5f9a9891c563a1cba4d80adae7ed5496be31a037938476d743993d0187dd"
+  },
+  "verification": {
+    "focused_network_tests_passed": 62,
+    "strict_clippy_exit": 0,
+    "format_check_exit": 0,
+    "canonical_command": "scripts/check",
+    "canonical_exit": 0,
+    "canonical_log_sha256": "899bf7dfaeda717804a15ae3e34053f2d4fcaab73fe62b53a88393c715b9407a",
+    "reported_passed": 1334,
+    "reported_failed": 0,
+    "reported_ignored": 5,
+    "reported_groups": 149,
+    "count_note": "Reported test blocks include child-process results.",
+    "catalog_check": "passed",
+    "dependency_check": "passed",
+    "independent_correction_review": "no material findings"
+  },
+  "prior_failure": {
+    "canonical_exit": 101,
+    "failed_target": "earph-desktop owner_e2e",
+    "failed_tests": 5,
+    "observed_failure": "Owner startup exceeded the existing deadline during overlapping full suites.",
+    "unchanged_isolation_passed": 5,
+    "cause": "Unproven. Timing comparisons support a load-related hypothesis."
+  },
+  "limits": [
+    "Real loopback HTTP and UDP fixtures only; no LAN advertisement or controller interoperability claim.",
+    "Production Engine renderer ingress remains disabled.",
+    "Core renderer integration, exact-zero gain, callbacks and Engine execution require their own verification.",
+    "Mac selected-interface acquisition remains unimplemented and unqualified.",
+    "This receipt binds the frozen source above, rather than every later integrated tree."
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "scope": "One read-only native GUPnP GetMute through the exact interim Engine fixture, with complete clean retirement.",
+  "source_head": "ef8760281e4486f1facf7d3be3be47b8faa918c3",
+  "source_files_verified": 2081,
+  "engine_source_inputs_sha256": "d54a3f41126a3070d51854b2653a49f50da4d06dc3dc4a1c475dcfbef0b86fb5",
+  "engine_binary_sha256": "a94ec17ca2eb1892baab588dabe5b6561777ef8a4891ad48b7dbdf63b1bf7ea8",
+  "fixture_binary_sha256": "433648dac241c527d32d2020b3c26616a98c3c06031967ed96bdf0cc961452e5",
+  "result_sha256": "bbed22c2e1070d039f9c84583c0d760415a9270061e524c1ac2c9209f13b2223",
+  "native_get_mute": {
+    "http_status": 200,
+    "current_mute": true,
+    "ordered_arguments": [
+      {
+        "name": "InstanceID",
+        "gtype": "guint",
+        "value": 0
+      },
+      {
+        "name": "Channel",
+        "gtype": "gchararray",
+        "value": "Master"
+      }
+    ],
+    "evidence_boundary": "Native GUPnP action and normalized Soup semantic logger; not exact outgoing HTTP bytes."
+  },
+  "retirement": {
+    "sdk_all_joined": true,
+    "rendering_grant_revoked": true,
+    "owner_joined": true,
+    "ssdp_closed": true,
+    "containers_stopped_pid_zero": true,
+    "bridge_peers_remaining": 0
+  },
+  "silent_fences": true,
+  "unchanged_core_identity": true,
+  "operations": [
+    {
+      "operation": "upnp-clean-retirement-api-01",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "944e98fb107f650d929e99070638e1415bddd558fcfd7bc3cf4225b38eab12a2"
+    },
+    {
+      "operation": "upnp-clean-sdk-release-01",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "bc680f5461c48791081552aae3190fefeac38bc7dbd31be8508619a953e63d6b"
+    },
+    {
+      "operation": "upnp-clean-runtime-release-01",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "d2952ba8c68d884371442e34020276c48033e5200fffc2e1621343c850bdd218"
+    },
+    {
+      "operation": "upnp-clean-retirement-sdk-01",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "4f309e43312d99015c6539b7b98a10bae739d6abcec0467883f0c95fcf020b06"
+    },
+    {
+      "operation": "upnp-clean-retirement-owner-01",
+      "exit": 0,
+      "signal": null,
+      "log_sha256": "ec12babba4235a09a9cf1615a1ea98f767beb053d2ceeb66f99005ce1fd379ab"
+    }
+  ],
+  "retained_runtime_failure": "The earlier SDK returned GetMute, then failed signal-handler cleanup. Its partial result and original driver remain retained.",
+  "native_cleanup_fix": "Use GObject.signal_handler_disconnect because Soup.Server.disconnect is a different native method.",
+  "limits": [
+    "Interim ef876 source only; no current DSD compatibility or final-release qualification.",
+    "No controller mutation, subscription, playback, audio, matrix, Music Assistant, U5 or AC15 completion.",
+    "Soup logger records normalized semantic text, not exact outgoing HTTP bytes.",
+    "SDK poisoned=true reflects service-unavailable callbacks during intentional retirement; actual shutdown reports no errors and all_joined=true."
+  ]
+}

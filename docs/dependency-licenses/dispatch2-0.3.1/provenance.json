@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "dispatch2"
+  ],
+  "version": "0.3.1",
+  "repository": "https://github.com/madsmtm/objc2",
+  "revision": "8852b424193ca41602281b3d7540d7c8ed51e49a",
+  "license_expression": "Zlib OR Apache-2.0 OR MIT",
+  "license_file": "LICENSE.md",
+  "license_sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+  "source_url": "https://github.com/madsmtm/objc2/blob/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md",
+  "verified_on": "2026-11-18",
+  "sources": [
+    {
+      "repository": "madsmtm/objc2",
+      "revision": "8852b424193ca41602281b3d7540d7c8ed51e49a",
+      "path": "LICENSE.md",
+      "git_blob_sha1": "540ae4c81adb5f64a9f61e222b688880da24300e",
+      "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+      "source_url": "https://github.com/madsmtm/objc2/blob/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md"
+    }
+  ],
+  "distribution_status": "requires_apple_sdk_distribution_review"
+}

@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# ABOUTME: Runs the Earph Sendspin listening test on a Mac against one server, one step per subcommand.
+# ABOUTME: Keeps the player identity in a dedicated keychain file so no other keychain is touched.
+set -euo pipefail
+
+# Copy this script beside the `earph` and `earph-credential-helper` executables, or set EARPH_BIN.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+EARPH="${EARPH_BIN:-$HERE/earph}"
+KEYCHAIN="${EARPH_KEYCHAIN:-$HOME/.earph-sendspin.keychain-db}"
+# Example: ws://SERVER-ADDRESS:8927/sendspin. Use the server's numeric local network address.
+SERVER="${EARPH_SERVER:-}"
+
+usage() {
+  cat <<U
+usage: $(basename "$0") STEP [extra earph flags]
+
+Run the steps in this order:
+  setup    Create and unlock the keychain file, then create the player identity. Run once.
+  token    Print the pairing token. It is a password: do not share it.
+  pair     Wait up to 10 minutes for the server to pair. Start this, THEN paste the token
+           into Music Assistant.
+  play     Connect and play what the server sends. Extra flags pass through,
+           for example: play --volume -20 --output NAME
+
+Other steps:
+  unlock   Unlock the keychain file again (after a reboot, or a "locked" error).
+  devices  List outputs.
+
+Server:   ${SERVER:-not set}   (set EARPH_SERVER)
+Keychain: $KEYCHAIN   (override with EARPH_KEYCHAIN)
+U
+}
+
+need_server() {
+  if [ -z "$SERVER" ]; then
+    echo "error: set EARPH_SERVER, for example ws://SERVER-ADDRESS:8927/sendspin" >&2
+    exit 2
+  fi
+}
+need_keychain() {
+  if [ ! -f "$KEYCHAIN" ]; then
+    echo "error: no keychain file at $KEYCHAIN. Run: $(basename "$0") setup" >&2
+    exit 1
+  fi
+}
+
+step="${1:-}"
+[ $# -gt 0 ] && shift
+case "$step" in
+  setup)
+    if [ -f "$KEYCHAIN" ]; then
+      echo "Keychain file exists: $KEYCHAIN"
+    else
+      echo "Creating $KEYCHAIN. Choose a password when asked."
+      security create-keychain "$KEYCHAIN"
+    fi
+    echo "Unlocking the keychain file."
+    security unlock-keychain "$KEYCHAIN"
+    # No flags means no lock on sleep and no lock timeout.
+    security set-keychain-settings "$KEYCHAIN"
+    "$EARPH" sendspin init --credential-store "$KEYCHAIN" "$@"
+    echo "Next: $(basename "$0") token"
+    ;;
+  unlock)
+    need_keychain
+    security unlock-keychain "$KEYCHAIN"
+    ;;
+  token)
+    need_keychain
+    "$EARPH" sendspin token --credential-store "$KEYCHAIN" "$@"
+    ;;
+  pair)
+    need_server
+    need_keychain
+    echo "Waiting for the server. Paste the token into Music Assistant now." >&2
+    "$EARPH" sendspin pair --server "$SERVER" --credential-store "$KEYCHAIN" "$@"
+    echo "Next: $(basename "$0") play"
+    ;;
+  play)
+    need_server
+    need_keychain
+    "$EARPH" sendspin --server "$SERVER" --credential-store "$KEYCHAIN" "$@"
+    ;;
+  devices)
+    "$EARPH" devices "$@"
+    ;;
+  *)
+    usage
+    [ -z "$step" ] || [ "$step" = "-h" ] || [ "$step" = "--help" ] || exit 2
+    ;;
+esac

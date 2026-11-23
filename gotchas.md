@@ -1,5 +1,22 @@
 # Gotchas
 
+- Whole-release work continues after a unit, review, commit, or first-listen checkpoint.
+  Use SPEC.md section 19 as the completion boundary and continue independent work around physical-evidence gates.
+  See the [release execution plan](docs/superpowers/plans/2026-11-21-release-completion.md).
+
+- Core Audio System uses AudioQueue conversion; DirectHardware keeps strict HAL format and callback requirements.
+  Map queue time through actual buffer schedules before retiring payload; raw queue time is not a payload count.
+  In native qualification, a 256-frame client window fed slowly against the 48 kHz/512-frame device.
+  A 4096-frame window restored the observed acceptance slope near that source rate without changing device settings.
+  Use the larger Mac draft default and preserve explicit geometry choices.
+  Timing observations do not establish acoustic presentation or underrun-free playback.
+  See the [System qualification](docs/evidence/local-playback/coreaudio-system-20261121.json).
+
+- Streaming Pause advances the output epoch and resets native submitted counts.
+  Compare absolute output frontiers through `processing.streaming.backend_origin_frames`, rather than directly comparing native and source counts.
+  Check rates, epochs, graph transforms, and capture boundaries before mapping source frames to output frames.
+  See the [retained MA capture](docs/evidence/network/music-assistant-track-linux-20261121.json).
+
 - Use `runtime::OwnerLock` for every `owner.lock` writer.
   A concurrent child inherits the open file description before exec closes it.
   Explicit unlock must precede close, or a retired owner can leave its replacement busy.
@@ -16,7 +33,9 @@
 
 - The build-input digest sorts Rust path components, rather than whole path strings.
   Match that order when recomputing it in another language; `output/` sorts before `output.rs`.
-  Keep the u64 little-endian length framing in [build provenance](crates/earph-harness/build.rs).
+  Keep the u64 little-endian length framing in [build provenance](build_support/provenance.rs).
+  The harness and Engine have separate declared input sets in that shared helper.
+  Update source-hash tools to read `HARNESS_INPUTS` there; preserve earlier tools with their original source evidence.
 
 - On the tested macOS 27.2.1 host, registrations sharing one callback and a null client context collide with HAL `nope`.
   Keep a unique owned context for each registration, including silent probes.
@@ -34,3 +53,128 @@
   After native `DRAINING` begins, observe `SETUP` instead of restarting drain or polling ordinary I/O readiness.
   Plugins may need commit work while still prepared or running.
   See [the adapter](crates/earph-alsa/src/output.rs), [native state observation](crates/earph-alsa/src/native.rs), and [the scoped trace](docs/evidence/local-playback/alsa-drain-trace-20261118.json).
+
+- JNA's default loader can clean earlier JNA temporary files before loading its dispatcher.
+  The first FFI gate has no before-state receipt proving whether files existed or were removed.
+  Use [the private-dispatcher gate](docs/ffi-bindings.md) with child-only no-unpack, no-classpath, and no-system settings.
+  Verify the loaded dispatcher path and bytes, and preserve all task artifacts.
+  See the [foundation receipt](docs/evidence/ffi/foundation-20261118.json) for the unresolved historical limit.
+
+- AT-SPI root cache clearing follows cached child links and can miss separately queried descendants.
+  Refresh the exact failed Text accessible or counted parent, then restart the complete read.
+  Keep mutations outside retries and preserve deadlines and process identity checks.
+  See the [native desktop checkpoint](docs/superpowers/plans/2026-11-18-desktop-connect-queue.md).
+
+- Keep writable executable descriptors outside a multithreaded fixture parent's inheritance table.
+  Concurrent children can inherit them before exec, even with CLOEXEC, and cause ETXTBSY.
+  Publish fixture executables in an isolated child and wait for its exit.
+  See [the fixture publisher](crates/earph-engine/tests/support/device_process.rs) and [Linux exec rules](https://man7.org/linux/man-pages/man2/execve.2.html).
+
+- Give live egui request bodies stable request-derived scope IDs.
+  Local ID salts do not stabilize every descendant when earlier controls disappear.
+  Keep reconciliation disabled during delivery; removing it can prevent complete accessibility reads.
+  See [receipt rendering](crates/earph-desktop/src/gui/receipts.rs).
+
+- Fence a read refresh against its fresh Before state, rather than an earlier captured control revision.
+  Exact reconciliation can advance that revision before an explicit refresh starts.
+  After Unmute applies, an autonomous Playing transition can advance the revision before the next State read.
+  A later State need not match the command receipt's revision.
+  Verify the receipt and observed owner, session, and outcome before sending another mutation.
+  Keep the initial owner and zone checks, full Before/After fence, and complete mutation preflight.
+  See [the real-owner regression](crates/earph-desktop/tests/gui_profiles.rs).
+
+- AccessKit TextRun values can repeat their parent label's text.
+  Select the semantic node before checking a field's label relationship.
+  Reuse the [widget helper](crates/earph-desktop/tests/gui_widgets.rs); tree iteration order does not establish a node's role.
+
+- Successful GUI diagnostic reads retire after adoption into current typed views.
+  Inspect those views instead of requiring receipt-history rows.
+  Preview commands change candidate authority; replay after receipt eviction can capture again.
+  Observer tools must never replay previews.
+  See the [diagnostic workflow](docs/diagnostics.md).
+
+- On `ENOSPC`, check `df -i /tmp` alongside free byte space.
+  tmpfs charges hard links against its inode limit, so they do not reduce reported inode use.
+  Keep large scan fixtures in ignored task storage, outside shared temporary storage.
+  Exhausted temporary inodes can break owner, decoder, and foreign-client checks together.
+  Preserve evidence and get deletion approval before reclaiming finished fixtures.
+  See [tmpfs link accounting](https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/2b66f2cc753243a6adb3e9a5c038b0fc59ba7ec9/mm/shmem.c).
+
+- Engine publishes `endpoint.json` before verifying its discovery helper and entering the IPC loop.
+  Treat that file as discovery identity, rather than serving readiness.
+  Wait for the owner startup announcement, then require a State reply with its owner identity.
+  Reuse the bounded [FFI startup reader](scripts/ffi-owner-readiness.mjs) and the desktop launch handshake.
+
+- Serialize full suites and native owner qualification on a shared build host.
+  Two overlapping suites exceeded existing owner-startup and streaming deadlines; unchanged isolated scenarios then passed.
+  An unchanged full UPnP check also passed alone.
+  Preserve failures and diagnose timing before changing application behavior or deadlines.
+  These observations support load sensitivity; they do not establish a root cause.
+  See the [Linux wire receipt](docs/evidence/network/upnp-wire-linux-20261120.json).
+
+- AT-SPI action success confirms event admission, rather than adoption of the next GUI view.
+  Fence route changes against the destination heading before querying its controls.
+  After an external CLI mutation, refresh and fence the observed owner/revision before guarded GUI actions.
+  Retry fresh reads within a deadline; never replay a mutation to observe its completion.
+  See the [active zero qualification](docs/evidence/desktop/native-zero-linux-20261120.json).
+
+- No ALSA plugin without hardware underruns, so tests cannot produce a native `EPIPE` from a write.
+  The file plugin reports a closed pipe as `EIO`, and the null plugin accepts every write.
+  Inject a Sendspin underrun at the worker's `Output` seam and at `AlsaOutput::fail`.
+  Hardware recovery through `recover_underrun` remains unobserved.
+  See the [Sendspin worker tests](crates/earph-engine/src/worker/sendspin_tests.rs) and [the adapter](crates/earph-alsa/src/output.rs).
+
+- Silence fed while a Sendspin chunk waits for its anchor must not track the wait itself.
+  The wait ends when `target - now - held frames` fits the pad window, and a draining output shrinks its held frames as fast as time passes.
+  Silence capped at the remaining wait then feeds almost nothing, the wait never ends, and the output runs dry at the anchor.
+  Allow idle silence into half of the pad window, and count it apart from scheduled silence.
+  The null and file plugins report zero delay at once, so only the monotonic clock paces idle silence there.
+  See `SilencePacer` in [the scheduler](crates/earph-engine/src/sendspin_schedule.rs) and the clocked seam in the [Sendspin worker tests](crates/earph-engine/src/worker/sendspin_tests.rs).
+
+- Each Sendspin reconnect attempt opens the output again, even while the server stays away.
+  The ALSA file plugin truncates its file on open, so a test capture holds only the last connection's audio.
+  End a capture test with a stop, never with a peer close: a close starts a reconnect.
+  See the [Sendspin command tests](crates/earph-engine/tests/sendspin_cli.rs) and [the reconnect notes](docs/sendspin-runtime.md#reconnect).
+
+- A takeover into Sendspin must stop the outgoing local source in the takeover command itself.
+  The Sendspin start action reaches the worker only after the credential load.
+  Without that stop the local file plays on under a muted Sendspin session.
+  To test two sources on one output, capture through a FIFO: the file device keeps only the last open.
+  The local source writes a null or file device without pacing, so a closed FIFO is the only way to hold it mid-file.
+  See the `Gate` in the [Sendspin owner tests](crates/earph-engine/tests/sendspin_owner.rs) and [Source takeover](docs/sendspin-runtime.md#source-takeover).
+
+- The Core Audio device latency lies behind the frames that the output holds.
+  Add it only to the Sendspin scheduler's delay; the idle silence pacer must see the held frames alone.
+  A pacer that counts the latency as held frames feeds no silence, and the output runs dry.
+  The player needs a server lead of 150 ms plus that latency, or every chunk drops as late.
+  Music Assistant changes tracks with a full `stream/clear`. Never restart the output for it.
+  A restart took 152 ms to 174 ms on the Mac loopback device, more than the head start that remains.
+  Keep the output running and bound the scheduled audio that it holds; read `timing.first_wait_us` and `timing.clear_held_frames`.
+  See `LatencyAdmission` in [the scheduler](crates/earph-engine/src/sendspin_schedule.rs) and [the runtime notes](docs/sendspin-runtime.md#player-stream-lifecycle).
+
+- A real server that plays is no proof of a compliant message.
+  aiosendspin tolerates a `client/state` without a top-level `available` by default and keeps the player available.
+  Earph sent that field inside the `player` object until the pinned Python models parsed its messages.
+  Parse each new client message with the pinned models, not with the in-repo test server alone.
+  The pinned Python environment lacks the `server` extra, so `aiosendspin.server` cannot import there.
+  See the [pinned Python player peer](docs/sendspin-runtime.md#pinned-python-player-peer).
+
+- A Sendspin output takes scheduled audio as fast as the worker writes it, far ahead of its clock.
+  Whatever it holds at a full clear plays on, because no backend drops held audio without a restart.
+  Write scheduled audio only up to a bounded depth, and leave the rest in the timeline.
+  That depth is also the stall the output survives: 30 ms lost whole buffers on a loaded Mac, so it is 100 ms.
+  A starved AudioQueue reports nothing. Its clock runs on and it never plays audio that arrives behind that clock.
+  Read `timing.starved_frames` and `timing.late_chunks`; `underruns` and `dropped_frames` stay flat.
+  Bound only a hold that counts queued frames from a cursor. An ALSA delay can count frames behind the buffer.
+  The ALSA buffer is the bound there, so the worker refuses a buffer longer than the declared lead time of 150 ms.
+  The Core Audio system route also keeps a tail shorter than one period in its staging ring until more frames arrive.
+  Record a Mac loopback capture only through the tmux session that holds microphone permission.
+  Keep the silent preamble in a capture: a gain ramp turns 16-bit pattern frames into other valid pattern frames.
+  See the [loopback timing capture](docs/sendspin-runtime.md#loopback-timing-capture).
+
+- A WebSocket close code tells nothing about why a Sendspin server closed.
+  The pinned aiosendspin server closes without a code, so a stop, a dropped client, and a failed writer all send 1000.
+  Its one refusal that differs from a restart is `server/unpair`. Never end a reconnect on a close code.
+  HTTP 401 and 403 end the reconnect because of HTTP, not Sendspin: the pinned server never sends them.
+  In a Network pump test, the pump stamps its own sends on the clock domain. Sleep past the test's small fixed times first, or the session closes on a clock regression.
+  See [Refused or gone](docs/sendspin-runtime.md#refused-or-gone) and the [pump tests](crates/earph-network/src/sendspin/worker/player_tests.rs).

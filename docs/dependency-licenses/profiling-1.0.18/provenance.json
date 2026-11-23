@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "packages": [
+    "profiling"
+  ],
+  "version": "1.0.18",
+  "repository": "https://github.com/aclysma/profiling",
+  "revision": "8271551172eb6fa4cba47369aedd93790c623df9",
+  "license_expression": "MIT OR Apache-2.0",
+  "license_file": "LICENSE-MIT",
+  "license_sha256": "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333",
+  "source_url": "https://github.com/aclysma/profiling/blob/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT",
+  "verified_on": "2026-11-18",
+  "sources": [
+    {
+      "repository": "aclysma/profiling",
+      "revision": "8271551172eb6fa4cba47369aedd93790c623df9",
+      "path": "LICENSE-MIT",
+      "git_blob_sha1": "6a84e059ad8b43e03c2b06bc2af4dc1d8442808d",
+      "sha256": "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333",
+      "source_url": "https://github.com/aclysma/profiling/blob/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT"
+    }
+  ]
+}

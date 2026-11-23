@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "scope": "Generated Kotlin zero, finite-exit, replay, preset, network and disabled-renderer control",
+  "source": {
+    "baseline_commit": "ce0be5bd1dd5da8782cd89b5f14cc9f4248115d2",
+    "source_dirty": true,
+    "qualified_archive_sha256": "2dc7ab29e61eea6533968693a2ddeb7fbeda72417e473d6cba947d9300c0919b",
+    "qualified_source_files": 1935,
+    "source_unchanged_during_checks": true,
+    "ffi_source_files": 489,
+    "ffi_source_manifest_sha256": "5eb97cb369fe29367083d4ee7b0549b5c8d73d1186c65f47fc7a01ee928d8a9a"
+  },
+  "checks": {
+    "gate_exit": 0,
+    "foreign_frames": 94,
+    "consumers": 43,
+    "exact_cli_comparisons": 52,
+    "guard_replies": 172,
+    "guarded_jvm_invocations": 48,
+    "volume_commands": 8,
+    "network_commands": 9,
+    "renderer_commands": 6,
+    "source_and_head_unchanged": true,
+    "gate_log_sha256": "fee1246d286759c77cf75635d696c9ad89f5341ada21b7fde81400d763ca8639",
+    "scenario_summary_sha256": "24460f36ee67c0b7e0371591ab6f0fa8308ddddac299fb6884f0a59961d64bd7"
+  },
+  "products": [
+    {
+      "name": "earph-engine",
+      "sha256": "faa9056ab87f37f1bae26b909a64e211c796046ac68c2a3c66178f421d746639"
+    },
+    {
+      "name": "earph-bindgen",
+      "sha256": "3d549f964658c369e7f0ac1235aacd9fc132365394252327e1eee29dbe147a52"
+    },
+    {
+      "name": "libearph_ffi.so",
+      "sha256": "eb1f0020302f37268a4293ac0f97875e44faf2c59875ace551c6ec2dce932102"
+    },
+    {
+      "name": "smoke.jar",
+      "sha256": "18f5d3b99b5a21dc8a09d066969c4442fdddf3b0c686bd7c2e21f20fe5a4d54d"
+    },
+    {
+      "name": "earph_ffi.kt",
+      "sha256": "fad43e6f82b7a40ea9accb70cfbe4d34c6a8458631c4d1d0cf3b51df52e36a6d"
+    },
+    {
+      "name": "libjnidispatch.so",
+      "sha256": "ca07953d595210082339753d9e818a1fdb40509a17a41914d9a2cb0d2df6b6af"
+    }
+  ],
+  "preservation": "Engine and library hashes were checked during the scenario. Six products were frozen after the complete gate.",
+  "behavior": {
+    "zero_preserves_mute": true,
+    "finite_exit": true,
+    "diagnostic_zero_shared": true,
+    "exact_zero_replay": true,
+    "cap_refusal_atomic": true,
+    "factory_defaults": true,
+    "profile_and_network_output_intent_preserved_before_gain_fixture": true,
+    "gain_fixture_output_consented": false,
+    "network_connections": 0,
+    "http_requests": 0,
+    "native_output_opened": false,
+    "owner_exit": 0,
+    "owner_pid_absent": true
+  },
+  "independent_review": {
+    "material_findings": 0,
+    "review_sha256": "b7b0757441fe25887cf986cd130e1efe9b18fa220c8b0eb98856441c2955a9b8"
+  },
+  "limits": [
+    "The gain fixture selects an unopened, unconsented output after earlier intent-preservation checks.",
+    "No audio or active native GUI is qualified by this binding test.",
+    "Renderer ingress remains disabled. Current Swift, cancellation, subscriptions and SDK distribution remain unqualified."
+  ]
+}

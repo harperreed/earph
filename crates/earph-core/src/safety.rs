@@ -63,6 +63,24 @@ impl Default for VolumePolicy {
 }
 
 impl VolumePolicy {
+    /// Validate exact zero without changing finite-only gain admission.
+    pub fn validate_software_zero(
+        &self,
+        mode: VolumeMode,
+        domain: SampleDomain,
+        fidelity: FidelityPolicy,
+    ) -> Result<(), EngineError> {
+        if mode != VolumeMode::Software
+            || domain != SampleDomain::Pcm
+            || fidelity == FidelityPolicy::StrictPreservation
+        {
+            return Err(EngineError::new(
+                ErrorCode::FidelityPolicyConflict,
+                "exact zero requires compatible software PCM attenuation",
+            ));
+        }
+        Ok(())
+    }
     pub fn new(software_cap_db: f64, hardware_cap_db: Option<f64>) -> Result<Self, EngineError> {
         if !software_cap_db.is_finite()
             || !(-120.0..=0.0).contains(&software_cap_db)
@@ -94,6 +112,61 @@ impl VolumePolicy {
     pub fn validate_unmute(
         &self,
         context: &OutputContext,
+        mode: VolumeMode,
+        domain: SampleDomain,
+        fidelity: FidelityPolicy,
+        software_gain_db: f64,
+        hardware_readback_db: Option<f64>,
+    ) -> Result<(), EngineError> {
+        self.validate_gain_constraints(
+            mode,
+            domain,
+            fidelity,
+            software_gain_db,
+            hardware_readback_db,
+        )?;
+        if mode == VolumeMode::Fixed && self.armed_for.as_ref() != Some(context) {
+            return Err(EngineError::new(
+                ErrorCode::SafetyPolicyBlocked,
+                "output volume has not satisfied its safety policy",
+            ));
+        }
+        Ok(())
+    }
+    /// Validate local PCM preparation without copying current arming into prospective intent.
+    pub fn validate_profile_preparation(
+        &self,
+        current_context: &OutputContext,
+        mode: VolumeMode,
+        fidelity: FidelityPolicy,
+        current_gain_db: f64,
+        prospective: &VolumePolicy,
+        prospective_gain_db: f64,
+    ) -> Result<(), EngineError> {
+        if mode == VolumeMode::Hardware {
+            return Err(EngineError::new(
+                ErrorCode::CapabilityUnsupported,
+                "hardware profile preparation requires actual set/readback support",
+            ));
+        }
+        self.validate_unmute(
+            current_context,
+            mode,
+            SampleDomain::Pcm,
+            fidelity,
+            current_gain_db,
+            None,
+        )?;
+        prospective.validate_gain_constraints(
+            mode,
+            SampleDomain::Pcm,
+            fidelity,
+            prospective_gain_db,
+            None,
+        )
+    }
+    pub(crate) fn validate_gain_constraints(
+        &self,
         mode: VolumeMode,
         domain: SampleDomain,
         fidelity: FidelityPolicy,
@@ -142,9 +215,6 @@ impl VolumePolicy {
             VolumeMode::Fixed => {
                 if software_gain_db != 0.0 {
                     return Err(conflict);
-                }
-                if self.armed_for.as_ref() != Some(context) {
-                    return Err(blocked);
                 }
             }
         }

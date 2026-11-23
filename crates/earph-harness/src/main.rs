@@ -2,7 +2,7 @@
 // ABOUTME: Reports structured outcomes without opening physical audio devices.
 use earph_core::{EngineError, ErrorCode, audio::MemoryBudget, ids::Epochs};
 use earph_harness::render::{self, FaultSchedule, RenderRequest};
-use earph_harness::{atomic_json, catalog, evidence, fixture, inventory, read_bounded};
+use earph_harness::{atomic_json, catalog, evidence, fixture, inventory, package, read_bounded};
 use serde_json::{Value, json};
 use std::{env, fs, path::Path, process::ExitCode};
 #[cfg(test)]
@@ -95,6 +95,21 @@ fn run(args: &[String]) -> Result<Value, CliFailure> {
         .as_slice()
     {
         ["build-info"] => Ok(earph_harness::build_provenance()),
+        ["package-build", "--request", request, "--output", output] => {
+            package::build(
+                &package::load_request(Path::new(request))?,
+                Path::new(output),
+            )?;
+            Ok(
+                json!({"status":"pass","package":output,"release":"unreleased-development-candidate","physical_output":false}),
+            )
+        }
+        ["package-verify", "--package", output] => {
+            package::verify(Path::new(output))?;
+            Ok(
+                json!({"status":"pass","package":output,"authenticated":false,"physical_output":false}),
+            )
+        }
         ["qualify", "--output", directory] => {
             let record = evidence::qualify(Path::new(directory))?;
             Ok(
@@ -160,7 +175,7 @@ fn run(args: &[String]) -> Result<Value, CliFailure> {
             Ok(json!({"status":"pass"}))
         }
         ["--help"] => Ok(
-            json!({"commands":["build-info","catalog-check --catalog PATH","dependency-check --inventory PATH","dependency-lock --output PATH --notices PATH","fixtures --output DIR","render --fixture PATH --block-frames N --output DIR [--faults PATH]","qualify --output DIR","evidence-check --record PATH"],"physical_output":false}),
+            json!({"commands":["build-info","package-build --request PATH --output DIR","package-verify --package DIR","catalog-check --catalog PATH","dependency-check --inventory PATH","dependency-lock --output PATH --notices PATH","fixtures --output DIR","render --fixture PATH --block-frames N --output DIR [--faults PATH]","qualify --output DIR","evidence-check --record PATH"],"physical_output":false}),
         ),
         _ => Err("unsupported command or arguments; use --help".into()),
     }

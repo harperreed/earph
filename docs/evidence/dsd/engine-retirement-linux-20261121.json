@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "scope": "Typed DSD software ownership and failed-close evidence. No public DSD submission or physical qualification.",
+  "source_parent": "6318d6a6c6176021432483f7554e1d3fe5e6e73f",
+  "worker_baseline": "4d8f6d5421fd5779a21e33140fb10030e507065b",
+  "worker_all_file_manifest_sha256": "4126f2f20f10cee84f84feca1874a4559d69c2ad479cae20b7c175434dbb32ce",
+  "worker_final_patch_sha256": "6608aeeb54812492e8f870617f3398ca89bffdb4f7486ea49ba7f1300452d51c",
+  "worker_review_delta_sha256": "5d4c0892e7cde45462449235af013185daee73d4afff33d6e3d12d15f839b3fd",
+  "integration": {
+    "files": 48,
+    "reviewed_desktop_merges": 2,
+    "published_stop_fix_preserved": true,
+    "canonical": {
+      "exit": 0,
+      "log_sha256": "38a4833c9eca1d8f4bb34ceda1e6a8a1707a30a856804b2c2aa5679007821f6f",
+      "source_files_verified": 2093
+    }
+  },
+  "verification": {
+    "focused_engine": {
+      "passed": 309,
+      "failed": 0,
+      "ignored": 1,
+      "exit": 0,
+      "log_sha256": "bbadad991055bbb3675c2de87a7c10ef51798997d8fcb55a4b5f16ccbb8286f1"
+    },
+    "strict_clippy": {
+      "exit": 0,
+      "log_sha256": "f2704d7497203783fba5391da4e8ed4f700b638adc48d8429df73dd5c6f11122",
+      "command": "cargo clippy -p earph-engine --all-targets --locked -- -D warnings"
+    },
+    "engine_build": {
+      "exit": 0,
+      "log_sha256": "f4403412cb20dc7d8a0a94c08c9c8853e4bac9b3e8489158834f30512311ed97",
+      "command": "cargo build -p earph-engine --bin earph-engine --locked"
+    },
+    "formatter": {
+      "exit": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "command": "cargo fmt --all --check"
+    },
+    "independent_review": {
+      "sha256": "24d54351cd4a4c5b11b5fb44a35ec3ac26d5ec9daae35b4e7eaafcf840df1a6e",
+      "remaining_findings": 0
+    },
+    "macos_test_build": {
+      "failed_source": "0d658053f05bb12ab950b17aa9a5ceac788ad8e1",
+      "job_id": 136944407478,
+      "exit": 101,
+      "log_sha256": "55aa5e062a5ce43841e3af7fbf6c1db83a89a66567b7115681addc554c6eb6b7",
+      "cause": "SoftwareCapture was compiled for all tests, while its actual consumers are Linux-only.",
+      "fix": "Compile SoftwareCapture only for Linux tests, matching the real native DSD test module.",
+      "fixed_native_verification": null
+    }
+  },
+  "behavior": [
+    "One typed PCM, DSD, or network observation preserves existing PCM wire fields.",
+    "DSD source bits remain distinct from carrier frames.",
+    "Cancellation and takeover retain the original failed-close error and accepted prefix under the old identity.",
+    "Host adoption and current terminal adoption use distinct acknowledgements.",
+    "Queue backpressure and failed diagnostic writes retain bounded evidence."
+  ],
+  "limits": [
+    "The final worker binary belongs to its isolated source; integrated binaries need fresh provenance.",
+    "Scripted close failures prove ownership bookkeeping, not native stop-error physics.",
+    "Unwritten diagnostics remain nondurable through host lifetime only.",
+    "Public DSD Unmute remains blocked by endpoint qualification.",
+    "Core Audio DSD remains unsupported.",
+    "Older service IPC deadline failures remain retained; unchanged repeated services and final focused services passed."
+  ]
+}

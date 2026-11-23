@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "qualification": "device_discovery_current_properties_only",
+  "source": {
+    "commit": "fecf4030075285e89ffb47bbc819a9e50cc81c01",
+    "tree": "cf2984af2eef03ddc5e0586ceb776b27a95cd018",
+    "files": 1600,
+    "runtime_sha256": "8d4f1d6080e1b10a0ca9305d051b49e1bce8427d2da68b0dcb3dc165ab78b2e6",
+    "lock_sha256": "c71c1719cc616146274253131e2ea99d21046dcb100c05581591a379b15ed87c",
+    "build_profile": "dev"
+  },
+  "products": [
+    {
+      "artifact": "earph-engine",
+      "bytes": 23794224,
+      "sha256": "703eaeff4969333fbfed6cf0bccd7867f7a008f9ce7659507f89dae183a006c8"
+    },
+    {
+      "artifact": "earph-coreaudio",
+      "bytes": 2318656,
+      "sha256": "30ac4909b2e2c713890831689f41d80ef6edde0774129ac63b0369f8c85d37e2"
+    }
+  ],
+  "evidence": {
+    "archive_sha256": "6ad75f1994bbf10a8058c1fb3ede3cbe114f998aa947ff8d6525c0c892dc9ebd",
+    "manifest_sha256": "a1622074d76dbb624cc9e990952da7dcb936821c05da936dd4cb5ec65ca77321",
+    "metadata_ledger_sha256": "a3f975fedaeaa6d6cf07f888945fb69d687607a936b75695b9168d4d162534e4",
+    "logical_payloads": 211,
+    "regular_members": 212,
+    "metadata_members": 0
+  },
+  "verification": {
+    "exact_build_steps": 5,
+    "pure_tests_passed": 6,
+    "child_operations": 24,
+    "successful_child_exits": 22,
+    "expected_typed_rejections": 2,
+    "typed_error_codes": [
+      "ASSET_INVALID",
+      "CAPABILITY_UNSUPPORTED"
+    ],
+    "transport_operations": 20,
+    "all_transport_exits_zero": true,
+    "terminal_byte_replays": 2,
+    "source_snapshots_verified": 9,
+    "tool_records_per_snapshot": 17,
+    "original_owner_exit_code": 0,
+    "original_owner_cleanup_confirmed": true,
+    "fresh_owner_group_absent": true,
+    "bootstrap_matches_initial_state": true,
+    "playback_state_unchanged": true
+  },
+  "discovery": {
+    "backend": "core_audio",
+    "read_boundary": "core_audio_properties",
+    "advertised_entries": 6,
+    "list_complete": true,
+    "inspection_complete": true,
+    "property_failures": 0,
+    "unknown_top_level_property_count": 0,
+    "inventory_unchanged": true,
+    "device_properties_unchanged": true,
+    "owner_projection_matches_native": true,
+    "opened_identity_proof": false,
+    "physical_playback_proof": false,
+    "absence_qualified": false
+  },
+  "maximum_signal_attempts": 0,
+  "limits": [
+    "Advertised endpoints and current properties do not prove an opened output identity or physical playback.",
+    "No source start, output consent, Unmute, device property change, fixed output, or signal was requested.",
+    "Nullable properties remain unknown; equality checks preserve original nulls without promotion.",
+    "This selected dev build and six pure tests are not a full Mac canonical or CPU qualification.",
+    "Newer owner-fence and history changes are outside this exact fecf source qualification."
+  ],
+  "date_utc": "2026-11-19",
+  "review": {
+    "independent_verifier_exit": 0,
+    "root_final_inspection": "pass",
+    "safe_candidate_sha256": "7ccc0cc17bc7f1e775c52cf494259721c49406006a2b8efe4a6638f21241979e",
+    "verifier_proof_sha256": "940d24fb9ad2df7a1d4ec5bdd52332d02cbed335f25b13634ca36983cd37302f",
+    "root_final_inspection_sha256": "f3ee0cd3326efec21b2acf5737de4f7ac858bd9d3c0000b5a0f597d0252623ab"
+  },
+  "qualification_extends_to_later_commits": false,
+  "raw_device_values_included": false
+}

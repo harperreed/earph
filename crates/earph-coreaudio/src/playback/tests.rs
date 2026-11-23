@@ -6,7 +6,7 @@ use earph_core::audio::{ChannelLayout, MemoryBudget, PcmRepresentation};
 #[cfg(not(target_os = "macos"))]
 #[allow(unsafe_code)]
 #[path = "../../../earph-engine/tests/support/allocations.rs"]
-mod allocations;
+pub(super) mod allocations;
 
 #[test]
 #[cfg(not(target_os = "macos"))]
@@ -23,10 +23,17 @@ fn audio_storage_reports_the_actual_ring_once_without_heap_work() {
                 evidence_level: "owned_ring_without_sdk",
                 payload_preservation: "unverified",
                 downstream_transformations: "unknown",
+                queue_client_format: None,
             },
             state: OutputState::Prepared,
         };
         let callback_owner = output.producer.ring.clone();
+        let (timing, timing_counts) =
+            allocations::tracked(|| output.timing_observation(&mut []).unwrap());
+        assert_eq!(timing_counts, allocations::AllocationCounts::default());
+        assert_eq!(timing.availability, TimingAvailability::Unsupported);
+        assert_eq!(timing.queue_sample, None);
+        assert_eq!(timing.native_accuracy_ns, None);
         let (bytes, counts) = allocations::tracked(|| output.audio_storage_bytes().unwrap());
         assert_eq!(bytes, expected);
         assert_eq!(counts, allocations::AllocationCounts::default());
@@ -48,7 +55,7 @@ fn request(route: PlaybackRoute) -> OutputRequest {
         route,
     }
 }
-fn device() -> DeviceSnapshot {
+pub(super) fn device() -> DeviceSnapshot {
     let stream = StreamFormat {
         sample_rate_hz: 48000.0,
         format_id: u32::from_be_bytes(*b"lpcm"),
@@ -107,22 +114,22 @@ pub(super) fn block(position: u64, values: &[i64]) -> PcmBlock {
 fn strict_requires_both_observed_asbds_and_compatibility_reports_conversion() {
     let strict = request(PlaybackRoute::StrictInteger);
     let mut observed = device();
-    assert_eq!(negotiate(&strict, &observed).unwrap(), 6);
+    assert_eq!(negotiate_hal(&strict, &observed).unwrap(), 6);
     observed.output_streams[0].physical.bytes_per_frame = 8;
     assert_eq!(
-        negotiate(&strict, &observed).unwrap_err().code,
+        negotiate_hal(&strict, &observed).unwrap_err().code,
         ErrorCode::FidelityPolicyConflict
     );
     let compat = request(PlaybackRoute::Float32Compatibility);
-    assert!(negotiate(&compat, &observed).is_err());
+    assert!(negotiate_hal(&compat, &observed).is_err());
     let virtual_format = &mut observed.output_streams[0].virtual_format;
     virtual_format.format_flags = 9;
     virtual_format.bits_per_channel = 32;
     virtual_format.bytes_per_frame = 8;
     virtual_format.bytes_per_packet = 8;
-    assert_eq!(negotiate(&compat, &observed).unwrap(), 8);
+    assert_eq!(negotiate_hal(&compat, &observed).unwrap(), 8);
     virtual_format_for(&mut observed).sample_rate_hz = 44100.0;
-    assert!(negotiate(&compat, &observed).is_err());
+    assert!(negotiate_hal(&compat, &observed).is_err());
 }
 fn virtual_format_for(device: &mut DeviceSnapshot) -> &mut StreamFormat {
     &mut device.output_streams[0].virtual_format
@@ -337,6 +344,7 @@ fn native_progress_serializes_the_same_fault_word_without_changing_state_priorit
             evidence_level: "owned_ring_without_sdk",
             payload_preservation: "unverified",
             downstream_transformations: "unknown",
+            queue_client_format: None,
         },
         state: OutputState::Closed,
     };
@@ -468,12 +476,12 @@ fn compatibility_rejects_physical_rate_and_channel_conversion() {
     virtual_format.bytes_per_packet = 8;
     observed.output_streams[0].physical.sample_rate_hz = 44100.0;
     assert_eq!(
-        negotiate(&compat, &observed).unwrap_err().code,
+        negotiate_hal(&compat, &observed).unwrap_err().code,
         ErrorCode::FormatUnsupported
     );
     observed.output_streams[0].physical.sample_rate_hz = 48000.0;
     observed.output_streams[0].physical.channels_per_frame = 1;
-    assert!(negotiate(&compat, &observed).is_err());
+    assert!(negotiate_hal(&compat, &observed).is_err());
 }
 
 #[test]
@@ -573,4 +581,36 @@ fn prior_sdk_timestamps_are_unknown_after_fault_pause_or_shutdown() {
             .output_host_time_ticks,
         Some(123)
     );
+}
+
+#[test]
+fn system_accepts_source_rate_and_application_geometry_without_retuning_hardware() {
+    let mut input = request(PlaybackRoute::Float32Compatibility);
+    input.format =
+        PcmFormat::new(44100, ChannelLayout::Stereo, PcmRepresentation::Signed16).unwrap();
+    input.buffer_frames = 64;
+    input.ring_frames = 256;
+    let mut observed = device();
+    observed.buffer_frames = 512;
+    assert_eq!(negotiate(&input, &observed).unwrap(), 8);
+    input.route = PlaybackRoute::StrictInteger;
+    assert_eq!(
+        negotiate(&input, &observed).unwrap_err().code,
+        ErrorCode::FidelityPolicyConflict
+    );
+}
+
+#[test]
+fn system_detects_device_changes_even_before_listener_delivery() {
+    let opened = device();
+    assert!(system::same_device_configuration(&opened, &opened));
+    let mut current = opened.clone();
+    current.buffer_frames = 512;
+    assert!(!system::same_device_configuration(&opened, &current));
+    current = opened.clone();
+    current.output_streams[0].virtual_format.sample_rate_hz = 44100.0;
+    assert!(!system::same_device_configuration(&opened, &current));
+    current = opened.clone();
+    current.object_id += 1;
+    assert!(!system::same_device_configuration(&opened, &current));
 }

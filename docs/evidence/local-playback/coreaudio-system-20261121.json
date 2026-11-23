@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "status": "system_playback_software_lifecycle_passed_listening_unconfirmed",
+  "source": {
+    "kind": "working_tree_snapshot",
+    "parent_commit": "23182537de3e5a0497c8ba560dd14a437dc34ba9",
+    "source_commit": null,
+    "archive_sha256": "05f1910563866a434cf5e8327ae4ffb270c6f0a921c71a782ea7ab6f0e48b193"
+  },
+  "native": {
+    "receipt_sha256": "540e4ac88a5716f56e4fda37903563640f99496cac4026db3a2ee1b5d7913e04",
+    "device_rate_hz": 48000,
+    "device_buffer_frames": 512,
+    "client_rate_hz": 44100,
+    "source_representation": "signed16_stereo",
+    "queue_representation": "interleaved_float32",
+    "source_frames": 72000,
+    "source_pcm": "all_zero",
+    "source_sha256": "3c0497ef756a8c98ef6643ae3e614d03451f432ce6e8ad1aadad982bce2aff12",
+    "full_device_before_after_equal": true,
+    "compiled_products_unchanged": 4,
+    "lifecycle": [
+      "muted_preparation",
+      "unmute",
+      "pause",
+      "seek",
+      "resume",
+      "natural_EOF",
+      "second_session_mute",
+      "second_session_stop",
+      "owner_shutdown"
+    ],
+    "close_confirmed": true
+  },
+  "timing_comparison": {
+    "receipt_sha256": "12e69e3c328da12a7b711e8d4e6c535564625aa99fc917b607bfc1135185aa3b",
+    "engine_sha256": "a367a056f7ad0c0dc19fe9018778d5d3f87ac70d1ab4cf3a029f00bda247c0c8",
+    "suffix_client_frames": 60000,
+    "nominal_suffix_duration_ns": "1360544218",
+    "arms": [
+      {
+        "buffer_frames": 256,
+        "period_frames": 64,
+        "poll_ms": 50,
+        "native_start_attempts": 1,
+        "resume_to_observed_idle_ns": "2851411375",
+        "observed_acceptance_slope_frames_per_second": 23935.38
+      },
+      {
+        "buffer_frames": 4096,
+        "period_frames": 64,
+        "poll_ms": 50,
+        "native_start_attempts": 1,
+        "resume_to_observed_idle_ns": "1681350792",
+        "observed_acceptance_slope_frames_per_second": 44077.67
+      }
+    ],
+    "boundary": "Owner-published state and adapter acceptance, bracketed by CLI observations."
+  },
+  "desktop_change": {
+    "default_period_frames": 64,
+    "default_buffer_frames": 4096,
+    "explicit_choices_preserved": true,
+    "foundation_presentation_regression": "Old default failed; corrected default passed on macOS.",
+    "final_ui_and_repository_checks": "pass"
+  },
+  "limits": [
+    "Generated silence does not establish acoustic speed, pitch, DAC preservation, or underrun counts.",
+    "Observed acceptance slope is not SDK delivery or audible playback.",
+    "The separate native lifecycle and packaged Engine comparison use distinct executable hashes from the same source snapshot.",
+    "During isolated qualification, the existing user application and Engine remained unchanged.",
+    "Development candidates remain unsigned and unreleased."
+  ],
+  "desktop_validation": {
+    "source_archive_sha256": "f65d15dcc5c9ddeea792d97fdb41804feb3a3220a476487ff29fc3ab78ddc17d",
+    "native_package_receipt_sha256": "a701341eb3236132a78a874997f93e44c8890c37abc29b4e7ee2ba705d7f78ae",
+    "native_ui_checks_passed": 6,
+    "swift_compiler_warnings": 0,
+    "desktop_sha256": "4e1b91e94f04eb1fa7af0788e509a6ef4184458b35150c0cdc79cbf8694083ad",
+    "engine_sha256": "f406a0f847a068fbf48653ac59b7100d92f6dee4ddff8a6d51229f44a1b172fc",
+    "package_manifest_sha256": "0d5de5983ccbee4aea523b4a39835a450da06e64cb28236dafe3eac7ab77048a",
+    "canonical_check": "scripts/check passed",
+    "canonical_log_sha256": "d27a6c92207321c982164857e9b133020e941697ebe03c75bafe695025205556",
+    "backend_runtime": "Unchanged from the native-qualified source snapshot."
+  },
+  "live_playback": {
+    "engine_sha256": "f406a0f847a068fbf48653ac59b7100d92f6dee4ddff8a6d51229f44a1b172fc",
+    "handover_receipt_sha256": "f1a049c5b1a9f42cf80b287ca71c1ea72dc6b88db666c4c3cf4fce80e3352e3c",
+    "playing_observation_sha256": "d7e4ba757a0cf1cad478aa150ef03dfa20c58ece1b1ee551a17d126eaa79f8ee",
+    "final_state_receipt_sha256": "4dcc34cd4b6fbb077e862c3d813337dc6276007f290994595e8044b038974e48",
+    "handover_queue_preserved": true,
+    "old_window_preserved": true,
+    "source_rate_hz": 44100,
+    "device_rate_hz": 48000,
+    "period_frames": 64,
+    "buffer_frames": 4096,
+    "software_gain_db": -30,
+    "source_frames": 11543616,
+    "submitted_frames": 11543616,
+    "accepted_frames": 11543616,
+    "native_start_attempts": 1,
+    "nonzero_software_pcm_observed": true,
+    "final_transport": "idle",
+    "final_muted": true,
+    "engine_error": null,
+    "close_confirmed": true,
+    "acoustic_acceptance": "not_confirmed"
+  }
+}
