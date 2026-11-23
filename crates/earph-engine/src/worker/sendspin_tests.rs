@@ -388,8 +388,15 @@ static DEVICE_LATENCY_FRAMES: AtomicUsize = AtomicUsize::new(0);
 const DEVICE_LATENCY_BASIS: &str = "test_output_clock_plus_device_latency";
 /// When the clocked output plays each first audible frame after silence.
 static AUDIBLE_AT: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
+/// The most frames that the running clocked output held right after it accepted an audible frame.
+static PEAK_HELD_FRAMES: AtomicUsize = AtomicUsize::new(0);
+/// The clocked output reports this many held frames more than its buffer holds.
+/// An ALSA delay can count frames that already left the buffer for the device.
+static REPORTED_EXTRA_FRAMES: AtomicUsize = AtomicUsize::new(0);
 const CLOCK_PERIOD_FRAMES: u64 = 960;
 const CLOCK_BUFFER_FRAMES: u64 = 3840;
+/// Idle silence keeps three periods in the clocked output. Scheduled audio stays within the same depth.
+const CLOCK_DEPTH_FRAMES: u64 = 2880;
 
 /// Models an output with a clock, as Core Audio behaves. The file device has none.
 /// A write after two accepted periods requests the start, and the output runs `start` later.
@@ -453,6 +460,11 @@ impl OutputClock {
             self.silent = silent;
             self.accepted += 1;
         }
+        if self.running() && audible(block, offset, frames) {
+            // The frames played since this write only lower the count, so the peak is no overestimate.
+            let held = self.accepted - self.played().unwrap_or(self.accepted);
+            PEAK_HELD_FRAMES.fetch_max(held as usize, Ordering::AcqRel);
+        }
         if let Some(at) = self.running_at {
             let latency = DEVICE_LATENCY_FRAMES.load(Ordering::Acquire) as u64;
             let mut audible_at = AUDIBLE_AT.lock().unwrap();
@@ -462,10 +474,11 @@ impl OutputClock {
         }
     }
     fn counters(&mut self) -> Result<output::Counters, EngineError> {
+        let extra = REPORTED_EXTRA_FRAMES.load(Ordering::Acquire) as u64;
         Ok(output::Counters {
             submitted: self.accepted,
             consumed: None,
-            restart_cursor: Some(self.played()?),
+            restart_cursor: Some(self.played()?.saturating_sub(extra)),
             delay: None,
             basis: "test_output_clock",
         })
@@ -608,11 +621,15 @@ fn unity_bench() -> Bench {
 }
 /// Starts a bench at unity gain whose output has a clock and runs this long after its start request.
 fn clocked_bench(start_ms: usize) -> Bench {
+    clocked_bench_with_period(start_ms, CLOCK_PERIOD_FRAMES)
+}
+/// As `clocked_bench`, for a source that writes periods of this size. The idle depth is three of them.
+fn clocked_bench_with_period(start_ms: usize, period_frames: u64) -> Bench {
     CLOCK_START_MS.store(start_ms, Ordering::Release);
     let mut settings = settings("capture");
     settings.snapshot.gain_ramp_frames = 0;
     let output = settings.snapshot.output.as_mut().unwrap();
-    output.period_frames = CLOCK_PERIOD_FRAMES as u32;
+    output.period_frames = period_frames as u32;
     output.buffer_frames = CLOCK_BUFFER_FRAMES as u32;
     Bench::start(settings)
 }
@@ -1271,8 +1288,12 @@ fn a_slow_starting_output_runs_on_idle_silence_before_each_anchor_so_audio_start
     let start = peer.server_now_us() + LEAD.as_micros() as i64;
     stream(&mut peer, &bench, start, &first, PART_FRAMES);
     assert_eq!(bench.observed().timing.anchors, 1);
-    // A full clear stops the output, so the next audio needs a running output again.
-    peer.clear_stream(None);
+    // A stream end releases the output, so the next stream needs a running output again.
+    peer.end_stream();
+    peer.serve_until("the source awaits another stream", || {
+        bench.observed().phase == SendspinTransportPhase::AwaitingStream
+    });
+    peer.start_stream();
     let second_due = Instant::now() + LEAD;
     let restart = peer.server_now_us() + LEAD.as_micros() as i64;
     stream(&mut peer, &bench, restart, &second, 2 * PART_FRAMES);
@@ -1292,7 +1313,7 @@ fn a_slow_starting_output_runs_on_idle_silence_before_each_anchor_so_audio_start
     assert!((300_000..=400_000).contains(&lead), "first lead {lead}");
     let least = streaming.timing.min_first_lead_us.expect("a least lead");
     assert!((300_000..=lead).contains(&least), "least lead {least}");
-    // After the clear the first decision waited for the output, which takes 150 ms to run.
+    // In the second stream the first decision waited for the output, which takes 150 ms to run.
     let waited = streaming.timing.first_wait_us.expect("a first wait");
     assert!((100_000..=300_000).contains(&waited), "first wait {waited}");
     assert!(streaming.timing.max_first_wait_us >= waited);
@@ -1444,7 +1465,7 @@ fn a_reported_device_latency_moves_audio_earlier_so_it_leaves_the_device_on_time
     let first_due = Instant::now() + LEAD;
     let start = peer.server_now_us() + LEAD.as_micros() as i64;
     stream(&mut peer, &bench, start, &first, PART_FRAMES);
-    // A full clear reopens the output, and the reopened output reports its latency again.
+    // A full clear keeps the output running. The next anchor counts the latency behind the held frames again.
     peer.clear_stream(None);
     let second_due = Instant::now() + LEAD;
     let restart = peer.server_now_us() + LEAD.as_micros() as i64;
@@ -1496,4 +1517,134 @@ fn a_server_lead_shorter_than_the_device_latency_drops_the_overdue_audio() {
         audible_span(&capture) == &pcm[dropped as usize * 4..],
         "the capture is the audio without its first {dropped} frames"
     );
+}
+
+#[test]
+fn a_full_clear_keeps_the_output_running_and_the_next_audio_needs_no_restart() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_full_clear_keeps_the_output_running_and_the_next_audio_needs_no_restart",
+    ) else {
+        return;
+    };
+    // The lead is shorter than the 150 ms start, so only an output that kept running plays this audio on time.
+    const LEAD: Duration = Duration::from_millis(100);
+    let bench = clocked_bench(150);
+    let mut peer = streaming_peer(&bench);
+    let [first, second, third, _] = parts();
+    let first_due = Instant::now() + Duration::from_millis(400);
+    let start = peer.server_now_us() + 400_000;
+    stream(&mut peer, &bench, start, &first, PART_FRAMES);
+    // The output still holds the end of the first part. A track skip looks like this.
+    peer.clear_stream(None);
+    let second_due = Instant::now() + LEAD;
+    let restart = peer.server_now_us() + LEAD.as_micros() as i64;
+    stream(&mut peer, &bench, restart, &second, 2 * PART_FRAMES);
+    let skipped = bench.observed().timing;
+    assert_eq!(skipped.anchors, 2);
+    assert_eq!(skipped.dropped_frames, 0, "the output never stopped");
+    assert_eq!(skipped.underruns, 0);
+    let waited = skipped.first_wait_us.expect("a first wait");
+    assert!(waited <= 20_000, "first wait {waited}");
+    // The cleared audio that the output held played on. State shows how much, within the depth.
+    let held = skipped.clear_held_frames.expect("a running output reports");
+    assert!(
+        (1..=CLOCK_DEPTH_FRAMES).contains(&held),
+        "the clear left {held} frames to play on"
+    );
+    assert_eq!(skipped.max_clear_held_frames, held);
+    // The scheduled audio played out, so this clear meets an output that holds only idle silence.
+    let starved = Instant::now() + Duration::from_millis(300);
+    peer.serve_until("the server sends nothing", || Instant::now() >= starved);
+    peer.clear_stream(None);
+    let third_due = Instant::now() + LEAD;
+    let restart = peer.server_now_us() + LEAD.as_micros() as i64;
+    stream(&mut peer, &bench, restart, &third, 3 * PART_FRAMES);
+    let streaming = bench.observed();
+    assert_eq!(streaming.phase, SendspinTransportPhase::Streaming);
+    assert_eq!(streaming.timing.anchors, 3);
+    assert_eq!(streaming.timing.dropped_frames, 0);
+    assert_eq!(streaming.timing.underruns, 0);
+    assert_eq!(
+        streaming.timing.clear_held_frames,
+        Some(0),
+        "idle silence is no cleared audio"
+    );
+    assert_eq!(streaming.timing.max_clear_held_frames, held);
+    assert_eq!(streaming.timing.output_discarded_frames, 0);
+    assert_audible_on_time(&[first_due, second_due, third_due]);
+    let (capture, closed) = finish(peer, bench, &directory);
+    // The file keeps every accepted frame, so the audio that played on after the first clear is there too.
+    assert_capture(&capture, &[&first, &second, &third], closed);
+}
+
+#[test]
+fn a_running_output_holds_at_most_the_idle_depth_of_scheduled_audio() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_running_output_holds_at_most_the_idle_depth_of_scheduled_audio",
+    ) else {
+        return;
+    };
+    let bench = clocked_bench(20);
+    let mut peer = streaming_peer(&bench);
+    let [first, second, ..] = parts();
+    let pcm = [first, second].concat();
+    // The peer sends 400 ms of audio within 80 ms, far faster than the output plays it.
+    let start = peer.server_now_us() + 200_000;
+    stream(&mut peer, &bench, start, &pcm, 2 * PART_FRAMES);
+    let peak = PEAK_HELD_FRAMES.load(Ordering::Acquire) as u64;
+    assert!(peak > 0, "the seam saw audible writes");
+    assert!(
+        peak <= CLOCK_DEPTH_FRAMES,
+        "the output held {peak} frames; its buffer takes {CLOCK_BUFFER_FRAMES}"
+    );
+    let timing = bench.observed().timing;
+    assert_eq!(timing.anchors, 1, "the bound moves no audio");
+    assert_eq!(timing.dropped_frames, 0);
+    assert_eq!(timing.underruns, 0);
+    assert_eq!(timing.output_discarded_frames, 0);
+    // This stream end meets an output that still holds audio. The release drops it, and state counts it.
+    peer.end_stream();
+    peer.serve_until("the source awaits another stream", || {
+        bench.observed().phase == SendspinTransportPhase::AwaitingStream
+    });
+    let discarded = bench.observed().timing.output_discarded_frames;
+    assert!(
+        (1..=CLOCK_DEPTH_FRAMES).contains(&discarded),
+        "the stream end discarded {discarded} frames"
+    );
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_eq!(closed.clear_held_frames, None, "no full clear arrived");
+    // The file keeps every accepted frame, so it holds the discarded frames too.
+    assert_capture(&capture, &[&pcm], closed);
+}
+
+#[test]
+fn a_buffer_no_larger_than_the_depth_is_its_own_bound_so_a_generous_report_starves_no_audio() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_buffer_no_larger_than_the_depth_is_its_own_bound_so_a_generous_report_starves_no_audio",
+    ) else {
+        return;
+    };
+    // The output reports 20 ms more than its buffer holds.
+    REPORTED_EXTRA_FRAMES.store(960, Ordering::Release);
+    // Three periods of 1280 frames make the depth equal to the 3840-frame buffer.
+    let bench = clocked_bench_with_period(20, 1280);
+    let mut peer = streaming_peer(&bench);
+    let [first, second, ..] = parts();
+    let pcm = [first, second].concat();
+    // The peer sends 400 ms of audio within 80 ms, far faster than the output plays it.
+    let start = peer.server_now_us() + 200_000;
+    stream(&mut peer, &bench, start, &pcm, 2 * PART_FRAMES);
+    // A bound at the depth would count the extra frames and keep the buffer at three quarters.
+    let peak = PEAK_HELD_FRAMES.load(Ordering::Acquire) as u64;
+    assert!(
+        peak > CLOCK_BUFFER_FRAMES - 240,
+        "the output held at most {peak} of its {CLOCK_BUFFER_FRAMES} frames"
+    );
+    let timing = bench.observed().timing;
+    assert_eq!(timing.anchors, 1);
+    assert_eq!(timing.dropped_frames, 0);
+    assert_eq!(timing.underruns, 0);
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[&pcm], closed);
 }

@@ -197,7 +197,7 @@ impl LocalPlaybackObservation {
 pub enum CurrentPlaybackObservation {
     Local(LocalPlaybackObservation),
     Network(Box<crate::network_source::NetworkPlaybackObservation>),
-    Sendspin(crate::sendspin_source::SendspinSourceObservation),
+    Sendspin(Box<crate::sendspin_source::SendspinSourceObservation>),
 }
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct PlaybackState(pub Option<CurrentPlaybackObservation>);
@@ -218,13 +218,13 @@ impl From<crate::network_source::NetworkPlaybackObservation> for PlaybackState {
 }
 impl From<crate::sendspin_source::SendspinSourceObservation> for PlaybackState {
     fn from(value: crate::sendspin_source::SendspinSourceObservation) -> Self {
-        Self(Some(CurrentPlaybackObservation::Sendspin(value)))
+        Self(Some(CurrentPlaybackObservation::Sendspin(Box::new(value))))
     }
 }
 impl PlaybackState {
     pub fn sendspin(&self) -> Option<&crate::sendspin_source::SendspinSourceObservation> {
         match &self.0 {
-            Some(CurrentPlaybackObservation::Sendspin(value)) => Some(value),
+            Some(CurrentPlaybackObservation::Sendspin(value)) => Some(value.as_ref()),
             _ => None,
         }
     }

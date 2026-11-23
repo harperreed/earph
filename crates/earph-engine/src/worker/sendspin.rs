@@ -1,5 +1,5 @@
 // ABOUTME: Plays one Sendspin player connection into the worker's native output.
-// ABOUTME: Anchors each stream to its server timestamps, keeps the output running on idle silence, and reports unqualified timing.
+// ABOUTME: Anchors each stream to its server timestamps, keeps the output running through gaps and clears, and reports unqualified timing.
 use super::*;
 use crate::sendspin_schedule::{
     ANCHOR_PAD_LIMIT_US, ChunkFacts, Correction, Decision, LatencyAdmission, MonotonicClamp,
@@ -30,7 +30,9 @@ const REQUIRED_LEAD_TIME_MS: u64 = 150;
 /// The server should keep this much audio queued at the player. Admitted, not measured.
 const MIN_BUFFER_MS: u32 = 200;
 const SAMPLE_RATE_HZ: u32 = 48000;
-/// Idle silence keeps this many periods in the output, and at least `IDLE_DEPTH_MIN_MS`.
+/// A running output holds this many periods, and at least `IDLE_DEPTH_MIN_MS`, of idle silence or scheduled audio.
+/// A full clear leaves the held audio to play out, so this depth bounds how long cleared audio plays on.
+/// An output whose buffer is no larger holds at most its buffer instead.
 /// Core Audio starts after two accepted periods. Its hardware route fails when a callback finds less than one.
 /// Admitted, not measured.
 const IDLE_DEPTH_PERIODS: u32 = 3;
@@ -219,9 +221,17 @@ pub(super) struct SendspinPlayback {
     /// Whether the output accepted frames since it was last prepared.
     /// ALSA fails a delay query on an output that holds none.
     primed: bool,
-    /// Whether the output accepted scheduled frames since it was last prepared.
-    /// Otherwise it holds only idle silence, and a full clear has nothing to drop there.
-    scheduled: bool,
+    /// The value of `submitted_frames` when the output last accepted a scheduled frame.
+    /// Every frame accepted since then is idle silence.
+    scheduled_until: u64,
+    /// A running output holds at most this many frames of scheduled audio.
+    /// `None` means that the output's own buffer is the bound: it is no larger than the idle depth.
+    scheduled_depth: Option<u64>,
+    /// Scheduled frames that the output still held at the latest full clear. They played on.
+    clear_held_frames: Option<u64>,
+    max_clear_held_frames: u64,
+    /// Scheduled frames that the output still held when a stream end released it. They never played.
+    output_discarded_frames: u64,
     delay_basis: Option<&'static str>,
     /// Decides when a live stream without due audio owes the output idle silence.
     pacer: SilencePacer,
@@ -290,6 +300,9 @@ impl SendspinPlayback {
         let depth = (config.period_frames.saturating_mul(IDLE_DEPTH_PERIODS))
             .max(SAMPLE_RATE_HZ / 1000 * IDLE_DEPTH_MIN_MS)
             .min(config.buffer_frames);
+        // A buffer no larger than the depth bounds the held audio by itself.
+        // A bound on the report would then only starve an output whose report counts frames behind its buffer.
+        let scheduled_depth = (depth < config.buffer_frames).then_some(u64::from(depth));
         let pacer = SilencePacer::new(SAMPLE_RATE_HZ, depth.into()).map_err(|_| SCHEDULE)?;
         let output = output::open(config, format, epochs)?;
         #[cfg(all(test, target_os = "linux"))]
@@ -344,7 +357,11 @@ impl SendspinPlayback {
             previous_end: None,
             silence: 0,
             primed: false,
-            scheduled: false,
+            scheduled_until: 0,
+            scheduled_depth,
+            clear_held_frames: None,
+            max_clear_held_frames: 0,
+            output_discarded_frames: 0,
             delay_basis: None,
             pacer,
             idle_before: None,
@@ -457,6 +474,9 @@ impl SendspinPlayback {
                 inserted_silence_frames: facts.inserted_silence_frames,
                 idle_silence_frames: self.idle_silence_frames,
                 dropped_frames: facts.dropped_frames,
+                clear_held_frames: self.clear_held_frames,
+                max_clear_held_frames: self.max_clear_held_frames,
+                output_discarded_frames: self.output_discarded_frames,
                 first_lead_us: facts.first_lead_us,
                 min_first_lead_us: facts.min_first_lead_us,
                 first_wait_us: facts.first_wait_us,
@@ -533,7 +553,7 @@ impl SendspinPlayback {
                 let available = lease.player_available();
                 match self.reducer.player(event, available, written)? {
                     TimelineAction::Started => self.unanchor(),
-                    // A full clear also drops the audio that the output still holds.
+                    // A full clear cannot retract the audio that the output already holds.
                     TimelineAction::Cleared(_) if full_clear => self.halt(false)?,
                     TimelineAction::Cleared(_) => self.retract(written)?,
                     _ => {}
@@ -583,27 +603,71 @@ impl SendspinPlayback {
         }
         Ok(())
     }
-    /// Drops unplayed audio and reprepares the output for other audio.
-    /// An output that holds only idle silence keeps running unless `release` stops it.
+    /// Drops the audio that has not reached the output, and makes the next chunk anchor again.
+    /// A full clear keeps the output running, because a restart costs more than the server's head start.
+    /// The audio that the output already holds then plays out, and idle silence follows it.
+    /// The next anchor counts those held frames as its delay.
+    /// `release` stops the output instead and drops what it holds: nothing feeds it between streams.
     fn halt(&mut self, release: bool) -> Result<(), EngineError> {
         self.pending = None;
         self.release()?;
         self.unanchor();
-        if !self.primed || (!release && !self.scheduled) {
+        let held = self.held_scheduled_frames();
+        if !release {
+            return match held {
+                Ok(held) => {
+                    self.clear_held_frames = held;
+                    self.max_clear_held_frames = self.max_clear_held_frames.max(held.unwrap_or(0));
+                    Ok(())
+                }
+                // A starved output underran before this clear. Its recovery prepares it again.
+                Err(error) => self.recover(error),
+            };
+        }
+        if !self.primed {
             // A prepared output that accepted no frame holds nothing to drop.
-            // Idle silence needs no drop either, and a restart would delay the next audio.
             return Ok(());
+        }
+        if let Ok(Some(held)) = held {
+            self.output_discarded_frames += held;
         }
         match self.output.discard(self.settings.snapshot.epochs) {
             Ok(()) => {
                 self.primed = false;
-                self.scheduled = false;
                 self.pacer.reset();
                 Ok(())
             }
             // A starved output underran before this halt. Its recovery prepares it again.
             Err(error) => self.recover(error),
         }
+    }
+    /// Returns the scheduled frames that the output still holds, without the idle silence behind them.
+    /// `None` means no fact: only a running output reports what it holds.
+    fn held_scheduled_frames(&mut self) -> Result<Option<u64>, EngineError> {
+        if !self.primed {
+            return Ok(Some(0));
+        }
+        if !self.output.is_running() {
+            return Ok(None);
+        }
+        let idle_tail = self.submitted_frames - self.scheduled_until;
+        Ok(self
+            .held_frames()?
+            .map(|held| held.saturating_sub(idle_tail)))
+    }
+    /// Returns how many scheduled frames a running output takes before it holds its depth.
+    /// More would only wait there, and a full clear would leave all of it to play on.
+    /// `None` means no bound: the buffer is the bound, the output does not run yet, or it reports no held frames.
+    fn room(&mut self) -> Result<Option<usize>, EngineError> {
+        let Some(depth) = self.scheduled_depth else {
+            return Ok(None);
+        };
+        if !self.output.is_running() {
+            return Ok(None);
+        }
+        Ok(self
+            .held_frames()?
+            .map(|held| usize::try_from(depth.saturating_sub(held)).unwrap_or(usize::MAX)))
     }
     /// Reprepares the output after an underrun and makes the unwritten audio anchor again.
     /// Idle silence keeps a running output fed, so only a stalled worker starves it.
@@ -614,7 +678,6 @@ impl SendspinPlayback {
             return Err(error);
         }
         self.primed = false;
-        self.scheduled = false;
         self.pacer.reset();
         self.underruns += 1;
         let unwritten = self.pending.take().map_or(0, |(offset, end)| end - offset);
@@ -771,12 +834,18 @@ impl SendspinPlayback {
     }
     /// Moves the next span of scheduled silence or received samples through gain into the period.
     /// Falls back to idle silence when the scheduler has neither.
+    /// Returns false while a running output already holds its depth.
     fn fill(&mut self, mapping: Option<UsableMapping>) -> Result<bool, EngineError> {
         self.idle_before = None;
         if self.silence == 0 && !self.schedule(mapping)? {
             return self.idle();
         }
-        let capacity = self.period.capacity_frames();
+        let capacity = match self.room()? {
+            // The output holds its depth. The scheduled frames wait here, where a clear can still drop them.
+            Some(0) => return Ok(false),
+            Some(room) => self.period.capacity_frames().min(room),
+            None => self.period.capacity_frames(),
+        };
         self.span = if self.silence > 0 {
             Span::Silence
         } else {
@@ -850,7 +919,7 @@ impl SendspinPlayback {
         self.pending = Some((0, frames));
         Ok(true)
     }
-    /// Writes at most one span. Returns false when neither audio nor idle silence is due.
+    /// Writes at most one span. Returns false when the output needs neither audio nor idle silence now.
     fn write(&mut self, mapping: Option<UsableMapping>) -> Result<bool, EngineError> {
         if self.pending.is_none() && !self.fill(mapping)? {
             return Ok(false);
@@ -865,7 +934,7 @@ impl SendspinPlayback {
                 if self.span == Span::Idle {
                     self.idle_silence_frames += frames as u64;
                 } else {
-                    self.scheduled = true;
+                    self.scheduled_until = self.submitted_frames;
                 }
                 self.pending = (offset + frames < end).then_some((offset + frames, end));
             }

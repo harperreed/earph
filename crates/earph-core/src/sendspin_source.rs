@@ -58,6 +58,17 @@ pub struct SendspinTiming {
     pub idle_silence_frames: u64,
     /// Received frames that arrived too late and never reached the output.
     pub dropped_frames: u64,
+    /// Scheduled frames that the output still held at the latest full clear.
+    /// The output kept running, so these frames of the cleared audio played on.
+    /// `None` means no full clear yet, or an output that reported no held frames.
+    /// The device latency lies behind these frames and plays out as well.
+    pub clear_held_frames: Option<u64>,
+    /// The most frames that a full clear left to play on since this source started.
+    pub max_clear_held_frames: u64,
+    /// Scheduled frames that the output still held when a stream end or a lost player role released it.
+    /// The release dropped them, and no other counter holds them.
+    /// Frames behind an unknown hold are not counted.
+    pub output_discarded_frames: u64,
     /// The head start of the first chunk after the latest stream start, clear, underrun, long gap, or idle silence.
     /// It is the chunk's local target minus the time the source first saw it. No output delay is subtracted.
     /// The schedule needs more than the backend delay, or it drops the difference as late.
@@ -98,6 +109,9 @@ impl SendspinTiming {
         inserted_silence_frames: 0,
         idle_silence_frames: 0,
         dropped_frames: 0,
+        clear_held_frames: None,
+        max_clear_held_frames: 0,
+        output_discarded_frames: 0,
         first_lead_us: None,
         min_first_lead_us: None,
         first_wait_us: None,
@@ -166,6 +180,9 @@ mod tests {
                     "inserted_silence_frames": 0,
                     "idle_silence_frames": 0,
                     "dropped_frames": 0,
+                    "clear_held_frames": null,
+                    "max_clear_held_frames": 0,
+                    "output_discarded_frames": 0,
                     "first_lead_us": null,
                     "min_first_lead_us": null,
                     "first_wait_us": null,
@@ -185,6 +202,9 @@ mod tests {
             start_error_us: Some(-40),
             last_error_us: Some(125),
             max_abs_error_us: 125,
+            clear_held_frames: Some(1440),
+            max_clear_held_frames: 1500,
+            output_discarded_frames: 37,
             first_lead_us: Some(360_000),
             min_first_lead_us: Some(-12_000),
             first_wait_us: Some(410_000),
@@ -201,6 +221,9 @@ mod tests {
         assert_eq!(timing["underruns"], 1);
         assert_eq!(timing["start_error_us"], -40);
         assert_eq!(timing["last_error_us"], 125);
+        assert_eq!(timing["clear_held_frames"], 1440);
+        assert_eq!(timing["max_clear_held_frames"], 1500);
+        assert_eq!(timing["output_discarded_frames"], 37);
         assert_eq!(timing["first_lead_us"], 360_000);
         assert_eq!(timing["min_first_lead_us"], -12_000);
         assert_eq!(timing["first_wait_us"], 410_000);
