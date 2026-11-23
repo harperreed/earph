@@ -264,3 +264,151 @@ With no named output, `play` uses the only listed output and refuses to pick bet
 Package candidates bundle `earph`; no Mac package with it has been built or installed.
 `earph seek` and the device-rate display remain unverified on a Mac output.
 Use `earph` for Engine regression checks.
+
+## Requirement reconciliation
+
+This section records step 6 of the integration order, done on November 23, 2026 against source `93133c7`.
+It compares each first-release requirement in [requirements.json](../../requirements.json) with code, tests, and recorded evidence.
+The reconciliation read source and evidence; it ran no cargo build and no test suite.
+A source reading supports an implementation label. It supports no verification label.
+
+### Label rules
+
+`implemented` means every clause of the requirement has code, tests, and at least one recorded run.
+`in_progress` means code exists, and one or more clauses have no code or no reachable entry point.
+`partial` means recorded evidence covers part of the acceptance scenario.
+`pass` requires the complete acceptance scenario on its named environments.
+No requirement moved to `pass`.
+A requirement with software evidence and a physical gate stays `partial`; the table names its gate.
+The catalog value `blocked` stays unused, because every gated requirement also has recorded software evidence.
+
+### Counts
+
+The catalog holds 59 first-release requirements. Only `ARCH-06` is complete, before and after.
+
+| Implementation status | Before | After |
+|---|---|---|
+| `implemented` | 4 | 25 |
+| `in_progress` | 29 | 33 |
+| `not_started` | 26 | 1 |
+
+| Verification status | Before | After |
+|---|---|---|
+| `pass` | 1 | 1 |
+| `partial` | 32 | 56 |
+| `not_run` | 26 | 2 |
+
+Thirty-six requirements changed a label. Twenty-five of them carried `not_started` while tested code and evidence already existed.
+`REL-04` stays `not_started`. `SRC-05` is `in_progress` with `not_run`, because no record covers queue authority.
+
+### Open requirements
+
+Gap kinds: (a) software work we can do now; (b) needs a physical setup or Doctor Biz; (c) needs signing material or another approval.
+A row with two letters has both gaps. The first letter is the gap that blocks next.
+
+| ID | Status | Gap | Kind |
+|---|---|---|---|
+| `ARCH-01` | implemented / partial | No check proves that transport libraries stay off the playback worker. | a |
+| `ARCH-02` | in_progress / partial | No run compares the same commands across GUI, CLI, Rust, Swift, and Kotlin (AC-02). The foreign bindings lack cancellation. | a |
+| `ARCH-03` | in_progress / partial | The owner lock covers one runtime directory, not one output. `earph` and the desktop app use separate directories. | a |
+| `ARCH-04` | implemented / partial | PCM comparison on a real route and a DSD hardware route remain open. | b |
+| `ARCH-05` | in_progress / partial | The playback worker allocates and locks. Only prepared processing is measured as allocation-free. | a |
+| `ARCH-07` | in_progress / partial | Every schema has one version. No migration path and no older-version fixture exist. | a |
+| `PLAY-01` | implemented / partial | No AC-08 record with source hashes exists. A bad later entry may fail the whole start ⚠️ (source reading, untested). | a |
+| `PLAY-02` | implemented / partial | No AC-09 timeline record exists. `earph seek` is unverified on a Mac output. | a, b |
+| `PLAY-03` | implemented / partial | Gapless is exact at the ALSA capture boundary only. Core Audio and hardware joins are unqualified. | b |
+| `PLAY-04` | in_progress / partial | A queue with a rate or format change refuses to start. No muted reconfiguration exists. | a |
+| `PLAY-05` | in_progress / partial | Sendspin refuses every handoff with busy. No test delivers old Sendspin chunks to a new session. | a |
+| `PLAY-06` | implemented / partial | No test kills the owner during playback. AC-14 needs two physical outputs. | a, b |
+| `PLAY-07` | in_progress / partial | Public DSD submission is refused in code until an endpoint is qualified. Core Audio has no DSD output. | b, a |
+| `SRC-01` | in_progress / partial | No shipped command starts the renderer. SSDP is Linux-only. The AC-15 controller matrix is incomplete. | a |
+| `SRC-02` | in_progress / partial | The player offers 48 kHz 16-bit PCM only. It has no discovery, no FLAC, and no server volume or mute. | a |
+| `SRC-03` | in_progress / partial | No drift correction exists. Qualification needs two independent output clocks and a capture setup. | a, b |
+| `SRC-04` | in_progress / partial | State has no field for original source metadata. The Sendspin observation carries no format. | a |
+| `SRC-05` | in_progress / not_run | Earph sends no control upstream. No record covers queue authority (AC-19). | a |
+| `SRC-06` | in_progress / partial | No fuzz corpus and no single AC-20 run exist. A refused Sendspin authentication over HTTP retries without end. | a |
+| `OUT-01` | in_progress / partial | ALSA discovery reports no native formats and no stable identity. AC-21 needs the named machines and DACs. | a, b |
+| `OUT-02` | in_progress / partial | The system route has run on the host, but never beside another application on a PipeWire desktop. | b |
+| `OUT-03` | in_progress / partial | No measured level, no stored capability record, and no invalidation on a changed environment exist. | a |
+| `OUT-04` | implemented / partial | AC-17 needs independent clocks. Core Audio reports no backend delay. | b |
+| `OUT-05` | in_progress / partial | A fault reports an error code, not recovery choices. Unplug needs two physical outputs. | a, b |
+| `OUT-06` | in_progress / partial | The manual policy has no behavior of its own. A rejected override carries no explanation. | a |
+| `DSP-01` | implemented / partial | No AC-24 record binds graph fixtures to a compiled plan. | a |
+| `DSP-02` | implemented / partial | No AC-25, AC-26, or AC-27 record exists for current source. The component numbers bind a November 18 commit. | a |
+| `DSP-03` | implemented / partial | Same as `DSP-02`: current-source acceptance records are missing. | a |
+| `DSP-04` | implemented / partial | No AC-28 record exists. Fractional alignment is absent by design. | a |
+| `DSP-05` | implemented / partial | No owner-level run commits two revisions at once (AC-29). | a |
+| `DSP-06` | implemented / partial | No AC-30 round-trip record exists for current source. | a |
+| `DSP-07` | implemented / partial | No AC-31 record exists. A measurement impulse response is identified by its manifest only. | a |
+| `DSP-08` | in_progress / partial | The named latency modes change nothing. The two-hour endurance run needs reference hardware. | a, b |
+| `SAFE-01` | implemented / partial | No run changes volume from several controllers at once (AC-33). AC-14 needs two physical outputs. | a, b |
+| `SAFE-02` | in_progress / partial | Saturation changes no fidelity status. No owner test injects a non-finite sample. | a |
+| `SAFE-03` | in_progress / partial | Hardware volume is refused as unsupported. Its test needs a device with hardware volume. | a, b |
+| `SAFE-04` | in_progress / partial | Mute closes the output; no DSD-aware transition is verified. That needs a qualified DSD endpoint. | b |
+| `SAFE-05` | in_progress / partial | The server checks no peer credential. No test connects as another user. | a |
+| `SAFE-06` | in_progress / partial | No fuzz target exists in the repository. | a |
+| `PROF-01` | implemented / partial | Profile application covers software mode only on current output. AC-35 needs several DACs. | b |
+| `PROF-02` | in_progress / partial | Exact-device association works on Core Audio only. ALSA has no stable identity. | a, b |
+| `PROF-03` | implemented / partial | A foreign-client package import and a Mac package run are unqualified. | a |
+| `CTL-01` | implemented / partial | No AC-36 record exists. Events are pull-only with a cursor and a gap flag. | a |
+| `CTL-02` | implemented / partial | No AC-36 record exists. The dedupe window does not survive a restart. | a |
+| `CTL-03` | in_progress / partial | Neither GUI controls a network source. The Mac GUI shows the signal path as raw JSON. No composited visual check exists. | a, b |
+| `CTL-04` | implemented / partial | No evidence record covers the `earph` player commands. | a |
+| `CTL-05` | in_progress / partial | The bindings have no version call and no cancellation. | a |
+| `CTL-06` | implemented / partial | No test shows playback continuing beside a slow client. | a |
+| `OBS-01` | implemented / partial | No AC-38 comparison against backend instrumentation exists. | a |
+| `OBS-02` | in_progress / partial | Node versions are always null. No conversion reason is reported. | a |
+| `OBS-03` | in_progress / partial | Underruns, deadline misses, CPU load, and queue depth always report `unsupported`. | a |
+| `OBS-04` | in_progress / partial | The bundle attaches no environment, fixture, or test outcome. | a |
+| `COR-01` | implemented / partial | The target is free text. No AC-30 record exists for current source. | a |
+| `REL-01` | in_progress / partial | No SBOM exists. Two dual-license elections are unrecorded. One upstream notice and the Apple SDK distribution review stay open. | a, c |
+| `REL-02` | in_progress / partial | Three candidates stay `unselected` with no recorded decision. No protocol version lock file exists. | a |
+| `REL-03` | in_progress / partial | No install, upgrade, rollback, or uninstall tool exists. Every candidate is unsigned. | a, c |
+| `REL-04` | not_started / not_run | No tool requires passing evidence for each requirement. No stress suite and no hardware matrix exist. | a, b |
+| `REL-05` | implemented / partial | No run blocks the network and inspects outbound connections (AC-34). | a |
+
+### Gates that software cannot close
+
+- Independent clocks and a calibrated capture: `SRC-03`, `OUT-04`.
+- A qualified DSD endpoint on each launch system: `PLAY-07`, `SAFE-04`, `ARCH-04`.
+- Named DACs and two physical outputs: `OUT-01`, `OUT-05`, `PLAY-03`, `PLAY-06`, `SAFE-01`, `SAFE-03`, `PROF-01`, `PROF-02`.
+- A PipeWire desktop with another application playing: `OUT-02`.
+- Reference hardware for endurance and the published matrix: `DSP-08`, `REL-04`.
+- The Mac and a viewer for composited appearance and Mac seek: `CTL-03`, `PLAY-02`.
+- Signing material: `REL-03`.
+- A legal review of one upstream notice and of Apple SDK distribution: `REL-01`.
+
+### Ranked build list
+
+The rank follows the definition of done: receive both network protocols, install, show reproducible evidence, inspect the pipeline, use every control surface, survive failures.
+Sizes are source lines plus test lines.
+
+| Rank | Build | Requirements | Likely files | Size |
+|---|---|---|---|---|
+| 1 | Start the UPnP renderer from the owner with an explicit option, and add macOS multicast. Default ingress stays off until Doctor Biz approves it. | `SRC-01` | `crates/earph-engine/src/main.rs`, `src/lib.rs`, `src/renderer.rs`, `src/bin/earph/main.rs`, `crates/earph-network/src/upnp/ssdp.rs`, `crates/earph-engine/tests/renderer_owner.rs` | 400 + 500 |
+| 2 | Finish the Sendspin player: server volume and mute, FLAC, and discovery. | `SRC-02` | `crates/earph-sendspin/src/player.rs`, `src/message.rs`, `crates/earph-network/src/sendspin/player.rs`, `crates/earph-engine/src/worker/sendspin.rs`, `src/bin/earph/sendspin.rs` | 900 + 1000 |
+| 3 | Hand playback into and out of Sendspin, and reject old chunks after a handoff. | `PLAY-05` | `crates/earph-core/src/session_sendspin.rs`, `src/session.rs`, `crates/earph-engine/src/host.rs`, `crates/earph-engine/tests/sendspin_owner.rs` | 300 + 450 |
+| 4 | Send next, seek, play, and pause upstream, and keep the local queue apart. | `SRC-05` | `crates/earph-network/src/sendspin/worker.rs`, `crates/earph-core/src/sendspin_control.rs`, `crates/earph-engine/src/sendspin_runtime.rs`, `src/bin/earph/main.rs` | 450 + 500 |
+| 5 | Build the release evidence gate: require a passing record for each requirement, and write the software acceptance records. | `REL-04`, the `DSP`, `CTL`, and `PLAY` rows that lack a record | `crates/earph-harness/src/evidence.rs`, `src/catalog.rs`, `src/main.rs`, `docs/evidence/` | 600 + 500 |
+| 6 | Add install, upgrade, rollback, and uninstall tools, and one control reference. | `REL-03` | `scripts/`, `crates/earph-harness/src/package.rs`, `docs/native-packaging.md` | 450 + 350 |
+| 7 | Reconfigure the output, muted, between tracks that differ in rate or format. | `PLAY-04` | `crates/earph-engine/src/worker.rs`, `crates/earph-core/src/session.rs`, `crates/earph-engine/tests/worker_playback.rs` | 400 + 450 |
+| 8 | Count underruns, deadline misses, queue depth, and CPU load. | `OBS-03` | `crates/earph-core/src/session_diagnostics.rs`, `src/diagnostics.rs`, `crates/earph-engine/src/worker.rs`, `crates/earph-alsa/src/output.rs` | 350 + 350 |
+| 9 | Add network source controls to both GUIs, and a typed Mac signal path. | `CTL-03` | `crates/earph-desktop/src/gui/queue.rs`, `src/gui/app.rs`, `macos/Sources/Earph/` | 700 + 600 |
+| 10 | Add fuzz targets for every untrusted parser, and stop the endless Sendspin retry. | `SAFE-06`, `SRC-06` | new `fuzz/`, `crates/earph-media/src/correction_text.rs`, `src/dsd.rs`, `crates/earph-network/src/upnp/`, `crates/earph-engine/src/sendspin_runtime.rs` | 500 + 150 |
+| 11 | Correct Sendspin drift with the resampler's ratio control. | `SRC-03` | `crates/earph-engine/src/sendspin_schedule.rs`, `src/worker/sendspin.rs`, `crates/earph-dsp/src/resample.rs` | 500 + 600 |
+| 12 | Report original, received, and output formats apart for every network source. | `SRC-04` | `crates/earph-core/src/sendspin_source.rs`, `src/network_source.rs`, `src/diagnostics.rs` | 200 + 250 |
+| 13 | Emit an SBOM and record the dual-license elections. | `REL-01`, `REL-02` | `crates/earph-harness/src/inventory.rs`, `docs/dependency-lock.json`, `docs/adr/` | 250 + 150 |
+| 14 | Store capability evidence by device and environment, and invalidate it on change. | `OUT-03`, `OUT-01`, `PROF-02` | `crates/earph-core/src/devices.rs`, `crates/earph-engine/src/devices/`, `crates/earph-alsa/src/native.rs` | 600 + 600 |
+| 15 | Complete the diagnostics: node versions, conversion reasons, environment, and a fidelity status that follows saturation. | `OBS-02`, `OBS-04`, `SAFE-02` | `crates/earph-core/src/diagnostics.rs`, `src/diagnostics_artifacts.rs`, `crates/earph-engine/src/render.rs` | 400 + 450 |
+| 16 | Add a binding version call and cancellation, and one cross-surface equivalence run. | `CTL-05`, `ARCH-02` | `crates/earph-ffi/src/lib.rs`, `crates/earph-ffi/tests/foreign/`, `scripts/check-ffi` | 250 + 400 |
+| 17 | Bind the latency modes to declared limits. | `DSP-08` | `crates/earph-core/src/profiles.rs`, `crates/earph-engine/src/profiles.rs` | 150 + 200 |
+| 18 | Close the small safety and ownership gaps: peer credentials, one owner per output, the manual policy, recovery choices, and worker allocation. | `SAFE-05`, `ARCH-03`, `OUT-06`, `OUT-05`, `ARCH-05`, `ARCH-07` | `crates/earph-engine/src/ipc.rs`, `src/runtime.rs`, `src/worker.rs`, `crates/earph-core/src/safety.rs` | 900 + 1200 |
+| 19 | Implement hardware volume and Core Audio DoP output. Their verification waits on hardware. | `SAFE-03`, `PLAY-07` | `crates/earph-alsa/src/`, `crates/earph-coreaudio/src/`, `crates/earph-core/src/control.rs` | 850 + 800 |
+
+### Catalog notes
+
+The newest Sendspin work has no evidence record. Its runs live in prose in [the runtime notes](../../sendspin-runtime.md), which the catalog now cites.
+The same holds for the `earph` player process tests and the Quit regressions.
+Most evidence records name no requirement, so each link in the catalog is an editorial reading of a record's scope.
+The acceptance scenario statuses were left as they were. Several say `not_run` while a record names them as partial.
+The catalog's top-level `status` text and SPEC Appendix B still describe an earlier state.
