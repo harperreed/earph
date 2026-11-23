@@ -512,6 +512,7 @@ impl SendspinPlayback {
     }
     /// Drops the held chunk when a partial clear discarded it.
     /// The replacement audio then continues from `written`, so the anchor stays.
+    /// Scheduled silence still owed lies before `written`, so it stays owed.
     fn retract(&mut self, written: Option<ServerPosition>) -> Result<(), EngineError> {
         if self
             .held
@@ -520,7 +521,6 @@ impl SendspinPlayback {
         {
             self.release()?;
             self.previous_end = written;
-            self.silence = 0;
         }
         Ok(())
     }
