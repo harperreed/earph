@@ -351,22 +351,25 @@ mod linux {
             });
             frames
         }
-        /// Checks that the capture holds the anchor silence, then exactly the sent pattern.
+        /// Checks that the capture holds silence, then exactly the sent pattern, then only silence.
+        /// The output runs on idle silence while the stream waits 200 ms for its anchor.
         pub(super) fn capture_is_exact(&self) {
             // Nothing else writes this output.
             let capture = fs::read(self.directory.join("capture.pcm")).unwrap();
             let pattern = pattern();
+            // The first and the last pattern byte are nonzero.
             let audible = capture.iter().position(|byte| *byte != 0).unwrap();
-            let pad = audible - PREAMBLE_FRAMES * 4;
-            println!("anchor silence: {} frames", pad / 4);
+            let last = capture.iter().rposition(|byte| *byte != 0).unwrap();
+            let silence = audible - PREAMBLE_FRAMES * 4;
+            println!("idle and anchor silence: {} frames", silence / 4);
             assert!(
-                pad.is_multiple_of(4) && pad < 4800 * 4,
-                "anchor silence: {pad} bytes"
+                silence.is_multiple_of(4) && silence < 48000 * 4,
+                "idle and anchor silence: {silence} bytes"
             );
             assert!(
-                capture[audible..] == pattern,
+                capture[audible..=last] == pattern,
                 "captured {} bytes after {audible} zeros; sent {}",
-                capture.len() - audible,
+                last + 1 - audible,
                 pattern.len()
             );
         }

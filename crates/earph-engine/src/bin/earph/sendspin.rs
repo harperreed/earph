@@ -285,12 +285,16 @@ fn phase(state: &Value) -> &'static str {
 }
 /// One line: the phase, the audio handed to the output, the volume, and the timing label.
 /// It shows no audible position, because nothing measures one.
+/// Idle silence only keeps the output running, so it stays out of the audio count.
 pub fn status_line(state: &Value) -> String {
     let playback = &state["sendspin_playback"];
+    let count = |value: &Value| value.as_u64().unwrap_or(0);
+    let scheduled = count(&playback["submitted_frames"])
+        .saturating_sub(count(&playback["timing"]["idle_silence_frames"]));
     let mut line = format!(
         "{}  {} sent to the output  {}",
         phase(state),
-        clock(playback["submitted_frames"].as_u64().unwrap_or(0), RATE),
+        clock(scheduled, RATE),
         decibel_text(&state["software_gain_db"])
     );
     if state["muted"] == true {
@@ -301,4 +305,33 @@ pub fn status_line(state: &Value) -> String {
         line.push_str(&format!("  start error {:+.1} ms", error as f64 / 1000.0));
     }
     line
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_status_line_counts_scheduled_audio_and_leaves_idle_silence_out() {
+        // Three seconds reached the output. One of them was idle silence.
+        let state = json!({
+            "transport": "playing",
+            "software_gain_db": 0.0,
+            "muted": false,
+            "sendspin_playback": {
+                "phase": "streaming",
+                "submitted_frames": 144_000,
+                "timing": {"idle_silence_frames": 48_000, "start_error_us": -1_500},
+            },
+        });
+        let line = status_line(&state);
+        assert!(
+            line.starts_with("playing  0:02 sent to the output"),
+            "{line}"
+        );
+        assert!(
+            line.ends_with("sync unqualified  start error -1.5 ms"),
+            "{line}"
+        );
+    }
 }

@@ -37,7 +37,7 @@ pub struct SendspinTiming {
     pub qualification: SendspinTimingQualification,
     pub correction: SendspinTimingCorrection,
     /// Whether the stream holds an anchor.
-    /// A stream start, a full clear, a stream end, an output underrun, and a long gap drop it.
+    /// A stream start, a full clear, a stream end, an output underrun, a long gap, and idle silence drop it.
     pub anchored: bool,
     /// Times a chunk took an anchor since this source started.
     pub anchors: u64,
@@ -49,11 +49,15 @@ pub struct SendspinTiming {
     pub max_abs_error_us: u64,
     /// Silence frames that the scheduler placed before or between chunks.
     pub inserted_silence_frames: u64,
+    /// Silence frames that kept the output running while a stream had no audio due.
+    /// They grow with waiting time, so they stay apart from the scheduler's bounded silence.
+    pub idle_silence_frames: u64,
     /// Received frames that arrived too late and never reached the output.
     pub dropped_frames: u64,
     /// Revision of the clock mapping that the last decision used.
     pub mapping_revision: Option<u64>,
-    /// Whether the last decision knew the backend delay. An unknown delay counts as zero.
+    /// Whether the last decision knew the frames that the output held. Unknown frames count as zero.
+    /// A backend without a delay report counts the accepted frames past its restart cursor.
     pub backend_delay_known: bool,
     /// The measurement boundary of the last known backend delay.
     pub backend_delay_basis: Option<&'static str>,
@@ -70,6 +74,7 @@ impl SendspinTiming {
         last_error_us: None,
         max_abs_error_us: 0,
         inserted_silence_frames: 0,
+        idle_silence_frames: 0,
         dropped_frames: 0,
         mapping_revision: None,
         backend_delay_known: false,
@@ -80,7 +85,7 @@ impl SendspinTiming {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct SendspinSourceObservation {
     pub phase: SendspinTransportPhase,
-    /// Frames the output accepted since this source started, including inserted silence.
+    /// Frames the output accepted since this source started, including inserted and idle silence.
     /// This is no audible position.
     pub submitted_frames: u64,
     pub timing: SendspinTiming,
@@ -126,6 +131,7 @@ mod tests {
                     "last_error_us": null,
                     "max_abs_error_us": 0,
                     "inserted_silence_frames": 0,
+                    "idle_silence_frames": 0,
                     "dropped_frames": 0,
                     "mapping_revision": null,
                     "backend_delay_known": false,

@@ -321,21 +321,30 @@ mod linux {
             }
             let frames = (sent.len() / 4) as u64;
             let count = |playback: &Value, key: &str| playback[key].as_u64().unwrap();
-            // The output accepts every sent frame that was not dropped, plus the inserted silence.
+            // The output accepts every sent frame that was not dropped, plus the inserted and the idle silence.
             self.serve(peer, "the output accepts every scheduled frame", |bench| {
                 let playback = bench.state()["sendspin_playback"].take();
                 let timing = &playback["timing"];
                 playback["submitted_frames"].is_u64()
                     && count(&playback, "submitted_frames") + count(timing, "dropped_frames")
-                        == frames + count(timing, "inserted_silence_frames")
+                        == frames
+                            + count(timing, "inserted_silence_frames")
+                            + count(timing, "idle_silence_frames")
             });
             let playback = self.state()["sendspin_playback"].take();
             let timing = &playback["timing"];
-            // An early stream loses nothing, so the output accepted exactly the pad and the sent frames.
+            // An early stream loses nothing, so the output accepted exactly the silence and the sent frames.
             assert_eq!(timing["dropped_frames"], 0, "{playback}");
             let pad = count(timing, "inserted_silence_frames");
             assert!(pad <= ANCHOR_PAD_FRAMES, "anchor pad {pad}");
-            assert_eq!(playback["submitted_frames"], frames + pad, "{playback}");
+            // The output ran on idle silence while the stream waited for its anchor.
+            let idle = count(timing, "idle_silence_frames");
+            assert!(idle > 0, "{playback}");
+            assert_eq!(
+                playback["submitted_frames"],
+                frames + pad + idle,
+                "{playback}"
+            );
             assert_eq!(timing["qualification"], "unqualified");
             assert_eq!(timing["correction"], "none");
             assert_eq!(timing["anchored"], true);
@@ -354,24 +363,25 @@ mod linux {
             assert_eq!(state["source"], Value::Null);
             assert_eq!(state["muted"], true);
         }
-        /// Nothing else writes this output, so the capture holds the anchor pad and the sent bytes.
+        /// Nothing else writes this output, so the capture holds silence and the sent bytes.
+        /// Idle silence, the anchor pad, and the preamble precede the pattern. Idle silence may follow it.
         /// The owner has exited, so the playback worker has closed and flushed the file.
-        /// The comparison is exact, so a dropped, repeated, or moved pattern frame fails it.
+        /// The comparison is exact, so a dropped, repeated, moved, or split pattern frame fails it.
         fn assert_capture_is_exact(&self, pad: u64) {
             assert!(self.exited, "read the capture only after the owner exits");
             let capture = fs::read(self.directory.join("capture.pcm")).unwrap();
             let pattern = pattern();
-            let silence = (pad as usize + PREAMBLE_FRAMES) * 4;
-            assert!(capture.len() >= silence, "captured {} bytes", capture.len());
-            let (silence, audible) = capture.split_at(silence);
+            // The first and the last pattern byte are nonzero.
+            let first = capture.iter().position(|byte| *byte != 0).unwrap();
+            let last = capture.iter().rposition(|byte| *byte != 0).unwrap();
             assert!(
-                silence.iter().all(|byte| *byte == 0),
-                "the pad and the preamble are silence"
+                first.is_multiple_of(4) && first >= (pad as usize + PREAMBLE_FRAMES) * 4,
+                "{first} bytes of silence precede the pattern"
             );
             assert!(
-                audible == pattern,
-                "captured {} bytes after the silence; sent {}",
-                audible.len(),
+                capture[first..=last] == pattern,
+                "captured {} bytes of pattern; sent {}",
+                last + 1 - first,
                 pattern.len()
             );
         }
@@ -472,7 +482,12 @@ mod linux {
         // The closed source keeps its cumulative facts.
         let playback = bench.state()["sendspin_playback"].take();
         assert_eq!(playback["phase"], "closed");
-        assert_eq!(playback["submitted_frames"], frames + pad, "{playback}");
+        let idle = playback["timing"]["idle_silence_frames"].as_u64().unwrap();
+        assert_eq!(
+            playback["submitted_frames"],
+            frames + pad + idle,
+            "{playback}"
+        );
         assert_eq!(playback["timing"]["qualification"], "unqualified");
         drop(peer);
         let mut peer = bench.connect("player-2");

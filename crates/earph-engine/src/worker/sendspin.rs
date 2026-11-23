@@ -1,12 +1,12 @@
 // ABOUTME: Plays one Sendspin player connection into the worker's native output.
-// ABOUTME: Anchors each stream to its server timestamps and reports the measured, unqualified timing error.
+// ABOUTME: Anchors each stream to its server timestamps, keeps the output running on idle silence, and reports unqualified timing.
 use super::*;
 use crate::sendspin_schedule::{
-    ChunkFacts, Correction, Decision, MonotonicClamp, Qualification, Scheduler,
+    ANCHOR_PAD_LIMIT_US, ChunkFacts, Correction, Decision, MonotonicClamp, Qualification,
+    Scheduler, SilencePacer,
 };
 use earph_core::{
     audio::{ChannelLayout, PcmRepresentation},
-    control::OutputBackend,
     sendspin_source::*,
 };
 use earph_network::sendspin::{
@@ -29,6 +29,12 @@ const REQUIRED_LEAD_TIME_MS: u64 = 150;
 /// The server should keep this much audio queued at the player. Admitted, not measured.
 const MIN_BUFFER_MS: u32 = 200;
 const SAMPLE_RATE_HZ: u32 = 48000;
+/// Idle silence keeps this many periods in the output, and at least `IDLE_DEPTH_MIN_MS`.
+/// Core Audio starts after two accepted periods and fails when a callback finds less than one.
+/// Admitted, not measured.
+const IDLE_DEPTH_PERIODS: u32 = 3;
+/// A shallower depth leaves a late worker tick too little margin. Admitted, not measured.
+const IDLE_DEPTH_MIN_MS: u32 = 30;
 /// A scheduling fault means a timestamp or counter left the checked integer range.
 const SCHEDULE: EngineError = EngineError::new(
     ErrorCode::AssetInvalid,
@@ -167,6 +173,17 @@ impl Reducer {
     }
 }
 
+/// What the frames in the period are.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Span {
+    /// Samples of the held chunk.
+    Audio,
+    /// Silence that the scheduler placed before or between chunks.
+    Silence,
+    /// Silence that keeps the output running while no audio is due.
+    Idle,
+}
+
 /// One timeline chunk whose samples moved here. The lease returns after the last sample.
 struct Held {
     lease: PcmChunk,
@@ -190,8 +207,8 @@ pub(super) struct SendspinPlayback {
     period: PcmBlock,
     /// The frame range of `period` that the output has not accepted yet.
     pending: Option<(usize, usize)>,
-    /// Whether `period` holds scheduled silence. Otherwise it holds samples of the held chunk.
-    period_silent: bool,
+    /// What `period` holds.
+    span: Span,
     held: Option<Held>,
     scheduler: Scheduler,
     /// Where the last scheduled chunk ends on the server timeline.
@@ -201,9 +218,16 @@ pub(super) struct SendspinPlayback {
     /// Whether the output accepted frames since it was last prepared.
     /// ALSA fails a delay query on an output that holds none.
     primed: bool,
-    /// Whether the backend reports a delay. Then an unprimed output has a known delay of zero.
-    reports_delay: bool,
+    /// Whether the output accepted scheduled frames since it was last prepared.
+    /// Otherwise it holds only idle silence, and a full clear has nothing to drop there.
+    scheduled: bool,
     delay_basis: Option<&'static str>,
+    /// Decides when a live stream without due audio owes the output idle silence.
+    pacer: SilencePacer,
+    /// Idle silence must fit before this time, or it makes the waiting head chunk late.
+    idle_before: Option<i64>,
+    /// Idle silence frames that the output accepted.
+    idle_silence_frames: u64,
     /// Output underruns that this source recovered from.
     underruns: u64,
     gain: GainRamp,
@@ -264,6 +288,10 @@ impl SendspinPlayback {
         let state = PlayerState::new(OUTPUT_DELAY_MS, REQUIRED_LEAD_TIME_MS, MIN_BUFFER_MS)
             .map_err(player_error)?;
         let scheduler = Scheduler::new(SAMPLE_RATE_HZ).map_err(|_| SCHEDULE)?;
+        let depth = (config.period_frames.saturating_mul(IDLE_DEPTH_PERIODS))
+            .max(SAMPLE_RATE_HZ / 1000 * IDLE_DEPTH_MIN_MS)
+            .min(config.buffer_frames);
+        let pacer = SilencePacer::new(SAMPLE_RATE_HZ, depth.into()).map_err(|_| SCHEDULE)?;
         let output = output::open(config, format, epochs)?;
         #[cfg(all(test, target_os = "linux"))]
         let output = super::sendspin_tests::underrun_seam(output);
@@ -303,15 +331,17 @@ impl SendspinPlayback {
             output,
             period,
             pending: None,
-            period_silent: false,
+            span: Span::Audio,
             held: None,
             scheduler,
             previous_end: None,
             silence: 0,
             primed: false,
-            // ALSA reports a client delay estimate. Core Audio reports none.
-            reports_delay: config.backend == OutputBackend::Alsa,
+            scheduled: false,
             delay_basis: None,
+            pacer,
+            idle_before: None,
+            idle_silence_frames: 0,
             underruns: 0,
             gain,
             sequence: 0,
@@ -404,6 +434,7 @@ impl SendspinPlayback {
                 last_error_us: facts.last_error_us,
                 max_abs_error_us: facts.max_abs_error_us,
                 inserted_silence_frames: facts.inserted_silence_frames,
+                idle_silence_frames: self.idle_silence_frames,
                 dropped_frames: facts.dropped_frames,
                 mapping_revision: facts.mapping_revision,
                 backend_delay_known: facts.delay_known,
@@ -476,14 +507,15 @@ impl SendspinPlayback {
                 match self.reducer.player(event, available, written)? {
                     TimelineAction::Started => self.unanchor(),
                     // A full clear also drops the audio that the output still holds.
-                    TimelineAction::Cleared(_) if full_clear => self.halt()?,
+                    TimelineAction::Cleared(_) if full_clear => self.halt(false)?,
                     TimelineAction::Cleared(_) => self.retract(written)?,
                     _ => {}
                 }
             }
             // A stream end or a lost player role stops the stream. Neither drains audio.
+            // Both release the output: nothing feeds it between streams.
             if streaming && !self.reducer.timeline.stream_active() {
-                self.halt()?;
+                self.halt(true)?;
             }
         }
         Ok(())
@@ -525,17 +557,21 @@ impl SendspinPlayback {
         Ok(())
     }
     /// Drops unplayed audio and reprepares the output for other audio.
-    fn halt(&mut self) -> Result<(), EngineError> {
+    /// An output that holds only idle silence keeps running unless `release` stops it.
+    fn halt(&mut self, release: bool) -> Result<(), EngineError> {
         self.pending = None;
         self.release()?;
         self.unanchor();
-        if !self.primed {
+        if !self.primed || (!release && !self.scheduled) {
             // A prepared output that accepted no frame holds nothing to drop.
+            // Idle silence needs no drop either, and a restart would delay the next audio.
             return Ok(());
         }
         match self.output.suspend(self.settings.snapshot.epochs) {
             Ok(_) => {
                 self.primed = false;
+                self.scheduled = false;
+                self.pacer.reset();
                 Ok(())
             }
             // A starved output underran before this halt. Its recovery prepares it again.
@@ -543,6 +579,7 @@ impl SendspinPlayback {
         }
     }
     /// Reprepares the output after an underrun and makes the unwritten audio anchor again.
+    /// Idle silence keeps a running output fed, so only a stalled worker starves it.
     /// Every other failure returns unchanged. Gain and session settings stay as they are.
     fn recover(&mut self, error: EngineError) -> Result<(), EngineError> {
         // Only an output that accepted frames can underrun. This bound also ends a repeating fault.
@@ -550,10 +587,12 @@ impl SendspinPlayback {
             return Err(error);
         }
         self.primed = false;
+        self.scheduled = false;
+        self.pacer.reset();
         self.underruns += 1;
         let unwritten = self.pending.take().map_or(0, |(offset, end)| end - offset);
         if let Some(held) = self.held.as_mut() {
-            if !self.period_silent {
+            if self.span == Span::Audio {
                 // The held chunk takes back the samples that the output never accepted.
                 held.offset -= unwritten * 2;
             }
@@ -580,16 +619,23 @@ impl SendspinPlayback {
             .release_chunk(held.lease)
             .map_err(player_error)
     }
-    /// Returns the frames that the backend still holds, or `None` when it reports no delay.
-    fn backend_delay(&mut self) -> Result<Option<u64>, EngineError> {
+    /// Returns the frames that the output still holds, or `None` when the backend reports no fact.
+    /// A backend without a delay report counts the accepted frames past its restart cursor.
+    /// That cursor is callback delivery or a queue clock, never an audible position.
+    fn held_frames(&mut self) -> Result<Option<u64>, EngineError> {
         if !self.primed {
-            return Ok(self.reports_delay.then_some(0));
+            // An output that accepted no frame holds none.
+            return Ok(Some(0));
         }
         let counters = self.output.progress()?;
-        if counters.delay.is_some() {
+        let held = counters.delay.or_else(|| {
+            let cursor = counters.restart_cursor?;
+            Some(counters.submitted.saturating_sub(cursor))
+        });
+        if held.is_some() {
             self.delay_basis = Some(counters.basis);
         }
-        Ok(counters.delay)
+        Ok(held)
     }
     /// Asks the scheduler what to do with the unscheduled head chunk.
     /// Returns `None` while no usable clock mapping places the chunk.
@@ -597,6 +643,11 @@ impl SendspinPlayback {
         let (Some(mapping), Some(held)) = (mapping, self.held.as_ref()) else {
             return Ok(None);
         };
+        // An anchor needs a running output. A device that still starts delays every frame behind it.
+        // Idle silence starts the output meanwhile.
+        if !self.scheduler.snapshot().anchored && !self.output.is_running() {
+            return Ok(None);
+        }
         // After an underrun the held chunk continues from its first unwritten frame.
         let position = held
             .lease
@@ -627,10 +678,16 @@ impl SendspinPlayback {
             mapping_revision: target.mapping_revision,
             frames,
             now_us,
-            delay_frames: self.backend_delay()?,
+            delay_frames: self.held_frames()?,
             gap_frames: u64::try_from(gap_ticks / ServerPosition::TICKS_PER_FRAME).unwrap_or(0),
         };
-        self.scheduler.decide(facts).map(Some).map_err(|_| SCHEDULE)
+        let decision = self.scheduler.decide(facts).map_err(|_| SCHEDULE)?;
+        if let Decision::Wait { until_us } = decision {
+            // The wait ends one pad window before the target. Idle silence may use half of that window.
+            // A smaller allowance starves the output: its draining delay then keeps the wait open.
+            self.idle_before = Some(until_us.saturating_add(ANCHOR_PAD_LIMIT_US / 2));
+        }
+        Ok(Some(decision))
     }
     /// Takes and schedules chunks until one has samples or silence to write.
     /// Returns false while the head chunk waits for its target or no chunk is queued.
@@ -677,13 +734,19 @@ impl SendspinPlayback {
         }
     }
     /// Moves the next span of scheduled silence or received samples through gain into the period.
+    /// Falls back to idle silence when the scheduler has neither.
     fn fill(&mut self, mapping: Option<UsableMapping>) -> Result<bool, EngineError> {
+        self.idle_before = None;
         if self.silence == 0 && !self.schedule(mapping)? {
-            return Ok(false);
+            return self.idle();
         }
         let capacity = self.period.capacity_frames();
-        self.period_silent = self.silence > 0;
-        let frames = if self.period_silent {
+        self.span = if self.silence > 0 {
+            Span::Silence
+        } else {
+            Span::Audio
+        };
+        let frames = if self.span == Span::Silence {
             let frames = usize::try_from(self.silence).map_or(capacity, |left| left.min(capacity));
             for index in 0..frames * 2 {
                 self.period.set_integer_sample(index, 0)?;
@@ -707,12 +770,51 @@ impl SendspinPlayback {
             frames as u64,
         )?;
         self.sequence += 1;
-        // Silence passes the gain too, so a ramp advances with output time.
+        // Scheduled silence passes the gain too, so a ramp advances with it.
         self.gain.process(&mut self.period)?;
         self.pending = Some((0, frames));
         Ok(true)
     }
-    /// Writes at most one span. Returns false when no audio is due.
+    /// Puts idle silence into the period when a live stream has no audio due and the output runs low.
+    /// A stream end suspends the output, so nothing feeds it between streams.
+    /// Idle silence bypasses the gain, so a ramp still starts with the first scheduled frame.
+    fn idle(&mut self) -> Result<bool, EngineError> {
+        if !self.reducer.timeline.stream_active() {
+            return Ok(false);
+        }
+        let now_us = self.clock.sample().map_err(transport_error)?.microseconds();
+        // Only a running output plays frames, so only its report corrects the estimate.
+        if self.output.is_running()
+            && let Some(held) = self.held_frames()?
+        {
+            self.pacer.correct(now_us, held);
+        }
+        let capacity = self.period.capacity_frames();
+        let anchored = self.scheduler.snapshot().anchored;
+        let owed = self.pacer.owed(now_us, self.idle_before, anchored);
+        let frames = usize::try_from(owed).map_or(capacity, |owed| owed.min(capacity));
+        if frames == 0 {
+            return Ok(false);
+        }
+        // Idle silence ends contiguous playback, so the next chunk anchors again.
+        if anchored {
+            self.unanchor();
+        }
+        for index in 0..frames * 2 {
+            self.period.set_integer_sample(index, 0)?;
+        }
+        self.period.set_span(
+            self.settings.snapshot.epochs,
+            self.sequence,
+            self.submitted_frames,
+            frames as u64,
+        )?;
+        self.sequence += 1;
+        self.span = Span::Idle;
+        self.pending = Some((0, frames));
+        Ok(true)
+    }
+    /// Writes at most one span. Returns false when neither audio nor idle silence is due.
     fn write(&mut self, mapping: Option<UsableMapping>) -> Result<bool, EngineError> {
         if self.pending.is_none() && !self.fill(mapping)? {
             return Ok(false);
@@ -722,6 +824,13 @@ impl SendspinPlayback {
             Some(frames) => {
                 self.submitted_frames += frames as u64;
                 self.primed = true;
+                let now_us = self.clock.sample().map_err(transport_error)?.microseconds();
+                self.pacer.accepted(now_us, frames as u64);
+                if self.span == Span::Idle {
+                    self.idle_silence_frames += frames as u64;
+                } else {
+                    self.scheduled = true;
+                }
                 self.pending = (offset + frames < end).then_some((offset + frames, end));
             }
             None => self.output.wait()?,

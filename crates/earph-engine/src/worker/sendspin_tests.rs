@@ -14,6 +14,7 @@ use std::{
     net::{IpAddr, TcpListener, UdpSocket},
     path::{Path, PathBuf},
     process::Command,
+    sync::atomic::AtomicUsize,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 #[allow(dead_code, reason = "this test uses a subset of the shared peer")]
@@ -284,7 +285,7 @@ fn streaming_peer(bench: &Bench) -> peer::PlayerPeer {
     peer
 }
 /// Sends PCM as 25 ms chunks, then waits until the scheduler placed all `sent` frames.
-/// The output accepts every sent frame that was not dropped, plus the inserted silence.
+/// The output accepts every sent frame that was not dropped, plus the inserted and the idle silence.
 /// A stream end discards queued audio, so callers confirm submission before they end a stream.
 fn stream(peer: &mut peer::PlayerPeer, bench: &Bench, first_timestamp: i64, pcm: &[u8], sent: u64) {
     for (index, chunk) in pcm.chunks(CHUNK_FRAMES * 4).enumerate() {
@@ -300,20 +301,35 @@ fn placed(peer: &mut peer::PlayerPeer, bench: &Bench, sent: u64) {
     peer.serve_until("the output accepts every scheduled frame", || {
         let observed = bench.observed();
         observed.submitted_frames + observed.timing.dropped_frames
-            == sent + observed.timing.inserted_silence_frames
+            == sent + silence(observed.timing)
     });
 }
-/// Closes the peer, joins both workers, and returns the capture.
-fn finish(peer: peer::PlayerPeer, mut bench: Bench, directory: &Path) -> Vec<u8> {
+/// Returns every silence frame that the source wrote: the scheduler's silence and the idle silence.
+fn silence(timing: SendspinTiming) -> u64 {
+    timing.inserted_silence_frames + timing.idle_silence_frames
+}
+/// Closes the peer, joins both workers, and returns the capture and the final timing.
+/// Idle silence reaches the output until the source closes, so only the final timing counts it all.
+fn finish(peer: peer::PlayerPeer, mut bench: Bench, directory: &Path) -> (Vec<u8>, SendspinTiming) {
     peer.close();
     wait("the source closes after its peer", || {
         bench.observed().phase == SendspinTransportPhase::Closed
     });
     assert_eq!(bench.retire(), Some(DriverError::PeerClosed));
+    let timing = bench.observed().timing;
     drop(bench.worker);
-    fs::read(directory.join("capture.pcm")).unwrap()
+    (fs::read(directory.join("capture.pcm")).unwrap(), timing)
 }
-/// Returns the capture after its leading inserted silence.
+/// Returns the capture from its first audible frame through its last one.
+/// Idle silence may surround the audio. Silence inside this span belongs to the stream.
+fn audible_span(capture: &[u8]) -> &[u8] {
+    let (frames, rest) = capture.as_chunks::<4>();
+    assert!(rest.is_empty(), "the capture holds whole frames");
+    let first = frames.iter().position(|frame| *frame != [0; 4]).unwrap();
+    let last = frames.iter().rposition(|frame| *frame != [0; 4]).unwrap();
+    &capture[first * 4..(last + 1) * 4]
+}
+/// Returns the capture after this much leading silence.
 fn after_silence(capture: &[u8], frames: u64) -> &[u8] {
     let (silence, rest) = capture.split_at(frames as usize * 4);
     assert!(silence.iter().all(|byte| *byte == 0));
@@ -341,7 +357,7 @@ fn parts() -> [Vec<u8>; 4] {
     };
     [part(0), part(1), part(2), part(3)]
 }
-/// Asserts that the capture is exactly these parts plus the silence that the scheduler inserted.
+/// Asserts that the capture is exactly these parts plus the silence that the final timing counts.
 fn assert_capture(capture: &[u8], parts: &[&[u8]], timing: SendspinTiming) {
     let (audible, silent) = without_silence(capture);
     assert!(
@@ -350,21 +366,116 @@ fn assert_capture(capture: &[u8], parts: &[&[u8]], timing: SendspinTiming) {
         audible.len(),
         parts.concat().len()
     );
-    assert_eq!(silent, timing.inserted_silence_frames);
+    assert_eq!(silent, silence(timing));
     assert_eq!(timing.dropped_frames, 0);
 }
 
 /// The file device never underruns, so this seam stands in for the native failure.
 /// It fails this many writes as underruns do. Recovery reprepares the real ALSA output.
-static UNDERRUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static UNDERRUNS: AtomicUsize = AtomicUsize::new(0);
+/// Fails this many writes that carry an audible frame, so the failure never hits idle silence.
+static AUDIBLE_UNDERRUNS: AtomicUsize = AtomicUsize::new(0);
+/// A nonzero value puts a clock in front of the next opened output. It is the start time in ms.
+static CLOCK_START_MS: AtomicUsize = AtomicUsize::new(0);
+/// When the clocked output plays each first audible frame after silence.
+static AUDIBLE_AT: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
+const CLOCK_PERIOD_FRAMES: u64 = 960;
+const CLOCK_BUFFER_FRAMES: u64 = 3840;
+
+/// Models an output with a clock, as Core Audio behaves. The file device has none.
+/// A write after two accepted periods requests the start, and the output runs `start` later.
+/// A running output plays 48 frames each millisecond and holds at most its buffer.
+/// It fails for good once it runs dry, and it reports no delay.
+struct OutputClock {
+    start: Duration,
+    /// Frames accepted since the output was prepared.
+    accepted: u64,
+    running_at: Option<Instant>,
+    dry: bool,
+    /// Whether the last accepted frame was silence.
+    silent: bool,
+    /// Accepted audible frames that follow silence and await the running time.
+    unplaced: Vec<u64>,
+}
+impl OutputClock {
+    fn new(start: Duration) -> Self {
+        Self {
+            start,
+            accepted: 0,
+            running_at: None,
+            dry: false,
+            silent: true,
+            unplaced: Vec::new(),
+        }
+    }
+    fn running(&self) -> bool {
+        !self.dry && self.running_at.is_some_and(|at| Instant::now() >= at)
+    }
+    /// Returns the frames played so far, or the failure of an output that ran dry.
+    fn played(&mut self) -> Result<u64, EngineError> {
+        let played = self.running_at.map_or(0, |at| {
+            Instant::now().saturating_duration_since(at).as_micros() as u64 * 48 / 1000
+        });
+        self.dry |= played > self.accepted;
+        if self.dry {
+            return Err(EngineError::new(
+                ErrorCode::OutputFault,
+                "test seam: the clocked output ran dry",
+            ));
+        }
+        Ok(played)
+    }
+    /// Returns how many of `frames` fit the buffer now. Requests the start when it is due.
+    fn admit(&mut self, frames: usize) -> Result<usize, EngineError> {
+        let played = self.played()?;
+        if self.running_at.is_none() && self.accepted >= 2 * CLOCK_PERIOD_FRAMES {
+            self.running_at = Some(Instant::now() + self.start);
+        }
+        let room = CLOCK_BUFFER_FRAMES - (self.accepted - played);
+        Ok(frames.min(room as usize))
+    }
+    /// Records accepted frames and when each first audible frame after silence plays.
+    fn record(&mut self, block: &PcmBlock, offset: usize, frames: usize) {
+        for frame in offset..offset + frames {
+            let silent = !audible(block, frame, 1);
+            if self.silent && !silent {
+                self.unplaced.push(self.accepted);
+            }
+            self.silent = silent;
+            self.accepted += 1;
+        }
+        if let Some(at) = self.running_at {
+            let mut audible_at = AUDIBLE_AT.lock().unwrap();
+            for frame in self.unplaced.drain(..) {
+                audible_at.push(at + Duration::from_micros(frame * 1000 / 48));
+            }
+        }
+    }
+    fn counters(&mut self) -> Result<output::Counters, EngineError> {
+        Ok(output::Counters {
+            submitted: self.accepted,
+            consumed: None,
+            restart_cursor: Some(self.played()?),
+            delay: None,
+            basis: "test_output_clock",
+        })
+    }
+}
+/// Returns whether any of these frames holds a nonzero sample.
+fn audible(block: &PcmBlock, offset: usize, frames: usize) -> bool {
+    (offset * 2..(offset + frames) * 2).any(|index| block.integer_sample(index) != Some(0))
+}
 struct UnderrunSeam {
     inner: Box<dyn Output>,
     underran: bool,
+    clock: Option<OutputClock>,
 }
 pub(super) fn underrun_seam(inner: Box<dyn Output>) -> Box<dyn Output> {
+    let start = CLOCK_START_MS.load(Ordering::Acquire) as u64;
     Box::new(UnderrunSeam {
         inner,
         underran: false,
+        clock: (start > 0).then(|| OutputClock::new(Duration::from_millis(start))),
     })
 }
 impl Output for UnderrunSeam {
@@ -372,7 +483,10 @@ impl Output for UnderrunSeam {
         self.inner.audio_storage_bytes()
     }
     fn is_running(&self) -> bool {
-        self.inner.is_running()
+        match &self.clock {
+            Some(clock) => clock.running(),
+            None => self.inner.is_running(),
+        }
     }
     fn observation(&self) -> Result<earph_core::session::BackendObservation, EngineError> {
         self.inner.observation()
@@ -384,35 +498,70 @@ impl Output for UnderrunSeam {
         frames: usize,
     ) -> Result<Option<usize>, EngineError> {
         let armed = |left: usize| left.checked_sub(1);
-        if UNDERRUNS
+        let injected = UNDERRUNS
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, armed)
             .is_ok()
-        {
+            || (audible(block, offset, frames)
+                && AUDIBLE_UNDERRUNS
+                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, armed)
+                    .is_ok());
+        if injected {
             self.underran = true;
             return Err(EngineError::new(
                 ErrorCode::OutputFault,
                 "test seam: the output underran",
             ));
         }
-        self.inner.write(block, offset, frames)
+        let Some(clock) = self.clock.as_mut() else {
+            return self.inner.write(block, offset, frames);
+        };
+        let frames = clock.admit(frames)?;
+        if frames == 0 {
+            return Ok(None);
+        }
+        let written = self.inner.write(block, offset, frames)?;
+        if let Some(frames) = written {
+            clock.record(block, offset, frames);
+        }
+        Ok(written)
     }
     fn progress(&mut self) -> Result<output::Counters, EngineError> {
-        self.inner.progress()
+        match self.clock.as_mut() {
+            Some(clock) => clock.counters(),
+            None => self.inner.progress(),
+        }
     }
     fn suspend(&mut self, epochs: Epochs) -> Result<output::Counters, EngineError> {
-        self.inner.suspend(epochs)
+        let counters = match self.clock.as_mut() {
+            Some(clock) => Some(clock.counters()?),
+            None => None,
+        };
+        let suspended = self.inner.suspend(epochs)?;
+        if let Some(clock) = self.clock.as_mut() {
+            *clock = OutputClock::new(clock.start);
+        }
+        Ok(counters.unwrap_or(suspended))
     }
     fn recover(&mut self, epochs: Epochs) -> Result<bool, EngineError> {
         if !std::mem::take(&mut self.underran) {
+            // A clocked output that ran dry stays failed, as Core Audio does.
             return self.inner.recover(epochs);
         }
         // A native recovery prepares the stream again. Suspend does that for a healthy stream.
-        self.inner.suspend(epochs).map(|_| true)
+        self.inner.suspend(epochs)?;
+        if let Some(clock) = self.clock.as_mut() {
+            *clock = OutputClock::new(clock.start);
+        }
+        Ok(true)
     }
     fn finish(&mut self) -> Result<Option<output::Counters>, EngineError> {
         self.inner.finish()
     }
     fn wait(&mut self) -> Result<(), EngineError> {
+        if self.clock.is_some() {
+            thread::sleep(Duration::from_millis(1));
+            return Ok(());
+        }
         self.inner.wait()
     }
     fn stop(&mut self) -> Result<(), EngineError> {
@@ -437,6 +586,37 @@ fn unity_bench() -> Bench {
     let mut settings = settings("capture");
     settings.snapshot.gain_ramp_frames = 0;
     Bench::start(settings)
+}
+/// Starts a bench at unity gain whose output has a clock and runs this long after its start request.
+fn clocked_bench(start_ms: usize) -> Bench {
+    CLOCK_START_MS.store(start_ms, Ordering::Release);
+    let mut settings = settings("capture");
+    settings.snapshot.gain_ramp_frames = 0;
+    let output = settings.snapshot.output.as_mut().unwrap();
+    output.period_frames = CLOCK_PERIOD_FRAMES as u32;
+    output.buffer_frames = CLOCK_BUFFER_FRAMES as u32;
+    Bench::start(settings)
+}
+/// Asserts that the clocked output played each first audible frame within tolerance of its target.
+/// The scheduler pads to the frame, and the worker ticks once each millisecond.
+fn assert_audible_on_time(due: &[Instant]) {
+    let audible_at = AUDIBLE_AT.lock().unwrap().clone();
+    assert_eq!(audible_at.len(), due.len(), "audible starts {audible_at:?}");
+    for (at, due) in audible_at.iter().zip(due) {
+        let late = at.saturating_duration_since(*due);
+        let early = due.saturating_duration_since(*at);
+        assert!(
+            late <= Duration::from_millis(10) && early <= Duration::from_millis(10),
+            "audio started {late:?} late or {early:?} early"
+        );
+    }
+}
+/// Asserts that the source feeds no idle silence for 100 ms.
+fn assert_no_idle_silence(peer: &mut peer::PlayerPeer, bench: &Bench) {
+    let before = bench.observed();
+    let settled = Instant::now() + Duration::from_millis(100);
+    peer.serve_until("the output stays released", || Instant::now() >= settled);
+    assert_eq!(bench.observed(), before);
 }
 /// Returns after the worker finished every action sent before this call.
 fn settle(bench: &mut Bench) {
@@ -494,7 +674,8 @@ fn real_peer_audio_reaches_the_alsa_capture_bit_exact_and_the_source_closes_clea
     assert_eq!(bench.retire(), Some(DriverError::PeerClosed));
     let closed = bench.observed();
     assert_eq!(closed.phase, SendspinTransportPhase::Closed);
-    assert_eq!(closed.submitted_frames, frames + pad);
+    let idle = closed.timing.idle_silence_frames;
+    assert_eq!(closed.submitted_frames, frames + pad + idle);
     assert!(!closed.timing.anchored, "a closed source holds no anchor");
     assert_eq!(closed.timing.start_error_us, None);
     assert_eq!(closed.timing.dropped_frames, 0);
@@ -512,12 +693,13 @@ fn real_peer_audio_reaches_the_alsa_capture_bit_exact_and_the_source_closes_clea
     // Dropping the worker joins its thread, which proves only that the thread is not hung.
     drop(bench.worker);
 
-    // Nothing else writes this output, so the capture holds the anchor pad and the sent bytes.
+    // Nothing else writes this output, so the capture holds the counted silence and the sent bytes.
     let capture = fs::read(directory.join("capture.pcm")).unwrap();
-    let audible = after_silence(&capture, pad + PREAMBLE_FRAMES as u64);
+    assert_eq!(capture.len() as u64, (frames + pad + idle) * 4);
+    let audible = audible_span(&capture);
     assert!(
         audible == pattern,
-        "captured {} bytes after the silence; sent {}",
+        "captured {} audible bytes; sent {}",
         audible.len(),
         pattern.len()
     );
@@ -549,8 +731,7 @@ fn a_late_stream_drops_its_overdue_frames_and_plays_the_exact_remainder() {
         });
     }
     placed(&mut peer, &bench, PATTERN_FRAMES as u64);
-    let timing = bench.observed().timing;
-    let capture = finish(peer, bench, &directory);
+    let (capture, timing) = finish(peer, bench, &directory);
     // The clock mapping may err by a fraction of a millisecond; allow 2 ms.
     let dropped = timing.dropped_frames;
     let least = LATE_US as u64 * 48 / 1000 - 96;
@@ -560,11 +741,11 @@ fn a_late_stream_drops_its_overdue_frames_and_plays_the_exact_remainder() {
         (least..=most).contains(&dropped),
         "dropped {dropped}, expected {least}..={most}"
     );
-    let played = after_silence(&capture, timing.inserted_silence_frames);
     assert!(
-        played == &pattern[dropped as usize * 4..],
+        audible_span(&capture) == &pattern[dropped as usize * 4..],
         "the capture is the pattern without its first {dropped} frames"
     );
+    assert_eq!(without_silence(&capture).1, silence(timing));
 }
 
 #[test]
@@ -597,15 +778,16 @@ fn a_short_timestamp_gap_becomes_exactly_that_much_silence() {
         PATTERN_FRAMES as u64,
     );
     let timing = bench.observed().timing;
-    let capture = finish(peer, bench, &directory);
+    let (capture, closed) = finish(peer, bench, &directory);
     assert!(timing.anchored, "a short gap keeps the anchor");
     assert_eq!(timing.dropped_frames, 0);
     let pad = timing.inserted_silence_frames - GAP_FRAMES;
     assert!(pad <= ANCHOR_PAD_FRAMES, "anchor pad {pad}");
-    let played = after_silence(&capture, pad);
+    let played = audible_span(&capture);
     assert_eq!(played.len(), pattern.len() + GAP_FRAMES as usize * 4);
     assert!(played[..before.len()] == *before);
     assert!(after_silence(&played[before.len()..], GAP_FRAMES) == after);
+    assert_eq!(without_silence(&capture).1, silence(closed));
 }
 
 #[test]
@@ -645,16 +827,10 @@ fn mute_silences_the_capture_while_the_source_still_consumes_the_stream() {
     assert_eq!(streaming.phase, SendspinTransportPhase::Streaming);
     assert!(streaming.timing.anchored, "a muted source stays scheduled");
     assert_eq!(streaming.timing.dropped_frames, 0);
-    let pad = streaming.timing.inserted_silence_frames;
-    let capture = finish(peer, bench, &directory);
-    assert_eq!(capture.len() as u64, (frames + pad) * 4);
-    let played = after_silence(&capture, pad + PREAMBLE_FRAMES as u64);
-    let (played, muted) = played.split_at(audible.len());
-    assert!(played == audible);
-    assert!(
-        muted.iter().all(|byte| *byte == 0),
-        "muted frames reach the output as silence"
-    );
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_eq!(capture.len() as u64, (frames + silence(closed)) * 4);
+    // Every frame outside this span is silence, so the muted frames reached the output as silence.
+    assert!(audible_span(&capture) == audible);
 }
 
 #[test]
@@ -780,8 +956,8 @@ fn a_full_clear_discards_queued_audio_and_the_next_audio_anchors_again() {
     assert_eq!(streaming.phase, SendspinTransportPhase::Streaming);
     assert_eq!(streaming.timing.anchors, 3);
     assert_eq!(streaming.timing.underruns, 0);
-    let capture = finish(peer, bench, &directory);
-    assert_capture(&capture, &[&first, &second, &third], streaming.timing);
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[&first, &second, &third], closed);
 }
 
 #[test]
@@ -816,9 +992,9 @@ fn a_partial_clear_keeps_submitted_audio_and_trims_its_replacement() {
         streaming.timing.anchors, 1,
         "a partial clear keeps the anchor"
     );
-    let capture = finish(peer, bench, &directory);
+    let (capture, closed) = finish(peer, bench, &directory);
     let kept = &replacement[replacement.len() / 2..];
-    assert_capture(&capture, &[&first, kept], streaming.timing);
+    assert_capture(&capture, &[&first, kept], closed);
 }
 
 #[test]
@@ -844,8 +1020,8 @@ fn a_second_stream_after_a_stream_end_plays_exactly_and_anchors_again() {
     let streaming = bench.observed();
     assert_eq!(streaming.phase, SendspinTransportPhase::Streaming);
     assert_eq!(streaming.timing.anchors, 2);
-    let capture = finish(peer, bench, &directory);
-    assert_capture(&capture, &[&first, &second], streaming.timing);
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[&first, &second], closed);
 }
 
 #[test]
@@ -884,8 +1060,8 @@ fn a_reactivated_player_declares_again_and_plays_the_next_stream() {
     let streaming = bench.observed();
     assert_eq!(streaming.phase, SendspinTransportPhase::Streaming);
     assert_eq!(streaming.timing.anchors, 2);
-    let capture = finish(peer, bench, &directory);
-    assert_capture(&capture, &[&first, &second], streaming.timing);
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[&first, &second], closed);
 }
 
 #[test]
@@ -913,11 +1089,11 @@ fn a_starvation_gap_longer_than_100_ms_anchors_again_and_plays_both_sides_exactl
     assert_eq!(streaming.phase, SendspinTransportPhase::Streaming);
     assert!(streaming.timing.anchored);
     assert_eq!(streaming.timing.anchors, 2, "a long gap anchors again");
-    // Each anchor pads at most 5 ms. The scheduler waits out the gap; it does not fill it.
+    // Each anchor pads at most 5 ms. The scheduler waits out the gap. Idle silence fills it.
     let pad = streaming.timing.inserted_silence_frames;
     assert!(pad <= 2 * ANCHOR_PAD_FRAMES, "anchor pads {pad}");
-    let capture = finish(peer, bench, &directory);
-    assert_capture(&capture, &[&first, &second], streaming.timing);
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[&first, &second], closed);
 }
 
 #[test]
@@ -953,7 +1129,10 @@ fn audio_beyond_the_timeline_budget_closes_the_source_with_a_reported_failure() 
         bench.observed().phase == SendspinTransportPhase::Closed
     });
     let closed = bench.observed();
-    assert_eq!(closed.submitted_frames, 0);
+    assert_eq!(
+        closed.submitted_frames, closed.timing.idle_silence_frames,
+        "only idle silence reached the output"
+    );
     for expected in [
         (SendspinTransportPhase::Preparing, None),
         (SendspinTransportPhase::AwaitingStream, None),
@@ -982,11 +1161,11 @@ fn an_output_underrun_reprepares_the_output_and_anchors_again_with_gain_unchange
     let [first, second, muted, _] = parts();
     let start = peer.server_now_us() + 100_000;
     stream(&mut peer, &bench, start, &first, PART_FRAMES);
-    // The next write fails as a native underrun does, with part of a chunk already in the period.
-    UNDERRUNS.store(1, Ordering::Release);
+    // The next audible write fails as a native underrun does, with part of a chunk already in the period.
+    AUDIBLE_UNDERRUNS.store(1, Ordering::Release);
     stream(&mut peer, &bench, start + PART_US, &second, 2 * PART_FRAMES);
     assert_eq!(
-        UNDERRUNS.load(Ordering::Acquire),
+        AUDIBLE_UNDERRUNS.load(Ordering::Acquire),
         0,
         "the seam failed a write"
     );
@@ -995,7 +1174,7 @@ fn an_output_underrun_reprepares_the_output_and_anchors_again_with_gain_unchange
     assert_eq!(recovered.timing.underruns, 1);
     assert!(recovered.timing.anchored);
     assert_eq!(recovered.timing.anchors, 2, "an underrun anchors again");
-    // A muted session stays muted across the next recovery.
+    // A muted session stays muted across the next recovery. This failure may hit idle silence.
     settings.snapshot.muted = true;
     apply(&mut bench, settings);
     UNDERRUNS.store(1, Ordering::Release);
@@ -1011,13 +1190,13 @@ fn an_output_underrun_reprepares_the_output_and_anchors_again_with_gain_unchange
     assert_eq!(streaming.timing.underruns, 2);
     assert_eq!(streaming.timing.anchors, 3);
     assert_eq!(streaming.timing.dropped_frames, 0);
-    let capture = finish(peer, bench, &directory);
+    let (capture, closed) = finish(peer, bench, &directory);
     // Unity gain survived the first recovery: both audible parts are exact, with no frame lost.
     let (audible, silent) = without_silence(&capture);
     assert!(audible == [first, second].concat());
     assert_eq!(
         silent,
-        PART_FRAMES + streaming.timing.inserted_silence_frames,
+        PART_FRAMES + silence(closed),
         "the muted part reaches the output as silence"
     );
 }
@@ -1055,4 +1234,167 @@ fn an_underrun_before_the_recovered_output_accepts_a_frame_closes_the_source() {
         assert_eq!(bench.reported(), expected);
     }
     assert_eq!(bench.retire(), Some(DriverError::Cancelled));
+}
+
+#[test]
+fn a_slow_starting_output_runs_on_idle_silence_before_each_anchor_so_audio_starts_on_time() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_slow_starting_output_runs_on_idle_silence_before_each_anchor_so_audio_starts_on_time",
+    ) else {
+        return;
+    };
+    const LEAD: Duration = Duration::from_millis(400);
+    // The output runs 150 ms after its start request, as a slow device does.
+    let bench = clocked_bench(150);
+    let mut peer = streaming_peer(&bench);
+    let [first, second, ..] = parts();
+    let first_due = Instant::now() + LEAD;
+    let start = peer.server_now_us() + LEAD.as_micros() as i64;
+    stream(&mut peer, &bench, start, &first, PART_FRAMES);
+    assert_eq!(bench.observed().timing.anchors, 1);
+    // A full clear stops the output, so the next audio needs a running output again.
+    peer.clear_stream(None);
+    let second_due = Instant::now() + LEAD;
+    let restart = peer.server_now_us() + LEAD.as_micros() as i64;
+    stream(&mut peer, &bench, restart, &second, 2 * PART_FRAMES);
+    let streaming = bench.observed();
+    assert_eq!(streaming.phase, SendspinTransportPhase::Streaming);
+    assert_eq!(streaming.timing.anchors, 2);
+    assert_eq!(streaming.timing.underruns, 0);
+    assert_eq!(streaming.timing.dropped_frames, 0);
+    assert!(streaming.timing.idle_silence_frames > 0);
+    assert!(streaming.timing.backend_delay_known);
+    assert_eq!(
+        streaming.timing.backend_delay_basis,
+        Some("test_output_clock")
+    );
+    assert_audible_on_time(&[first_due, second_due]);
+    // A stream end releases the output. Nothing feeds it between streams.
+    peer.end_stream();
+    peer.serve_until("the source awaits another stream", || {
+        bench.observed().phase == SendspinTransportPhase::AwaitingStream
+    });
+    assert_no_idle_silence(&mut peer, &bench);
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[&first, &second], closed);
+}
+
+#[test]
+fn a_starved_running_output_stays_alive_on_idle_silence_and_the_next_audio_anchors_again() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_starved_running_output_stays_alive_on_idle_silence_and_the_next_audio_anchors_again",
+    ) else {
+        return;
+    };
+    const LEAD: Duration = Duration::from_millis(200);
+    let bench = clocked_bench(20);
+    let mut peer = streaming_peer(&bench);
+    let [first, second, ..] = parts();
+    let first_due = Instant::now() + LEAD;
+    let start = peer.server_now_us() + LEAD.as_micros() as i64;
+    stream(&mut peer, &bench, start, &first, PART_FRAMES);
+    // The server sends nothing for 300 ms. The output plays its 80 ms out within that time.
+    let starved = Instant::now() + Duration::from_millis(300);
+    peer.serve_until("the server sends nothing", || Instant::now() >= starved);
+    let idle = bench.observed();
+    assert_eq!(idle.phase, SendspinTransportPhase::Streaming);
+    assert!(
+        !idle.timing.anchored,
+        "idle silence ends contiguous playback"
+    );
+    assert!(idle.timing.idle_silence_frames > 0);
+    let second_due = Instant::now() + LEAD;
+    let restart = peer.server_now_us() + LEAD.as_micros() as i64;
+    stream(&mut peer, &bench, restart, &second, 2 * PART_FRAMES);
+    let streaming = bench.observed();
+    assert_eq!(streaming.phase, SendspinTransportPhase::Streaming);
+    assert_eq!(
+        streaming.timing.anchors, 2,
+        "audio after idle silence anchors again"
+    );
+    assert_eq!(streaming.timing.underruns, 0, "the output never ran dry");
+    assert_audible_on_time(&[first_due, second_due]);
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[&first, &second], closed);
+}
+
+#[test]
+fn an_output_without_a_clock_gets_idle_silence_no_faster_than_real_time() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::an_output_without_a_clock_gets_idle_silence_no_faster_than_real_time",
+    ) else {
+        return;
+    };
+    // Idle silence keeps three periods, and at least 30 ms, in the output.
+    const DEPTH_FRAMES: u64 = 1440;
+    let bench = unity_bench();
+    let started = Instant::now();
+    let mut peer = streaming_peer(&bench);
+    let [first, ..] = parts();
+    // The file device accepts any amount at once. Only the clock bounds the silence of this wait.
+    let start = peer.server_now_us() + 300_000;
+    stream(&mut peer, &bench, start, &first, PART_FRAMES);
+    let elapsed = started.elapsed().as_micros() as u64 * 48 / 1000;
+    let timing = bench.observed().timing;
+    let idle = timing.idle_silence_frames;
+    // The wait lasts 300 ms. The anchor pad and one tick of slack stay outside the idle silence.
+    assert!(idle >= 13_000, "idle silence {idle}");
+    assert!(idle <= elapsed + DEPTH_FRAMES, "idle silence {idle}");
+    assert_eq!(
+        timing.anchors, 1,
+        "idle silence before an anchor moves no audio"
+    );
+    assert_eq!(timing.dropped_frames, 0);
+    assert!(timing.inserted_silence_frames <= ANCHOR_PAD_FRAMES);
+    peer.end_stream();
+    peer.serve_until("the source awaits another stream", || {
+        bench.observed().phase == SendspinTransportPhase::AwaitingStream
+    });
+    assert_no_idle_silence(&mut peer, &bench);
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[&first], closed);
+    assert!(
+        audible_span(&capture) == first,
+        "no silence splits the audio"
+    );
+}
+
+#[test]
+fn a_full_clear_before_any_audio_keeps_the_output_running_on_idle_silence() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_full_clear_before_any_audio_keeps_the_output_running_on_idle_silence",
+    ) else {
+        return;
+    };
+    // The lead is shorter than the 150 ms start, so only a running output plays this audio on time.
+    const LEAD: Duration = Duration::from_millis(100);
+    let bench = clocked_bench(150);
+    let mut peer = streaming_peer(&bench);
+    let [cleared, first, ..] = parts();
+    // This audio is due in three seconds, so it is still queued when the clear arrives.
+    let later = peer.server_now_us() + 3_000_000;
+    for (index, chunk) in cleared.chunks(CHUNK_FRAMES * 4).enumerate() {
+        peer.send_chunk(later + index as i64 * 25_000, chunk);
+        let paced = Instant::now() + Duration::from_millis(5);
+        peer.serve_until("chunk pacing", || Instant::now() >= paced);
+    }
+    let started = Instant::now() + Duration::from_millis(250);
+    peer.serve_until("the output starts on idle silence", || {
+        Instant::now() >= started
+    });
+    // The output holds only idle silence, so the clear has nothing to drop there.
+    peer.clear_stream(None);
+    let due = Instant::now() + LEAD;
+    let start = peer.server_now_us() + LEAD.as_micros() as i64;
+    stream(&mut peer, &bench, start, &first, PART_FRAMES);
+    let streaming = bench.observed();
+    assert_eq!(streaming.phase, SendspinTransportPhase::Streaming);
+    assert_eq!(streaming.timing.anchors, 1);
+    assert_eq!(
+        streaming.timing.dropped_frames, 0,
+        "the output never stopped"
+    );
+    assert_audible_on_time(&[due]);
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[&first], closed);
 }

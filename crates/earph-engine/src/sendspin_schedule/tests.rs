@@ -1,5 +1,5 @@
 // ABOUTME: Checks the Sendspin scheduling decisions against hand-computed frame and microsecond values.
-// ABOUTME: Covers anchoring, locked error statistics, gaps, the monotonic clamp, and numeric faults.
+// ABOUTME: Covers anchoring, locked error statistics, gaps, the monotonic clamp, idle silence pacing, and numeric faults.
 use super::*;
 
 const RATE: u32 = 48_000;
@@ -344,4 +344,90 @@ fn anchors_count_each_anchored_write_and_no_wait_or_dropped_chunk() {
     };
     assert_eq!(scheduler.decide(long), Ok(write(0, 48)));
     assert_eq!(scheduler.snapshot().anchors, 3);
+}
+
+/// Keeps 30 ms in an output that plays 48 frames each millisecond.
+fn pacer() -> SilencePacer {
+    SilencePacer::new(RATE, 1_440).unwrap()
+}
+
+#[test]
+fn idle_silence_fills_an_empty_output_to_the_depth_and_then_follows_the_clock() {
+    let mut pacer = pacer();
+    assert_eq!(pacer.owed(0, None, false), 1_440);
+    pacer.accepted(0, 1_440);
+    assert_eq!(pacer.owed(0, None, false), 0);
+    // 10 ms plays 480 frames.
+    assert_eq!(pacer.owed(10_000, None, false), 480);
+    // 19_999 us remain: 959.952 frames round up to 960 held frames.
+    assert_eq!(pacer.owed(10_001, None, false), 480);
+    // 19_979 us remain: 958.992 frames round up to 959 held frames.
+    assert_eq!(pacer.owed(10_021, None, false), 481);
+    pacer.accepted(10_000, 480);
+    assert_eq!(pacer.owed(10_000, None, false), 0);
+    // An output that played everything is empty, however long ago that was.
+    assert_eq!(pacer.owed(5_000_000, None, false), 1_440);
+    pacer.accepted(5_000_000, 100);
+    assert_eq!(pacer.owed(5_000_000, None, false), 1_340);
+    assert_eq!(
+        SilencePacer::new(0, 1_440).err(),
+        Some(ScheduleError::ZeroSampleRate)
+    );
+}
+
+#[test]
+fn audio_written_ahead_of_the_clock_owes_no_idle_silence_until_it_has_played() {
+    let mut pacer = pacer();
+    // One second of audio reaches an output without a clock at once.
+    pacer.accepted(0, 48_000);
+    assert_eq!(pacer.owed(900_000, None, false), 0);
+    assert_eq!(pacer.owed(970_000, None, false), 0);
+    assert_eq!(pacer.owed(980_000, None, false), 480);
+    assert_eq!(pacer.owed(1_000_000, None, false), 1_440);
+}
+
+#[test]
+fn a_reported_depth_corrects_the_estimate_and_a_zero_report_does_not() {
+    let mut pacer = pacer();
+    pacer.accepted(0, 1_440);
+    // The output started late and still holds 80 ms.
+    pacer.correct(0, 3_840);
+    assert_eq!(pacer.owed(50_000, None, false), 0);
+    assert_eq!(pacer.owed(60_000, None, false), 480);
+    // The output clock ran fast and holds only 10 ms.
+    pacer.correct(60_000, 480);
+    assert_eq!(pacer.owed(60_000, None, false), 960);
+    // An output without a clock reports zero right after a write. Only the clock paces it.
+    pacer.accepted(60_000, 960);
+    pacer.correct(60_000, 0);
+    assert_eq!(pacer.owed(60_000, None, false), 0);
+    pacer.reset();
+    assert_eq!(pacer.owed(60_000, None, false), 1_440);
+}
+
+#[test]
+fn idle_silence_fits_before_the_limit_of_a_waiting_head_chunk() {
+    let pacer = pacer();
+    // 5 ms fit 240 frames.
+    assert_eq!(pacer.owed(1_000, Some(6_000), false), 240);
+    // 20 us fit 0.96 frames, so no whole frame fits.
+    assert_eq!(pacer.owed(1_000, Some(1_020), false), 0);
+    assert_eq!(pacer.owed(1_000, Some(1_021), false), 1);
+    assert_eq!(pacer.owed(1_000, Some(500), false), 0);
+    assert_eq!(pacer.owed(1_000, Some(10_000_000), false), 1_440);
+    assert_eq!(pacer.owed(i64::MIN, Some(i64::MAX), false), 1_440);
+}
+
+#[test]
+fn contiguous_audio_gets_idle_silence_only_below_two_thirds_of_the_depth() {
+    let mut pacer = pacer();
+    pacer.accepted(0, 1_440);
+    // A short dip between two chunks moves no audio.
+    assert_eq!(pacer.owed(5_000, None, true), 0);
+    // 960 held frames are exactly two thirds.
+    assert_eq!(pacer.owed(10_000, None, true), 0);
+    assert_eq!(pacer.owed(10_000, None, false), 480);
+    // 958.992 frames round up to 959 held frames, so the output starves.
+    assert_eq!(pacer.owed(10_021, None, true), 481);
+    assert_eq!(pacer.owed(10_021, Some(10_021 + 5_000), true), 240);
 }

@@ -1,4 +1,4 @@
-// ABOUTME: Decides whether the Sendspin head chunk waits, pads, drops, or writes against its local target time.
+// ABOUTME: Decides whether the Sendspin head chunk waits, pads, drops, or writes, and paces idle silence.
 // ABOUTME: Uses checked integer arithmetic over caller-supplied facts; it reads no clock and performs no I/O.
 
 //! Rounding rules. All comparisons use exact integers in frame-microseconds
@@ -230,6 +230,81 @@ impl MonotonicClamp {
         let clamped = self.highest.map_or(value, |highest| highest.max(value));
         self.highest = Some(clamped);
         clamped
+    }
+}
+
+/// Paces the silence that keeps a running output from running dry while no audio is due.
+/// It estimates the frames that the output holds from the accepted frames and the local clock.
+/// An output without a clock accepts frames faster than it plays them, so only this estimate bounds it.
+/// Every value stays far inside the `i128` range, so the arithmetic saturates and never fails.
+#[derive(Clone, Copy, Debug)]
+pub struct SilencePacer {
+    sample_rate: i128,
+    depth_frames: u64,
+    /// When an output at the nominal rate has played every accepted frame, in frame-microseconds.
+    horizon: Option<i128>,
+}
+impl SilencePacer {
+    /// Idle silence keeps `depth_frames` in the output.
+    pub fn new(sample_rate: u32, depth_frames: u64) -> Result<Self, ScheduleError> {
+        if sample_rate == 0 {
+            return Err(ScheduleError::ZeroSampleRate);
+        }
+        Ok(Self {
+            sample_rate: sample_rate.into(),
+            depth_frames,
+            horizon: None,
+        })
+    }
+
+    /// The output dropped its frames, after a suspend or an underrun recovery.
+    pub fn reset(&mut self) {
+        self.horizon = None;
+    }
+
+    /// The output accepted these frames of audio or silence at `now_us`.
+    pub fn accepted(&mut self, now_us: i64, frames: u64) {
+        let now = self.frame_micros(now_us);
+        let played = self.horizon.map_or(now, |horizon| horizon.max(now));
+        self.horizon = Some(played.saturating_add(i128::from(frames) * MICROS_PER_SECOND));
+    }
+
+    /// A running output reported that it holds these frames at `now_us`.
+    /// A zero report corrects nothing: an output without a clock reports zero right after a write.
+    pub fn correct(&mut self, now_us: i64, held_frames: u64) {
+        if held_frames > 0 {
+            let held = i128::from(held_frames) * MICROS_PER_SECOND;
+            self.horizon = Some(self.frame_micros(now_us).saturating_add(held));
+        }
+    }
+
+    /// Returns the silence frames that fill the output to its depth at `now_us`.
+    /// The silence also fits before `before_us`. A waiting head chunk sets that limit:
+    /// more silence would delay it past its target.
+    /// Idle silence ends `contiguous` playback and makes the next chunk anchor again.
+    /// It then waits until the output holds less than two thirds of the depth,
+    /// so a short dip between two chunks moves no audio.
+    pub fn owed(&self, now_us: i64, before_us: Option<i64>, contiguous: bool) -> u64 {
+        let now = self.frame_micros(now_us);
+        let left = self
+            .horizon
+            .map_or(0, |horizon| horizon.saturating_sub(now));
+        // A held fraction counts as a whole frame, so the estimate never exceeds the depth.
+        let held = (left.max(0) + MICROS_PER_SECOND - 1) / MICROS_PER_SECOND;
+        let held = u64::try_from(held).unwrap_or(u64::MAX);
+        if contiguous && u128::from(held) * 3 >= u128::from(self.depth_frames) * 2 {
+            return 0;
+        }
+        let owed = self.depth_frames.saturating_sub(held);
+        let Some(before_us) = before_us else {
+            return owed;
+        };
+        let fit = self.frame_micros(before_us).saturating_sub(now).max(0) / MICROS_PER_SECOND;
+        owed.min(u64::try_from(fit).unwrap_or(u64::MAX))
+    }
+
+    fn frame_micros(&self, time_us: i64) -> i128 {
+        i128::from(time_us) * self.sample_rate
     }
 }
 
