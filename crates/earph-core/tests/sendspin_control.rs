@@ -683,3 +683,49 @@ fn the_credential_recovery_fact_latches_until_the_owner_restarts() {
         false
     );
 }
+
+/// The Host reports a lost server as `reconnecting`. The session and its unmute stay.
+#[test]
+fn a_reconnecting_source_keeps_the_session_and_reports_its_reconnects() {
+    let mut session = started();
+    report(&mut session, SendspinTransportPhase::Streaming, 960, None);
+    applied(
+        &mut session,
+        "unmute",
+        Some("player-1"),
+        json!({"method":"mute.set","muted":false}),
+    );
+    let playing = session.snapshot();
+    report(&mut session, SendspinTransportPhase::Reconnecting, 0, None);
+    let lost = session.snapshot();
+    assert_eq!(lost.transport, TransportState::Buffering);
+    assert_eq!(lost.session_id, playing.session_id);
+    assert_eq!(lost.epochs, playing.epochs);
+    assert_eq!(lost.error, None);
+    assert!(!lost.muted, "a lost server changes no mute");
+    assert!(session.sendspin_connection().is_some());
+    assert_eq!(
+        sendspin(&mut session, "get-lost")["value"]["phase"],
+        "reconnecting"
+    );
+    // The new connection reports its count of completed reconnects.
+    let connection = session.sendspin_connection().unwrap();
+    let mut observation = SendspinSourceObservation::new(SendspinTransportPhase::Streaming, 480);
+    observation.reconnects = 1;
+    session
+        .advance_sendspin(
+            connection.generation,
+            SendspinSourceEvent {
+                epochs: connection.epochs,
+                observation,
+                error: None,
+            },
+            session.snapshot().monotonic_ns + 1,
+        )
+        .unwrap();
+    let state = session.snapshot();
+    assert_eq!(state.transport, TransportState::Playing);
+    let value = serde_json::to_value(&state).unwrap();
+    assert_eq!(value["sendspin_playback"]["phase"], "streaming");
+    assert_eq!(value["sendspin_playback"]["reconnects"], 1);
+}

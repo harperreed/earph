@@ -439,6 +439,8 @@ impl SendspinPlayback {
         SendspinSourceObservation {
             phase,
             submitted_frames: self.submitted_frames,
+            // One source serves one connection. The Host runtime counts the reconnects.
+            reconnects: 0,
             timing: SendspinTiming {
                 qualification: match facts.qualification {
                     Qualification::Unqualified => SendspinTimingQualification::Unqualified,

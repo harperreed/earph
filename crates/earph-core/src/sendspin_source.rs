@@ -12,6 +12,9 @@ pub enum SendspinTransportPhase {
     AwaitingStream,
     /// A stream is active. Received audio goes to the output.
     Streaming,
+    /// The server connection was lost after the server knew this player.
+    /// The Host retries it, and this phase lasts until the server knows this player again.
+    Reconnecting,
     /// The source released its output and cancelled its connection.
     Closed,
 }
@@ -98,6 +101,9 @@ pub struct SendspinSourceObservation {
     /// Frames the output accepted since this source started, including inserted and idle silence.
     /// This is no audible position.
     pub submitted_frames: u64,
+    /// Times the Host restored a lost server connection since this session started.
+    /// Each reconnect starts a new source, so the other facts count from that reconnect.
+    pub reconnects: u64,
     pub timing: SendspinTiming,
 }
 impl SendspinSourceObservation {
@@ -105,6 +111,7 @@ impl SendspinSourceObservation {
         Self {
             phase,
             submitted_frames,
+            reconnects: 0,
             timing: SendspinTiming::UNANCHORED,
         }
     }
@@ -131,6 +138,7 @@ mod tests {
             serde_json::json!({
                 "phase": "awaiting_stream",
                 "submitted_frames": 48000,
+                "reconnects": 0,
                 "timing": {
                     "qualification": "unqualified",
                     "correction": "none",

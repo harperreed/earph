@@ -17,6 +17,8 @@ pub enum SendspinPhase {
     Preparing,
     AwaitingStream,
     Streaming,
+    /// The server connection was lost. The Host retries it inside the same session.
+    Reconnecting,
     /// The session released the connection. The Host still retires its workers.
     Closing,
 }
@@ -77,6 +79,7 @@ impl SendspinControl {
             Some(SendspinTransportPhase::Preparing) => SendspinPhase::Preparing,
             Some(SendspinTransportPhase::AwaitingStream) => SendspinPhase::AwaitingStream,
             Some(SendspinTransportPhase::Streaming) => SendspinPhase::Streaming,
+            Some(SendspinTransportPhase::Reconnecting) => SendspinPhase::Reconnecting,
             Some(SendspinTransportPhase::Closed) => SendspinPhase::Closing,
         }
     }
