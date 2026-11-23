@@ -563,6 +563,7 @@ mod tests {
             queue_clock_last_valid_frame: None,
             queue_schedule: None,
             queue_retired_frames: None,
+            queue_starved_frames: None,
             queued_frames: 433,
             callbacks_observed: 6,
             measurement_boundary: "core_audio_ioproc_delivery",

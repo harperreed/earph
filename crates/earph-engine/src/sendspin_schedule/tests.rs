@@ -12,6 +12,7 @@ fn chunk(target_us: i64, now_us: i64, delay_frames: Option<u64>) -> ChunkFacts {
         now_us,
         delay_frames,
         gap_frames: 0,
+        steady: false,
     }
 }
 
@@ -639,4 +640,52 @@ fn a_device_latency_longer_than_the_server_lead_drops_audio_until_the_lead_cover
     );
     assert!(scheduler.snapshot().anchored);
     assert_eq!(scheduler.snapshot().dropped_frames, 480);
+}
+
+#[test]
+fn a_late_locked_chunk_is_counted_and_anchors_again_only_on_a_steady_output() {
+    let mut scheduler = locked(RATE);
+    // 20 ms late is the limit: the chunk writes and counts as on time.
+    assert_eq!(
+        scheduler.decide(chunk(1_000_000, 1_020_000, None)),
+        Ok(write(0, 0))
+    );
+    assert_eq!(scheduler.snapshot().late_chunks, 0);
+    // One microsecond more is late. The output ran dry and still catches up, so the anchor stays.
+    assert_eq!(
+        scheduler.decide(chunk(1_000_000, 1_020_001, None)),
+        Ok(write(0, 0))
+    );
+    let snapshot = scheduler.snapshot();
+    assert_eq!(snapshot.late_chunks, 1);
+    assert!(snapshot.anchored);
+    assert_eq!(snapshot.anchors, 1);
+    assert_eq!(snapshot.last_error_us, Some(20_001));
+    // A steady output holds its depth again, so this lateness is no catch-up.
+    // The chunk anchors again: 30 ms late drops all of its 480 frames.
+    let steady = ChunkFacts {
+        steady: true,
+        ..chunk(1_000_000, 1_010_000, Some(960))
+    };
+    assert_eq!(scheduler.decide(steady), Ok(Decision::DropChunk));
+    let snapshot = scheduler.snapshot();
+    assert_eq!(snapshot.late_chunks, 2);
+    assert!(!snapshot.anchored);
+    assert_eq!(snapshot.dropped_frames, 480);
+    // The next chunk is 5 ms late: it takes the new anchor without its first 240 frames.
+    let next = ChunkFacts {
+        steady: true,
+        ..chunk(1_025_000, 1_010_000, Some(960))
+    };
+    assert_eq!(scheduler.decide(next), Ok(write(0, 240)));
+    let snapshot = scheduler.snapshot();
+    assert_eq!(snapshot.anchors, 2);
+    assert_eq!(snapshot.dropped_frames, 720);
+    // An early chunk on a steady output is never late.
+    let early = ChunkFacts {
+        steady: true,
+        ..chunk(2_000_000, 1_000_000, None)
+    };
+    assert_eq!(scheduler.decide(early), Ok(write(0, 0)));
+    assert_eq!(scheduler.snapshot().late_chunks, 2);
 }

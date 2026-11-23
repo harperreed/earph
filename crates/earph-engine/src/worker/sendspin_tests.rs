@@ -390,18 +390,27 @@ const DEVICE_LATENCY_BASIS: &str = "test_output_clock_plus_device_latency";
 static AUDIBLE_AT: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
 /// The most frames that the running clocked output held right after it accepted an audible frame.
 static PEAK_HELD_FRAMES: AtomicUsize = AtomicUsize::new(0);
-/// The clocked output reports this many held frames more than its buffer holds.
+/// A nonzero value makes the clocked output report a backend delay, as ALSA does: its held frames plus this many, less one.
 /// An ALSA delay can count frames that already left the buffer for the device.
-static REPORTED_EXTRA_FRAMES: AtomicUsize = AtomicUsize::new(0);
+static REPORTED_DELAY_EXTRA: AtomicUsize = AtomicUsize::new(0);
+/// What the clocked output does when it runs dry. It fails for good by default, as the Core Audio hardware route does.
+static STARVATION: AtomicUsize = AtomicUsize::new(STARVATION_FAILS);
+const STARVATION_FAILS: usize = 0;
+/// The output clock runs on, and frames that arrive behind it never play. The Mac loopback capture showed this.
+const STARVATION_DROPS: usize = 1;
+/// The output clock stops while the output is dry, so every later frame plays that much later.
+const STARVATION_SLIPS: usize = 2;
+/// A nonzero value blocks the next audible write for this many milliseconds, as a stalled worker thread does.
+static STALL_MS: AtomicUsize = AtomicUsize::new(0);
 const CLOCK_PERIOD_FRAMES: u64 = 960;
-const CLOCK_BUFFER_FRAMES: u64 = 3840;
-/// Idle silence keeps three periods in the clocked output. Scheduled audio stays within the same depth.
-const CLOCK_DEPTH_FRAMES: u64 = 2880;
+const CLOCK_BUFFER_FRAMES: u64 = 7680;
+/// The source keeps at most 100 ms of scheduled audio in an output that counts its queued frames.
+const CLOCK_DEPTH_FRAMES: u64 = 4800;
 
 /// Models an output with a clock, as Core Audio behaves. The file device has none.
 /// A write after two accepted periods requests the start, and the output runs `start` later.
 /// A running output plays 48 frames each millisecond and holds at most its buffer.
-/// It fails for good once it runs dry, and it reports no delay.
+/// It fails for good once it runs dry, unless `STARVATION` says otherwise. It reports no delay by default.
 struct OutputClock {
     start: Duration,
     /// Frames accepted since the output was prepared.
@@ -412,6 +421,8 @@ struct OutputClock {
     silent: bool,
     /// Accepted audible frames that follow silence and await the running time.
     unplaced: Vec<u64>,
+    /// Frames of output time that passed with nothing queued.
+    starved: u64,
 }
 impl OutputClock {
     fn new(start: Duration) -> Self {
@@ -422,16 +433,30 @@ impl OutputClock {
             dry: false,
             silent: true,
             unplaced: Vec::new(),
+            starved: 0,
         }
     }
     fn running(&self) -> bool {
         !self.dry && self.running_at.is_some_and(|at| Instant::now() >= at)
     }
-    /// Returns the frames played so far, or the failure of an output that ran dry.
+    /// Returns the position of the output clock in frames, or the failure of an output that ran dry.
+    /// A starved output that drops late frames has a clock ahead of its accepted frames.
     fn played(&mut self) -> Result<u64, EngineError> {
-        let played = self.running_at.map_or(0, |at| {
+        let mut played = self.running_at.map_or(0, |at| {
             Instant::now().saturating_duration_since(at).as_micros() as u64 * 48 / 1000
         });
+        match STARVATION.load(Ordering::Acquire) {
+            STARVATION_DROPS => return Ok(played),
+            STARVATION_SLIPS if played > self.accepted => {
+                let dry = played - self.accepted;
+                self.starved += dry;
+                self.running_at = self
+                    .running_at
+                    .map(|at| at + Duration::from_micros(dry * 1000 / 48));
+                played = self.accepted;
+            }
+            _ => {}
+        }
         self.dry |= played > self.accepted;
         if self.dry {
             return Err(EngineError::new(
@@ -447,11 +472,14 @@ impl OutputClock {
         if self.running_at.is_none() && self.accepted >= 2 * CLOCK_PERIOD_FRAMES {
             self.running_at = Some(Instant::now() + self.start);
         }
-        let room = CLOCK_BUFFER_FRAMES - (self.accepted - played);
+        let room = CLOCK_BUFFER_FRAMES - self.accepted.saturating_sub(played);
         Ok(frames.min(room as usize))
     }
     /// Records accepted frames and when each first audible frame after silence plays.
     fn record(&mut self, block: &PcmBlock, offset: usize, frames: usize) {
+        // Frames behind the clock never play.
+        let behind = self.played().unwrap_or(0).saturating_sub(self.accepted);
+        self.starved += behind.min(frames as u64);
         for frame in offset..offset + frames {
             let silent = !audible(block, frame, 1);
             if self.silent && !silent {
@@ -462,7 +490,9 @@ impl OutputClock {
         }
         if self.running() && audible(block, offset, frames) {
             // The frames played since this write only lower the count, so the peak is no overestimate.
-            let held = self.accepted - self.played().unwrap_or(self.accepted);
+            let held = self
+                .accepted
+                .saturating_sub(self.played().unwrap_or(self.accepted));
             PEAK_HELD_FRAMES.fetch_max(held as usize, Ordering::AcqRel);
         }
         if let Some(at) = self.running_at {
@@ -474,13 +504,19 @@ impl OutputClock {
         }
     }
     fn counters(&mut self) -> Result<output::Counters, EngineError> {
-        let extra = REPORTED_EXTRA_FRAMES.load(Ordering::Acquire) as u64;
+        let cursor = self.played()?.min(self.accepted);
+        let delay = match REPORTED_DELAY_EXTRA.load(Ordering::Acquire) as u64 {
+            0 => None,
+            extra => Some((self.accepted - cursor + extra - 1).min(self.accepted)),
+        };
         Ok(output::Counters {
             submitted: self.accepted,
             consumed: None,
-            restart_cursor: Some(self.played()?.saturating_sub(extra)),
-            delay: None,
+            restart_cursor: Some(cursor),
+            delay,
             basis: "test_output_clock",
+            starved: (STARVATION.load(Ordering::Acquire) != STARVATION_FAILS)
+                .then_some(self.starved),
         })
     }
 }
@@ -534,6 +570,12 @@ impl Output for UnderrunSeam {
                 ErrorCode::OutputFault,
                 "test seam: the output underran",
             ));
+        }
+        if audible(block, offset, frames) {
+            let stall = STALL_MS.swap(0, Ordering::AcqRel) as u64;
+            if stall > 0 {
+                thread::sleep(Duration::from_millis(stall));
+            }
         }
         let Some(clock) = self.clock.as_mut() else {
             return self.inner.write(block, offset, frames);
@@ -621,15 +663,11 @@ fn unity_bench() -> Bench {
 }
 /// Starts a bench at unity gain whose output has a clock and runs this long after its start request.
 fn clocked_bench(start_ms: usize) -> Bench {
-    clocked_bench_with_period(start_ms, CLOCK_PERIOD_FRAMES)
-}
-/// As `clocked_bench`, for a source that writes periods of this size. The idle depth is three of them.
-fn clocked_bench_with_period(start_ms: usize, period_frames: u64) -> Bench {
     CLOCK_START_MS.store(start_ms, Ordering::Release);
     let mut settings = settings("capture");
     settings.snapshot.gain_ramp_frames = 0;
     let output = settings.snapshot.output.as_mut().unwrap();
-    output.period_frames = period_frames as u32;
+    output.period_frames = CLOCK_PERIOD_FRAMES as u32;
     output.buffer_frames = CLOCK_BUFFER_FRAMES as u32;
     Bench::start(settings)
 }
@@ -1281,9 +1319,11 @@ fn a_slow_starting_output_runs_on_idle_silence_before_each_anchor_so_audio_start
     };
     const LEAD: Duration = Duration::from_millis(400);
     // The output runs 150 ms after its start request, as a slow device does.
+    // Build the audio first. Idle silence fills a starting output within 20 ms of the stream start.
+    // A later chunk waits behind a blocked silence period, and its first lead then reads low.
+    let [first, second, ..] = parts();
     let bench = clocked_bench(150);
     let mut peer = streaming_peer(&bench);
-    let [first, second, ..] = parts();
     let first_due = Instant::now() + LEAD;
     let start = peer.server_now_us() + LEAD.as_micros() as i64;
     stream(&mut peer, &bench, start, &first, PART_FRAMES);
@@ -1342,7 +1382,7 @@ fn a_starved_running_output_stays_alive_on_idle_silence_and_the_next_audio_ancho
     let first_due = Instant::now() + LEAD;
     let start = peer.server_now_us() + LEAD.as_micros() as i64;
     stream(&mut peer, &bench, start, &first, PART_FRAMES);
-    // The server sends nothing for 300 ms. The output plays its 80 ms out within that time.
+    // The server sends nothing for 300 ms. The output plays its 100 ms out within that time.
     let starved = Instant::now() + Duration::from_millis(300);
     peer.serve_until("the server sends nothing", || Instant::now() >= starved);
     let idle = bench.observed();
@@ -1619,23 +1659,22 @@ fn a_running_output_holds_at_most_the_idle_depth_of_scheduled_audio() {
 }
 
 #[test]
-fn a_buffer_no_larger_than_the_depth_is_its_own_bound_so_a_generous_report_starves_no_audio() {
+fn an_output_that_reports_a_backend_delay_has_no_bound_so_a_generous_report_starves_no_audio() {
     let Some(directory) = isolate(
-        "worker::sendspin_tests::a_buffer_no_larger_than_the_depth_is_its_own_bound_so_a_generous_report_starves_no_audio",
+        "worker::sendspin_tests::an_output_that_reports_a_backend_delay_has_no_bound_so_a_generous_report_starves_no_audio",
     ) else {
         return;
     };
-    // The output reports 20 ms more than its buffer holds.
-    REPORTED_EXTRA_FRAMES.store(960, Ordering::Release);
-    // Three periods of 1280 frames make the depth equal to the 3840-frame buffer.
-    let bench = clocked_bench_with_period(20, 1280);
+    // The output reports a delay, as ALSA does, and that delay counts 20 ms behind its buffer.
+    REPORTED_DELAY_EXTRA.store(961, Ordering::Release);
+    let bench = clocked_bench(20);
     let mut peer = streaming_peer(&bench);
     let [first, second, ..] = parts();
     let pcm = [first, second].concat();
     // The peer sends 400 ms of audio within 80 ms, far faster than the output plays it.
     let start = peer.server_now_us() + 200_000;
     stream(&mut peer, &bench, start, &pcm, 2 * PART_FRAMES);
-    // A bound at the depth would count the extra frames and keep the buffer at three quarters.
+    // A bound on that delay would keep the buffer 20 ms short of the depth, or starve a longer tail for good.
     let peak = PEAK_HELD_FRAMES.load(Ordering::Acquire) as u64;
     assert!(
         peak > CLOCK_BUFFER_FRAMES - 240,
@@ -1645,6 +1684,134 @@ fn a_buffer_no_larger_than_the_depth_is_its_own_bound_so_a_generous_report_starv
     assert_eq!(timing.anchors, 1);
     assert_eq!(timing.dropped_frames, 0);
     assert_eq!(timing.underruns, 0);
+    assert_eq!(
+        timing.starved_frames, None,
+        "this output fails when it starves"
+    );
     let (capture, closed) = finish(peer, bench, &directory);
     assert_capture(&capture, &[&pcm], closed);
+}
+
+#[test]
+fn a_clear_soon_after_an_anchor_counts_only_the_scheduled_frames_as_held() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_clear_soon_after_an_anchor_counts_only_the_scheduled_frames_as_held",
+    ) else {
+        return;
+    };
+    let [first, ..] = parts();
+    let chunk = &first[..CHUNK_FRAMES * 4];
+    let bench = clocked_bench(20);
+    let mut peer = streaming_peer(&bench);
+    let start = peer.server_now_us() + 200_000;
+    stream(&mut peer, &bench, start, chunk, CHUNK_FRAMES as u64);
+    // The output still holds the idle silence that preceded the anchor, then the pad and this one chunk.
+    peer.clear_stream(None);
+    peer.serve_until("the clear arrives", || {
+        bench.observed().timing.clear_held_frames.is_some()
+    });
+    let held = bench.observed().timing.clear_held_frames.unwrap();
+    assert!(
+        (1..=CHUNK_FRAMES as u64 + ANCHOR_PAD_FRAMES).contains(&held),
+        "the clear counted {held} held frames of {CHUNK_FRAMES} scheduled ones"
+    );
+    let (capture, closed) = finish(peer, bench, &directory);
+    assert_capture(&capture, &[chunk], closed);
+}
+
+#[test]
+fn a_starved_output_that_drops_late_frames_counts_them_and_keeps_its_anchor() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_starved_output_that_drops_late_frames_counts_them_and_keeps_its_anchor",
+    ) else {
+        return;
+    };
+    STARVATION.store(STARVATION_DROPS, Ordering::Release);
+    let [first, second, ..] = parts();
+    let bench = clocked_bench(20);
+    let mut peer = streaming_peer(&bench);
+    let start = peer.server_now_us() + 200_000;
+    stream(&mut peer, &bench, start, &first, PART_FRAMES);
+    assert_eq!(bench.observed().timing.starved_frames, Some(0));
+    // The worker stalls for 250 ms. The output holds at most 100 ms, so its clock runs 150 ms or more past its audio.
+    STALL_MS.store(250, Ordering::Release);
+    stream(&mut peer, &bench, start + PART_US, &second, 2 * PART_FRAMES);
+    let timing = bench.observed().timing;
+    let starved = timing
+        .starved_frames
+        .expect("this output counts starved frames");
+    assert!(
+        (6000..=12000).contains(&starved),
+        "the output starved for {starved} frames"
+    );
+    assert!(
+        timing.late_chunks >= 1,
+        "the first chunk after the stall is late"
+    );
+    // The output dropped the late frames, so the audio behind them is on time again. The anchor stays.
+    assert_eq!(timing.anchors, 1);
+    assert_eq!(timing.dropped_frames, 0);
+    assert_eq!(timing.underruns, 0);
+    assert!(timing.max_abs_error_us >= 100_000);
+    let last = timing.last_error_us.expect("a last error");
+    // The last chunk is within the late limit again. The catch-up ends between two chunks.
+    assert!(last.abs() <= 20_000, "last error {last}");
+    let (capture, closed) = finish(peer, bench, &directory);
+    // The file keeps every accepted frame, also the ones that this output dropped.
+    assert_capture(&capture, &[&first, &second], closed);
+}
+
+#[test]
+fn a_starved_output_that_plays_late_frames_late_anchors_again_once_it_is_steady() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_starved_output_that_plays_late_frames_late_anchors_again_once_it_is_steady",
+    ) else {
+        return;
+    };
+    STARVATION.store(STARVATION_SLIPS, Ordering::Release);
+    let [first, second, third, _] = parts();
+    let bench = clocked_bench(20);
+    let mut peer = streaming_peer(&bench);
+    let start = peer.server_now_us() + 200_000;
+    stream(&mut peer, &bench, start, &first, PART_FRAMES);
+    // The worker stalls for 250 ms. The output holds at most 100 ms, so every later frame would play 150 ms late or more.
+    STALL_MS.store(250, Ordering::Release);
+    stream(&mut peer, &bench, start + PART_US, &second, 2 * PART_FRAMES);
+    stream(
+        &mut peer,
+        &bench,
+        start + 2 * PART_US,
+        &third,
+        3 * PART_FRAMES,
+    );
+    let timing = bench.observed().timing;
+    assert!(
+        timing.late_chunks >= 2,
+        "late chunks {}",
+        timing.late_chunks
+    );
+    assert_eq!(
+        timing.anchors, 2,
+        "a late chunk on a steady output anchors again"
+    );
+    // The new anchor drops the audio that was due while the output was dry: 150 ms.
+    // Idle silence that the output took meanwhile delays the anchor by up to 60 ms more.
+    let dropped = timing.dropped_frames;
+    assert!(
+        (4800..=14400).contains(&dropped),
+        "the new anchor dropped {dropped} frames"
+    );
+    let starved = timing
+        .starved_frames
+        .expect("this output counts starved frames");
+    assert!(
+        (6000..=12000).contains(&starved),
+        "the output starved for {starved} frames"
+    );
+    assert_eq!(timing.underruns, 0);
+    let last = timing.last_error_us.expect("a last error");
+    // The last chunk is within the late limit again. The catch-up ends between two chunks.
+    assert!(last.abs() <= 20_000, "last error {last}");
+    let (_, closed) = finish(peer, bench, &directory);
+    assert_eq!(closed.anchors, 2);
 }

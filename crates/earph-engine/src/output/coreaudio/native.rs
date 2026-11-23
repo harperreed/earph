@@ -57,6 +57,7 @@ fn counters(
         } else {
             "core_audio_ioproc_delivery_not_audible_position"
         },
+        starved: progress.queue_starved_frames,
     })
 }
 /// Reads the latency that the opened device reports. The reads start no IO.

@@ -128,6 +128,35 @@ fn schedule_maps_nonzero_origins_and_gaps_to_whole_payload_spans() {
     assert_eq!(schedule.retired, 128);
 }
 #[test]
+fn schedule_counts_queue_time_that_passed_with_nothing_queued() {
+    let epochs = Epochs::default();
+    let mut schedule = Schedule::new(256, epochs);
+    schedule.append(epochs, 0, 64, 100.0, 1).unwrap();
+    schedule.append(epochs, 64, 64, 164.0, 1).unwrap();
+    assert_eq!(
+        schedule.starved, 0,
+        "contiguous buffers ahead of the clock starve nothing"
+    );
+    // The queue clock passed the end of the queued audio before the next buffer arrived.
+    assert_eq!(schedule.retire(epochs, 300).unwrap(), 128);
+    // The queue placed this buffer behind its predecessor, in its own past. None of its 64 frames can play.
+    schedule.append(epochs, 128, 64, 228.0, 1).unwrap();
+    assert_eq!(schedule.starved, 64);
+    // The next buffer follows it. Its first 8 frames lie behind the clock too.
+    schedule.append(epochs, 192, 64, 292.0, 1).unwrap();
+    assert_eq!(schedule.starved, 72);
+    // A buffer ahead of the clock again adds nothing.
+    schedule.append(epochs, 256, 64, 356.0, 1).unwrap();
+    assert_eq!(schedule.starved, 72);
+    // A queue that places a late buffer at its present instead leaves a gap after the predecessor.
+    assert_eq!(schedule.retire(epochs, 500).unwrap(), 320);
+    schedule.append(epochs, 320, 64, 520.0, 1).unwrap();
+    assert_eq!(
+        schedule.starved, 172,
+        "the gap from 420 to 520 had nothing queued"
+    );
+}
+#[test]
 fn schedule_rejects_invalid_spans_without_committing_payload_or_overwriting_history() {
     let epochs = Epochs::default();
     let mut schedule = Schedule::new(2, epochs);

@@ -17,6 +17,11 @@ struct Schedule {
     queue_end: Option<(u64, f64)>,
     epochs: Epochs,
     returned: Option<QueueScheduleDiagnostic>,
+    /// The latest validated queue clock, in whole queue frames.
+    clock: u64,
+    /// Queue frames that passed with nothing queued: gaps between buffers, and buffer starts behind the clock.
+    /// Audio placed behind the clock cannot play. This is no audible measurement.
+    starved: u64,
 }
 impl Schedule {
     fn copy_spans(&self, destination: &mut [NativeEnqueueSpan]) -> Result<usize, CoreAudioError> {
@@ -44,6 +49,8 @@ impl Schedule {
             queue_end: None,
             epochs,
             returned: None,
+            clock: 0,
+            starved: 0,
         }
     }
     fn has_room(&self) -> bool {
@@ -121,6 +128,12 @@ impl Schedule {
                 "AudioQueue buffer schedule overlaps its predecessor",
             ));
         }
+        // The queue had nothing from its predecessor's end to this start, and nothing playable behind the clock.
+        let covered = self.queue_end.map_or(start_whole, |(whole, _)| whole);
+        let empty_until = self.clock.min(end_whole).max(start_whole);
+        self.starved = self
+            .starved
+            .saturating_add(empty_until.saturating_sub(covered));
         let tail = (self.head + self.len) % self.spans.len();
         self.spans[tail] = Some(ScheduledSpan {
             placement: NativeEnqueueSpan {
@@ -144,6 +157,7 @@ impl Schedule {
                 "AudioQueue schedule generation changed",
             ));
         }
+        self.clock = self.clock.max(queue_frame);
         while self.len != 0 {
             let span =
                 self.spans[self.head].expect("live schedule entries remain until retirement");

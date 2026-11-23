@@ -149,6 +149,8 @@ pub struct OutputProgress {
     pub queue_clock_last_valid_frame: Option<u64>,
     pub queue_schedule: Option<QueueScheduleDiagnostic>,
     pub queue_retired_frames: Option<u64>,
+    /// Queue frames that passed with nothing queued since this output opened. See `Schedule::starved`.
+    pub queue_starved_frames: Option<u64>,
     pub queued_frames: u64,
     pub callbacks_observed: u64,
     pub measurement_boundary: &'static str,
@@ -171,6 +173,7 @@ struct QueueDiagnostics {
     last_valid: Option<u64>,
     schedule: Option<QueueScheduleDiagnostic>,
     retired: Option<u64>,
+    starved: Option<u64>,
 }
 impl OutputProgress {
     fn with_queue_diagnostics(mut self, diagnostics: QueueDiagnostics) -> Self {
@@ -186,6 +189,7 @@ impl OutputProgress {
         self.queue_clock_last_valid_frame = diagnostics.last_valid;
         self.queue_schedule = diagnostics.schedule;
         self.queue_retired_frames = diagnostics.retired;
+        self.queue_starved_frames = diagnostics.starved;
         self
     }
 }
@@ -818,6 +822,7 @@ impl CoreAudioOutput {
             queue_clock_last_valid_frame: None,
             queue_schedule: None,
             queue_retired_frames: None,
+            queue_starved_frames: None,
             queued_frames: ring.queued_frames() + sdk_queued,
             callbacks_observed: queue.map_or_else(
                 || ring.callbacks.load(Ordering::Acquire),

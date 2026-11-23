@@ -30,14 +30,20 @@ const REQUIRED_LEAD_TIME_MS: u64 = 150;
 /// The server should keep this much audio queued at the player. Admitted, not measured.
 const MIN_BUFFER_MS: u32 = 200;
 const SAMPLE_RATE_HZ: u32 = 48000;
-/// A running output holds this many periods, and at least `IDLE_DEPTH_MIN_MS`, of idle silence or scheduled audio.
-/// A full clear leaves the held audio to play out, so this depth bounds how long cleared audio plays on.
-/// An output whose buffer is no larger holds at most its buffer instead.
+/// Idle silence keeps this many periods in the output, and at least `IDLE_DEPTH_MIN_MS`.
 /// Core Audio starts after two accepted periods. Its hardware route fails when a callback finds less than one.
 /// Admitted, not measured.
 const IDLE_DEPTH_PERIODS: u32 = 3;
 /// A shallower depth leaves a late worker tick too little margin. Admitted, not measured.
 const IDLE_DEPTH_MIN_MS: u32 = 30;
+/// A running output holds at most this much scheduled audio, and at least the idle depth.
+/// The value trades two costs. A stalled worker starves the output after this long, and the audio due meanwhile is lost.
+/// A full clear leaves this much old audio to play on, and the next audio needs a head start beyond it.
+/// The server's head start is at least 200 ms plus the device latency, so 100 ms leaves 100 ms for a clear.
+/// 30 ms lost frames on a loaded Mac. Admitted, not measured.
+/// The bound applies only to an output that counts its queued frames from a cursor.
+/// An ALSA delay can count frames behind the buffer, so the ALSA buffer is the bound there.
+const SCHEDULED_DEPTH_MS: u32 = 100;
 /// A scheduling fault means a timestamp or counter left the checked integer range.
 const SCHEDULE: EngineError = EngineError::new(
     ErrorCode::AssetInvalid,
@@ -224,9 +230,16 @@ pub(super) struct SendspinPlayback {
     /// The value of `submitted_frames` when the output last accepted a scheduled frame.
     /// Every frame accepted since then is idle silence.
     scheduled_until: u64,
-    /// A running output holds at most this many frames of scheduled audio.
-    /// `None` means that the output's own buffer is the bound: it is no larger than the idle depth.
-    scheduled_depth: Option<u64>,
+    /// Scheduled frames that the output accepted since the last idle silence before them.
+    scheduled_run: u64,
+    /// Idle silence keeps this many frames in the output.
+    idle_depth: u64,
+    /// A running output that counts its queued frames holds at most this many frames of scheduled audio.
+    scheduled_depth: u64,
+    /// Frames of output time that passed with nothing queued, summed over every output of this source.
+    starved_frames: Option<u64>,
+    /// The starved count of the current output at its last report.
+    starved_seen: u64,
     /// Scheduled frames that the output still held at the latest full clear. They played on.
     clear_held_frames: Option<u64>,
     max_clear_held_frames: u64,
@@ -300,9 +313,7 @@ impl SendspinPlayback {
         let depth = (config.period_frames.saturating_mul(IDLE_DEPTH_PERIODS))
             .max(SAMPLE_RATE_HZ / 1000 * IDLE_DEPTH_MIN_MS)
             .min(config.buffer_frames);
-        // A buffer no larger than the depth bounds the held audio by itself.
-        // A bound on the report would then only starve an output whose report counts frames behind its buffer.
-        let scheduled_depth = (depth < config.buffer_frames).then_some(u64::from(depth));
+        let scheduled_depth = depth.max(SAMPLE_RATE_HZ / 1000 * SCHEDULED_DEPTH_MS);
         let pacer = SilencePacer::new(SAMPLE_RATE_HZ, depth.into()).map_err(|_| SCHEDULE)?;
         let output = output::open(config, format, epochs)?;
         #[cfg(all(test, target_os = "linux"))]
@@ -358,7 +369,11 @@ impl SendspinPlayback {
             silence: 0,
             primed: false,
             scheduled_until: 0,
-            scheduled_depth,
+            scheduled_run: 0,
+            idle_depth: depth.into(),
+            scheduled_depth: scheduled_depth.into(),
+            starved_frames: None,
+            starved_seen: 0,
             clear_held_frames: None,
             max_clear_held_frames: 0,
             output_discarded_frames: 0,
@@ -474,6 +489,8 @@ impl SendspinPlayback {
                 inserted_silence_frames: facts.inserted_silence_frames,
                 idle_silence_frames: self.idle_silence_frames,
                 dropped_frames: facts.dropped_frames,
+                late_chunks: facts.late_chunks,
+                starved_frames: self.starved_frames,
                 clear_held_frames: self.clear_held_frames,
                 max_clear_held_frames: self.max_clear_held_frames,
                 output_discarded_frames: self.output_discarded_frames,
@@ -612,36 +629,33 @@ impl SendspinPlayback {
         self.pending = None;
         self.release()?;
         self.unanchor();
-        let held = self.held_scheduled_frames();
+        // A failed query gives no fact. The next write meets the same failure and recovers or ends the source.
+        let held = self.held_scheduled_frames().ok().flatten();
         if !release {
-            return match held {
-                Ok(held) => {
-                    self.clear_held_frames = held;
-                    self.max_clear_held_frames = self.max_clear_held_frames.max(held.unwrap_or(0));
-                    Ok(())
-                }
-                // A starved output underran before this clear. Its recovery prepares it again.
-                Err(error) => self.recover(error),
-            };
+            self.clear_held_frames = held;
+            self.max_clear_held_frames = self.max_clear_held_frames.max(held.unwrap_or(0));
+            return Ok(());
         }
         if !self.primed {
             // A prepared output that accepted no frame holds nothing to drop.
             return Ok(());
         }
-        if let Ok(Some(held)) = held {
-            self.output_discarded_frames += held;
-        }
+        self.output_discarded_frames += held.unwrap_or(0);
         match self.output.discard(self.settings.snapshot.epochs) {
             Ok(()) => {
                 self.primed = false;
                 self.pacer.reset();
+                // A reopened output counts its starved frames from zero.
+                self.starved_seen = 0;
                 Ok(())
             }
             // A starved output underran before this halt. Its recovery prepares it again.
             Err(error) => self.recover(error),
         }
     }
-    /// Returns the scheduled frames that the output still holds, without the idle silence behind them.
+    /// Returns the scheduled frames that the output still holds.
+    /// The idle silence behind them and the idle silence before them do not count.
+    /// Scheduled frames before that earlier idle silence do not count either; they have nearly played out.
     /// `None` means no fact: only a running output reports what it holds.
     fn held_scheduled_frames(&mut self) -> Result<Option<u64>, EngineError> {
         if !self.primed {
@@ -653,21 +667,23 @@ impl SendspinPlayback {
         let idle_tail = self.submitted_frames - self.scheduled_until;
         Ok(self
             .held_frames()?
-            .map(|held| held.saturating_sub(idle_tail)))
+            .map(|held| held.saturating_sub(idle_tail).min(self.scheduled_run)))
     }
     /// Returns how many scheduled frames a running output takes before it holds its depth.
     /// More would only wait there, and a full clear would leave all of it to play on.
-    /// `None` means no bound: the buffer is the bound, the output does not run yet, or it reports no held frames.
+    /// `None` means no bound: the output does not run yet, or it counts no queued frames from a cursor.
+    /// A backend delay can count frames behind the buffer, and a bound on it could starve the device.
     fn room(&mut self) -> Result<Option<usize>, EngineError> {
-        let Some(depth) = self.scheduled_depth else {
-            return Ok(None);
-        };
         if !self.output.is_running() {
             return Ok(None);
         }
-        Ok(self
-            .held_frames()?
-            .map(|held| usize::try_from(depth.saturating_sub(held)).unwrap_or(usize::MAX)))
+        let counters = self.output.progress()?;
+        let (None, Some(cursor)) = (counters.delay, counters.restart_cursor) else {
+            return Ok(None);
+        };
+        let held = counters.submitted.saturating_sub(cursor);
+        let room = self.scheduled_depth.saturating_sub(held);
+        Ok(Some(usize::try_from(room).unwrap_or(usize::MAX)))
     }
     /// Reprepares the output after an underrun and makes the unwritten audio anchor again.
     /// Idle silence keeps a running output fed, so only a stalled worker starves it.
@@ -723,6 +739,16 @@ impl SendspinPlayback {
             let cursor = counters.restart_cursor?;
             Some(counters.submitted.saturating_sub(cursor))
         });
+        if let Some(starved) = counters.starved {
+            // A reopened output counts from zero again.
+            let before = if starved < self.starved_seen {
+                0
+            } else {
+                self.starved_seen
+            };
+            self.starved_frames = Some(self.starved_frames.unwrap_or(0) + (starved - before));
+            self.starved_seen = starved;
+        }
         if held.is_some() {
             // The scheduler's delay includes an applied device latency, and the basis says so.
             let (_, latency_basis) = self.device_latency();
@@ -772,13 +798,16 @@ impl SendspinPlayback {
             .map_or(0, |end| position.ticks() - end.ticks());
         // The device reports its latency behind the frames that the output holds.
         let (latency, _) = self.device_latency();
+        let held = self.held_frames()?;
         let facts = ChunkFacts {
             target_us: target.time_us,
             mapping_revision: target.mapping_revision,
             frames,
             now_us,
-            delay_frames: latency.delay_frames(self.held_frames()?),
+            delay_frames: latency.delay_frames(held),
             gap_frames: u64::try_from(gap_ticks / ServerPosition::TICKS_PER_FRAME).unwrap_or(0),
+            // An output that ran dry holds almost nothing while it catches up.
+            steady: held.is_some_and(|held| held * 2 >= self.idle_depth),
         };
         let decision = self.scheduler.decide(facts).map_err(|_| SCHEDULE)?;
         if let Decision::Wait { until_us } = decision {
@@ -934,6 +963,11 @@ impl SendspinPlayback {
                 if self.span == Span::Idle {
                     self.idle_silence_frames += frames as u64;
                 } else {
+                    if self.scheduled_until != self.submitted_frames - frames as u64 {
+                        // Idle silence came before these frames, so they start a new run.
+                        self.scheduled_run = 0;
+                    }
+                    self.scheduled_run += frames as u64;
                     self.scheduled_until = self.submitted_frames;
                 }
                 self.pending = (offset + frames < end).then_some((offset + frames, end));

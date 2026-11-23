@@ -806,6 +806,7 @@ impl Registration {
             enqueued: Some(schedule.enqueued),
             schedule: schedule.returned,
             retired: Some(schedule.retired),
+            starved: Some(schedule.starved),
             ..QueueDiagnostics::default()
         })
     }

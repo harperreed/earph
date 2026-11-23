@@ -17,6 +17,9 @@ pub(crate) struct Counters {
     pub restart_cursor: Option<u64>,
     pub delay: Option<u64>,
     pub basis: &'static str,
+    /// Frames of output time that passed with nothing queued since this output opened.
+    /// `None` means that the backend fails a call instead, as an ALSA underrun does.
+    pub starved: Option<u64>,
 }
 /// The latency that an output device reports beyond the frames that `Counters` cover.
 /// It is a device report, never an audible position.
@@ -283,6 +286,7 @@ fn counters(progress: earph_alsa::OutputProgress) -> Counters {
         restart_cursor: Some(progress.estimated_consumed_frames),
         delay: Some(progress.backend_delay_frames),
         basis: progress.measurement_boundary,
+        starved: None,
     }
 }
 #[cfg(target_os = "linux")]
@@ -340,6 +344,7 @@ impl Output for earph_alsa::AlsaOutput {
                 restart_cursor: Some(self.submitted_frames()),
                 delay: Some(0),
                 basis: "alsa_client_estimate",
+                starved: None,
             })),
             earph_alsa::DrainProgress::WouldBlock => Ok(None),
         }

@@ -58,6 +58,13 @@ pub struct SendspinTiming {
     pub idle_silence_frames: u64,
     /// Received frames that arrived too late and never reached the output.
     pub dropped_frames: u64,
+    /// Contiguous chunks that were due more than 20 ms before the output could play them.
+    /// The output ran dry or fell behind. Such a chunk anchors again once the output holds its depth.
+    pub late_chunks: u64,
+    /// Frames of output time that passed with nothing queued since this source started.
+    /// Audio that was due in that time is lost, and no other counter holds it.
+    /// `None` means that the output reports no such count: it fails instead, as an ALSA underrun does.
+    pub starved_frames: Option<u64>,
     /// Scheduled frames that the output still held at the latest full clear.
     /// The output kept running, so these frames of the cleared audio played on.
     /// `None` means no full clear yet, or an output that reported no held frames.
@@ -109,6 +116,8 @@ impl SendspinTiming {
         inserted_silence_frames: 0,
         idle_silence_frames: 0,
         dropped_frames: 0,
+        late_chunks: 0,
+        starved_frames: None,
         clear_held_frames: None,
         max_clear_held_frames: 0,
         output_discarded_frames: 0,
@@ -180,6 +189,8 @@ mod tests {
                     "inserted_silence_frames": 0,
                     "idle_silence_frames": 0,
                     "dropped_frames": 0,
+                    "late_chunks": 0,
+                    "starved_frames": null,
                     "clear_held_frames": null,
                     "max_clear_held_frames": 0,
                     "output_discarded_frames": 0,
@@ -202,6 +213,8 @@ mod tests {
             start_error_us: Some(-40),
             last_error_us: Some(125),
             max_abs_error_us: 125,
+            late_chunks: 3,
+            starved_frames: Some(128),
             clear_held_frames: Some(1440),
             max_clear_held_frames: 1500,
             output_discarded_frames: 37,
@@ -221,6 +234,8 @@ mod tests {
         assert_eq!(timing["underruns"], 1);
         assert_eq!(timing["start_error_us"], -40);
         assert_eq!(timing["last_error_us"], 125);
+        assert_eq!(timing["late_chunks"], 3);
+        assert_eq!(timing["starved_frames"], 128);
         assert_eq!(timing["clear_held_frames"], 1440);
         assert_eq!(timing["max_clear_held_frames"], 1500);
         assert_eq!(timing["output_discarded_frames"], 37);
