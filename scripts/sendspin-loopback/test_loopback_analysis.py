@@ -176,7 +176,8 @@ class LoopbackAnalysis(unittest.TestCase):
         def snapshot(anchors, lead, wait, start_error, last_error, dropped):
             return {"at_us": 1, "playback": {"timing": {"anchors": anchors, "first_lead_us": lead,
                 "first_wait_us": wait, "start_error_us": start_error, "last_error_us": last_error,
-                "max_abs_error_us": 900, "dropped_frames": dropped, "underruns": 0}}}
+                "max_abs_error_us": 900, "dropped_frames": dropped, "underruns": 0,
+                "clear_held_frames": 1300 if anchors > 1 else None, "output_discarded_frames": 0}}}
         capture = Capture(12000)
         capture.play(1000, 500, 3000)
         capture.segment(500, 3000, 0, played_at=1000, played_from=500, offset_us=40)
@@ -190,8 +191,10 @@ class LoopbackAnalysis(unittest.TestCase):
         first, second = self.analyze(capture)["segments"]
         self.assertEqual(first["status"], {"anchors": 1, "first_lead_us": 199_000, "first_wait_us": 60_000,
             "start_error_us": 300, "last_error_us": [310, -90], "max_abs_error_us": 900,
-            "dropped_frames": 0, "underruns": 0})
+            "dropped_frames": 0, "underruns": 0, "clear_held_frames": None, "output_discarded_frames": 0})
         self.assertEqual(second["status"]["dropped_frames"], 1000)
+        # The clear before the second segment left 1300 frames of the first one to play on.
+        self.assertEqual(second["status"]["clear_held_frames"], 1300)
         self.assertEqual(second["status"]["first_wait_us"], 170_000)
         self.assertEqual(second["status"]["start_error_us"], 280)
         self.assertEqual(second["head_missing_frames"], 1000)

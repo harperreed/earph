@@ -201,10 +201,13 @@ def status_facts(snapshots, dropped_before):
     if not timings:
         return None
     first, last = timings[0], timings[-1]
-    facts = {name: first.get(name) for name in ("anchors", "first_lead_us", "first_wait_us", "start_error_us")}
+    # A full clear before the segment left `clear_held_frames` of the old audio in the output to play on.
+    facts = {name: first.get(name)
+        for name in ("anchors", "first_lead_us", "first_wait_us", "start_error_us", "clear_held_frames")}
     facts.update({"last_error_us": [timing.get("last_error_us") for timing in timings],
         "max_abs_error_us": last.get("max_abs_error_us"), "underruns": last.get("underruns"),
-        "dropped_frames": last["dropped_frames"] - dropped_before})
+        "dropped_frames": last["dropped_frames"] - dropped_before,
+        "output_discarded_frames": last.get("output_discarded_frames")})
     return facts
 
 
@@ -342,6 +345,8 @@ def summary(report):
             lines.append("  status   first lead %s us, first wait %s us, dropped %d, start error %s us, last error %s us" % (
                 status["first_lead_us"], status["first_wait_us"], status["dropped_frames"],
                 status["start_error_us"], "/".join(str(error) for error in status["last_error_us"])))
+            lines.append("  status   clear held %s frames, output discarded %s frames since the source started" % (
+                status["clear_held_frames"], status["output_discarded_frames"]))
     for transition in report["transitions"]:
         if "silence_us" not in transition:
             lines.append("%s %d>%d  not measurable: a segment has no captured frame" % (
