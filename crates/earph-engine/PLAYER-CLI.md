@@ -118,6 +118,9 @@ Expect a constant offset from other players, and slow drift.
 `start error` is the player's own estimate, not a measurement.
 The command shows no playback position for the same reason.
 
+A cleared stream, a gap in the stream, and an output underrun on Linux do not end the command.
+The player continues with the next audio that the server sends.
+
 | Flag | Meaning |
 | --- | --- |
 | `--server ws://IP:PORT/PATH` | The server. The address must be numeric; no name lookup happens. |

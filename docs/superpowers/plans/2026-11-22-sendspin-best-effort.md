@@ -68,7 +68,7 @@ ALSA reports a client delay estimate. Core Audio reports none; treat it as zero 
 | U2 | Anchor and error measurement | 250 / 300 | U1 |
 | U3 | Core command, Host runtime, real credential bridge | 900 / 700 | U1 |
 | U4 | `earph sendspin` and the success-criterion process test | 260 / 300 | U2, U3 |
-| U5 | Clears, re-activation, starvation | 300 / 400 | U2 |
+| U5 | Landed. Clears, re-activation, starvation, and underrun recovery | 300 / 400 | U2 |
 | U6 | Pinned Python peer and documents | 0 / 250 | U4 |
 | U7 | Credential provisioning and pairing, for real Music Assistant use | 870 / 1130 | U4 |
 
@@ -111,8 +111,16 @@ Done when both success criteria pass in the default test run.
 
 ### U5: lifecycle
 
-Handle full and partial clear, re-declaration after re-activation, silence fill and re-anchor on starvation, and budget overflow as a reported source failure.
-Until this unit, an ALSA underrun ends the source and revokes output approval.
+Landed.
+A full clear drops queued and output-held audio, and the next chunk anchors again.
+A partial clear keeps the audio that already left for the output and trims its replacement.
+A new activation gets a new available declaration.
+A gap up to 100 ms becomes silence; a longer gap anchors again.
+An ALSA underrun prepares the same stream again, resets the scheduler, and counts in `timing.underruns`.
+Before this unit, an ALSA underrun ended the source and revoked output approval.
+Budget overflow ends the source with `RESOURCE_BUDGET_EXCEEDED`.
+The worker writes no silence while the server sends nothing; an output with a clock then underruns and recovers.
+No test produced a hardware underrun. Tests inject the failure at the output interface and at the ALSA failure path.
 
 ### U6: independent producer and documents
 

@@ -117,3 +117,9 @@
   After an external CLI mutation, refresh and fence the observed owner/revision before guarded GUI actions.
   Retry fresh reads within a deadline; never replay a mutation to observe its completion.
   See the [active zero qualification](docs/evidence/desktop/native-zero-linux-20261120.json).
+
+- No ALSA plugin without hardware underruns, so tests cannot produce a native `EPIPE` from a write.
+  The file plugin reports a closed pipe as `EIO`, and the null plugin accepts every write.
+  Inject a Sendspin underrun at the worker's `Output` seam and at `AlsaOutput::fail`.
+  Hardware recovery through `recover_underrun` remains unobserved.
+  See the [Sendspin worker tests](crates/earph-engine/src/worker/sendspin_tests.rs) and [the adapter](crates/earph-alsa/src/output.rs).

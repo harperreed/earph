@@ -199,6 +199,31 @@ Core ignores a source event whose connection generation or epochs are stale.
 A source that closes with an error fails the session with that error code.
 A clean close, a stop, or a pause clears the session.
 
+## Player stream lifecycle
+
+The playback worker anchors a chunk to its own server timestamp at each stream start.
+It anchors again after a full clear, an output underrun, and a timestamp gap longer than 100 ms.
+A shorter gap becomes silence and keeps the anchor.
+
+A `stream/clear` without `from_timestamp` drops the queued audio and the audio that the output still holds.
+A `stream/clear` with `from_timestamp` drops only the queued audio from that server time on.
+Audio that already left for the output stays.
+The timeline trims replacement audio that overlaps it, and the anchor stays.
+A `stream/end` and a lost player role stop the stream without a drain.
+Each new activation gets a new available player state.
+
+The worker writes no silence while the server sends nothing, so a running ALSA output can underrun.
+After an underrun the worker prepares the same ALSA stream again and anchors the unwritten audio again.
+It reopens no device, and mute and volume stay unchanged.
+A second failure before the recovered output accepts a frame ends the source with `OUTPUT_FAULT`.
+Every other output failure ends the source, and Core Audio has no underrun recovery.
+Audio beyond the timeline budget ends the source with `RESOURCE_BUDGET_EXCEEDED`.
+
+`timing.anchors` counts the anchors and `timing.underruns` counts the recovered underruns since the source started.
+No test produced a hardware underrun, because no ALSA plugin without hardware underruns.
+The worker tests fail one write at the output interface and then prepare the real file-capture stream again.
+The ALSA adapter test hands its failure path the `EPIPE` error number of a native underrun.
+
 The Host runtime loads credentials, starts Network, and gives the handle to the playback worker.
 Each owner loop iteration polls it, and no step blocks.
 After a stop, a pause, a close, or an owner shutdown it joins Network first and then the credential supervisor.
