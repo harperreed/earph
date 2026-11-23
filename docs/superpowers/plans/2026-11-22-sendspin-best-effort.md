@@ -64,6 +64,7 @@ U9 adds the latency that the Core Audio device reports behind that cursor.
 
 Keep the output running on idle silence while a stream is active and no audio is due (U8).
 Anchor only on a running output.
+Keep the output running through a full clear, and write scheduled audio only up to the idle depth (U10).
 
 ## Units
 
@@ -78,6 +79,7 @@ Anchor only on a running output.
 | U7 | Credential provisioning and pairing, for real Music Assistant use | 870 / 1130 | U4 |
 | U8 | Landed. Keep the output running on idle silence | 200 / 500 | U5 |
 | U9 | Landed. Count the Core Audio device's reported latency in the schedule | 150 / 350 | U8 |
+| U10 | Landed on Linux. Keep the output running through a full clear | 70 / 130 | U8 |
 
 ### U1: thinnest sample path
 
@@ -120,6 +122,7 @@ Done when both success criteria pass in the default test run.
 
 Landed.
 A full clear drops queued and output-held audio, and the next chunk anchors again.
+U10 changed that: the output-held audio now plays out.
 A partial clear keeps the audio that already left for the output and trims its replacement.
 A new activation gets a new available declaration.
 A gap up to 100 ms becomes silence; a longer gap anchors again.
@@ -177,6 +180,73 @@ The silent macOS test `native::tests::default_output_latency_reads_start_no_io_a
 It is an ignored test; run it by name with `--ignored`.
 On November 22, 2026 it passed on the Mac build host: 50 device frames, 50 safety frames, and 0 stream frames at 48 kHz.
 That sum is about 2 ms, so a reported latency of this size cannot explain an audible lag on built-in speakers.
+
+### U10: running output through a clear
+
+Landed on Linux on November 23, 2026. No Mac has compiled or run this unit.
+The loopback capture below timed a full clear at 152 ms to 174 ms, because the clear restarted the output.
+An anchor on an output that kept running cost nothing measurable.
+
+A full clear now keeps the output running on both backends.
+The worker drops the queued audio and the unaccepted rest of the current period.
+The audio that the output already holds plays out. Idle silence follows it, and the next chunk anchors on the running output.
+That anchor counts the held frames as its delay, as an anchor after a gap does.
+
+A source reading found no way to drop held audio without a restart through today's adapters.
+ALSA drops frames only with a stop and a new prepare. `snd_pcm_rewind` could take frames back, but not every plugin supports it.
+The Core Audio adapter drops frames only by closing its queue.
+`AudioQueueReset` could flush a running queue. The adapter maps the queue clock through each enqueued buffer, and a flush would break that mapping.
+No Mac can run here, so the adapters stay unchanged.
+
+The held audio therefore needed a bound.
+Before this unit the worker wrote every contiguous chunk at once, as far ahead as the output took it.
+From the code, a Core Audio system output takes its staging ring plus an equal queue window: 8192 frames, about 170 ms, with the default sizes.
+The worker now writes scheduled audio only while a running output holds less than the idle depth.
+That depth is three periods and at least 30 ms, never more than the buffer.
+The rest waits in the timeline, where a clear still drops it.
+So cleared audio plays on for at most about 30 ms, plus the device latency, which plays out in either design.
+The bound applies only to an output that reports its held frames. The ALSA file and null devices report zero.
+It applies only when the buffer is larger than the depth. A smaller buffer is its own bound.
+With the default ALSA sizes the depth equals the 256-frame buffer, so nothing changes there.
+An ALSA delay can count frames that already left the buffer. A bound on that report would starve such a device.
+
+State shows the cost. `timing.clear_held_frames` holds the scheduled frames that the output held at the latest full clear.
+`timing.max_clear_held_frames` keeps the largest value.
+
+Unchanged: a partial clear, underrun recovery, a stream end, a lost player role, stop, pause, and reconnect.
+A stream end still releases the output at once and drops what it holds.
+New: `timing.output_discarded_frames` counts the scheduled frames that such a release dropped.
+
+Side finding A is gone with its cause.
+The `scheduled` flag chose between a restart and no restart. No clear restarts the output now, so the flag is removed.
+The worker instead remembers where the last scheduled frame ended, and counts only scheduled frames as held audio.
+A clear after the audio played out reports `clear_held_frames: 0`.
+
+Side finding B is not traced to its cause. See "Tail frames" below.
+
+The worker tests give the clocked output a 150 ms start and a 100 ms head start after a clear on playing audio.
+Before this unit that clear lost 6323 frames. Now it loses none, the first wait stays below 20 ms, and the audio leaves on time.
+A second test sends 400 ms of audio within 80 ms: the clocked output held 3838 of its 3840 frames before, and at most 2880 now.
+A third test gives the output a buffer equal to the depth and a report that counts 960 frames too many.
+A bound on that report kept the buffer at 2880 of 3840 frames. Without the bound the buffer fills.
+
+Unverified on a Mac: all of it. The capture runs that verify it, with the build of this unit:
+
+- `run NAME --streams 11 --seconds 4` (a clear on playing audio, the 200 ms head start).
+  Expect no missing head frame, `first_wait_us` near 0 instead of 57 ms to 69 ms, and `clear_held_frames` up to about 1440.
+  Expect the old audio to run on for about 30 ms past the clear, up to 35 ms, instead of 11 ms to 21 ms.
+  Expect the silence to shrink from 179 ms to 188 ms to about 165 ms to 175 ms.
+- The same with `--lead-us 80000` and `--lead-us 40000`.
+  Expect the result of the gap runs: no missing head frame at either head start.
+  Before, 80 ms lost 72 ms to 95 ms and 40 ms lost 113 ms to 130 ms.
+  At 40 ms the margin is small: the head start less the 30 ms that the output holds, less the transit.
+- `--transition clear --idle-seconds 1`: expect `clear_held_frames` 0 and `first_wait_us` 0.
+- One long segment, `--streams 1 --seconds 300`: expect no interior missing frame and no underrun.
+  This run is the check of the shallower depth in steady playback.
+- Then a Bluetooth output with Music Assistant: expect `dropped_frames` to stay flat across track skips.
+  Listen for dropouts in steady playback. The output now holds 30 ms of audio where it held up to 170 ms.
+
+These numbers are predictions from the code and from the capture of the earlier build. No run has confirmed one.
 
 ### U6: independent producer and documents
 
@@ -380,7 +450,7 @@ The first lead shows the head start that the server gave. The first wait shows h
 The next Bluetooth run decides the cause. A first lead near 360 ms and a first wait above 200 ms confirm the restart.
 A first lead far below 360 ms points at the server instead.
 
-No fix landed. The options, once a run confirms the cause:
+Option 1 landed as U10 on November 23, 2026. The options were:
 
 1. Keep the output running through a full clear. Stop feeding audio, and let idle silence follow.
    Cost: the output plays the audio that it already holds, so the old track sounds for that long after a skip.
@@ -469,17 +539,51 @@ What this says about the start drop:
 - Inferred: an output that restarts more slowly loses the difference at each clear. That fits the Bluetooth drops of 0.16 s and 0.31 s.
   Not measured: the restart time of the Bluetooth output, and a start drop in any capture with the server's own head start.
 - The recommended fix, option 1, is supported. Measured: an anchor on a running output needs no restart time, even with a 40 ms head start.
-  Not measured: the fix itself, because no build keeps the output running through a clear.
-  Not measured: its cost, the old audio that the output still holds. With today's discard the old audio ran 11 ms to 21 ms past the clear.
+  Not measured: the fix itself. U10 landed after these runs, and no capture has run its build.
+  Not measured: its cost, the old audio that the output still holds. With the discard of that build the old audio ran 11 ms to 21 ms past the clear.
 - For option 2: the start allowance would have to cover the whole restart, which this device already puts at up to 174 ms after the clear.
 
 Other findings of these runs:
 
 - Measured: in 8 of 51 segments that ran out, the last 1 to 56 frames never left the device.
-  `dropped_frames` did not count them. The cause is not traced.
+  `dropped_frames` did not count them. The cause is not traced; see "Tail frames" below.
 - Measured: `earph sendspin init`, `token`, `pair`, and playback work over SSH with a keychain file and its password.
   Each command completed without waiting for a prompt. The keychain search list did not change.
 - The pinned peer's source hash checks pass on the Mac with Python 3.13.5 and the packages of `peer-requirements.txt`.
+
+### Tail frames
+
+A source reading on November 23, 2026 looked for the 1 to 56 tail frames. It ran no Mac code and found no proven cause.
+
+What the reading rules out:
+
+- The worker. It hands every frame of a chunk to the output before it writes idle silence.
+  The Linux worker tests capture every segment that runs out complete, to the last frame.
+- The timeline. It drops queued audio only at a clear, a stream end, or a lost role.
+- The gain ramp. It changes samples and removes none, and no ramp runs at a segment's end.
+- The scheduler's late drop. It drops at the head of a chunk and counts each frame in `dropped_frames`.
+
+What the reading finds:
+
+- The Core Audio system route stages audio in whole slots of one period, 64 frames with the command's default.
+  A tail shorter than one slot stays in the staging ring until more frames arrive.
+  See `Slots::fill` in `crates/earph-coreaudio/src/playback/system.rs` and its test `sdk_staging_reads_real_float_payload_and_keeps_short_tail_until_eof`.
+  The size fits: the lost tails were all shorter than 64 frames.
+- That tail leaves with the next frames, and idle silence supplies them within about 20 ms.
+  A close of the queue drops a tail that still waits: a stream end, a stop, and, before U10, a full clear.
+- The reading does not explain the loss. In every run the capture driver waited 0.5 s or longer between the last audio and the next close.
+  Idle silence should have moved the tail out long before.
+
+So the cause is one of three, and only a capture can tell them apart:
+
+1. Idle silence did not follow the audio in those segments, and a later close dropped the staged tail.
+   Then `timing.output_discarded_frames` grows by the missing frames at a stream end.
+   A full clear no longer closes the queue, so the tail then leaves late, as an unmatched run in the analysis.
+2. The frames passed the queue clock and were lost behind it. Then the counter stays flat.
+3. The frames left and the analysis did not match them. Then `unidentified_frames` or `unmatched_runs` holds them.
+
+No fix landed for this finding. The new counter and the analysis fields narrow it at the next capture.
+`--transition end` runs show case 1 best, because each segment there ends with a close.
 
 ### Local playback into the loopback device
 

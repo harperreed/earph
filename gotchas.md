@@ -140,8 +140,9 @@
   Add it only to the Sendspin scheduler's delay; the idle silence pacer must see the held frames alone.
   A pacer that counts the latency as held frames feeds no silence, and the output runs dry.
   The player needs a server lead of 150 ms plus that latency, or every chunk drops as late.
-  Music Assistant changes tracks with a full `stream/clear`, and the clear restarts an output that holds audio.
-  A restart longer than the remaining head start drops the track's first audio; read `timing.first_lead_us` and `timing.first_wait_us`.
+  Music Assistant changes tracks with a full `stream/clear`. Never restart the output for it.
+  A restart took 152 ms to 174 ms on the Mac loopback device, more than the head start that remains.
+  Keep the output running and bound the scheduled audio that it holds; read `timing.first_wait_us` and `timing.clear_held_frames`.
   See `LatencyAdmission` in [the scheduler](crates/earph-engine/src/sendspin_schedule.rs) and [the runtime notes](docs/sendspin-runtime.md#player-stream-lifecycle).
 
 - A real server that plays is no proof of a compliant message.
@@ -151,9 +152,10 @@
   The pinned Python environment lacks the `server` extra, so `aiosendspin.server` cannot import there.
   See the [pinned Python player peer](docs/sendspin-runtime.md#pinned-python-player-peer).
 
-- The Sendspin worker's `scheduled` flag stays set after its scheduled audio played out.
-  A full clear then still restarts the output, even while the output plays only idle silence.
-  To reach an anchor on a running output without a restart, send new audio after a gap and send no clear.
+- A Sendspin output takes scheduled audio as fast as the worker writes it, far ahead of its clock.
+  Whatever it holds at a full clear plays on, because no backend drops held audio without a restart.
+  Write scheduled audio only up to the idle depth, and leave the rest in the timeline.
+  The Core Audio system route also keeps a tail shorter than one period in its staging ring until more frames arrive.
   Record a Mac loopback capture only through the tmux session that holds microphone permission.
   Keep the silent preamble in a capture: a gain ramp turns 16-bit pattern frames into other valid pattern frames.
   See the [loopback timing capture](docs/sendspin-runtime.md#loopback-timing-capture).

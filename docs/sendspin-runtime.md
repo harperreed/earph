@@ -214,6 +214,14 @@ A chunk takes an anchor only on a running output.
 A device that still starts would delay every frame behind that anchor.
 Idle silence then keeps the output from running dry through an anchor wait, a server gap, and starvation.
 It keeps three periods in the output, and at least 30 ms, never more than the buffer once the output runs.
+Scheduled audio uses the same depth: the worker writes a chunk only while a running output holds less.
+The rest waits in the timeline, where a clear can still drop it.
+Before this bound a Core Audio output took audio until its staging ring and its queue window were full.
+With the command's default sizes that is up to 8192 frames, about 170 ms. This comes from the code; no run measured it.
+An output that reports no held frames has no bound. The ALSA file and null devices report zero at once.
+The worker applies the bound only when the buffer is larger than the depth. A smaller buffer is its own bound.
+With the command's default ALSA sizes the depth equals the 256-frame buffer, so nothing changes there.
+An ALSA delay can count frames that already left the buffer, and a bound on that report would starve the device.
 While a Core Audio output still starts, silence can pile up to about two buffers, and audio due inside that backlog drops once as late.
 The worker estimates the held frames from the accepted frames and its monotonic clock.
 A running output's own report corrects that estimate; an output without a clock reports zero and corrects nothing.
@@ -263,11 +271,27 @@ A `stream/clear` without `from_timestamp` drops the queued audio and the audio t
 A `stream/clear` with `from_timestamp` drops only the queued audio from that server time on.
 Audio that already left for the output stays.
 The timeline trims replacement audio that overlaps it, and the anchor stays.
-A full clear stops and prepares an output that holds scheduled audio; idle silence then starts it again.
-A stream end or a clear closes a Core Audio output without pausing it, because a starting output has no restart position.
-An output that holds only idle silence keeps running through a full clear.
+A full clear keeps the output running on both backends.
+The worker drops the queued audio and the part of a chunk that the output has not accepted.
+It cannot take back the audio that the output already holds, so that audio plays out.
+Idle silence follows it, and the next chunk anchors on the running output.
+That anchor counts the held frames, old audio and idle silence alike, as its delay.
+The held audio is at most the depth above, so cleared audio plays on for at most about 30 ms with the default Core Audio sizes.
+With the default ALSA sizes it is at most the 256-frame buffer, about 5 ms.
+The device latency lies behind it and plays out as well.
+`timing.clear_held_frames` shows the scheduled frames that the output held at the latest full clear.
+It is `null` before the first full clear and for an output that reported no held frames.
+`timing.max_clear_held_frames` keeps the largest value since the source started.
+Neither backend can drop its held audio without a restart through the interface that the worker uses.
+ALSA drops only by stopping the stream, and the Core Audio adapter drops only by closing its queue.
+Until November 23, 2026 a full clear restarted an output that had accepted scheduled audio.
+The loopback capture timed that restart at 152 ms to 174 ms, which is more than a short head start leaves.
+A stream end closes a Core Audio output without pausing it, because a starting output has no restart position.
 A `stream/end` and a lost player role stop the stream without a drain.
 Both stop and release the output at once. Nothing feeds the output between streams.
+The release drops the audio that the output still holds.
+`timing.output_discarded_frames` counts the scheduled frames among it since the source started.
+It counts none behind an unknown hold, and none for a stop or a pause.
 The next `stream/start` starts it again, so audio due before the device runs is dropped as late.
 Each new activation gets a new available player state.
 
@@ -285,6 +309,7 @@ It grows with waiting time, so it stays apart from `timing.inserted_silence_fram
 That counter holds only the scheduler's bounded silence: the anchor pads and the short gaps.
 `submitted_frames` includes both.
 `timing.dropped_frames` counts received frames that were due before the player could write them.
+It does not count cleared audio and it does not count `timing.output_discarded_frames`.
 
 `timing.first_lead_us` shows the head start of the first chunk after the latest stream start, clear, underrun, long gap, or idle silence.
 It is that chunk's local target time minus the time the player first saw it.
