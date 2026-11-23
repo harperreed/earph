@@ -27,6 +27,10 @@ mod player_tests {
     }
     use earph_sendspin::session::AdmissionProposal;
     pub(super) fn pump() -> (Pump, fixture::Peer) {
+        pump_on(true)
+    }
+    /// Builds a pump whose session runs on the long-term record, or still on the pairing secret.
+    pub(super) fn pump_on(record: bool) -> (Pump, fixture::Peer) {
         let catalog = earph_sendspin::pairing::RecordCatalog::from_committed(
             5,
             vec![earph_sendspin::pairing::PairingRecord {
@@ -60,19 +64,21 @@ mod player_tests {
             .unwrap();
         session.admit(fixture::admission(&events), true, 5).unwrap();
         let (handshake, payload) = peer.rotation([90; 32], "lt", None);
-        peer.send_json_fragmented(&mut session, "noise/handshake", payload, 6, 128)
-            .unwrap();
         let mut reader = earph_sendspin::message::Reassembler::new(Default::default());
-        loop {
-            let write = session.next_write(6).unwrap().unwrap();
-            let plain = peer.read(&write.bytes);
-            let reply = reader.push(&plain, fixture::stamp_ms(6)).unwrap();
-            session
-                .complete_write(write.id, WriteResult::Complete, 6)
+        if record {
+            peer.send_json_fragmented(&mut session, "noise/handshake", payload, 6, 128)
                 .unwrap();
-            if let Some(reply) = reply {
-                peer.install(handshake, &serde_json::from_slice(&reply.body).unwrap());
-                break;
+            loop {
+                let write = session.next_write(6).unwrap().unwrap();
+                let plain = peer.read(&write.bytes);
+                let reply = reader.push(&plain, fixture::stamp_ms(6)).unwrap();
+                session
+                    .complete_write(write.id, WriteResult::Complete, 6)
+                    .unwrap();
+                if let Some(reply) = reply {
+                    peer.install(handshake, &serde_json::from_slice(&reply.body).unwrap());
+                    break;
+                }
             }
         }
         let mut shared = resource_tests::shared();
@@ -96,6 +102,8 @@ mod player_tests {
                 profile: Profile::Player(PlayerSupport::new(1048576).unwrap()),
                 player_stream_active: false,
                 player_state: None,
+                paired: false,
+                unpaired: false,
             },
             peer,
         )
@@ -355,8 +363,9 @@ mod player_tests {
 
 #[cfg(test)]
 mod player_flush_tests {
-    use super::player_tests::{activate, pump};
+    use super::player_tests::{activate, pump, pump_on};
     use super::*;
+    use crate::sendspin::session_fixture as fixture;
     use futures_util::StreamExt;
     use serde_json::json;
     fn mapping(p: &mut Pump, peer: &mut crate::sendspin::session_fixture::Peer) -> UsableMapping {
@@ -680,5 +689,98 @@ mod player_flush_tests {
         drop(held);
         assert_eq!(observer.observation().event_bytes, 0);
         assert_eq!(observer.observation().event_entries, 0);
+    }
+    /// Sends an activation through the pump, as the transport loop does, and admits it.
+    fn activate_through_pump(
+        p: &mut Pump,
+        peer: &mut fixture::Peer,
+        roles: serde_json::Value,
+        activities: serde_json::Value,
+        now: u64,
+    ) {
+        let events = peer
+            .send_json(
+                &mut p.session,
+                "server/activate",
+                json!({"activities":activities,"active_roles":roles}),
+                now,
+            )
+            .unwrap();
+        let id = fixture::admission(&events);
+        p.events(events).unwrap();
+        p.admission = None;
+        let events = p.session.admit(id, true, now + 1).unwrap();
+        p.events(events).unwrap();
+    }
+    /// Returns the JSON messages that the consumer can read.
+    fn consumer_kinds(p: &Pump) -> Vec<String> {
+        let observer = SendspinObserver {
+            shared: p.shared.clone(),
+        };
+        let mut kinds = vec![];
+        while let Some(lease) = observer.next_event() {
+            if let SessionEvent::Message(message) = lease.event() {
+                let envelope = earph_sendspin::message::Envelope::parse(&message.body).unwrap();
+                kinds.push(envelope.kind);
+            }
+        }
+        kinds
+    }
+    /// The pinned server unpairs a player with `server/unpair` and expects a goodbye within 5 seconds.
+    #[test]
+    fn a_server_unpair_on_a_paired_connection_queues_the_goodbye_and_marks_the_end() {
+        let (mut p, mut peer) = pump();
+        activate_through_pump(
+            &mut p,
+            &mut peer,
+            json!(["player@v1"]),
+            json!(["playback"]),
+            7,
+        );
+        assert!(p.paired, "the activation ran on the long-term record");
+        assert!(!p.unpaired);
+        // The pump stamps the goodbye on its own clock. That clock must pass this test's small times.
+        std::thread::sleep(Duration::from_millis(20));
+        let events = peer
+            .send_json(&mut p.session, "server/unpair", json!({}), 9)
+            .unwrap();
+        p.events(events).unwrap();
+        assert!(p.unpaired);
+        assert!(
+            consumer_kinds(&p).is_empty(),
+            "the transport consumes the unpair"
+        );
+        let mut reader = earph_sendspin::message::Reassembler::new(Default::default());
+        let now = p.clock.domain.milliseconds();
+        let goodbye = loop {
+            let write = p.session.next_write(now).unwrap().unwrap();
+            let plain = peer.read(&write.bytes);
+            p.session
+                .complete_write(write.id, WriteResult::Complete, now)
+                .unwrap();
+            if let Some(message) = reader.push(&plain, fixture::stamp_ms(now)).unwrap() {
+                break message;
+            }
+        };
+        let goodbye: serde_json::Value = serde_json::from_slice(&goodbye.body).unwrap();
+        assert_eq!(
+            goodbye,
+            json!({"type":"client/goodbye","payload":{"reason":"unpaired"}})
+        );
+        assert!(!p.session.application_pending());
+    }
+    /// The specification tells an unpaired session to ignore `server/unpair`.
+    #[test]
+    fn a_server_unpair_on_a_connection_without_a_pairing_record_changes_nothing() {
+        let (mut p, mut peer) = pump_on(false);
+        activate_through_pump(&mut p, &mut peer, json!([]), json!([]), 8);
+        assert!(!p.paired, "the pairing secret is no pairing record");
+        let events = peer
+            .send_json(&mut p.session, "server/unpair", json!({}), 10)
+            .unwrap();
+        p.events(events).unwrap();
+        assert!(!p.unpaired);
+        assert_eq!(consumer_kinds(&p), ["server/unpair"]);
+        assert!(!p.session.application_pending());
     }
 }

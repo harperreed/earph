@@ -82,6 +82,14 @@ For a valid peer Close, the original socket drains its existing buffer and queue
 Draining an already-issued frame creates no Complete receipt for the poisoned session write.
 Successful reply flush reports `PeerClosed`; an expired flush reports `Deadline`.
 A socket that fails or ends without a Close reports `Lost`, which is no protocol error.
+`Observation.close_code` keeps the status code of a peer Close, and decides nothing.
+An upgrade that HTTP 401 or 403 answers reports `UpgradeRefused`. Every other failed upgrade reports `Upgrade`.
+`Observation.upgrade_status` keeps the HTTP status of either.
+A `server/unpair` on a player connection that runs on a pairing record ends the connection with `Unpaired`.
+The driver first sends `client/goodbye` with the reason `unpaired`, then a WebSocket Close.
+The write deadline bounds that goodbye, and a session that cannot send ends without it.
+The consumer never sees that `server/unpair`. A connection without a pairing record ignores it and passes it on.
+The driver removes no pairing record. The specification asks the client to remove it; see [Refused or gone](#refused-or-gone).
 If the transport stays unwritable, the deadline ends the reply attempt and the socket closes.
 The transport never re-encrypts, retransmits, or resumes that write on another socket.
 RFC fragmentation and Ping/Pong remain below the complete-message session boundary.
@@ -367,7 +375,8 @@ The permit and the admission policy last 12 hours. An expired permit ends the se
 The Host runtime owns the reconnect. Core, the playback worker, and Network each still handle one connection.
 The runtime retries only after the server knew this player in the current session.
 It retries these transport ends: `PeerClosed`, `Lost`, `Connect`, `Upgrade`, and `Deadline`.
-It never retries `Authentication`, `Admission`, `Expired`, `Protocol`, `Clock`, a cancel, or a budget, service, or storage failure.
+It never retries `Unpaired`, `UpgradeRefused`, `Authentication`, `Admission`, `Expired`, `Protocol`, `Clock`, a cancel, or a budget, service, or storage failure.
+`Unpaired` and `UpgradeRefused` end the session with `AUTH_DENIED`, on a first connection as well.
 It never retries a source that closed for its own reason, such as an output fault.
 A stop, a pause, and an owner shutdown release the session, so they end a pending retry at once.
 
@@ -390,6 +399,41 @@ An attempt that leaves an uncertain credential outcome ends the session with `AU
 
 Each attempt opens the output before the socket connects, as a first start does.
 While the server stays away, the output therefore opens and closes once for each attempt.
+
+The source observation shows why the runtime retries:
+
+- `reconnect_attempts` counts the attempts that began since the server last knew this player. It is zero while that connection holds.
+- `last_end` names why the latest connection or attempt ended: `peer_closed`, `lost`, `connect_failed`, `upgrade_failed`, or `deadline`.
+  A session that ends on a refusal shows `unpaired` or `upgrade_refused` in its closed observation.
+- `last_end_code` holds the WebSocket close code of a `peer_closed`, or the HTTP status of an `upgrade_failed` or `upgrade_refused`.
+
+A restored connection keeps `last_end`. `earph status` prints the attempt and the last end while the phase is `reconnecting`.
+
+#### Refused or gone
+
+The pinned specification and the pinned aiosendspin 10.2.1 server give one refusal that the player can tell from a restart:
+
+- `server/unpair`. The specification defines it: the server drops its pairing record, and the client sends `client/goodbye` with `unpaired` and closes.
+  The pinned `SendspinServer.unpair` removes its record, sends that message, and waits five seconds for the goodbye.
+  The pinned Music Assistant provider unpairs a player through that call.
+
+These signals tell nothing, so the runtime keeps retrying after them and shows them in the state:
+
+- A WebSocket Close with any code. The specification defines no close code.
+  Every close path of the pinned server calls `close()` without a code: a server that stops, a dropped client, and a failed writer all send 1000.
+- A lost socket, a refused TCP connection, and an HTTP status other than 401 and 403.
+
+HTTP 401 and 403 are no Sendspin signal. The pinned server answers every upgrade on its path with 101, and the specification names no HTTP status.
+The runtime ends the session on them because of HTTP itself: both refuse the request, and this player sends no HTTP credential that a later attempt could change.
+A proxy or another program in front of the server is the likely sender.
+
+A server can also drop its pairing record while the player is away.
+The next handshake then runs on the public Sentinel secret, and the server may send only an idle activation.
+The player admits an idle activation, so the connection holds and the phase stays `reconnecting`. No retry runs, and no error shows.
+Unverified: no test produced that case, and no test ran a refusal by a real Music Assistant server.
+
+The player keeps its pairing record after `server/unpair`, although the specification tells it to remove the record.
+The record is useless without the server's own record. A new pairing with that server replaces it.
 A dead network without a reset is found only by the transport's ping, after up to 40 seconds.
 
 ## Pinned Python player peer

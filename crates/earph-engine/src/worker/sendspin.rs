@@ -70,9 +70,11 @@ fn player_error(error: PlayerError) -> EngineError {
 fn transport_error(error: DriverError) -> EngineError {
     EngineError::new(
         match error {
-            DriverError::Expired | DriverError::Authentication | DriverError::Admission => {
-                ErrorCode::AuthDenied
-            }
+            DriverError::Expired
+            | DriverError::Authentication
+            | DriverError::Admission
+            | DriverError::Unpaired
+            | DriverError::UpgradeRefused => ErrorCode::AuthDenied,
             DriverError::Budget => ErrorCode::ResourceBudgetExceeded,
             _ => ErrorCode::AssetInvalid,
         },
@@ -468,8 +470,11 @@ impl SendspinPlayback {
         SendspinSourceObservation {
             phase,
             submitted_frames: self.submitted_frames,
-            // One source serves one connection. The Host runtime counts the reconnects.
+            // One source serves one connection. The Host runtime writes the reconnect facts.
             reconnects: 0,
+            reconnect_attempts: 0,
+            last_end: None,
+            last_end_code: None,
             timing: SendspinTiming {
                 qualification: match facts.qualification {
                     Qualification::Unqualified => SendspinTimingQualification::Unqualified,

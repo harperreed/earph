@@ -11,7 +11,10 @@ use earph_core::{
     EngineError, ErrorCode,
     ids::OwnerId,
     sendspin_control::SendspinConnection,
-    sendspin_source::{SendspinSourceEvent, SendspinSourceObservation, SendspinTransportPhase},
+    sendspin_source::{
+        SendspinConnectionEnd, SendspinSourceEvent, SendspinSourceObservation,
+        SendspinTransportPhase,
+    },
     session::Session,
 };
 use earph_network::sendspin::{
@@ -77,17 +80,48 @@ fn bridge_code(error: BridgeError) -> ErrorCode {
 }
 fn driver_code(error: DriverError) -> ErrorCode {
     match error {
-        DriverError::Expired | DriverError::Authentication | DriverError::Admission => {
-            ErrorCode::AuthDenied
-        }
+        DriverError::Expired
+        | DriverError::Authentication
+        | DriverError::Admission
+        | DriverError::Unpaired
+        | DriverError::UpgradeRefused => ErrorCode::AuthDenied,
         DriverError::Budget => ErrorCode::ResourceBudgetExceeded,
         _ => ErrorCode::AssetInvalid,
     }
 }
 
+/// Why a connection ended, with the WebSocket close code or the HTTP status that came with it.
+type Ended = (SendspinConnectionEnd, Option<u16>);
+/// Names a transport end for the source observation. `None` for an end that the observation does not explain.
+fn connection_end(
+    terminal: DriverError,
+    close_code: Option<u16>,
+    upgrade_status: Option<u16>,
+) -> Option<Ended> {
+    Some(match terminal {
+        DriverError::PeerClosed => (SendspinConnectionEnd::PeerClosed, close_code),
+        DriverError::Lost => (SendspinConnectionEnd::Lost, None),
+        DriverError::Connect => (SendspinConnectionEnd::ConnectFailed, None),
+        DriverError::Upgrade => (SendspinConnectionEnd::UpgradeFailed, upgrade_status),
+        DriverError::Deadline => (SendspinConnectionEnd::Deadline, None),
+        DriverError::Unpaired => (SendspinConnectionEnd::Unpaired, None),
+        DriverError::UpgradeRefused => (SendspinConnectionEnd::UpgradeRefused, upgrade_status),
+        _ => return None,
+    })
+}
+/// Reads the terminal reason of a connection and its name for the source observation.
+fn observed_end(observer: &SendspinObserver) -> (Option<DriverError>, Option<Ended>) {
+    let observed = observer.observation();
+    let ended = observed.terminal.and_then(|terminal| {
+        connection_end(terminal, observed.close_code, observed.upgrade_status)
+    });
+    (observed.terminal, ended)
+}
+
 /// True for a transport end that a later connection can heal:
 /// a closed or lost socket, an unreachable server, and a server that stopped answering.
-/// A refused authentication, a protocol violation, an expired permit, and a cancel never retry.
+/// A server that unpaired this player, an upgrade refused with HTTP 401 or 403, a refused authentication,
+/// a protocol violation, an expired permit, and a cancel never retry.
 fn heals(error: DriverError) -> bool {
     matches!(
         error,
@@ -119,6 +153,10 @@ struct Reconnect {
     accepted_at: Option<Instant>,
     /// When the next attempt may begin.
     due: Instant,
+    /// Attempts that began since the server last knew this player.
+    attempts: u64,
+    /// Why the latest connection or attempt ended.
+    ended: Option<Ended>,
 }
 impl Reconnect {
     /// Starts the facts when the server first knows this player.
@@ -130,6 +168,8 @@ impl Reconnect {
             lost: false,
             accepted_at: Some(now),
             due: now,
+            attempts: 0,
+            ended: None,
         }
     }
     /// Records that the server knows this player. After a loss this restores the connection.
@@ -137,11 +177,18 @@ impl Reconnect {
         if self.lost {
             self.lost = false;
             self.restored += 1;
+            self.attempts = 0;
             self.accepted_at = Some(now);
         }
     }
-    /// Records a healable end. Only a connection that lasted clears the failed attempts.
-    fn lose(&mut self, now: Instant) {
+    /// Counts an attempt that begins while the server is lost.
+    fn attempt(&mut self) {
+        if self.lost {
+            self.attempts = self.attempts.saturating_add(1);
+        }
+    }
+    /// Records a healable end and its reason. Only a connection that lasted clears the failed attempts.
+    fn lose(&mut self, now: Instant, ended: Option<Ended>) {
         let lasted = self
             .accepted_at
             .take()
@@ -150,6 +197,7 @@ impl Reconnect {
             self.failures = 0;
         }
         self.lost = true;
+        self.ended = ended;
     }
     /// Sets when the next attempt may begin and returns the wait.
     fn schedule(&mut self, now: Instant) -> Duration {
@@ -177,6 +225,11 @@ fn stamped(
 ) -> SendspinSourceObservation {
     if let Some(reconnect) = reconnect {
         observation.reconnects = reconnect.restored;
+        observation.reconnect_attempts = reconnect.attempts;
+        if let Some((end, code)) = reconnect.ended {
+            observation.last_end = Some(end);
+            observation.last_end_code = code;
+        }
         if reconnect.lost && observation.phase == SendspinTransportPhase::Preparing {
             observation.phase = SendspinTransportPhase::Reconnecting;
         }
@@ -275,6 +328,8 @@ impl SendspinRuntime {
             return;
         }
         let now = Instant::now();
+        // The end of a connection that closes the session. A healed end goes into the reconnect facts.
+        let mut closed = None;
         match event.observation.phase {
             SendspinTransportPhase::AwaitingStream | SendspinTransportPhase::Streaming => {
                 self.reconnect
@@ -291,26 +346,36 @@ impl SendspinRuntime {
                 {
                     return;
                 }
-                let terminal = match &connection.stage {
-                    Stage::Running { observer, .. } => observer.observation().terminal,
-                    _ => None,
+                let (terminal, ended) = match &connection.stage {
+                    Stage::Running { observer, .. } => observed_end(observer),
+                    _ => (None, None),
                 };
                 // A source that failed for its own reason reports another code and never retries.
+                let terminal = terminal.filter(|terminal| {
+                    event
+                        .error
+                        .is_none_or(|code| code == driver_code(*terminal))
+                });
                 if let Some(reconnect) = self.reconnect.as_mut()
-                    && let Some(terminal) = terminal.filter(|terminal| heals(*terminal))
-                    && event.error.is_none_or(|code| code == driver_code(terminal))
+                    && terminal.is_some_and(heals)
                     && session.sendspin_connection() == Some(fence)
                 {
-                    reconnect.lose(now);
+                    reconnect.lose(now, ended);
                     connection.lost = true;
                     // The session stays open, and an open phase carries no error.
                     event.error = None;
                     event.observation.phase = SendspinTransportPhase::Reconnecting;
+                } else if terminal.is_some() {
+                    closed = ended;
                 }
             }
             _ => {}
         }
         event.observation = stamped(self.reconnect.as_ref(), event.observation);
+        if let Some((end, code)) = closed {
+            event.observation.last_end = Some(end);
+            event.observation.last_end_code = code;
+        }
         // Core refuses an event that the current session no longer owns.
         let _ = session.advance_sendspin(fence.generation, event, now_ns);
     }
@@ -336,10 +401,15 @@ impl SendspinRuntime {
                 .is_none_or(|reconnect| Instant::now() >= reconnect.due)
         {
             match self.begin(fence) {
-                Ok(connection) => self.connection = Some(connection),
+                Ok(connection) => {
+                    self.connection = Some(connection);
+                    if let Some(reconnect) = self.reconnect.as_mut() {
+                        reconnect.attempt();
+                    }
+                }
                 // Credentials that fail now deny the session, as they do at its start.
                 Err(code) => {
-                    close(session, fence, (0, restored), Some(code), now_ns);
+                    close(session, fence, (0, restored), None, Some(code), now_ns);
                     let _ = session.complete_sendspin_retirement(fence.generation, now_ns);
                 }
             }
@@ -354,6 +424,7 @@ impl SendspinRuntime {
         let fence = connection.fence;
         if wanted == Some(fence) && !connection.lost {
             let mut orphan_heals = false;
+            let mut orphan_ended = None;
             let failure = match &mut connection.stage {
                 Stage::Loading { load, since } => {
                     match load.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
@@ -377,8 +448,10 @@ impl SendspinRuntime {
                         connection.adopted = Some(observed);
                     }
                     // A start action that the worker dropped unread never reports a closed source.
-                    match observer.observation().terminal {
+                    let (terminal, ended) = observed_end(observer);
+                    match terminal {
                         Some(error) if orphaned.is_some_and(|at| at.elapsed() > ORPHAN_GRACE) => {
+                            orphan_ended = ended;
                             let failure = orphan_failure(error, self.reconnect.is_some());
                             orphan_heals = failure.is_none();
                             failure
@@ -394,18 +467,25 @@ impl SendspinRuntime {
             };
             if let Some(error) = failure {
                 let frames = connection.adopted.map_or(0, |seen| seen.submitted_frames);
-                close(session, fence, (frames, restored), error, now_ns);
+                close(
+                    session,
+                    fence,
+                    (frames, restored),
+                    orphan_ended,
+                    error,
+                    now_ns,
+                );
             }
             if orphan_heals && let Some(reconnect) = self.reconnect.as_mut() {
                 // The worker reported no close, so the runtime reports the lost server itself.
-                reconnect.lose(Instant::now());
+                reconnect.lose(Instant::now(), orphan_ended);
                 connection.lost = true;
-                let mut observation =
-                    SendspinSourceObservation::new(SendspinTransportPhase::Reconnecting, 0);
-                observation.reconnects = restored;
                 let event = SendspinSourceEvent {
                     epochs: fence.epochs,
-                    observation,
+                    observation: stamped(
+                        Some(reconnect),
+                        SendspinSourceObservation::new(SendspinTransportPhase::Reconnecting, 0),
+                    ),
                     error: None,
                 };
                 let _ = session.advance_sendspin(fence.generation, event, now_ns);
@@ -419,7 +499,7 @@ impl SendspinRuntime {
                 if !released {
                     // The latch refuses every later attempt, so the session ends here.
                     let denied = Some(ErrorCode::AuthDenied);
-                    close(session, fence, (0, restored), denied, now_ns);
+                    close(session, fence, (0, restored), None, denied, now_ns);
                 }
             }
             if session.sendspin_connection() == Some(fence) {
@@ -485,12 +565,17 @@ fn close(
     session: &mut Session,
     fence: SendspinConnection,
     (submitted_frames, reconnects): (u64, u64),
+    ended: Option<Ended>,
     error: Option<ErrorCode>,
     now_ns: u64,
 ) {
     let mut observation =
         SendspinSourceObservation::new(SendspinTransportPhase::Closed, submitted_frames);
     observation.reconnects = reconnects;
+    if let Some((end, code)) = ended {
+        observation.last_end = Some(end);
+        observation.last_end_code = code;
+    }
     let _ = session.advance_sendspin(
         fence.generation,
         SendspinSourceEvent {
@@ -721,6 +806,8 @@ mod tests {
             assert!(heals(error), "{error:?}");
         }
         for error in [
+            Unpaired,
+            UpgradeRefused,
             Authentication,
             Admission,
             Expired,
@@ -747,7 +834,7 @@ mod tests {
         for _ in 0..4 {
             // The server drops the player one second after it accepted it.
             now += Duration::from_secs(1);
-            reconnect.lose(now);
+            reconnect.lose(now, None);
             assert!(reconnect.lost);
             let delay = reconnect.schedule(now);
             assert_eq!(reconnect.due, now + delay);
@@ -759,17 +846,66 @@ mod tests {
         assert_eq!(delays, [250, 500, 1000, 2000]);
         assert_eq!(reconnect.restored, 4);
         // Attempts that never reach the server keep growing the delay as well.
-        reconnect.lose(now);
+        reconnect.lose(now, None);
         assert_eq!(reconnect.schedule(now).as_millis(), 4000);
-        reconnect.lose(now);
+        reconnect.lose(now, None);
         assert_eq!(reconnect.schedule(now).as_millis(), 8000);
         reconnect.accept(now);
         // One millisecond short of the stable time changes nothing.
-        reconnect.lose(now + RECONNECT_STABLE - Duration::from_millis(1));
+        reconnect.lose(now + RECONNECT_STABLE - Duration::from_millis(1), None);
         assert_eq!(reconnect.schedule(now).as_millis(), 10000);
         reconnect.accept(now);
-        reconnect.lose(now + RECONNECT_STABLE);
+        reconnect.lose(now + RECONNECT_STABLE, None);
         assert_eq!(reconnect.schedule(now).as_millis(), 250);
+    }
+    /// A user must see why the player retries, and how often it tried.
+    #[test]
+    fn a_lost_connection_shows_its_end_and_counts_the_attempts_until_the_server_returns() {
+        let now = Instant::now();
+        let mut reconnect = Reconnect::new(1, now);
+        let observed = |reconnect: &Reconnect| {
+            let preparing = SendspinSourceObservation::new(SendspinTransportPhase::Preparing, 0);
+            let seen = stamped(Some(reconnect), preparing);
+            (seen.reconnect_attempts, seen.last_end, seen.last_end_code)
+        };
+        // An attempt counts only while the server is lost. The first connection is no attempt.
+        reconnect.attempt();
+        assert_eq!(observed(&reconnect), (0, None, None));
+        reconnect.lose(now, Some((SendspinConnectionEnd::PeerClosed, Some(1000))));
+        let closed = Some(SendspinConnectionEnd::PeerClosed);
+        assert_eq!(observed(&reconnect), (0, closed, Some(1000)));
+        reconnect.attempt();
+        reconnect.lose(now, Some((SendspinConnectionEnd::UpgradeFailed, Some(503))));
+        reconnect.attempt();
+        let failed = Some(SendspinConnectionEnd::UpgradeFailed);
+        assert_eq!(observed(&reconnect), (2, failed, Some(503)));
+        // The restored connection starts the count again and keeps the last end readable.
+        reconnect.accept(now);
+        assert_eq!(observed(&reconnect), (0, failed, Some(503)));
+        assert_eq!(reconnect.restored, 1);
+    }
+    #[test]
+    fn each_explained_transport_end_keeps_only_the_code_that_belongs_to_it() {
+        use DriverError::*;
+        use SendspinConnectionEnd as End;
+        let end = |error| connection_end(error, Some(1001), Some(403));
+        assert_eq!(end(PeerClosed), Some((End::PeerClosed, Some(1001))));
+        assert_eq!(end(Lost), Some((End::Lost, None)));
+        assert_eq!(end(Connect), Some((End::ConnectFailed, None)));
+        assert_eq!(end(Upgrade), Some((End::UpgradeFailed, Some(403))));
+        assert_eq!(end(Deadline), Some((End::Deadline, None)));
+        assert_eq!(end(Unpaired), Some((End::Unpaired, None)));
+        assert_eq!(end(UpgradeRefused), Some((End::UpgradeRefused, Some(403))));
+        for error in [
+            Cancelled,
+            Authentication,
+            Admission,
+            Expired,
+            Protocol,
+            Clock,
+        ] {
+            assert_eq!(end(error), None, "{error:?}");
+        }
     }
     /// The worker can take longer than the grace time to report its close, as with a slow output open.
     #[test]
@@ -790,6 +926,14 @@ mod tests {
             orphan_failure(Authentication, true),
             Some(Some(ErrorCode::AuthDenied))
         );
+        // A refusal ends the session, however long the server knew this player.
+        for refusal in [Unpaired, UpgradeRefused] {
+            assert_eq!(
+                orphan_failure(refusal, true),
+                Some(Some(ErrorCode::AuthDenied)),
+                "{refusal:?}"
+            );
+        }
         assert_eq!(
             orphan_failure(Protocol, true),
             Some(Some(ErrorCode::AssetInvalid))

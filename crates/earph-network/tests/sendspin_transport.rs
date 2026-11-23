@@ -633,3 +633,88 @@ fn a_socket_that_ends_without_a_close_reports_a_lost_connection() {
         peer.join().unwrap();
     }
 }
+/// HTTP 401 and 403 refuse this client, and it sends no credential that a retry could change.
+/// Every other answer may come from a server that restarts, so a caller may connect again.
+#[test]
+fn an_upgrade_answered_with_401_or_403_reports_a_refusal_and_every_answer_keeps_its_status() {
+    use std::io::{Read, Write};
+    for (status, expected) in [
+        ("401 Unauthorized", DriverError::UpgradeRefused),
+        ("403 Forbidden", DriverError::UpgradeRefused),
+        ("404 Not Found", DriverError::Upgrade),
+        ("503 Service Unavailable", DriverError::Upgrade),
+    ] {
+        let listener = TcpListener::bind((interface(), 0)).unwrap();
+        let p = permit(&listener);
+        let server = thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut b = [0; 4096];
+            assert!(s.read(&mut b).unwrap() > 0);
+            s.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\n\r\n").as_bytes())
+                .unwrap();
+        });
+        let mut w = SendspinWorker::default();
+        let h = w
+            .start(
+                p.clone(),
+                &p,
+                config(),
+                clock_configuration(),
+                Box::new(Services),
+                DriverLimits::default(),
+            )
+            .unwrap();
+        let o = wait(&h.observer());
+        assert_eq!(o.terminal, Some(expected), "{status}");
+        assert_eq!(
+            o.upgrade_status,
+            status[..3].parse().ok(),
+            "the observation keeps the status of {status}"
+        );
+        assert_eq!(o.close_code, None);
+        w.retire().unwrap();
+        server.join().unwrap();
+    }
+}
+/// The pinned server closes with code 1000 when it stops and when it drops a client.
+/// The code therefore decides nothing here. The observation keeps it for the status.
+#[test]
+fn a_peer_close_keeps_its_close_code() {
+    use tokio_tungstenite::tungstenite::protocol::{CloseFrame, frame::coding::CloseCode};
+    for code in [None, Some(1000), Some(1001), Some(1008)] {
+        let listener = TcpListener::bind((interface(), 0)).unwrap();
+        let p = permit(&listener);
+        let peer = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut socket = tokio_tungstenite::tungstenite::accept(stream).unwrap();
+            assert!(socket.read().unwrap().is_text());
+            let frame = code.map(|code: u16| CloseFrame {
+                code: CloseCode::from(code),
+                reason: "".into(),
+            });
+            socket.close(frame).unwrap();
+            assert!(socket.read().unwrap().is_close());
+        });
+        let mut worker = SendspinWorker::default();
+        let handle = worker
+            .start(
+                p.clone(),
+                &p,
+                config(),
+                clock_configuration(),
+                Box::new(Services),
+                DriverLimits::default(),
+            )
+            .unwrap();
+        let o = wait(&handle.observer());
+        assert_eq!(o.terminal, Some(DriverError::PeerClosed), "{code:?}");
+        assert_eq!(o.close_code, code);
+        assert_eq!(o.upgrade_status, None);
+        worker.retire().unwrap();
+        peer.join().unwrap();
+    }
+}

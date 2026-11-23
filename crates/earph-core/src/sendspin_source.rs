@@ -133,6 +133,26 @@ impl SendspinTiming {
     };
 }
 
+/// Why a server connection, or an attempt to open one, ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SendspinConnectionEnd {
+    /// The server sent a WebSocket Close. A server that stops and a server that drops this player both do that.
+    PeerClosed,
+    /// The socket failed or ended without a WebSocket Close.
+    Lost,
+    /// No TCP connection opened.
+    ConnectFailed,
+    /// The WebSocket upgrade failed, or an HTTP status other than 401 and 403 answered it.
+    UpgradeFailed,
+    /// The server stopped answering within a transport deadline.
+    Deadline,
+    /// The server sent `server/unpair`: it dropped its pairing with this player. The Host never retries this end.
+    Unpaired,
+    /// HTTP 401 or 403 answered the WebSocket upgrade. The Host never retries this end.
+    UpgradeRefused,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct SendspinSourceObservation {
     pub phase: SendspinTransportPhase,
@@ -142,6 +162,14 @@ pub struct SendspinSourceObservation {
     /// Times the Host restored a lost server connection since this session started.
     /// Each reconnect starts a new source, so the other facts count from that reconnect.
     pub reconnects: u64,
+    /// Connection attempts that the Host began since the server last knew this player.
+    /// Zero while that connection holds.
+    pub reconnect_attempts: u64,
+    /// Why the latest connection or attempt of this session ended. `None` while none ended.
+    /// A restored connection keeps the value.
+    pub last_end: Option<SendspinConnectionEnd>,
+    /// The WebSocket close code or the HTTP status that came with that end.
+    pub last_end_code: Option<u16>,
     pub timing: SendspinTiming,
 }
 impl SendspinSourceObservation {
@@ -150,6 +178,9 @@ impl SendspinSourceObservation {
             phase,
             submitted_frames,
             reconnects: 0,
+            reconnect_attempts: 0,
+            last_end: None,
+            last_end_code: None,
             timing: SendspinTiming::UNANCHORED,
         }
     }
@@ -177,6 +208,9 @@ mod tests {
                 "phase": "awaiting_stream",
                 "submitted_frames": 48000,
                 "reconnects": 0,
+                "reconnect_attempts": 0,
+                "last_end": null,
+                "last_end_code": null,
                 "timing": {
                     "qualification": "unqualified",
                     "correction": "none",
@@ -229,7 +263,14 @@ mod tests {
             device_latency_applied: true,
             ..SendspinTiming::UNANCHORED
         };
-        let timing = &serde_json::to_value(observation).unwrap()["timing"];
+        observation.reconnect_attempts = 4;
+        observation.last_end = Some(SendspinConnectionEnd::UpgradeFailed);
+        observation.last_end_code = Some(503);
+        let value = serde_json::to_value(observation).unwrap();
+        assert_eq!(value["reconnect_attempts"], 4);
+        assert_eq!(value["last_end"], "upgrade_failed");
+        assert_eq!(value["last_end_code"], 503);
+        let timing = &value["timing"];
         assert_eq!(timing["anchors"], 2);
         assert_eq!(timing["underruns"], 1);
         assert_eq!(timing["start_error_us"], -40);

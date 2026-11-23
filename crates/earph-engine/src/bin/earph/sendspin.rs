@@ -225,7 +225,7 @@ fn stream(
                         "the credential store did not confirm an operation, which may have timed out. This command must restart, so run it again; if it fails the same way, the store needs recovery, and Earph has no recovery command yet",
                     ));
                 }
-                return Err(failure(&code));
+                return Err(failure(&code, &state["sendspin_playback"]));
             }
             // The Engine reports no reason for a clean end.
             println!(
@@ -257,14 +257,39 @@ fn recovery_required(link: &mut Link) -> bool {
     }
 }
 /// Explains a failed stream and, for a credential problem, what to do next.
-fn failure(code: &str) -> Failure {
-    Failure::playback(match code {
+/// `playback` is the closed source observation, which names a refusal by the server.
+fn failure(code: &str, playback: &Value) -> Failure {
+    let status = playback["last_end_code"].as_u64().unwrap_or(0);
+    Failure::playback(match (code, playback["last_end"].as_str()) {
+        ("AUTH_DENIED", Some("unpaired")) => "the server unpaired this player (AUTH_DENIED). The stored pairing with that server no longer works. Pair again with `earph sendspin pair --server ws://IP:PORT/PATH`".to_owned(),
+        ("AUTH_DENIED", Some("upgrade_refused")) => format!(
+            "the server address refused the connection with HTTP {status} (AUTH_DENIED). This player sends no HTTP credential, so a retry cannot change that answer. Check --server, and what stands in front of the server"
+        ),
+        _ => failure_by_code(code),
+    })
+}
+fn failure_by_code(code: &str) -> String {
+    match code {
         "AUTH_REQUIRED" => "no Sendspin identity is stored in the credential store (AUTH_REQUIRED). Run `earph sendspin init`, then pair; see PLAYER-CLI.md".to_owned(),
         "AUTH_DENIED" => "access was denied (AUTH_DENIED). Unlock the credential store, then check that --server-key names the server this player is paired with".to_owned(),
         "ASSET_INVALID" => "the connection failed (ASSET_INVALID): the server did not answer, or it sent something this player refuses".to_owned(),
         _ => format!(
             "the Sendspin stream failed: {code}\nThe Engine prints a device fault as a `backend_fault` line."
         ),
+    }
+}
+/// Says why the latest connection or attempt ended, for a server that the Engine retries.
+fn last_end(playback: &Value) -> Option<String> {
+    let code = playback["last_end_code"].as_u64();
+    Some(match (playback["last_end"].as_str()?, code) {
+        ("peer_closed", Some(code)) => format!("the server closed the connection, code {code}"),
+        ("peer_closed", None) => "the server closed the connection".to_owned(),
+        ("lost", _) => "the connection broke".to_owned(),
+        ("connect_failed", _) => "the server accepted no connection".to_owned(),
+        ("upgrade_failed", Some(status)) => format!("the server answered HTTP {status}"),
+        ("upgrade_failed", None) => "the WebSocket upgrade failed".to_owned(),
+        ("deadline", _) => "the server stopped answering".to_owned(),
+        _ => return None,
     })
 }
 /// The refusal for a control that a live stream cannot honor.
@@ -286,6 +311,7 @@ fn phase(state: &Value) -> &'static str {
     }
 }
 /// One line: the phase, the audio handed to the output, the volume, the timing label, and any reconnects.
+/// While the Engine retries a lost server, the line adds the attempt and why the last one ended.
 /// It shows no audible position, because nothing measures one.
 /// Idle silence only keeps the output running, so it stays out of the audio count.
 pub fn status_line(state: &Value) -> String {
@@ -309,6 +335,15 @@ pub fn status_line(state: &Value) -> String {
     let reconnects = count(&playback["reconnects"]);
     if reconnects > 0 {
         line.push_str(&format!("  reconnects {reconnects}"));
+    }
+    if playback["phase"] == "reconnecting" {
+        let attempts = count(&playback["reconnect_attempts"]);
+        if attempts > 0 {
+            line.push_str(&format!("  attempt {attempts}"));
+        }
+        if let Some(end) = last_end(playback) {
+            line.push_str(&format!("  last end: {end}"));
+        }
     }
     line
 }
@@ -362,5 +397,78 @@ mod tests {
         let line = status_line(&state);
         assert!(line.starts_with("playing  "), "{line}");
         assert!(line.ends_with("sync unqualified  reconnects 2"), "{line}");
+    }
+    #[test]
+    fn the_status_line_shows_the_attempt_and_the_last_end_only_while_it_retries() {
+        let mut state = json!({
+            "transport": "buffering",
+            "software_gain_db": 0.0,
+            "muted": false,
+            "sendspin_playback": {
+                "phase": "reconnecting",
+                "submitted_frames": 0,
+                "reconnects": 1,
+                "reconnect_attempts": 3,
+                "last_end": "upgrade_failed",
+                "last_end_code": 503,
+                "timing": {"idle_silence_frames": 0, "start_error_us": null},
+            },
+        });
+        let line = status_line(&state);
+        assert!(
+            line.ends_with("reconnects 1  attempt 3  last end: the server answered HTTP 503"),
+            "{line}"
+        );
+        for (end, code, text) in [
+            (
+                "peer_closed",
+                json!(1000),
+                "the server closed the connection, code 1000",
+            ),
+            (
+                "peer_closed",
+                json!(null),
+                "the server closed the connection",
+            ),
+            ("lost", json!(null), "the connection broke"),
+            (
+                "connect_failed",
+                json!(null),
+                "the server accepted no connection",
+            ),
+            (
+                "upgrade_failed",
+                json!(null),
+                "the WebSocket upgrade failed",
+            ),
+            ("deadline", json!(null), "the server stopped answering"),
+        ] {
+            state["sendspin_playback"]["last_end"] = json!(end);
+            state["sendspin_playback"]["last_end_code"] = code;
+            let line = status_line(&state);
+            assert!(line.ends_with(&format!("last end: {text}")), "{line}");
+        }
+        // A restored connection keeps its last end in the state. The line shows it no more.
+        state["sendspin_playback"]["phase"] = json!("awaiting_stream");
+        state["sendspin_playback"]["reconnect_attempts"] = json!(0);
+        let line = status_line(&state);
+        assert!(line.ends_with("sync unqualified  reconnects 1"), "{line}");
+    }
+    #[test]
+    fn a_refusal_by_the_server_gets_its_own_failure_text() {
+        let text = |code: &str, playback: Value| failure(code, &playback).message;
+        let unpaired = text("AUTH_DENIED", json!({"last_end": "unpaired"}));
+        assert!(unpaired.contains("unpaired this player"), "{unpaired}");
+        assert!(unpaired.contains("earph sendspin pair"), "{unpaired}");
+        let refused = text(
+            "AUTH_DENIED",
+            json!({"last_end": "upgrade_refused", "last_end_code": 403}),
+        );
+        assert!(refused.contains("HTTP 403"), "{refused}");
+        // Every other denial keeps the general advice.
+        let denied = text("AUTH_DENIED", json!({"last_end": "lost"}));
+        assert!(denied.contains("--server-key"), "{denied}");
+        let denied = text("AUTH_DENIED", Value::Null);
+        assert!(denied.contains("--server-key"), "{denied}");
     }
 }

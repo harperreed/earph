@@ -135,7 +135,12 @@ The mute state and the volume stay as they were.
 `reconnects` in the status line and in `status --json` counts the restored connections.
 The counts of audio and timing start again with each connection.
 Control-C, `stop`, and `quit` end the command at once, also while it waits.
+While it retries, the status line adds `attempt N` and `last end:` with the reason that the last connection or attempt ended.
+`status --json` shows the same facts as `reconnect_attempts`, `last_end`, and `last_end_code`.
+A server that closes the connection is retried, whatever close code it sends: a server that stops closes the same way.
 `sendspin` does not retry a server that never accepted this player, a denied access, or a broken protocol.
+It also does not retry a server that unpaired this player, or an address that answers with HTTP 401 or 403.
+Both end the command with `AUTH_DENIED` and say which one happened. After an unpair, pair again.
 Those end the command as the table below shows.
 
 While a stream is active and no audio is due, the player sends silence to keep the output running.

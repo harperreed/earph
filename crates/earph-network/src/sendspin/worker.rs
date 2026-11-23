@@ -333,6 +333,10 @@ pub struct Observation {
     pub service_deadline_ms: Option<u64>,
     pub retirement: RetirementState,
     pub terminal: Option<DriverError>,
+    /// The status code of the peer's WebSocket Close. `None` without a Close or without a code.
+    pub close_code: Option<u16>,
+    /// The HTTP status that answered the WebSocket upgrade instead of 101.
+    pub upgrade_status: Option<u16>,
     pub joined: bool,
     pub command_entries: usize,
     pub producer_bytes: usize,
@@ -510,6 +514,12 @@ impl Shared {
         });
         Ok(())
     }
+}
+/// True for a `server/unpair`: the server dropped its pairing record for this client.
+fn unpairs(message: &earph_sendspin::message::Complete) -> bool {
+    message.id == 0
+        && earph_sendspin::message::Envelope::parse(&message.body)
+            .is_ok_and(|envelope| envelope.kind == "server/unpair")
 }
 fn event_bytes(e: &SessionEvent) -> usize {
     match e {
@@ -705,6 +715,8 @@ impl SendspinWorker {
                     service_deadline_ms: None,
                     retirement: RetirementState::Starting,
                     terminal: None,
+                    close_code: None,
+                    upgrade_status: None,
                     joined: false,
                     command_entries: 0,
                     producer_bytes: 0,
@@ -958,6 +970,21 @@ fn websocket_error(e: Error) -> DriverError {
         _ => DriverError::Protocol,
     }
 }
+/// Keeps the HTTP status of a refused upgrade for the observation.
+/// 401 and 403 refuse this client, which sends no HTTP credential that a later attempt could change.
+/// Every other answer may come from a server that restarts.
+fn upgrade_error(shared: &Shared, error: Error) -> DriverError {
+    let Error::Http(response) = error else {
+        return DriverError::Upgrade;
+    };
+    let status = response.status().as_u16();
+    shared.lock().observation.upgrade_status = Some(status);
+    if matches!(status, 401 | 403) {
+        DriverError::UpgradeRefused
+    } else {
+        DriverError::Upgrade
+    }
+}
 fn millis(start: Instant, deadline: Instant) -> u64 {
     u64::try_from(deadline.saturating_duration_since(start).as_millis()).unwrap_or(u64::MAX)
 }
@@ -1036,6 +1063,10 @@ struct Pump {
     profile: Profile,
     player_stream_active: bool,
     player_state: Option<StateUpdate>,
+    /// Whether the latest proposed activation ran on a long-term pairing record.
+    paired: bool,
+    /// The server sent `server/unpair`. The connection ends once the goodbye left.
+    unpaired: bool,
 }
 impl Pump {
     fn events(&mut self, events: Vec<SessionEvent>) -> Result<(), DriverError> {
@@ -1088,6 +1119,7 @@ impl Pump {
                     if self.admission.is_some() {
                         return Err(DriverError::Service);
                     }
+                    self.paired = proposal.paired_identity().is_some();
                     let id = proposal.id();
                     let future = self.services.admission(proposal);
                     self.admission = Some(Service {
@@ -1136,6 +1168,14 @@ impl Pump {
                 }
                 SessionEvent::Message(message) => {
                     let mut metadata = None;
+                    // A session without a pairing record ignores the unpair, as the specification says.
+                    if matches!(self.profile, Profile::Player(_))
+                        && self.paired
+                        && unpairs(&message)
+                    {
+                        self.unpair();
+                        continue;
+                    }
                     if matches!(self.profile, Profile::Player(_)) {
                         let player = self.shared.lock().observation.player.unwrap();
                         if message.id == 4 && !player.participating {
@@ -1167,6 +1207,14 @@ impl Pump {
             }
         }
         Ok(())
+    }
+    /// Records that the server dropped this player's pairing, and queues the goodbye that it expects.
+    /// The goodbye is best effort: a session that cannot send now ends without it.
+    fn unpair(&mut self) {
+        self.unpaired = true;
+        let goodbye =
+            ApplicationMessage::json("client/goodbye", serde_json::json!({"reason":"unpaired"}));
+        let _ = self.session.send(goodbye, self.clock.domain.milliseconds());
     }
     fn sync_clock(&mut self) -> Result<(), DriverError> {
         let now = self.clock.domain.sample()?;
@@ -1324,7 +1372,7 @@ async fn run(
         &shared,
     )
     .await?
-    .map_err(|_| DriverError::Upgrade)?;
+    .map_err(|error| upgrade_error(&shared, error))?;
     control(&shared, permit.expires)?;
     let mut socket = socket;
     shared.lock().observation.retirement = RetirementState::Connected;
@@ -1340,6 +1388,8 @@ async fn run(
         profile,
         player_stream_active: false,
         player_state: None,
+        paired: false,
+        unpaired: false,
     };
     let mut pending: Option<(PendingWrite, Instant)> = None;
     let mut ping_due = Instant::now() + Duration::from_millis(l.ping_ms);
@@ -1348,6 +1398,10 @@ async fn run(
     let mut terminal = loop {
         if let Err(e) = control(&shared, permit.expires) {
             break e;
+        }
+        // The goodbye left, or the session never took it. The write deadline bounds this wait.
+        if p.unpaired && pending.is_none() && !p.session.application_pending() {
+            break DriverError::Unpaired;
         }
         let now = Instant::now();
         if pending.as_ref().is_some_and(|(_, d)| now >= *d)
@@ -1550,7 +1604,11 @@ async fn run(
                         }
                         Ok(())
                     }
-                    Message::Close(_) => Err(DriverError::PeerClosed),
+                    Message::Close(frame) => {
+                        shared.lock().observation.close_code =
+                            frame.map(|frame| u16::from(frame.code));
+                        Err(DriverError::PeerClosed)
+                    }
                     Message::Frame(_) => Err(DriverError::Protocol),
                 })
             }),
@@ -1598,6 +1656,10 @@ async fn run(
             break e;
         }
     };
+    // A server that unpaired this player gets no retry, whatever ended the goodbye.
+    if p.unpaired && !matches!(terminal, DriverError::Cancelled | DriverError::Expired) {
+        terminal = DriverError::Unpaired;
+    }
     if terminal == DriverError::PeerClosed {
         shared.cancel();
     } else {
@@ -1633,7 +1695,12 @@ async fn run(
             terminal = error;
         }
         shared.terminal(terminal);
-    } else if !uncertain && matches!(terminal, DriverError::Cancelled | DriverError::Expired) {
+    } else if !uncertain
+        && matches!(
+            terminal,
+            DriverError::Cancelled | DriverError::Expired | DriverError::Unpaired
+        )
+    {
         let deadline = Instant::now() + Duration::from_millis(l.close_ms);
         shared.lock().observation.transport_deadline_ms = Some(millis(start, deadline));
         let _ = tokio::time::timeout_at(deadline.into(), socket.close(None)).await;
@@ -1685,6 +1752,8 @@ mod resource_tests {
                     service_deadline_ms: None,
                     retirement: RetirementState::Connected,
                     terminal: None,
+                    close_code: None,
+                    upgrade_status: None,
                     joined: false,
                     command_entries: 0,
                     producer_bytes: 0,

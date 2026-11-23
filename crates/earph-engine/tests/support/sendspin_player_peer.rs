@@ -157,6 +157,10 @@ impl PlayerPeer {
     pub fn acknowledge_pairing(&mut self) {
         self.send_json("server/pair-finalize", json!({}));
     }
+    /// Tells the client that the server dropped its pairing record, as the pinned server's `unpair` does.
+    pub fn unpair(&mut self) {
+        self.send_json("server/unpair", json!({}));
+    }
     /// Returns the payload of the client's goodbye.
     pub fn await_goodbye(&mut self) -> Value {
         self.await_json("client/goodbye", true)

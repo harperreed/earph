@@ -65,7 +65,7 @@ mod linux {
         if chosen.as_deref() == Some("credential-helper") {
             return helper::run();
         }
-        let cases: [(&str, fn()); 20] = [
+        let cases: [(&str, fn()); 23] = [
             ("plays", plays_the_stream_shows_status_and_ends_on_a_stop),
             (
                 "reconnect",
@@ -78,6 +78,18 @@ mod linux {
             (
                 "reconnect_flap",
                 a_server_that_accepts_and_drops_at_once_sees_growing_delays,
+            ),
+            (
+                "unpaired",
+                a_server_that_unpairs_the_player_ends_the_command_without_a_retry,
+            ),
+            (
+                "reconnect_refused",
+                an_upgrade_refused_with_403_ends_the_reconnect,
+            ),
+            (
+                "reconnect_facts",
+                a_retried_server_shows_its_last_end_and_the_attempt_count,
             ),
             (
                 "close_early",
@@ -447,6 +459,28 @@ mod linux {
     fn reconnecting(state: &Value) -> bool {
         state["sendspin_playback"]["phase"] == "reconnecting"
     }
+    fn accepted(state: &Value) -> bool {
+        state["sendspin_playback"]["phase"] == "awaiting_stream"
+    }
+    /// Starts the command, connects the peer, and waits until the server knows the player.
+    fn accepted_player(bench: &Bench) -> (Player, peer::PlayerPeer) {
+        let mut player = bench.sendspin(&["--server", &bench.url(), "--server-key", &bench.key]);
+        bench.await_connection(&mut player);
+        let mut peer = peer::PlayerPeer::accept(&bench.listener);
+        peer.activate_player();
+        bench.serve(&mut peer, "the server knows the player", accepted);
+        (player, peer)
+    }
+    /// Accepts one connection and answers its WebSocket upgrade with this HTTP status.
+    fn answer_upgrade(listener: &TcpListener, status: &str) {
+        use std::io::{Read, Write};
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(DEADLINE)).unwrap();
+        assert!(stream.read(&mut [0; 4096]).unwrap() > 0);
+        stream
+            .write_all(format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\n\r\n").as_bytes())
+            .unwrap();
+    }
     pub(super) trait Pending {
         fn peek_pending(&self) -> Option<()>;
     }
@@ -632,6 +666,105 @@ mod linux {
             bench.listener.peek_pending().is_none(),
             "a refused authentication opens no further connection"
         );
+        bench.no_engine_remains();
+    }
+    /// The server drops its pairing with `server/unpair`, as the pinned server does. No retry can heal that.
+    fn a_server_that_unpairs_the_player_ends_the_command_without_a_retry() {
+        let bench = Bench::new();
+        let (player, mut peer) = accepted_player(&bench);
+        peer.unpair();
+        // The pinned server waits five seconds for this goodbye.
+        assert_eq!(peer.await_goodbye(), json!({"reason":"unpaired"}));
+        peer.serve_to_close("the unpaired player closes its connection");
+        let output = player.finish();
+        let failure = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{failure}");
+        assert!(
+            failure.contains("unpaired this player") && failure.contains("AUTH_DENIED"),
+            "{failure}"
+        );
+        assert!(failure.contains("earph sendspin pair"), "{failure}");
+        assert!(!text(&output.stdout).contains("lost the server"));
+        assert!(
+            bench.listener.peek_pending().is_none(),
+            "an unpaired player opens no further connection"
+        );
+        bench.no_engine_remains();
+    }
+    /// The returned server answers the upgrade with HTTP 403. The player sends no HTTP credential,
+    /// so no later attempt can change that answer.
+    fn an_upgrade_refused_with_403_ends_the_reconnect() {
+        let bench = Bench::new();
+        let (mut player, peer) = accepted_player(&bench);
+        peer.abandon();
+        bench.await_connection(&mut player);
+        answer_upgrade(&bench.listener, "403 Forbidden");
+        let output = player.finish();
+        let failure = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{failure}");
+        assert!(
+            failure.contains("HTTP 403") && failure.contains("AUTH_DENIED"),
+            "{failure}"
+        );
+        assert!(text(&output.stdout).contains("lost the server, retrying"));
+        assert!(
+            bench.listener.peek_pending().is_none(),
+            "a refused upgrade opens no further connection"
+        );
+        bench.no_engine_remains();
+    }
+    /// A close, an HTTP 503, and a dropped socket can all come from a server that restarts.
+    /// The command keeps retrying, and the state shows the last end and the attempts.
+    fn a_retried_server_shows_its_last_end_and_the_attempt_count() {
+        let bench = Bench::new();
+        let (mut player, peer) = accepted_player(&bench);
+        let playback = |state: &Value| state["sendspin_playback"].clone();
+        let before = playback(&bench.state());
+        assert_eq!(before["last_end"], Value::Null, "{before}");
+        assert_eq!(before["reconnect_attempts"], 0, "{before}");
+        peer.close();
+        let lost = playback(&bench.wait("the closed server shows as lost", reconnecting));
+        assert_eq!(lost["last_end"], "peer_closed", "{lost}");
+        assert_eq!(
+            lost["last_end_code"],
+            Value::Null,
+            "the peer sent no close code"
+        );
+        bench.await_connection(&mut player);
+        answer_upgrade(&bench.listener, "503 Service Unavailable");
+        let refused = bench.wait("the failed upgrade shows", |state| {
+            state["sendspin_playback"]["last_end"] == "upgrade_failed"
+        });
+        let refused = playback(&refused);
+        assert_eq!(refused["phase"], "reconnecting", "{refused}");
+        assert_eq!(refused["last_end_code"], 503, "{refused}");
+        assert_eq!(refused["reconnect_attempts"], 1, "{refused}");
+        bench.await_connection(&mut player);
+        drop(bench.listener.accept().unwrap());
+        let dropped = bench.wait("the dropped attempt shows", |state| {
+            state["sendspin_playback"]["last_end_code"].is_null()
+                && state["sendspin_playback"]["reconnect_attempts"] == 2
+        });
+        let dropped = playback(&dropped);
+        assert_eq!(dropped["phase"], "reconnecting", "{dropped}");
+        let plain = text(&bench.earph(&["status"]).finish().stdout);
+        assert!(
+            plain.contains("lost the server, retrying") && plain.contains("attempt 2"),
+            "{plain}"
+        );
+        // The server returns. The attempts start again, and the last end stays readable.
+        bench.await_connection(&mut player);
+        let mut peer = peer::PlayerPeer::accept(&bench.listener);
+        peer.activate_player();
+        bench.serve(&mut peer, "the server knows the player again", accepted);
+        let restored = playback(&bench.state());
+        assert_eq!(restored["reconnects"], 1, "{restored}");
+        assert_eq!(restored["reconnect_attempts"], 0, "{restored}");
+        assert!(!restored["last_end"].is_null(), "{restored}");
+        // The stop cancels the connection, so the peer has nothing left to answer.
+        let stop = bench.earph(&["stop"]).finish();
+        assert_eq!(stop.status.code(), Some(0), "{}", text(&stop.stderr));
+        assert_eq!(player.finish().status.code(), Some(0));
         bench.no_engine_remains();
     }
     /// The server accepts the player and drops it at once, three times.

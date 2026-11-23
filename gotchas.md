@@ -163,3 +163,10 @@
   Record a Mac loopback capture only through the tmux session that holds microphone permission.
   Keep the silent preamble in a capture: a gain ramp turns 16-bit pattern frames into other valid pattern frames.
   See the [loopback timing capture](docs/sendspin-runtime.md#loopback-timing-capture).
+
+- A WebSocket close code tells nothing about why a Sendspin server closed.
+  The pinned aiosendspin server closes without a code, so a stop, a dropped client, and a failed writer all send 1000.
+  Its one refusal that differs from a restart is `server/unpair`. Never end a reconnect on a close code.
+  HTTP 401 and 403 end the reconnect because of HTTP, not Sendspin: the pinned server never sends them.
+  In a Network pump test, the pump stamps its own sends on the clock domain. Sleep past the test's small fixed times first, or the session closes on a clock regression.
+  See [Refused or gone](docs/sendspin-runtime.md#refused-or-gone) and the [pump tests](crates/earph-network/src/sendspin/worker/player_tests.rs).

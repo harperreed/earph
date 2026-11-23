@@ -462,8 +462,10 @@ Known limits: each attempt opens and closes the output, and a clock error still 
 Known limit: a failed credential load during a reconnect ends the session, for example a store that locked meanwhile.
 Known weakness: the runtime matches a worker close to the transport end by error code.
 A source fault with the same code, in the same moment as a healable transport end, starts a reconnect.
-Known weakness: a server refusal that arrives as a WebSocket Close, or as HTTP 401 or 403 on the upgrade, is retried forever.
-Unverified: how Music Assistant refuses a revoked player.
+Fixed on November 23, 2026: a `server/unpair` and an HTTP 401 or 403 on the upgrade now end the session with `AUTH_DENIED`.
+A WebSocket Close is still retried, because the pinned server closes with code 1000 when it stops and when it drops a client.
+State shows `reconnect_attempts`, `last_end`, and `last_end_code`. See "Refused or gone" in `docs/sendspin-runtime.md`.
+Unverified: a refusal by a real Music Assistant server. Its pinned provider unpairs through `server/unpair`.
 
 The first Mac build of this code passed strict Clippy for Core, Engine, and credentials on November 22, 2026.
 No Sendspin test has run on a Mac, and no real keyring or keychain has held a Sendspin identity.

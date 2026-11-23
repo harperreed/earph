@@ -23,6 +23,12 @@ pub enum DriverError {
     Lost,
     Connect,
     Upgrade,
+    /// The server answered the WebSocket upgrade with HTTP 401 or 403.
+    /// This client sends no HTTP credential, so no later attempt can change that answer.
+    UpgradeRefused,
+    /// The server sent `server/unpair` on a connection that used a pairing record.
+    /// It dropped its record for this client, so that record opens no later connection.
+    Unpaired,
     Protocol,
     Authentication,
     Budget,
