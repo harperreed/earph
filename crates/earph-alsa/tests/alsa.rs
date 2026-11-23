@@ -298,6 +298,32 @@ fn a_real_backend_write_error_is_terminal_without_recovery() {
         ErrorCode::OutputFault
     );
     assert_eq!(output.state(), OutputState::Failed);
+    // A full device is no underrun, so no recovery reopens this output.
+    assert!(!output.recover_underrun(Epochs::default()).unwrap());
+    assert_eq!(output.state(), OutputState::Failed);
+}
+
+#[test]
+fn a_healthy_output_reports_no_underrun_to_recover_and_keeps_its_stream() {
+    let request = request(PcmRepresentation::Signed16);
+    let mut output = AlsaOutput::open(request.clone(), Epochs::default()).unwrap();
+    let data = block(&request, 64, 0, Epochs::default());
+    output
+        .write(&data, 0, 64, SignalPermission::Granted)
+        .unwrap();
+    let next_epoch = Epochs {
+        session: 0,
+        stream: 1,
+    };
+    assert!(!output.recover_underrun(next_epoch).unwrap());
+    assert_eq!(output.state(), OutputState::Running);
+    assert_eq!(output.submitted_frames(), 64);
+    // The stream still belongs to its first epoch and continues its frame sequence.
+    let more = block(&request, 64, 64, Epochs::default());
+    output
+        .write(&more, 0, 64, SignalPermission::Granted)
+        .unwrap();
+    assert_eq!(output.submitted_frames(), 128);
 }
 
 #[test]

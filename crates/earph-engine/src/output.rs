@@ -38,6 +38,11 @@ pub(crate) trait Output {
     }
     fn progress(&mut self) -> Result<Counters, EngineError>;
     fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError>;
+    /// Reprepares the same stream after a native underrun failed the last call.
+    /// Returns false when that failure was no underrun. The output then stays failed.
+    fn recover(&mut self, _epochs: Epochs) -> Result<bool, EngineError> {
+        Ok(false)
+    }
     fn finish(&mut self) -> Result<Option<Counters>, EngineError>;
     fn wait(&mut self) -> Result<(), EngineError>;
     fn stop(&mut self) -> Result<(), EngineError>;
@@ -301,6 +306,9 @@ impl Output for earph_alsa::AlsaOutput {
     }
     fn suspend(&mut self, epochs: Epochs) -> Result<Counters, EngineError> {
         self.suspend(epochs).map(counters).map_err(error)
+    }
+    fn recover(&mut self, epochs: Epochs) -> Result<bool, EngineError> {
+        self.recover_underrun(epochs).map_err(error)
     }
     fn finish(&mut self) -> Result<Option<Counters>, EngineError> {
         match self

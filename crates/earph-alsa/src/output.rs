@@ -86,6 +86,8 @@ mod timing_tests {
 
 pub struct AlsaOutput {
     pcm: Option<native::Pcm>,
+    /// The stream that a native underrun failed. Only `recover_underrun` uses it again.
+    underrun: Option<native::Pcm>,
     report: OpenReport,
     epochs: Epochs,
     state: OutputState,
@@ -126,6 +128,7 @@ impl AlsaOutput {
         };
         Ok(Self {
             pcm: Some(pcm),
+            underrun: None,
             report,
             epochs,
             state: OutputState::Prepared,
@@ -289,15 +292,36 @@ impl AlsaOutput {
             }
             Ok(WriteProgress::WouldBlock) => Ok(WriteProgress::WouldBlock),
             Err(error) => {
-                self.fail();
+                self.fail(&error);
                 Err(error)
             }
         }
     }
 
-    fn fail(&mut self) {
+    /// Fails the output. Every caller sees a closed stream until an explicit underrun recovery.
+    fn fail(&mut self, error: &AlsaError) {
         self.state = OutputState::Failed;
-        self.pcm.take();
+        // ALSA reports a playback underrun as EPIPE and keeps that stream open.
+        if let Some(pcm) = self.pcm.take()
+            && error.native_errno == Some(libc::EPIPE)
+        {
+            self.underrun = Some(pcm);
+        }
+    }
+    /// Reprepares the same stream for this epoch after a native underrun failed it.
+    /// Returns false after any other failure and for a healthy output. Neither changes.
+    pub fn recover_underrun(&mut self, epochs: Epochs) -> Result<bool, AlsaError> {
+        let Some(pcm) = self.underrun.take() else {
+            return Ok(false);
+        };
+        // A failed repreparation drops the stream, so the output stays failed.
+        pcm.prepare()?;
+        self.pcm = Some(pcm);
+        self.epochs = epochs;
+        self.state = OutputState::Prepared;
+        self.submitted_frames = 0;
+        self.next_position = None;
+        Ok(true)
     }
     pub fn progress(&mut self) -> Result<OutputProgress, AlsaError> {
         let Some(pcm) = &self.pcm else {
@@ -319,7 +343,7 @@ impl AlsaOutput {
                     ErrorCode::OutputFault,
                     "ALSA delay exceeds submitted frames",
                 ));
-                self.fail();
+                self.fail(&error);
                 Err(error)
             }
         }
@@ -332,6 +356,7 @@ impl AlsaOutput {
             self.state = OutputState::Stopped;
         }
         self.pcm.take();
+        self.underrun.take();
         result
     }
     /// Drops pending frames and reprepares the same endpoint for an explicit new epoch.
@@ -346,7 +371,7 @@ impl AlsaOutput {
                 pcm.prepare()
             });
         if let Err(error) = result {
-            self.fail();
+            self.fail(&error);
             return Err(error);
         }
         self.epochs = epochs;
@@ -387,7 +412,7 @@ impl AlsaOutput {
                 Ok(progress)
             }
             Err(error) => {
-                self.fail();
+                self.fail(&error);
                 Err(error)
             }
         }
@@ -410,8 +435,8 @@ impl AlsaOutput {
             .as_ref()
             .ok_or(AlsaError::new(ErrorCode::OutputFault, "output is not open"))
             .and_then(|pcm| pcm.wait_ready(timeout_ms));
-        if result.is_err() {
-            self.fail();
+        if let Err(error) = &result {
+            self.fail(error);
         }
         result
     }
@@ -714,5 +739,93 @@ mod dop_cursor_tests {
             )
             .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod underrun_tests {
+    use super::*;
+    use earph_core::audio::{MemoryBudget, PcmFormat};
+
+    const FIRST: Epochs = Epochs {
+        session: 2,
+        stream: 1,
+    };
+    const NEXT: Epochs = Epochs {
+        session: 2,
+        stream: 2,
+    };
+    fn request() -> OpenRequest {
+        OpenRequest {
+            schema_version: 1,
+            device: "null".into(),
+            route: Route::System,
+            format: PcmFormat::new(48000, ChannelLayout::Stereo, PcmRepresentation::Signed16)
+                .unwrap(),
+            period_frames: 64,
+            buffer_frames: 256,
+        }
+    }
+    fn block(epochs: Epochs) -> PcmBlock {
+        let mut block =
+            PcmBlock::prepare(request().format, 64, epochs, MemoryBudget::default()).unwrap();
+        block.set_span(epochs, 0, 0, 64).unwrap();
+        block
+    }
+    fn native(errno: i32) -> AlsaError {
+        AlsaError::native(ErrorCode::OutputFault, "injected native failure", -errno)
+    }
+    fn running() -> AlsaOutput {
+        let mut output = AlsaOutput::open(request(), FIRST).unwrap();
+        output
+            .write(&block(FIRST), 0, 64, SignalPermission::Granted)
+            .unwrap();
+        output
+    }
+
+    /// No plugin without hardware underruns.
+    /// This test hands the real failure path the error number that a native underrun reports.
+    #[test]
+    fn an_underrun_failure_reprepares_the_same_stream_for_a_new_epoch() {
+        let mut output = running();
+        output.fail(&native(libc::EPIPE));
+        assert_eq!(output.state(), OutputState::Failed);
+        // Until the recovery, every caller sees a closed stream.
+        assert_eq!(output.progress().unwrap_err().code, ErrorCode::OutputFault);
+        assert_eq!(
+            output.wait_ready(1).unwrap_err().code,
+            ErrorCode::OutputFault
+        );
+        assert!(output.recover_underrun(NEXT).unwrap());
+        assert_eq!(output.state(), OutputState::Prepared);
+        assert_eq!(output.submitted_frames(), 0);
+        assert_eq!(
+            output
+                .write(&block(FIRST), 0, 64, SignalPermission::Granted)
+                .unwrap_err()
+                .code,
+            ErrorCode::StaleSession
+        );
+        output
+            .write(&block(NEXT), 0, 64, SignalPermission::Granted)
+            .unwrap();
+        assert_eq!(output.state(), OutputState::Running);
+        assert_eq!(output.progress().unwrap().submitted_frames, 64);
+        // One recovery answers one underrun.
+        assert!(!output.recover_underrun(NEXT).unwrap());
+        assert_eq!(output.state(), OutputState::Running);
+    }
+    #[test]
+    fn every_other_failure_and_a_stopped_underrun_stay_final() {
+        let mut output = running();
+        output.fail(&native(libc::EIO));
+        assert!(!output.recover_underrun(NEXT).unwrap());
+        assert_eq!(output.state(), OutputState::Failed);
+
+        let mut output = running();
+        output.fail(&native(libc::EPIPE));
+        output.stop().unwrap();
+        assert!(!output.recover_underrun(NEXT).unwrap());
+        assert_eq!(output.state(), OutputState::Failed);
     }
 }
