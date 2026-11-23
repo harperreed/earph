@@ -48,6 +48,9 @@ const RETIREMENT_DEADLINE: Duration = Duration::from_secs(10);
 const RECONNECT_DELAY: Duration = Duration::from_millis(250);
 /// The delay doubles after each failed attempt and stops growing here.
 const RECONNECT_DELAY_LIMIT: Duration = Duration::from_secs(10);
+/// A connection that the server kept at least this long ends a run of failed attempts.
+/// A shorter one keeps the grown delay, so a server that accepts and drops cannot force fast retries.
+const RECONNECT_STABLE: Duration = Duration::from_secs(30);
 
 /// Launch configuration for the one Sendspin server. IPC never supplies any of these values.
 pub struct SendspinConfiguration {
@@ -108,12 +111,63 @@ struct Reconnect {
     generation: u64,
     /// Lost connections that this runtime restored.
     restored: u64,
-    /// Attempts that failed in a row since the server last knew this player.
+    /// Attempts that ended in a row without a connection that lasted `RECONNECT_STABLE`.
     failures: u32,
     /// True from a lost connection until the server knows this player again.
     lost: bool,
+    /// When the server last came to know this player on the current connection.
+    accepted_at: Option<Instant>,
     /// When the next attempt may begin.
     due: Instant,
+}
+impl Reconnect {
+    /// Starts the facts when the server first knows this player.
+    fn new(generation: u64, now: Instant) -> Self {
+        Self {
+            generation,
+            restored: 0,
+            failures: 0,
+            lost: false,
+            accepted_at: Some(now),
+            due: now,
+        }
+    }
+    /// Records that the server knows this player. After a loss this restores the connection.
+    fn accept(&mut self, now: Instant) {
+        if self.lost {
+            self.lost = false;
+            self.restored += 1;
+            self.accepted_at = Some(now);
+        }
+    }
+    /// Records a healable end. Only a connection that lasted clears the failed attempts.
+    fn lose(&mut self, now: Instant) {
+        let lasted = self
+            .accepted_at
+            .take()
+            .is_some_and(|at| now.saturating_duration_since(at) >= RECONNECT_STABLE);
+        if lasted {
+            self.failures = 0;
+        }
+        self.lost = true;
+    }
+    /// Sets when the next attempt may begin and returns the wait.
+    fn schedule(&mut self, now: Instant) -> Duration {
+        let delay = reconnect_delay(self.failures);
+        self.due = now + delay;
+        self.failures = self.failures.saturating_add(1);
+        delay
+    }
+}
+/// Decides the end of a connection whose worker never reported its closed source.
+/// `None` keeps the session for a reconnect, as a reported close with the same transport end does.
+/// Otherwise the session closes: cleanly after a peer close or a cancel, else with a failure.
+fn orphan_failure(error: DriverError, accepted: bool) -> Option<Option<ErrorCode>> {
+    if accepted && heals(error) {
+        return None;
+    }
+    let clean = matches!(error, DriverError::PeerClosed | DriverError::Cancelled);
+    Some((!clean).then(|| driver_code(error)))
 }
 /// Writes the reconnect facts into an observation of the worker's source.
 /// One source serves one connection, so it knows neither the count nor an earlier loss.
@@ -216,25 +270,27 @@ impl SendspinRuntime {
             return;
         };
         let fence = connection.fence;
-        if fence.epochs != event.epochs {
+        // A lost connection already reached Core as `reconnecting`. Its source has nothing more to say.
+        if fence.epochs != event.epochs || connection.lost {
             return;
         }
+        let now = Instant::now();
         match event.observation.phase {
             SendspinTransportPhase::AwaitingStream | SendspinTransportPhase::Streaming => {
-                let reconnect = self.reconnect.get_or_insert(Reconnect {
-                    generation: fence.generation,
-                    restored: 0,
-                    failures: 0,
-                    lost: false,
-                    due: Instant::now(),
-                });
-                if reconnect.lost {
-                    reconnect.lost = false;
-                    reconnect.restored += 1;
-                    reconnect.failures = 0;
-                }
+                self.reconnect
+                    .get_or_insert(Reconnect::new(fence.generation, now))
+                    .accept(now);
             }
             SendspinTransportPhase::Closed => {
+                // Every attempt of a session shares its epochs. A source marks its own observation closed
+                // before it reports, so a close that left this one open belongs to an earlier attempt.
+                if connection
+                    .shared
+                    .lock()
+                    .is_ok_and(|shared| shared.phase != SendspinTransportPhase::Closed)
+                {
+                    return;
+                }
                 let terminal = match &connection.stage {
                     Stage::Running { observer, .. } => observer.observation().terminal,
                     _ => None,
@@ -245,7 +301,7 @@ impl SendspinRuntime {
                     && event.error.is_none_or(|code| code == driver_code(terminal))
                     && session.sendspin_connection() == Some(fence)
                 {
-                    reconnect.lost = true;
+                    reconnect.lose(now);
                     connection.lost = true;
                     // The session stays open, and an open phase carries no error.
                     event.error = None;
@@ -297,6 +353,7 @@ impl SendspinRuntime {
         };
         let fence = connection.fence;
         if wanted == Some(fence) && !connection.lost {
+            let mut orphan_heals = false;
             let failure = match &mut connection.stage {
                 Stage::Loading { load, since } => {
                     match load.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
@@ -322,13 +379,9 @@ impl SendspinRuntime {
                     // A start action that the worker dropped unread never reports a closed source.
                     match observer.observation().terminal {
                         Some(error) if orphaned.is_some_and(|at| at.elapsed() > ORPHAN_GRACE) => {
-                            Some(
-                                (!matches!(
-                                    error,
-                                    DriverError::PeerClosed | DriverError::Cancelled
-                                ))
-                                .then(|| driver_code(error)),
-                            )
+                            let failure = orphan_failure(error, self.reconnect.is_some());
+                            orphan_heals = failure.is_none();
+                            failure
                         }
                         Some(_) => {
                             orphaned.get_or_insert_with(Instant::now);
@@ -342,6 +395,20 @@ impl SendspinRuntime {
             if let Some(error) = failure {
                 let frames = connection.adopted.map_or(0, |seen| seen.submitted_frames);
                 close(session, fence, (frames, restored), error, now_ns);
+            }
+            if orphan_heals && let Some(reconnect) = self.reconnect.as_mut() {
+                // The worker reported no close, so the runtime reports the lost server itself.
+                reconnect.lose(Instant::now());
+                connection.lost = true;
+                let mut observation =
+                    SendspinSourceObservation::new(SendspinTransportPhase::Reconnecting, 0);
+                observation.reconnects = restored;
+                let event = SendspinSourceEvent {
+                    epochs: fence.epochs,
+                    observation,
+                    error: None,
+                };
+                let _ = session.advance_sendspin(fence.generation, event, now_ns);
             }
         }
         let released = session.sendspin_connection() != Some(fence);
@@ -358,8 +425,7 @@ impl SendspinRuntime {
             if session.sendspin_connection() == Some(fence) {
                 // The session keeps its fence. The next attempt gets a new permit and fresh credentials.
                 if let Some(reconnect) = self.reconnect.as_mut() {
-                    reconnect.due = Instant::now() + reconnect_delay(reconnect.failures);
-                    reconnect.failures = reconnect.failures.saturating_add(1);
+                    reconnect.schedule(Instant::now());
                 }
             } else {
                 let _ = session.complete_sendspin_retirement(fence.generation, now_ns);
@@ -672,16 +738,96 @@ mod tests {
             assert!(!heals(error), "{error:?}");
         }
     }
+    /// A server that accepts the player and drops it at once must not get an attempt every 250 ms.
+    #[test]
+    fn a_short_connection_keeps_the_grown_delay_and_a_lasting_one_resets_it() {
+        let mut now = Instant::now();
+        let mut reconnect = Reconnect::new(1, now);
+        let mut delays = Vec::new();
+        for _ in 0..4 {
+            // The server drops the player one second after it accepted it.
+            now += Duration::from_secs(1);
+            reconnect.lose(now);
+            assert!(reconnect.lost);
+            let delay = reconnect.schedule(now);
+            assert_eq!(reconnect.due, now + delay);
+            delays.push(delay.as_millis());
+            now += delay;
+            reconnect.accept(now);
+            assert!(!reconnect.lost);
+        }
+        assert_eq!(delays, [250, 500, 1000, 2000]);
+        assert_eq!(reconnect.restored, 4);
+        // Attempts that never reach the server keep growing the delay as well.
+        reconnect.lose(now);
+        assert_eq!(reconnect.schedule(now).as_millis(), 4000);
+        reconnect.lose(now);
+        assert_eq!(reconnect.schedule(now).as_millis(), 8000);
+        reconnect.accept(now);
+        // One millisecond short of the stable time changes nothing.
+        reconnect.lose(now + RECONNECT_STABLE - Duration::from_millis(1));
+        assert_eq!(reconnect.schedule(now).as_millis(), 10000);
+        reconnect.accept(now);
+        reconnect.lose(now + RECONNECT_STABLE);
+        assert_eq!(reconnect.schedule(now).as_millis(), 250);
+    }
+    /// The worker can take longer than the grace time to report its close, as with a slow output open.
+    #[test]
+    fn an_orphaned_connection_retries_a_healable_end_once_the_server_knew_the_player() {
+        use DriverError::*;
+        for error in [PeerClosed, Lost, Connect, Upgrade, Deadline] {
+            assert_eq!(orphan_failure(error, true), None, "{error:?}");
+        }
+        // A server that never knew this player gets no retry.
+        assert_eq!(orphan_failure(PeerClosed, false), Some(None));
+        assert_eq!(
+            orphan_failure(Connect, false),
+            Some(Some(ErrorCode::AssetInvalid))
+        );
+        // An end that no connection heals closes the session as before.
+        assert_eq!(orphan_failure(Cancelled, true), Some(None));
+        assert_eq!(
+            orphan_failure(Authentication, true),
+            Some(Some(ErrorCode::AuthDenied))
+        );
+        assert_eq!(
+            orphan_failure(Protocol, true),
+            Some(Some(ErrorCode::AssetInvalid))
+        );
+    }
+    /// After an orphaned attempt, its slow source can still report a close while the next attempt runs.
+    #[test]
+    fn a_close_from_an_earlier_source_does_not_end_the_next_attempt() {
+        let (mut session, mut runtime) = fixture();
+        start(&mut session, "player");
+        loading(&session, &mut runtime);
+        let fence = session.sendspin_connection().unwrap();
+        let closed = SendspinSourceEvent {
+            epochs: fence.epochs,
+            observation: SendspinSourceObservation::new(SendspinTransportPhase::Closed, 0),
+            error: None,
+        };
+        // This attempt's own observation is still open, so the close is not its own.
+        let now = session.snapshot().monotonic_ns + 1;
+        runtime.route(&mut session, closed, now);
+        assert_eq!(session.sendspin_connection(), Some(fence));
+        assert!(session.snapshot().session_id.is_some());
+        // The source of this attempt marks its observation before it reports.
+        let shared = runtime.connection.as_ref().unwrap().shared.clone();
+        shared.lock().unwrap().phase = SendspinTransportPhase::Closed;
+        runtime.route(&mut session, closed, now);
+        assert_eq!(session.sendspin_connection(), None);
+        let mut worker = Worker::spawn();
+        settle(&mut session, &mut runtime, &mut worker);
+    }
     /// The worker's source counts no reconnect, and its new source starts in `preparing`.
     #[test]
     fn observations_carry_the_reconnect_count_and_stay_reconnecting_until_the_server_returns() {
         let observed = |phase| SendspinSourceObservation::new(phase, 7);
         let mut reconnect = Reconnect {
-            generation: 1,
             restored: 3,
-            failures: 2,
             lost: true,
-            due: Instant::now(),
+            ..Reconnect::new(1, Instant::now())
         };
         let preparing = stamped(
             Some(&reconnect),

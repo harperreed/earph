@@ -62,7 +62,7 @@ mod linux {
         if chosen.as_deref() == Some("credential-helper") {
             return helper::run();
         }
-        let cases: [(&str, fn()); 18] = [
+        let cases: [(&str, fn()); 20] = [
             ("plays", plays_the_stream_shows_status_and_ends_on_a_stop),
             (
                 "reconnect",
@@ -71,6 +71,14 @@ mod linux {
             (
                 "reconnect_denied",
                 a_refused_authentication_ends_the_reconnect,
+            ),
+            (
+                "reconnect_flap",
+                a_server_that_accepts_and_drops_at_once_sees_growing_delays,
+            ),
+            (
+                "close_early",
+                a_clean_close_before_the_server_accepts_the_player_ends_without_a_retry,
             ),
             (
                 "reconnect_interrupt",
@@ -611,28 +619,75 @@ mod linux {
         );
         bench.no_engine_remains();
     }
-    /// The server is gone and refuses every connection, so the command waits between attempts.
+    /// The server accepts the player and drops it at once, three times.
+    /// A short connection must not reset the delay, or the command would retry every 250 ms forever.
+    fn a_server_that_accepts_and_drops_at_once_sees_growing_delays() {
+        let bench = Bench::new();
+        let mut player = bench.sendspin(&["--server", &bench.url(), "--server-key", &bench.key]);
+        let accepted = |state: &Value| state["sendspin_playback"]["phase"] == "awaiting_stream";
+        for delay in [0, 250, 500, 1000] {
+            let dropped = Instant::now();
+            bench.await_connection(&mut player);
+            let waited = dropped.elapsed();
+            // The first connection follows no drop. Each later one waits at least its delay.
+            assert!(
+                waited >= Duration::from_millis(delay),
+                "the attempt came after {waited:?}, before its {delay} ms delay"
+            );
+            let mut peer = peer::PlayerPeer::accept(&bench.listener);
+            peer.activate_player();
+            bench.serve(&mut peer, "the server knows the player", accepted);
+            peer.abandon();
+        }
+        let lost = bench.wait("the lost server shows as reconnecting", reconnecting);
+        assert_eq!(lost["sendspin_playback"]["reconnects"], 3);
+        interrupt(&player);
+        let output = player.finish();
+        assert_eq!(output.status.code(), Some(130));
+        bench.no_engine_remains();
+    }
+    /// The server closes cleanly before it activates the player role, so it never knew this player.
+    fn a_clean_close_before_the_server_accepts_the_player_ends_without_a_retry() {
+        let bench = Bench::new();
+        let mut player = bench.sendspin(&["--server", &bench.url(), "--server-key", &bench.key]);
+        bench.await_connection(&mut player);
+        // The peer authenticates the client and sends only an idle activation.
+        peer::PlayerPeer::accept(&bench.listener).close();
+        let output = player.finish();
+        assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+        let stdout = text(&output.stdout);
+        assert!(!stdout.contains("lost the server"), "{stdout}");
+        let last = stdout.lines().last().unwrap();
+        assert!(last.starts_with("result   ended"), "{last}");
+        assert!(
+            bench.listener.peek_pending().is_none(),
+            "a server that never knew this player gets no second connection"
+        );
+        bench.no_engine_remains();
+    }
+    /// The server drops every new connection at once, so the delay between attempts doubles.
     fn an_interrupt_during_the_reconnect_delay_exits_at_once() {
         let bench = Bench::new();
-        let address = bench.listener.local_addr().unwrap().ip();
-        let listener = TcpListener::bind((address, 0)).unwrap();
-        let target = ["--server", &url_of(&listener), "--server-key", &bench.key];
-        let mut player = bench.sendspin(&target);
-        await_connection_on(&listener, &mut player);
-        let mut peer = peer::PlayerPeer::accept(&listener);
+        let mut player = bench.sendspin(&["--server", &bench.url(), "--server-key", &bench.key]);
+        bench.await_connection(&mut player);
+        let mut peer = peer::PlayerPeer::accept(&bench.listener);
         peer.activate_player();
         bench.serve(&mut peer, "the command unmutes", |state| {
             state["muted"] == false
         });
         peer.abandon();
-        drop(listener);
-        bench.wait("the lost server shows as reconnecting", reconnecting);
-        // Refused attempts pass meanwhile, so the delay between them has grown.
-        std::thread::sleep(Duration::from_millis(1500));
+        // Four attempts fail after delays of 250 ms, 500 ms, 1 s, and 2 s.
+        for _ in 0..4 {
+            bench.await_connection(&mut player);
+            drop(bench.listener.accept().unwrap());
+        }
+        // The fifth attempt waits 4 s, twice the exit bound below. A blocking wait fails that bound.
+        std::thread::sleep(Duration::from_millis(500));
         let state = bench.state();
         assert!(reconnecting(&state), "{state}");
         assert_eq!(state["sendspin_playback"]["reconnects"], 0);
-        assert!(!player.exited(), "a refused connection is retried");
+        assert!(!player.exited(), "a dropped connection is retried");
+        assert!(bench.listener.peek_pending().is_none());
         let asked = Instant::now();
         interrupt(&player);
         let output = player.finish();
