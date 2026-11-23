@@ -202,17 +202,41 @@ A clean close, a stop, or a pause clears the session.
 ## Player stream lifecycle
 
 The playback worker anchors a chunk to its own server timestamp at each stream start.
-It anchors again after a full clear, an output underrun, and a timestamp gap longer than 100 ms.
+It anchors again after a full clear, an output underrun, idle silence, and a timestamp gap longer than 100 ms.
 A shorter gap becomes silence and keeps the anchor.
+
+While a stream is active and no audio is due, the worker feeds the output idle silence.
+Idle silence starts the output at the stream start, so the device runs before the first anchor.
+A chunk takes an anchor only on a running output.
+A device that still starts would delay every frame behind that anchor.
+Idle silence then keeps the output from running dry through an anchor wait, a server gap, and starvation.
+It keeps three periods in the output, and at least 30 ms, never more than the buffer.
+The worker estimates the held frames from the accepted frames and its monotonic clock.
+A running output's own report corrects that estimate; an output without a clock reports zero and corrects nothing.
+So a clockless output gets idle silence no faster than real time.
+Idle silence ends before a waiting chunk's target, so it makes no chunk late.
+During contiguous playback it starts only below two thirds of that depth.
+It then ends contiguous playback, and the next chunk anchors again.
+Idle silence bypasses the gain, so a gain ramp still starts with the first scheduled frame.
+
+The scheduler counts the frames that the output still holds as its delay.
+ALSA reports that delay. For Core Audio the worker counts the accepted frames past the restart cursor.
+That cursor is callback delivery or the queue clock; it is no audible position.
+No Mac has run this path. The start time and the timing error on Core Audio remain unmeasured.
 
 A `stream/clear` without `from_timestamp` drops the queued audio and the audio that the output still holds.
 A `stream/clear` with `from_timestamp` drops only the queued audio from that server time on.
 Audio that already left for the output stays.
 The timeline trims replacement audio that overlaps it, and the anchor stays.
+A full clear stops and prepares an output that holds scheduled audio; idle silence then starts it again.
+An output that holds only idle silence keeps running through a full clear.
 A `stream/end` and a lost player role stop the stream without a drain.
+Both stop and release the output at once. Nothing feeds the output between streams.
+The next `stream/start` starts it again, so audio due before the device runs is dropped as late.
 Each new activation gets a new available player state.
 
-The worker writes no silence while the server sends nothing, so a running ALSA output can underrun.
+Idle silence keeps a running output fed, so only a stalled worker starves it.
+A starved ALSA output underruns.
 After an underrun the worker prepares the same ALSA stream again and anchors the unwritten audio again.
 It reopens no device, and mute and volume stay unchanged.
 A second failure before the recovered output accepts a frame ends the source with `OUTPUT_FAULT`.
@@ -220,7 +244,12 @@ Every other output failure ends the source, and Core Audio has no underrun recov
 Audio beyond the timeline budget ends the source with `RESOURCE_BUDGET_EXCEEDED`.
 
 `timing.anchors` counts the anchors and `timing.underruns` counts the recovered underruns since the source started.
+`timing.idle_silence_frames` counts the idle silence that the output accepted.
+It grows with waiting time, so it stays apart from `timing.inserted_silence_frames`.
+That counter holds only the scheduler's bounded silence: the anchor pads and the short gaps.
+`submitted_frames` includes both.
 No test produced a hardware underrun, because no ALSA plugin without hardware underruns.
+The worker tests put a clock in front of the file capture: a start time, a 48 kHz drain, and a final failure when dry.
 The worker tests fail one write at the output interface and then prepare the real file-capture stream again.
 The ALSA adapter test hands its failure path the `EPIPE` error number of a native underrun.
 

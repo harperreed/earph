@@ -118,6 +118,11 @@ Expect a constant offset from other players, and slow drift.
 `start error` is the player's own estimate, not a measurement.
 The command shows no playback position for the same reason.
 
+While a stream is active and no audio is due, the player sends silence to keep the output running.
+The output then runs before the first audio is due, so a slow device start does not delay the audio.
+The status line leaves that silence out of the audio it counts.
+When the server ends the stream, the player stops the output until the next stream starts.
+
 A cleared stream, a gap in the stream, and an output underrun on Linux do not end the command.
 The player continues with the next audio that the server sends.
 

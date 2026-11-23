@@ -58,7 +58,11 @@ This slice applies no drift correction. State reports the measured error and `co
 
 Call `advance_server_time` every tick with a non-decreasing value.
 Never block longer than `Output::wait`; the event queue has no backpressure.
-ALSA reports a client delay estimate. Core Audio reports none; treat it as zero and label it unknown.
+ALSA reports a client delay estimate. Core Audio reports none.
+U8 replaced the zero for Core Audio with the accepted frames past the restart cursor.
+
+Keep the output running on idle silence while a stream is active and no audio is due (U8).
+Anchor only on a running output.
 
 ## Units
 
@@ -71,6 +75,7 @@ ALSA reports a client delay estimate. Core Audio reports none; treat it as zero 
 | U5 | Landed. Clears, re-activation, starvation, and underrun recovery | 300 / 400 | U2 |
 | U6 | Pinned Python peer and documents | 0 / 250 | U4 |
 | U7 | Credential provisioning and pairing, for real Music Assistant use | 870 / 1130 | U4 |
+| U8 | Landed. Keep the output running on idle silence | 200 / 500 | U5 |
 
 ### U1: thinnest sample path
 
@@ -119,8 +124,29 @@ A gap up to 100 ms becomes silence; a longer gap anchors again.
 An ALSA underrun prepares the same stream again, resets the scheduler, and counts in `timing.underruns`.
 Before this unit, an ALSA underrun ended the source and revoked output approval.
 Budget overflow ends the source with `RESOURCE_BUDGET_EXCEEDED`.
-The worker writes no silence while the server sends nothing; an output with a clock then underruns and recovers.
+In this unit the worker wrote no silence while the server sent nothing; an output with a clock then underran and recovered.
+U8 changed that.
 No test produced a hardware underrun. Tests inject the failure at the output interface and at the ALSA failure path.
+
+### U8: running output
+
+Landed.
+The first real Music Assistant test on a Mac played late by the device start time.
+The reported start error was 42 ms and 69 ms on built-in speakers, and 293 ms and 426 ms on Bluetooth earphones.
+The device started only after the first anchored audio frames, and nothing corrected the delay behind them.
+On Core Audio a starved running output also ended the source, because it has no underrun recovery.
+
+The worker now feeds idle silence while a stream is active and no audio is due.
+The output runs before the first anchor and after each anchor that follows an output restart.
+Idle silence is paced by the monotonic clock and corrected by the output's reported depth.
+An output without a clock therefore gets it no faster than real time.
+`timing.idle_silence_frames` counts it. `timing.inserted_silence_frames` keeps its meaning.
+A `stream/end` stops and releases the output at once. The output does not run between streams.
+The worker tests put a clock in front of the ALSA file capture; they show a 150 ms start as 155 ms of lateness without this unit.
+No Mac has run this unit.
+Unverified on a Mac: the start time, the idle depth margin, and the delay taken from the restart cursor.
+Unverified on a Mac: a `stream/end` while an AudioQueue output still awaits its first valid clock.
+That suspend needs a validated restart cursor and fails without one.
 
 ### U6: independent producer and documents
 

@@ -123,3 +123,10 @@
   Inject a Sendspin underrun at the worker's `Output` seam and at `AlsaOutput::fail`.
   Hardware recovery through `recover_underrun` remains unobserved.
   See the [Sendspin worker tests](crates/earph-engine/src/worker/sendspin_tests.rs) and [the adapter](crates/earph-alsa/src/output.rs).
+
+- Silence fed while a Sendspin chunk waits for its anchor must not track the wait itself.
+  The wait ends when `target - now - held frames` fits the pad window, and a draining output shrinks its held frames as fast as time passes.
+  Silence capped at the remaining wait then feeds almost nothing, the wait never ends, and the output runs dry at the anchor.
+  Allow idle silence into half of the pad window, and count it apart from scheduled silence.
+  The null and file plugins report zero delay at once, so only the monotonic clock paces idle silence there.
+  See `SilencePacer` in [the scheduler](crates/earph-engine/src/sendspin_schedule.rs) and the clocked seam in the [Sendspin worker tests](crates/earph-engine/src/worker/sendspin_tests.rs).
