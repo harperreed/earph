@@ -564,7 +564,7 @@ impl OwnerControl<'_> {
             && let Err(error) = if command.payload.activates_graph() {
                 graphs.activate(worker, session)
             } else if matches!(command.payload, Command::SendspinStart { .. }) {
-                retire_for_sendspin(&command, before.source, worker, session)
+                retire_for_sendspin(before.source, worker)
             } else if before.source == Some(SourceKind::Sendspin)
                 // A takeover starts a new session, and its start action retires this source.
                 && after.epochs.session == before.epochs.session
@@ -698,7 +698,10 @@ fn action_required(command: &Command, source: Option<SourceKind>) -> bool {
     if source == Some(SourceKind::Sendspin) {
         return matches!(
             command,
-            Command::Stop
+            Command::Start {
+                source: SourceKind::LocalFile,
+                ..
+            } | Command::Stop
                 | Command::Pause
                 | Command::OwnerShutdown
                 | Command::Mute { .. }
@@ -814,26 +817,17 @@ fn dispatch(
     }
     Ok(())
 }
-/// Stops the local source that a Sendspin takeover replaces, before the credential load begins.
+/// Closes the local source that a Sendspin takeover replaces, before the credential load begins.
 /// The Sendspin start reaches the worker later, so the outgoing source must not play until then.
-/// Core refuses the stop report, because the session now belongs to Sendspin.
+/// The worker keeps a close failure and refuses that start with it.
 fn retire_for_sendspin(
-    command: &CommandEnvelope,
     outgoing: Option<SourceKind>,
     worker: &mut Worker,
-    session: &Session,
 ) -> Result<(), EngineError> {
     if outgoing != Some(SourceKind::LocalFile) {
         return Ok(());
     }
-    worker.send(Action::Stop(StopRequest {
-        request_id: command.request_id.clone(),
-        settings: Settings {
-            pcm_processing: false,
-            snapshot: session.snapshot(),
-            playing: false,
-        },
-    }))
+    worker.send(Action::RetireSource)
 }
 /// The Sendspin source takes settings and one stop. Pause reaches the worker before the commit.
 fn dispatch_sendspin(

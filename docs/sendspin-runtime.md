@@ -247,9 +247,10 @@ Into Sendspin, `sources.sendspin.start` with `takeover: true` during local playb
 
 1. The local source owns the output.
 2. Core commits the Sendspin session with the next session epoch, muted, in `preparing`. Core refuses local events while Sendspin owns the session.
-3. The Host sends the worker a stop for the local source in the same command.
+3. The Host sends the worker a retire action for the local source in the same command.
    The Sendspin start action comes only after the credential load, and the local source must not play until then.
-4. The worker stops the local source and closes its output. No source owns the output. Core refuses the worker's stop report.
+4. The worker stops the local source and closes its output. No source owns the output.
+   It keeps a close failure, and the Sendspin start at step 6 then fails the session with that error.
 5. The Host runtime loads the credentials, starts Network, and sends the Sendspin start action.
 6. The worker opens the output for the Sendspin source. Sendspin owns the output. Unmute waits until the server knows the player.
 

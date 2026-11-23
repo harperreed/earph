@@ -134,6 +134,9 @@ pub(crate) enum Action {
         cancel: Arc<AtomicBool>,
     },
     StopSendspin,
+    /// Closes the source that a Sendspin takeover replaces. The Sendspin start follows later,
+    /// and a failed close refuses that start.
+    RetireSource,
     AcknowledgeSourceTerminal(SourceTerminalToken),
     AcknowledgeDsdRetirement(SourceTerminalToken),
     Shutdown,
@@ -145,6 +148,7 @@ impl Action {
             Self::Pause(_)
                 | Self::Stop(_)
                 | Self::StopSendspin
+                | Self::RetireSource
                 | Self::Shutdown
                 | Self::RetireNetwork(_)
         ) || matches!(self, Self::Settings(settings) if settings.snapshot.muted || settings.snapshot.software_gain_zero)
@@ -312,6 +316,7 @@ impl Worker {
         if matches!(
             action,
             Action::Stop(_)
+                | Action::RetireSource
                 | Action::Shutdown
                 | Action::Start { .. }
                 | Action::StartNetwork { .. }
@@ -2300,6 +2305,8 @@ fn run(
     let mut network_retirement = None;
     let mut network_terminal_reported = false;
     let mut deferred_start = None;
+    // The close failure of a source that a Sendspin takeover retired, until that start arrives.
+    let mut takeover_failure: Option<EngineError> = None;
     loop {
         dsd_retirement.report(&events);
         if let Some(closing) = network_retirement.as_ref() {
@@ -2365,6 +2372,9 @@ fn run(
             if matches!(action, Action::Start { .. } | Action::Shutdown) {
                 terminal = None;
             }
+            if matches!(action, Action::Start { .. } | Action::StartNetwork { .. }) {
+                takeover_failure = None;
+            }
             let failure_settings = match &action {
                 Action::ActivateGraph { settings, .. }
                 | Action::Pause(settings)
@@ -2414,12 +2424,13 @@ fn run(
                     stopped = None;
                     terminal = None;
                     // A failed retirement drops the handle, which cancels the connection.
-                    if let Err(error) = retire_for_start(
+                    let retired = retire_for_start(
                         &mut playback,
                         &mut dsd_retirement,
                         &events,
                         ActiveSource::stop,
-                    ) {
+                    );
+                    if let Err(error) = takeover_failure.take().map_or(retired, Err) {
                         sendspin::refuse_start(
                             settings.snapshot.epochs,
                             &observation,
@@ -2438,6 +2449,34 @@ fn run(
                         &events,
                     )
                     .map(|source| ActiveSource::Sendspin(Box::new(source)));
+                    Ok(())
+                }
+                Action::RetireSource => {
+                    stopped = None;
+                    terminal = None;
+                    let reserved = playback
+                        .as_ref()
+                        .and_then(ActiveSource::pcm)
+                        .map(|current| {
+                            (
+                                current.failure_context(None).snapshot.epochs,
+                                current.epochs(),
+                            )
+                        });
+                    takeover_failure = retire_for_start(
+                        &mut playback,
+                        &mut dsd_retirement,
+                        &events,
+                        ActiveSource::stop,
+                    )
+                    .err();
+                    if let Some((context, current)) = reserved {
+                        clear_reservation(&view, context);
+                        clear_reservation(&view, current);
+                    }
+                    if let Ok(mut latest) = progress.lock() {
+                        *latest = None;
+                    }
                     Ok(())
                 }
                 Action::StopSendspin => {
