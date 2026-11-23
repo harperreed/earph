@@ -120,6 +120,10 @@ That line also shows how much audio went to the output, the volume, and `muted` 
 The line always says `sync unqualified`.
 The player schedules audio against the server's clock, but no measurement shows when sound leaves the output.
 Expect a constant offset from other players, and slow drift.
+On macOS the player sends audio earlier by the latency that the output device reports, which is large on Bluetooth.
+`status --json` shows that latency as `timing.device_latency_frames`, and `timing.device_latency_applied` says whether the player uses it.
+A report above one second is shown and not used.
+The latency is the device's own claim, so the offset can remain.
 `start error` is the player's own estimate, not a measurement.
 The command shows no playback position for the same reason.
 

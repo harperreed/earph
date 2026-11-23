@@ -223,7 +223,35 @@ Idle silence bypasses the gain, so a gain ramp still starts with the first sched
 The scheduler counts the frames that the output still holds as its delay.
 ALSA reports that delay. For Core Audio the worker counts the accepted frames past the restart cursor.
 That cursor is callback delivery or the queue clock; it is no audible position.
-No Mac has run this path. The start time and the timing error on Core Audio remain unmeasured.
+
+On Core Audio the scheduler also adds the latency that the output device reports.
+The worker reads that latency when the output opens, and again after each reopen.
+These reads start no IO and change no setting.
+The latency is the sum of three properties: `kAudioDevicePropertyLatency` and `kAudioDevicePropertySafetyOffset` in the output scope, and `kAudioStreamPropertyLatency` of the first output stream.
+The device counts them in frames at its nominal rate, and the worker converts them to stream frames.
+The AudioQueue route adds no IO buffer. Its cursor is the queue clock, and a frame in the device IO buffer still lies past that clock.
+The direct hardware route adds one device IO buffer, because a delivered frame leaves its count and still waits in that buffer.
+The scheduler writes each chunk earlier by this latency.
+The idle silence depth ignores it, because the latency lies behind the frames that the output holds.
+
+`timing.device_latency_frames` shows the reported latency in stream frames.
+An unreadable property counts as zero. With no readable property the value is `null`, and the scheduler adds nothing.
+`timing.device_latency_applied` says whether the scheduler adds the latency.
+The scheduler refuses a report above one second: state shows the frames, and `device_latency_applied` stays `false`.
+While the latency applies, `timing.backend_delay_basis` names it: `audio_queue_sample_time_plus_reported_device_latency_not_audible_position`.
+The latency is a device report, not a measurement. Timing stays `unqualified`, and state claims no audible position.
+ALSA reports no device latency through this path, so Linux scheduling is unchanged.
+Local file playback reads the same properties when it opens a Core Audio output and uses none of them.
+
+The player declares a required lead time of 150 ms plus the applied latency, rounded up to a whole millisecond.
+The declaration uses the latency of the first open.
+If the server sends a chunk later than that lead, the chunk arrives inside the device latency and drops as late.
+With a 200 ms latency and a 150 ms server lead, every chunk drops.
+
+A Mac listening test on November 22, 2026 met its own schedule within 1.5 ms on built-in speakers.
+The owner still heard Earph behind another synchronized player, because the schedule ended at the queue clock.
+No Mac has run the device latency code.
+Unverified on a Mac: the property reads, the choice to add the safety offset and no IO buffer on the AudioQueue route, and a server that honors the larger lead time.
 
 A `stream/clear` without `from_timestamp` drops the queued audio and the audio that the output still holds.
 A `stream/clear` with `from_timestamp` drops only the queued audio from that server time on.

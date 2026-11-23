@@ -60,6 +60,7 @@ Call `advance_server_time` every tick with a non-decreasing value.
 Never block longer than `Output::wait`; the event queue has no backpressure.
 ALSA reports a client delay estimate. Core Audio reports none.
 U8 replaced the zero for Core Audio with the accepted frames past the restart cursor.
+U9 adds the latency that the Core Audio device reports behind that cursor.
 
 Keep the output running on idle silence while a stream is active and no audio is due (U8).
 Anchor only on a running output.
@@ -76,6 +77,7 @@ Anchor only on a running output.
 | U6 | Pinned Python peer and documents | 0 / 250 | U4 |
 | U7 | Credential provisioning and pairing, for real Music Assistant use | 870 / 1130 | U4 |
 | U8 | Landed. Keep the output running on idle silence | 200 / 500 | U5 |
+| U9 | Landed. Count the Core Audio device's reported latency in the schedule | 150 / 350 | U8 |
 
 ### U1: thinnest sample path
 
@@ -147,6 +149,31 @@ No Mac has run this unit.
 Unverified on a Mac: the start time, the idle depth margin, and the delay taken from the restart cursor.
 Unverified on a Mac: a `stream/end` while an AudioQueue output still awaits its first valid clock.
 That suspend needs a validated restart cursor and fails without one.
+
+### U9: device latency
+
+Landed.
+A Mac listening test with Music Assistant 2.10.13 used built-in speakers and the AudioQueue route at 48 kHz.
+After 14 s state showed a start error of -1220 us, a maximum error of 1503 us, no dropped frame, and no underrun.
+The owner still heard Earph behind an iPhone web player.
+The delay basis was `audio_queue_sample_time_not_audible_position`: the counted delay ended at the queue clock.
+The latency of the device itself was not counted, so audio left late by that amount.
+
+The worker now reads the device latency, the safety offset, and the output stream latency when a Core Audio output opens.
+It converts their sum to stream frames and adds it to the scheduler's delay.
+The AudioQueue route adds no IO buffer; the direct hardware route adds one.
+State reports `timing.device_latency_frames` and `timing.device_latency_applied`, and the delay basis names an applied latency.
+An unknown latency counts as zero. A report above one second is shown and not applied.
+The player declares a required lead time of 150 ms plus the applied latency.
+A server that sends only 150 ms ahead of a 200 ms latency loses every chunk as late.
+Timing stays `unqualified`. This unit applies no drift correction and no resampling.
+
+The worker tests give the clocked output a 200 ms device latency.
+Without this unit that audio left 200 ms late.
+No Mac has compiled or run this unit.
+Unverified on a Mac: the property reads and their values, and the safety offset and IO buffer choice on the AudioQueue route.
+Unverified: a Music Assistant server that honors a required lead time above 150 ms.
+The silent macOS test `native::tests::default_output_latency_reads_start_no_io_and_change_no_setting` in `earph-coreaudio` prints the reported frames.
 
 ### U6: independent producer and documents
 

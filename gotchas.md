@@ -130,3 +130,9 @@
   Allow idle silence into half of the pad window, and count it apart from scheduled silence.
   The null and file plugins report zero delay at once, so only the monotonic clock paces idle silence there.
   See `SilencePacer` in [the scheduler](crates/earph-engine/src/sendspin_schedule.rs) and the clocked seam in the [Sendspin worker tests](crates/earph-engine/src/worker/sendspin_tests.rs).
+
+- The Core Audio device latency lies behind the frames that the output holds.
+  Add it only to the Sendspin scheduler's delay; the idle silence pacer must see the held frames alone.
+  A pacer that counts the latency as held frames feeds no silence, and the output runs dry.
+  The player needs a server lead of 150 ms plus that latency, or every chunk drops as late.
+  See `LatencyAdmission` in [the scheduler](crates/earph-engine/src/sendspin_schedule.rs) and [the runtime notes](docs/sendspin-runtime.md#player-stream-lifecycle).
