@@ -33,6 +33,7 @@ pub use super::budget::ADAPTER_MEMORY_BYTES;
 const READ_DEADLINE: Duration = Duration::from_secs(5);
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
 
+#[derive(Clone)]
 pub struct DeviceIdentity {
     pub(super) udn: String,
     pub(super) friendly_name: String,

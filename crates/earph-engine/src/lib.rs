@@ -23,7 +23,7 @@ pub mod sendspin_credentials;
 mod sendspin_runtime;
 pub use sendspin_runtime::SendspinConfiguration;
 pub mod sendspin_schedule;
-pub use renderer::RendererConfiguration;
+pub use renderer::{RendererConfiguration, RendererListen};
 mod runtime;
 pub mod stream_render;
 mod transport;
@@ -101,10 +101,21 @@ impl EngineOwner {
                 "renderer listener already bound",
             ));
         }
-        let renderer = configuration.bind()?;
+        let (renderer, listener) = configuration.bind()?;
         self.session.enable_renderer_control();
+        self.session.set_renderer_listener(Some(listener));
         self.renderer = Some(renderer::RendererRuntime::new(renderer, &self.session));
         Ok(self)
+    }
+    /// Starts the renderer that the owner command line selects.
+    /// It uses the device identity that this runtime keeps across restarts.
+    pub fn with_renderer_listen(self, listen: RendererListen) -> Result<Self, EngineError> {
+        let configuration = listen.configuration(&self.runtime, &self.token)?;
+        self.with_renderer(configuration)
+    }
+    /// Reports where the renderer listens and whether it runs discovery.
+    pub fn renderer_listener(&self) -> Option<earph_core::renderer::RendererListener> {
+        self.session.renderer_snapshot().listener
     }
     pub fn renderer_address(&self) -> Option<std::net::SocketAddrV4> {
         self.renderer.as_ref().map(|renderer| renderer.local_addr())

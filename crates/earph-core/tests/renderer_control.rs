@@ -3513,3 +3513,41 @@ fn u4_shared_field_debug_redacts_uri_and_metadata() {
     assert!(!diagnostics.contains("private.example"));
     assert!(!diagnostics.contains("never-log-this-metadata"));
 }
+
+#[test]
+fn renderer_projection_reports_the_listener_only_while_the_host_records_one() {
+    let mut s = supported();
+    let silent = serde_json::to_value(s.renderer_snapshot()).unwrap();
+    assert_eq!(silent["listener"], Value::Null);
+    s.set_renderer_listener(Some(earph_core::renderer::RendererListener {
+        address: "127.0.0.1:49152".parse().unwrap(),
+        discovery: true,
+    }));
+    let original = serde_json::to_value(s.renderer_snapshot()).unwrap();
+    assert_eq!(
+        original["listener"],
+        json!({"address":"127.0.0.1:49152","discovery":true})
+    );
+    let parsed: earph_core::renderer::RendererSnapshot =
+        serde_json::from_value(original.clone()).unwrap();
+    assert_eq!(serde_json::to_value(parsed).unwrap(), original);
+    for address in ["0.0.0.0:49152", "127.0.0.1:0", "239.255.255.250:1900"] {
+        let mut bad = original.clone();
+        bad["listener"]["address"] = json!(address);
+        assert!(
+            serde_json::from_value::<earph_core::renderer::RendererSnapshot>(bad).is_err(),
+            "invalid {address}"
+        );
+    }
+    let mut bad = original.clone();
+    bad.as_object_mut().unwrap().remove("listener");
+    assert!(serde_json::from_value::<earph_core::renderer::RendererSnapshot>(bad).is_err());
+    let mut disabled = serde_json::to_value(owner().renderer_snapshot()).unwrap();
+    disabled["listener"] = original["listener"].clone();
+    assert!(serde_json::from_value::<earph_core::renderer::RendererSnapshot>(disabled).is_err());
+    s.set_renderer_listener(None);
+    assert_eq!(
+        serde_json::to_value(s.renderer_snapshot()).unwrap()["listener"],
+        Value::Null
+    );
+}

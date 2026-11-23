@@ -279,10 +279,21 @@ pub struct RendererControllerSummary {
     pub expires_monotonic_ns: u64,
 }
 
+/// Where the host's renderer transport listens. Core records it; the host owns the sockets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RendererListener {
+    pub address: std::net::SocketAddrV4,
+    /// True when the host also answers and advertises SSDP on this interface.
+    pub discovery: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "RendererSnapshotDocument")]
 pub struct RendererSnapshot {
     pub enabled: bool,
+    #[serde(deserialize_with = "crate::serde_helpers::nullable")]
+    pub listener: Option<RendererListener>,
     pub grant_generation: u64,
     pub controllers: Vec<RendererControllerSummary>,
     pub controller_count: usize,
@@ -299,6 +310,8 @@ pub struct RendererSnapshot {
 #[serde(deny_unknown_fields)]
 struct RendererSnapshotDocument {
     enabled: bool,
+    #[serde(deserialize_with = "crate::serde_helpers::nullable")]
+    listener: Option<RendererListener>,
     grant_generation: u64,
     controllers: Vec<RendererControllerSummary>,
     controller_count: usize,
@@ -319,6 +332,13 @@ impl TryFrom<RendererSnapshotDocument> for RendererSnapshot {
         if d.controllers.len() > MAX_RENDERER_CONTROLLERS
             || d.controller_count != d.controllers.len()
             || d.retained_bytes > crate::network_source::MAX_NETWORK_AUTHORITY_BYTES as u64
+            || d.listener.is_some_and(|listener| {
+                !d.enabled
+                    || listener.address.port() == 0
+                    || listener.address.ip().is_unspecified()
+                    || listener.address.ip().is_multicast()
+                    || listener.address.ip().is_broadcast()
+            })
             || !d.enabled
                 && (d.grant_generation != 0
                     || d.controller_count != 0
@@ -348,6 +368,7 @@ impl TryFrom<RendererSnapshotDocument> for RendererSnapshot {
         }
         Ok(Self {
             enabled: d.enabled,
+            listener: d.listener,
             grant_generation: d.grant_generation,
             controllers: d.controllers,
             controller_count: d.controller_count,
@@ -427,6 +448,7 @@ impl std::fmt::Debug for RendererGraphBinding {
 #[derive(Clone, Default)]
 pub(crate) struct RendererControl {
     pub enabled: bool,
+    pub listener: Option<RendererListener>,
     pub epoch: u64,
     pub graph_serial: u64,
     pub events: crate::renderer_events::RendererEventControl,

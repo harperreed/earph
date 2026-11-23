@@ -4,7 +4,7 @@ use earph_core::{
     EngineError, ErrorCode,
     control::{Command, CommandEnvelope, QueryResult, Receipt, ReceiptStatus},
     ids::{RequestId, SessionId},
-    renderer::{RendererAction, RendererGraphBinding, RendererRight},
+    renderer::{RendererAction, RendererGraphBinding, RendererListener, RendererRight},
     renderer_events::{
         MAX_RENDERER_SUBSCRIPTIONS, RendererDeliveryOutcome, RendererService,
         RendererSubscriptionAction, RendererSubscriptionAdmission, RendererSubscriptionBinding,
@@ -12,16 +12,28 @@ use earph_core::{
     session::{Session, TransportState},
 };
 use earph_network::upnp::{
-    DeviceIdentity, HttpSurface, IncomingRequest, PendingAction, PendingSubscription, Service,
-    UpnpFault,
+    Advertisement, DeviceIdentity, HttpSurface, IncomingRequest, PendingAction,
+    PendingSubscription, Service, SsdpEndpoint, UpnpFault,
 };
 use sha2::{Digest, Sha256};
-use std::{net::SocketAddrV4, sync::Arc, time::Instant};
+use std::{net::SocketAddrV4, path::Path, sync::Arc, time::Instant};
 
-/// Explicit library configuration. The production command line does not enable a renderer.
+/// Multicast scope for discovery, the value that UPnP Device Architecture 1.0 gives.
+const DISCOVERY_TTL: u32 = 4;
+const DEVICE_NAME: &str = "Earph";
+const SERVER: &str = concat!(
+    "Earph/",
+    env!("CARGO_PKG_VERSION"),
+    " UPnP/1.0 Earph/",
+    env!("CARGO_PKG_VERSION")
+);
+const UDN_FILE: &str = "renderer-udn";
+
+/// Explicit library configuration. An owner binds no renderer without one.
 pub struct RendererConfiguration {
     address: SocketAddrV4,
     identity: DeviceIdentity,
+    discovery: bool,
 }
 
 impl RendererConfiguration {
@@ -33,16 +45,116 @@ impl RendererConfiguration {
     ) -> Result<Self, EngineError> {
         let identity = DeviceIdentity::new(udn, name, server)
             .map_err(|_| EngineError::new(ErrorCode::AssetInvalid, "invalid renderer identity"))?;
-        Ok(Self { address, identity })
+        Ok(Self {
+            address,
+            identity,
+            discovery: false,
+        })
     }
-    pub(crate) fn bind(self) -> Result<HttpSurface, EngineError> {
-        HttpSurface::bind(self.address, self.identity).map_err(|_| {
+    /// Also advertises and answers SSDP on the selected interface.
+    pub fn with_discovery(mut self) -> Self {
+        self.discovery = true;
+        self
+    }
+    /// Binds the listener and reports what it serves. A discovery failure closes the listener.
+    pub(crate) fn bind(self) -> Result<(HttpSurface, RendererListener), EngineError> {
+        let surface = HttpSurface::bind(self.address, self.identity.clone()).map_err(|_| {
             EngineError::new(
                 ErrorCode::DeviceUnavailable,
                 "cannot bind renderer listener",
             )
+        })?;
+        let listener = RendererListener {
+            address: surface.local_addr(),
+            discovery: self.discovery,
+        };
+        if self.discovery {
+            Advertisement::new(listener.address, self.identity)
+                .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))
+                .and_then(|advertisement| {
+                    SsdpEndpoint::bind_multicast(advertisement, DISCOVERY_TTL)
+                })
+                .and_then(|endpoint| surface.attach_discovery(endpoint))
+                .map_err(|_| {
+                    EngineError::new(
+                        ErrorCode::DeviceUnavailable,
+                        "cannot start renderer discovery on the selected interface",
+                    )
+                })?;
+        }
+        Ok((surface, listener))
+    }
+}
+
+/// The renderer that the owner command line selects with `--renderer-listen`.
+pub struct RendererListen {
+    address: SocketAddrV4,
+    discovery: bool,
+}
+
+impl RendererListen {
+    /// Accepts one concrete IPv4 address with a port. Port 0 lets the system choose the port.
+    pub fn parse(listen: &str, discovery: bool) -> Result<Self, EngineError> {
+        let address = listen.parse::<SocketAddrV4>().ok().filter(|address| {
+            let ip = address.ip();
+            !ip.is_unspecified() && !ip.is_multicast() && !ip.is_broadcast()
+        });
+        Ok(Self {
+            address: address.ok_or(EngineError::new(
+                ErrorCode::AssetInvalid,
+                "--renderer-listen needs one concrete IPv4 address and port, such as 192.0.2.10:49152",
+            ))?,
+            discovery,
         })
     }
+    /// Builds the configuration with this runtime's stable device identity.
+    pub(crate) fn configuration(
+        self,
+        runtime: &Path,
+        token: &str,
+    ) -> Result<RendererConfiguration, EngineError> {
+        let configuration = RendererConfiguration::new(
+            self.address,
+            &device_udn(runtime, token)?,
+            DEVICE_NAME,
+            SERVER,
+        )?;
+        Ok(if self.discovery {
+            configuration.with_discovery()
+        } else {
+            configuration
+        })
+    }
+}
+
+/// Reads this runtime's device name, or creates a random one on first use.
+/// Controllers key a renderer by its UDN, so it must survive a restart.
+fn device_udn(runtime: &Path, token: &str) -> Result<String, EngineError> {
+    if let Some(bytes) = crate::runtime::read(&runtime.join(UDN_FILE), 64)? {
+        return String::from_utf8(bytes)
+            .map_err(|_| EngineError::new(ErrorCode::AssetInvalid, "invalid renderer identity"));
+    }
+    let mut random = [0u8; 16];
+    getrandom::fill(&mut random).map_err(|_| {
+        EngineError::new(
+            ErrorCode::InternalFault,
+            "cannot create the renderer identity",
+        )
+    })?;
+    // RFC 9562 version 4, variant 1.
+    random[6] = random[6] & 0x0f | 0x40;
+    random[8] = random[8] & 0x3f | 0x80;
+    let hex: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
+    let udn = format!(
+        "uuid:{}-{}-{}-{}-{}",
+        &hex[..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..]
+    );
+    crate::runtime::write_atomic(runtime, UDN_FILE, token, udn.as_bytes())?;
+    Ok(udn)
 }
 
 pub(crate) enum Admission {
@@ -130,6 +242,9 @@ impl RendererRuntime {
             .poll_shutdown()
         {
             self.listener_joined = stats.joined;
+            if stats.joined {
+                session.set_renderer_listener(None);
+            }
             if !self.retiring {
                 self.retire(session, now_ns)?;
                 if let Some(error) = stats.service_error {

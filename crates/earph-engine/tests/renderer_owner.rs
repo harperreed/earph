@@ -565,3 +565,406 @@ fn owner_controller_replacement_rechecks_ambiguous_peer_before_staging() {
     assert_eq!(staging["result"]["value"]["generation"], 0);
     owner.finish();
 }
+
+/// Drives the shipped owner executable, so the command line option itself is under test.
+#[cfg(target_os = "linux")]
+mod owner_process {
+    use super::{command, soap};
+    use serde_json::{Value, json};
+    use std::{
+        io::{BufRead, BufReader, ErrorKind},
+        net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream, UdpSocket},
+        path::PathBuf,
+        process::{Child, Command, Output, Stdio},
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    };
+
+    const GROUP: SocketAddrV4 = SocketAddrV4::new(Ipv4Addr::new(239, 255, 255, 250), 1900);
+
+    fn runtime() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "ep-{:x}-{:x}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+    fn owner_command(runtime: &PathBuf, options: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_earph-engine"));
+        command
+            .args(["owner", "--runtime"])
+            .arg(runtime)
+            .args(options)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        command
+    }
+    /// Runs an owner start that must fail before it serves.
+    fn refused(runtime: &PathBuf, options: &[&str]) -> Output {
+        let output = owner_command(runtime, options).output().unwrap();
+        assert!(!output.status.success(), "{options:?} started an owner");
+        assert!(output.stdout.is_empty(), "{options:?} announced an owner");
+        output
+    }
+    struct OwnerProcess {
+        child: Child,
+        runtime: PathBuf,
+        announcement: Value,
+    }
+    impl OwnerProcess {
+        fn start(options: &[&str]) -> Self {
+            Self::start_at(runtime(), options)
+        }
+        fn start_at(runtime: PathBuf, options: &[&str]) -> Self {
+            let mut child = owner_command(&runtime, options).spawn().unwrap();
+            let mut line = String::new();
+            BufReader::new(child.stdout.take().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            let Ok(announcement) = serde_json::from_str::<Value>(&line) else {
+                let _ = child.kill();
+                let output = child.wait_with_output().unwrap();
+                panic!(
+                    "owner did not start: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            };
+            assert_eq!(announcement["status"], "owner");
+            Self {
+                child,
+                runtime,
+                announcement,
+            }
+        }
+        fn renderer_address(&self) -> SocketAddrV4 {
+            self.announcement["renderer"]["address"]
+                .as_str()
+                .expect("announced renderer address")
+                .parse()
+                .unwrap()
+        }
+        fn renderer(&self, id: &str) -> Value {
+            let receipt = command(&self.runtime, id, json!({"method":"renderer.get"}));
+            assert_eq!(receipt["status"], "applied", "{receipt}");
+            receipt["result"]["value"].clone()
+        }
+        /// Lists this process's IPv4 and IPv6 sockets as `table local-address state`.
+        fn network_sockets(&self) -> Vec<String> {
+            let inodes: Vec<String> = std::fs::read_dir(format!("/proc/{}/fd", self.child.id()))
+                .unwrap()
+                .filter_map(|entry| std::fs::read_link(entry.unwrap().path()).ok())
+                .filter_map(|link| {
+                    link.to_str()?
+                        .strip_prefix("socket:[")?
+                        .strip_suffix(']')
+                        .map(str::to_owned)
+                })
+                .collect();
+            assert!(!inodes.is_empty(), "the owner holds its local IPC socket");
+            let mut sockets = Vec::new();
+            for table in ["tcp", "udp", "tcp6", "udp6", "raw", "raw6"] {
+                let Ok(text) = std::fs::read_to_string(format!("/proc/net/{table}")) else {
+                    continue;
+                };
+                for line in text.lines().skip(1) {
+                    let fields: Vec<_> = line.split_whitespace().collect();
+                    if fields
+                        .get(9)
+                        .is_some_and(|inode| inodes.iter().any(|i| i == inode))
+                    {
+                        sockets.push(format!("{table} {} {}", fields[1], fields[3]));
+                    }
+                }
+            }
+            sockets.sort();
+            sockets
+        }
+        /// Stops the owner through its command socket and requires a clean exit.
+        fn shutdown(mut self) {
+            let receipt = command(
+                &self.runtime,
+                "shutdown",
+                json!({"method":"owner.shutdown"}),
+            );
+            assert_ne!(receipt["status"], "rejected", "{receipt}");
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                if let Some(status) = self.child.try_wait().unwrap() {
+                    assert!(status.success(), "owner exit {status}");
+                    return;
+                }
+                assert!(Instant::now() < deadline, "owner did not exit");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+    impl Drop for OwnerProcess {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+    /// The kernel prints an IPv4 socket address as native-endian hex.
+    fn proc_address(address: SocketAddrV4) -> String {
+        format!(
+            "{:08X}:{:04X}",
+            u32::from_ne_bytes(address.ip().octets()),
+            address.port()
+        )
+    }
+    fn failure(output: &Output) -> String {
+        String::from_utf8_lossy(&output.stderr).into_owned()
+    }
+
+    #[test]
+    fn owner_process_without_the_renderer_option_opens_no_network_socket() {
+        let owner = OwnerProcess::start(&[]);
+        assert!(owner.announcement.get("renderer").is_none());
+        let renderer = owner.renderer("default-renderer");
+        assert_eq!(renderer["enabled"], false);
+        assert_eq!(renderer["listener"], Value::Null);
+        // No IPv4 or IPv6 socket means no listener and no way to send multicast.
+        assert_eq!(owner.network_sockets(), Vec::<String>::new());
+        owner.shutdown();
+    }
+
+    #[test]
+    fn owner_process_renderer_option_serves_soap_and_closes_its_listener() {
+        let owner = OwnerProcess::start(&["--renderer-listen", "127.0.0.1:0"]);
+        let address = owner.renderer_address();
+        assert_eq!(*address.ip(), Ipv4Addr::LOCALHOST);
+        assert_ne!(address.port(), 0);
+        assert_eq!(owner.announcement["renderer"]["discovery"], false);
+        let renderer = owner.renderer("listening-renderer");
+        assert_eq!(renderer["enabled"], true);
+        assert_eq!(
+            renderer["listener"],
+            json!({"address": address.to_string(), "discovery": false})
+        );
+        // One listening TCP socket on the selected address, and no UDP socket.
+        assert_eq!(
+            owner.network_sockets(),
+            vec![format!("tcp {} 0A", proc_address(address))]
+        );
+        let refused = soap(address, "GetTransportInfo", "<InstanceID>0</InstanceID>");
+        assert!(
+            refused.starts_with("HTTP/1.1 500") && refused.contains("<errorCode>606</errorCode>"),
+            "an ungranted peer was served: {refused}"
+        );
+        let grant = command(
+            &owner.runtime,
+            "grant",
+            json!({"method":"renderer.grants.replace","expected_generation":0,"lifetime_ms":60000,"grants":{"controllers":[{"id":"fixture","peers":["127.0.0.1"],"rights":["stage","transport"],"playback":null}]}}),
+        );
+        assert_eq!(grant["status"], "applied", "{grant}");
+        let read = soap(address, "GetTransportInfo", "<InstanceID>0</InstanceID>");
+        assert!(
+            read.starts_with("HTTP/1.1 200")
+                && read.contains("<CurrentTransportState>NO_MEDIA_PRESENT</CurrentTransportState>"),
+            "{read}"
+        );
+        let play = soap(
+            address,
+            "Play",
+            "<InstanceID>0</InstanceID><Speed>1</Speed>",
+        );
+        assert!(
+            play.starts_with("HTTP/1.1 500") && play.contains("<errorCode>701</errorCode>"),
+            "Play without a staged source: {play}"
+        );
+        owner.shutdown();
+        assert_eq!(
+            TcpStream::connect(address).unwrap_err().kind(),
+            ErrorKind::ConnectionRefused
+        );
+    }
+
+    /// Reads datagrams until one satisfies `wanted`. Other senders may share this host.
+    fn datagram(socket: &UdpSocket, what: &str, wanted: impl Fn(&str) -> bool) -> String {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let mut bytes = [0; 2048];
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(!remaining.is_zero(), "no {what} arrived");
+            socket.set_read_timeout(Some(remaining)).unwrap();
+            if let Ok((length, _)) = socket.recv_from(&mut bytes)
+                && let Ok(text) = std::str::from_utf8(&bytes[..length])
+                && wanted(text)
+            {
+                return text.to_owned();
+            }
+        }
+    }
+
+    #[test]
+    fn owner_process_discovery_option_advertises_answers_and_says_byebye_on_loopback() {
+        use rustix::net::{AddressFamily, SocketFlags, SocketType, bind, socket_with, sockopt};
+        // Both test sockets stay on the loopback interface. Nothing reaches the network.
+        // Close-on-exec keeps this socket out of the owner process that the test inspects.
+        let group = socket_with(
+            AddressFamily::INET,
+            SocketType::DGRAM,
+            SocketFlags::CLOEXEC,
+            None,
+        )
+        .unwrap();
+        sockopt::set_socket_reuseaddr(&group, true).unwrap();
+        bind(&group, &GROUP).unwrap();
+        sockopt::set_ip_add_membership(&group, GROUP.ip(), &Ipv4Addr::LOCALHOST).unwrap();
+        let group = UdpSocket::from(group);
+        let searcher = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        sockopt::set_ip_multicast_if(&searcher, &Ipv4Addr::LOCALHOST).unwrap();
+
+        let owner =
+            OwnerProcess::start(&["--renderer-listen", "127.0.0.1:0", "--renderer-discovery"]);
+        let address = owner.renderer_address();
+        let location = format!("LOCATION: http://{address}/upnp/device.xml\r\n");
+        assert_eq!(owner.announcement["renderer"]["discovery"], true);
+        assert_eq!(
+            owner.renderer("discoverable-renderer")["listener"],
+            json!({"address": address.to_string(), "discovery": true})
+        );
+        let ssdp = proc_address(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 1900));
+        assert_eq!(
+            owner.network_sockets(),
+            vec![
+                format!("tcp {} 0A", proc_address(address)),
+                format!("udp {ssdp} 07"),
+                format!("udp {} 07", proc_address(GROUP)),
+            ]
+        );
+        let alive = datagram(&group, "alive advertisement", |text| {
+            text.contains("NTS: ssdp:alive\r\n") && text.contains(&location)
+        });
+        let usn = alive
+            .lines()
+            .find_map(|line| line.strip_prefix("USN: "))
+            .expect("advertised USN");
+        let udn = usn.split("::").next().unwrap().to_owned();
+        assert!(udn.starts_with("uuid:"), "{alive}");
+
+        searcher
+            .send_to(
+                b"M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 1\r\nST: upnp:rootdevice\r\n\r\n",
+                GROUP,
+            )
+            .unwrap();
+        let answer = datagram(&searcher, "search response", |text| {
+            text.starts_with("HTTP/1.1 200 OK\r\n")
+        });
+        assert!(
+            answer.contains(&location) && answer.contains(&format!("USN: {udn}::upnp:rootdevice")),
+            "{answer}"
+        );
+
+        owner.shutdown();
+        datagram(&group, "byebye advertisement", |text| {
+            text.contains("NTS: ssdp:byebye\r\n") && text.contains(&udn)
+        });
+        assert_eq!(
+            TcpStream::connect(address).unwrap_err().kind(),
+            ErrorKind::ConnectionRefused
+        );
+    }
+
+    /// Reads the device name that the description serves to any peer.
+    fn described_udn(address: SocketAddrV4) -> String {
+        use std::io::{Read, Write};
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(8)))
+            .unwrap();
+        write!(
+            stream,
+            "GET /upnp/device.xml HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+        )
+        .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        let (_, rest) = response.split_once("<UDN>").expect("described UDN");
+        rest.split_once("</UDN>").unwrap().0.to_owned()
+    }
+
+    #[test]
+    fn owner_process_keeps_its_device_identity_across_restarts() {
+        let first = OwnerProcess::start(&["--renderer-listen", "127.0.0.1:0"]);
+        let runtime = first.runtime.clone();
+        let udn = described_udn(first.renderer_address());
+        assert!(udn.starts_with("uuid:") && udn.len() == 41, "{udn}");
+        first.shutdown();
+        let second = OwnerProcess::start_at(runtime, &["--renderer-listen", "127.0.0.1:0"]);
+        assert_eq!(described_udn(second.renderer_address()), udn);
+        second.shutdown();
+        let other = OwnerProcess::start(&["--renderer-listen", "127.0.0.1:0"]);
+        assert_ne!(described_udn(other.renderer_address()), udn);
+        other.shutdown();
+    }
+
+    #[test]
+    fn owner_process_refuses_a_missing_or_ambiguous_renderer_choice() {
+        for options in [
+            &["--renderer-listen", "0.0.0.0:0"][..],
+            &["--renderer-listen", "127.0.0.1"],
+            &["--renderer-listen", "localhost:0"],
+            &["--renderer-listen", "[::1]:0"],
+            &["--renderer-listen", "239.255.255.250:1900"],
+            &["--renderer-listen", "255.255.255.255:0"],
+            &["--renderer-listen", ""],
+            &["--renderer-discovery"],
+            &["--renderer-listen"],
+            &[
+                "--renderer-listen",
+                "127.0.0.1:0",
+                "--renderer-listen",
+                "127.0.0.1:0",
+            ],
+            &["--renderer-listen", "127.0.0.1:0", "--renderer"],
+        ] {
+            let runtime = runtime();
+            let output = refused(&runtime, options);
+            let message = failure(&output);
+            assert!(
+                message.contains("--renderer-listen"),
+                "{options:?}: {message}"
+            );
+            assert!(
+                !runtime.exists(),
+                "{options:?} touched the runtime before refusing"
+            );
+        }
+    }
+
+    #[test]
+    fn owner_process_fails_to_start_when_the_renderer_cannot_bind() {
+        let occupied = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let listen = occupied.local_addr().unwrap().to_string();
+        let runtime = runtime();
+        let output = refused(&runtime, &["--renderer-listen", &listen]);
+        assert_eq!(output.status.code(), Some(3));
+        assert!(
+            failure(&output).contains("cannot bind renderer listener"),
+            "{}",
+            failure(&output)
+        );
+        // The failed start released the runtime, so a plain owner can start there.
+        OwnerProcess::start_at(runtime, &[]).shutdown();
+    }
+
+    #[test]
+    fn owner_process_refuses_renderer_options_when_an_owner_already_runs() {
+        let owner = OwnerProcess::start(&[]);
+        let output = refused(&owner.runtime, &["--renderer-listen", "127.0.0.1:0"]);
+        assert_eq!(output.status.code(), Some(3));
+        assert!(
+            failure(&output).contains("cannot adopt renderer options"),
+            "{}",
+            failure(&output)
+        );
+        assert_eq!(owner.renderer("still-default")["enabled"], false);
+        assert_eq!(owner.network_sockets(), Vec::<String>::new());
+        owner.shutdown();
+    }
+}

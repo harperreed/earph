@@ -91,10 +91,16 @@ impl Session {
         self.renderer.enabled = true;
         self.renderer.epoch = self.renderer.epoch.max(1);
     }
+    /// Records where the host's renderer transport listens. Pass `None` once it has closed.
+    /// This is an observation: it grants no authority and changes no revision.
+    pub fn set_renderer_listener(&mut self, listener: Option<RendererListener>) {
+        self.renderer.listener = listener;
+    }
 
     pub fn renderer_snapshot(&self) -> RendererSnapshot {
         RendererSnapshot {
             enabled: self.renderer.enabled,
+            listener: self.renderer.listener,
             grant_generation: self.renderer.generation,
             controllers: self
                 .renderer
