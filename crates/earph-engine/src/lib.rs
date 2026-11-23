@@ -110,8 +110,12 @@ impl EngineOwner {
     /// Starts the renderer that the owner command line selects.
     /// It uses the device identity that this runtime keeps across restarts.
     pub fn with_renderer_listen(self, listen: RendererListen) -> Result<Self, EngineError> {
-        let configuration = listen.configuration(&self.runtime, &self.token)?;
-        self.with_renderer(configuration)
+        let (configuration, created_udn) = listen.configuration(&self.runtime)?;
+        let owner = self.with_renderer(configuration)?;
+        if let Some(udn) = created_udn {
+            renderer::store_udn(&owner.runtime, &owner.token, &udn)?;
+        }
+        Ok(owner)
     }
     /// Reports where the renderer listens and whether it runs discovery.
     pub fn renderer_listener(&self) -> Option<earph_core::renderer::RendererListener> {

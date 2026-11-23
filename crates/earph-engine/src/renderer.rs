@@ -56,32 +56,40 @@ impl RendererConfiguration {
         self.discovery = true;
         self
     }
-    /// Binds the listener and reports what it serves. A discovery failure closes the listener.
+    /// Binds the listener and reports what it serves.
+    /// Discovery acquires its sockets before the listener serves any request.
     pub(crate) fn bind(self) -> Result<(HttpSurface, RendererListener), EngineError> {
-        let surface = HttpSurface::bind(self.address, self.identity.clone()).map_err(|_| {
-            EngineError::new(
-                ErrorCode::DeviceUnavailable,
-                "cannot bind renderer listener",
-            )
-        })?;
-        let listener = RendererListener {
-            address: surface.local_addr(),
-            discovery: self.discovery,
-        };
-        if self.discovery {
-            Advertisement::new(listener.address, self.identity)
+        let (discovery, advertised) = (self.discovery, self.identity.clone());
+        let mut discovery_failed = false;
+        let surface = HttpSurface::bind_with_discovery(self.address, self.identity, |address| {
+            if !discovery {
+                return Ok(None);
+            }
+            Advertisement::new(address, advertised)
                 .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))
                 .and_then(|advertisement| {
                     SsdpEndpoint::bind_multicast(advertisement, DISCOVERY_TTL)
                 })
-                .and_then(|endpoint| surface.attach_discovery(endpoint))
-                .map_err(|_| {
-                    EngineError::new(
-                        ErrorCode::DeviceUnavailable,
-                        "cannot start renderer discovery on the selected interface",
-                    )
-                })?;
-        }
+                .map(Some)
+                .inspect_err(|_| discovery_failed = true)
+        })
+        .map_err(|_| {
+            if discovery_failed {
+                EngineError::new(
+                    ErrorCode::DeviceUnavailable,
+                    "cannot start renderer discovery on the selected interface",
+                )
+            } else {
+                EngineError::new(
+                    ErrorCode::DeviceUnavailable,
+                    "cannot bind renderer listener",
+                )
+            }
+        })?;
+        let listener = RendererListener {
+            address: surface.local_addr(),
+            discovery,
+        };
         Ok((surface, listener))
     }
 }
@@ -108,30 +116,35 @@ impl RendererListen {
         })
     }
     /// Builds the configuration with this runtime's stable device identity.
+    /// Also returns a newly created UDN. Store it once the renderer has started.
     pub(crate) fn configuration(
         self,
         runtime: &Path,
-        token: &str,
-    ) -> Result<RendererConfiguration, EngineError> {
-        let configuration = RendererConfiguration::new(
-            self.address,
-            &device_udn(runtime, token)?,
-            DEVICE_NAME,
-            SERVER,
-        )?;
-        Ok(if self.discovery {
-            configuration.with_discovery()
-        } else {
-            configuration
-        })
+    ) -> Result<(RendererConfiguration, Option<String>), EngineError> {
+        let (udn, created) = device_udn(runtime)?;
+        let configuration = RendererConfiguration::new(self.address, &udn, DEVICE_NAME, SERVER)?;
+        Ok((
+            if self.discovery {
+                configuration.with_discovery()
+            } else {
+                configuration
+            },
+            created.then_some(udn),
+        ))
     }
 }
 
+/// Keeps a created device name, so controllers see the same renderer after a restart.
+pub(crate) fn store_udn(runtime: &Path, token: &str, udn: &str) -> Result<(), EngineError> {
+    crate::runtime::write_atomic(runtime, UDN_FILE, token, udn.as_bytes())
+}
+
 /// Reads this runtime's device name, or creates a random one on first use.
-/// Controllers key a renderer by its UDN, so it must survive a restart.
-fn device_udn(runtime: &Path, token: &str) -> Result<String, EngineError> {
+/// The flag is true for a created name, which no file holds yet.
+fn device_udn(runtime: &Path) -> Result<(String, bool), EngineError> {
     if let Some(bytes) = crate::runtime::read(&runtime.join(UDN_FILE), 64)? {
         return String::from_utf8(bytes)
+            .map(|udn| (udn, false))
             .map_err(|_| EngineError::new(ErrorCode::AssetInvalid, "invalid renderer identity"));
     }
     let mut random = [0u8; 16];
@@ -153,8 +166,7 @@ fn device_udn(runtime: &Path, token: &str) -> Result<String, EngineError> {
         &hex[16..20],
         &hex[20..]
     );
-    crate::runtime::write_atomic(runtime, UDN_FILE, token, udn.as_bytes())?;
-    Ok(udn)
+    Ok((udn, true))
 }
 
 pub(crate) enum Admission {

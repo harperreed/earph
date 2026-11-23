@@ -580,6 +580,8 @@ mod owner_process {
     };
 
     const GROUP: SocketAddrV4 = SocketAddrV4::new(Ipv4Addr::new(239, 255, 255, 250), 1900);
+    /// Serializes the tests that bind the loopback SSDP port.
+    static SSDP_PORT: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn runtime() -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -603,8 +605,19 @@ mod owner_process {
         command
     }
     /// Runs an owner start that must fail before it serves.
+    /// An owner that starts instead is stopped after a bounded wait, so the test cannot hang.
     fn refused(runtime: &PathBuf, options: &[&str]) -> Output {
-        let output = owner_command(runtime, options).output().unwrap();
+        let mut child = owner_command(runtime, options).spawn().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("{options:?} started an owner");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let output = child.wait_with_output().unwrap();
         assert!(!output.status.success(), "{options:?} started an owner");
         assert!(output.stdout.is_empty(), "{options:?} announced an owner");
         output
@@ -620,10 +633,22 @@ mod owner_process {
         }
         fn start_at(runtime: PathBuf, options: &[&str]) -> Self {
             let mut child = owner_command(&runtime, options).spawn().unwrap();
-            let mut line = String::new();
-            BufReader::new(child.stdout.take().unwrap())
-                .read_line(&mut line)
-                .unwrap();
+            // A reader thread bounds the wait, so a stuck owner fails the test instead of hanging it.
+            let mut stdout = BufReader::new(child.stdout.take().unwrap());
+            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            std::thread::spawn(move || {
+                let mut line = String::new();
+                let _ = stdout.read_line(&mut line);
+                let _ = sender.send(line);
+            });
+            let Ok(line) = receiver.recv_timeout(Duration::from_secs(20)) else {
+                let _ = child.kill();
+                let output = child.wait_with_output().unwrap();
+                panic!(
+                    "owner announced nothing in time: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            };
             let Ok(announcement) = serde_json::from_str::<Value>(&line) else {
                 let _ = child.kill();
                 let output = child.wait_with_output().unwrap();
@@ -802,6 +827,9 @@ mod owner_process {
     #[test]
     fn owner_process_discovery_option_advertises_answers_and_says_byebye_on_loopback() {
         use rustix::net::{AddressFamily, SocketFlags, SocketType, bind, socket_with, sockopt};
+        let _port = SSDP_PORT
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         // Both test sockets stay on the loopback interface. Nothing reaches the network.
         // Close-on-exec keeps this socket out of the owner process that the test inspects.
         let group = socket_with(
@@ -903,38 +931,193 @@ mod owner_process {
         other.shutdown();
     }
 
+    const LISTEN_ERROR: &str =
+        "--renderer-listen needs one concrete IPv4 address and port, such as 192.0.2.10:49152";
+    const DISCOVERY_ALONE_ERROR: &str = "--renderer-discovery needs --renderer-listen IPV4:PORT";
+    const IDENTITY_ERROR: &str = "invalid renderer identity";
+    const PRIVATE_ERROR: &str = "runtime paths must be private and owned by the current user";
+    const DISCOVERY_ERROR: &str = "cannot start renderer discovery on the selected interface";
+
+    /// Requires exit status 3 and returns the message of the one JSON error on stderr.
+    fn error_message(output: &Output) -> String {
+        assert_eq!(output.status.code(), Some(3), "{}", failure(output));
+        let document: Value = serde_json::from_slice(&output.stderr)
+            .unwrap_or_else(|_| panic!("stderr is not one error document: {}", failure(output)));
+        document["error"]["message"]
+            .as_str()
+            .expect("error message")
+            .to_owned()
+    }
+
     #[test]
     fn owner_process_refuses_a_missing_or_ambiguous_renderer_choice() {
-        for options in [
-            &["--renderer-listen", "0.0.0.0:0"][..],
-            &["--renderer-listen", "127.0.0.1"],
-            &["--renderer-listen", "localhost:0"],
-            &["--renderer-listen", "[::1]:0"],
-            &["--renderer-listen", "239.255.255.250:1900"],
-            &["--renderer-listen", "255.255.255.255:0"],
-            &["--renderer-listen", ""],
-            &["--renderer-discovery"],
-            &["--renderer-listen"],
-            &[
-                "--renderer-listen",
-                "127.0.0.1:0",
-                "--renderer-listen",
-                "127.0.0.1:0",
-            ],
-            &["--renderer-listen", "127.0.0.1:0", "--renderer"],
+        // `None` expects the usage text with exit status 2. `Some` expects that exact error.
+        for (options, expected) in [
+            (&["--renderer-listen", "0.0.0.0:0"][..], Some(LISTEN_ERROR)),
+            (&["--renderer-listen", "127.0.0.1"], Some(LISTEN_ERROR)),
+            (&["--renderer-listen", "localhost:0"], Some(LISTEN_ERROR)),
+            (&["--renderer-listen", "[::1]:0"], Some(LISTEN_ERROR)),
+            (
+                &["--renderer-listen", "239.255.255.250:1900"],
+                Some(LISTEN_ERROR),
+            ),
+            (
+                &["--renderer-listen", "255.255.255.255:0"],
+                Some(LISTEN_ERROR),
+            ),
+            (&["--renderer-listen", ""], Some(LISTEN_ERROR)),
+            (&["--renderer-discovery"], Some(DISCOVERY_ALONE_ERROR)),
+            (&["--renderer-listen"], None),
+            (
+                &[
+                    "--renderer-listen",
+                    "127.0.0.1:0",
+                    "--renderer-listen",
+                    "127.0.0.1:0",
+                ],
+                None,
+            ),
+            (
+                &[
+                    "--renderer-listen",
+                    "127.0.0.1:0",
+                    "--renderer-discovery",
+                    "--renderer-discovery",
+                ],
+                None,
+            ),
+            (&["--renderer-listen", "127.0.0.1:0", "--renderer"], None),
         ] {
             let runtime = runtime();
             let output = refused(&runtime, options);
-            let message = failure(&output);
-            assert!(
-                message.contains("--renderer-listen"),
-                "{options:?}: {message}"
-            );
+            match expected {
+                Some(message) => assert_eq!(error_message(&output), message, "{options:?}"),
+                None => {
+                    assert_eq!(output.status.code(), Some(2), "{options:?}");
+                    assert!(
+                        failure(&output).starts_with("usage: earph-engine owner --runtime "),
+                        "{options:?}: {}",
+                        failure(&output)
+                    );
+                }
+            }
             assert!(
                 !runtime.exists(),
                 "{options:?} touched the runtime before refusing"
             );
         }
+    }
+
+    /// Creates a private runtime that already holds `renderer-udn`, as `write` leaves it.
+    fn runtime_with_identity(write: impl FnOnce(&std::path::Path)) -> PathBuf {
+        use std::os::unix::fs::DirBuilderExt;
+        let runtime = runtime();
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&runtime)
+            .unwrap();
+        write(&runtime.join("renderer-udn"));
+        runtime
+    }
+    fn write_identity(path: &std::path::Path, mode: u32, bytes: &[u8]) {
+        use std::{io::Write, os::unix::fs::OpenOptionsExt};
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(mode)
+            .open(path)
+            .unwrap()
+            .write_all(bytes)
+            .unwrap();
+    }
+    const VALID_UDN: &[u8] = b"uuid:01234567-89ab-4def-8123-456789abcdef";
+
+    #[test]
+    fn owner_process_refuses_a_malformed_identity_file_and_keeps_it() {
+        for bytes in [
+            &b"not a device name"[..],
+            b"",
+            b"uuid:01234567-89ab-4def-8123-456789abcdef\n",
+            b"uuid:01234567-89ab-4def-8123-456789abcdeg",
+            b"\xff\xfe",
+        ] {
+            let runtime = runtime_with_identity(|path| write_identity(path, 0o600, bytes));
+            let output = refused(&runtime, &["--renderer-listen", "127.0.0.1:0"]);
+            assert_eq!(error_message(&output), IDENTITY_ERROR, "{bytes:?}");
+            assert_eq!(
+                std::fs::read(runtime.join("renderer-udn")).unwrap(),
+                bytes,
+                "the owner replaced a malformed identity"
+            );
+        }
+        // The same runtime layout starts when the file holds a valid name.
+        let runtime = runtime_with_identity(|path| write_identity(path, 0o600, VALID_UDN));
+        let owner = OwnerProcess::start_at(runtime, &["--renderer-listen", "127.0.0.1:0"]);
+        assert_eq!(
+            described_udn(owner.renderer_address()).as_bytes(),
+            VALID_UDN
+        );
+        owner.shutdown();
+    }
+
+    #[test]
+    fn owner_process_refuses_an_identity_file_that_is_not_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let readable = runtime_with_identity(|path| {
+            write_identity(path, 0o600, VALID_UDN);
+            // Set the mode after creation, so the process umask cannot hide it.
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        });
+        let output = refused(&readable, &["--renderer-listen", "127.0.0.1:0"]);
+        assert_eq!(error_message(&output), PRIVATE_ERROR);
+        assert_eq!(
+            std::fs::read(readable.join("renderer-udn")).unwrap(),
+            VALID_UDN
+        );
+
+        let linked = runtime_with_identity(|path| {
+            let target = path.with_file_name("identity-target");
+            write_identity(&target, 0o600, VALID_UDN);
+            std::os::unix::fs::symlink(&target, path).unwrap();
+        });
+        let output = refused(&linked, &["--renderer-listen", "127.0.0.1:0"]);
+        assert_eq!(error_message(&output), PRIVATE_ERROR);
+        assert!(
+            std::fs::symlink_metadata(linked.join("renderer-udn"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn owner_process_fails_to_start_when_discovery_cannot_bind() {
+        let _port = SSDP_PORT
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Without address reuse, this socket makes the owner's discovery bind fail.
+        let _occupied = UdpSocket::bind((Ipv4Addr::LOCALHOST, 1900)).unwrap();
+        let free = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = free.local_addr().unwrap();
+        drop(free);
+        let runtime = runtime();
+        let output = refused(
+            &runtime,
+            &[
+                "--renderer-listen",
+                &address.to_string(),
+                "--renderer-discovery",
+            ],
+        );
+        assert_eq!(error_message(&output), DISCOVERY_ERROR);
+        assert_eq!(
+            TcpStream::connect(address).unwrap_err().kind(),
+            ErrorKind::ConnectionRefused
+        );
+        assert!(
+            !runtime.join("renderer-udn").exists(),
+            "a failed renderer start created the device identity"
+        );
     }
 
     #[test]

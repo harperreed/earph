@@ -31,6 +31,8 @@ The device description and service descriptions answer any peer that reaches the
 The existing URL admission, media grants, callback grants, and byte budgets apply unchanged.
 
 A renderer that cannot start fails the owner start.
+Discovery acquires its sockets before the listener serves any request.
+A failed start serves nothing and creates no `renderer-udn` file.
 The owner prints the error, exits with status 3, and serves nothing.
 A user who asked for network control must not get a silent owner without it.
 The Sendspin option fails the same way.
@@ -43,7 +45,7 @@ The `renderer.get` reply carries the same object in `listener`, or `null` when n
 Both show the bound port, also when the option gave port 0.
 
 The owner keeps its device name (UDN) in the private runtime file `renderer-udn`.
-It creates a random UUID on first use and reads it on every later start.
+It creates a random UUID on first use, stores it once the renderer has started, and reads it on every later start.
 Controllers therefore see the same device after a restart.
 The owner refuses to start the renderer when that file holds no valid UUID name; it never replaces the file.
 The friendly name is `Earph`.

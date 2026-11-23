@@ -136,6 +136,15 @@ pub struct HttpSurface {
 }
 impl HttpSurface {
     pub fn bind(address: SocketAddrV4, identity: DeviceIdentity) -> io::Result<Self> {
+        Self::bind_with_discovery(address, identity, |_| Ok(None))
+    }
+    /// Binds the listener, then lets `discovery` acquire its sockets for the bound address.
+    /// No request is served until both succeed, so a discovery failure leaves nothing running.
+    pub fn bind_with_discovery(
+        address: SocketAddrV4,
+        identity: DeviceIdentity,
+        discovery: impl FnOnce(SocketAddrV4) -> io::Result<Option<super::SsdpEndpoint>>,
+    ) -> io::Result<Self> {
         if address.ip().is_unspecified()
             || address.ip().is_multicast()
             || address.ip().is_broadcast()
@@ -150,6 +159,17 @@ impl HttpSurface {
         let std::net::SocketAddr::V4(address) = listener.local_addr()? else {
             return Err(io::Error::other("expected IPv4 listener"));
         };
+        let initial_discovery = discovery(address)?;
+        if initial_discovery
+            .as_ref()
+            .is_some_and(|endpoint| endpoint.http_address() != address)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "discovery must reference this selected HTTP listener",
+            ));
+        }
+        let discovery_attached = AtomicBool::new(initial_discovery.is_some());
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
@@ -190,7 +210,7 @@ impl HttpSurface {
         let (events, mut event_runtime) =
             super::events::EventHandle::new(stop.clone(), budget.clone());
         let thread=thread::Builder::new().name("earph-upnp-wire".into()).spawn(move||runtime.block_on(async move{
-            let listener=tokio::net::TcpListener::from_std(listener)?;let mut connections=JoinSet::new();let mut discovery=None;let mut failure=None;
+            let listener=tokio::net::TcpListener::from_std(listener)?;let mut connections=JoinSet::new();let mut discovery=initial_discovery;let mut failure=None;
             while !thread_shared.stop.load(Ordering::Acquire){
                 event_runtime.poll();
                 if let Ok(endpoint)=discovery_rx.try_recv(){discovery=Some(endpoint);}
@@ -238,7 +258,7 @@ impl HttpSurface {
             budget,
             events,
             discovery: discovery_tx,
-            discovery_attached: AtomicBool::new(false),
+            discovery_attached,
             thread: Some(thread),
         })
     }
