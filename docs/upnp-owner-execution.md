@@ -1,8 +1,58 @@
 # Renderer owner execution
 
-The Engine library can bind one explicit renderer listener.
-Production CLI startup and automatic discovery remain disabled until joint U5 qualification.
+The Engine owner can bind one explicit renderer listener.
+The owner starts it only when its command line names an interface address.
+Without that option, the owner opens no network socket and sends no multicast.
 This implementation does not qualify named controllers, macOS, physical output, or a release package.
+
+## Owner command line option
+
+```
+earph-engine owner --runtime DIRECTORY --renderer-listen IPV4:PORT [--renderer-discovery]
+```
+
+`--renderer-listen` starts HTTP description, SOAP control, and eventing on one address.
+Give the IPv4 address of one interface, with a port.
+Port 0 lets the system choose a free port.
+The owner refuses `0.0.0.0`, multicast and broadcast addresses, IPv6, host names, and a missing port.
+It refuses a repeated option. It never scans interfaces or binds another address.
+A loopback address is valid and serves controllers on the same host only.
+
+`--renderer-discovery` adds SSDP on the same interface.
+The owner joins the SSDP group on that interface, sends alive messages, and answers searches.
+It sends byebye messages when it stops. The multicast TTL is 4.
+The option needs `--renderer-listen`. It works on Linux only.
+On macOS, the owner start fails with `cannot start renderer discovery on the selected interface`.
+See [the protocol surface](upnp-protocol-surface.md) for the required Mac interface work.
+
+The option opens the listener only. It grants no controller any right.
+Until a local `renderer.grants.replace` command names a peer address, every SOAP action returns fault 606.
+The device description and service descriptions answer any peer that reaches the listener.
+The existing URL admission, media grants, callback grants, and byte budgets apply unchanged.
+
+A renderer that cannot start fails the owner start.
+The owner prints the error, exits with status 3, and serves nothing.
+A user who asked for network control must not get a silent owner without it.
+The Sendspin option fails the same way.
+When another owner already holds the runtime, the command fails; a running owner cannot adopt the option.
+The owner checks the option's syntax before it touches the runtime directory.
+
+The owner reports its listener in two places.
+The startup line gains `"renderer": {"address": "IPV4:PORT", "discovery": BOOLEAN}`.
+The `renderer.get` reply carries the same object in `listener`, or `null` when no listener runs.
+Both show the bound port, also when the option gave port 0.
+
+The owner keeps its device name (UDN) in the private runtime file `renderer-udn`.
+It creates a random UUID on first use and reads it on every later start.
+Controllers therefore see the same device after a restart.
+The owner refuses to start the renderer when that file holds no valid UUID name; it never replaces the file.
+The friendly name is `Earph`.
+
+`owner.shutdown` retires renderer authority, stops the listener, and joins its thread before the owner exits.
+With discovery, the thread sends byebye before it closes its sockets.
+
+The `earph` player command has no renderer option yet.
+It has no command for controller grants, so a renderer started there could serve no controller.
 
 ## Explicit library configuration
 
@@ -102,5 +152,11 @@ Event tests exercise actual FIN-gated initial NOTIFY, service fences, shared-bud
 The unjoined-result test holds an actual sender task and retains its resources until a later actual joined completion.
 It injects the unjoined boundary result; it does not claim a spontaneous transport join failure.
 
+Owner process tests start the shipped `earph-engine` executable on a loopback address.
+They read `/proc` to prove that a default owner holds no IPv4 or IPv6 socket.
+With the option, they drive a refused SOAP action, a granted SOAP read, and a clean shutdown.
+The discovery test joins the SSDP group on the loopback interface only.
+It observes alive, a search answer, and byebye. No test sends multicast to a real network.
+
 Root owns the merged canonical check and independent high-risk review.
-Default startup, discovery, named-controller interoperability, current Mac qualification, and release acceptance remain separate gates.
+Default startup, real-network discovery, named-controller interoperability, current Mac qualification, and release acceptance remain separate gates.

@@ -8,6 +8,8 @@ These contracts do not enable a UPnP listener, discovery, subscriptions, or remo
 
 Use `renderer.get` through the existing private owner command socket.
 The reply exposes enabled state, grant generations, expiry, and staged, active, and closing ownership.
+Its `listener` field holds the bound `address` and a `discovery` flag while the owner's renderer listens.
+The field is `null` when no listener runs. See [the owner option](upnp-owner-execution.md#owner-command-line-option).
 It omits media URIs, metadata, peer addresses, and grant rights.
 The `retained_bytes` field reports the shared network ledger, rather than a separate renderer allowance.
 

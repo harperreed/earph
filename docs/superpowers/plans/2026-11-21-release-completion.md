@@ -321,7 +321,7 @@ A row with two letters has both gaps. The first letter is the gap that blocks ne
 | `PLAY-05` | in_progress / partial | Sendspin refuses every handoff with busy. No test delivers old Sendspin chunks to a new session. | a |
 | `PLAY-06` | implemented / partial | No test kills the owner during playback. AC-14 needs two physical outputs. | a, b |
 | `PLAY-07` | in_progress / partial | Public DSD submission is refused in code until an endpoint is qualified. Core Audio has no DSD output. | b, a |
-| `SRC-01` | in_progress / partial | No shipped command starts the renderer. SSDP is Linux-only. The AC-15 controller matrix is incomplete. | a |
+| `SRC-01` | in_progress / partial | `earph-engine owner --renderer-listen` starts the renderer; `earph` has no renderer command. SSDP is Linux-only. The AC-15 controller matrix is incomplete. | a |
 | `SRC-02` | in_progress / partial | The player offers 48 kHz 16-bit PCM only. It has no discovery, no FLAC, and no server volume or mute. | a |
 | `SRC-03` | in_progress / partial | No drift correction exists. Qualification needs two independent output clocks and a capture setup. | a, b |
 | `SRC-04` | in_progress / partial | State has no field for original source metadata. The Sendspin observation carries no format. | a |

@@ -76,7 +76,7 @@ Shutdown reports thread joining separately from the service error kind.
 `from_bound` accepts owned selected-address UDP sockets and sends no unsolicited multicast.
 The Linux multicast constructor binds the standard group/port, joins only the selected address, and disables IP_MULTICAST_ALL.
 Its outbound socket binds the selected address and sets that same multicast interface.
-TTL is explicit and bounded 1..255; UDA's planned initial value is 4.
+TTL is explicit and bounded 1..255. The owner's `--renderer-discovery` option uses UDA's initial value, 4.
 Acquisition failures do not trigger interface scans, wildcard binds, or another address.
 
 Non-Linux multicast acquisition currently returns Unsupported.
