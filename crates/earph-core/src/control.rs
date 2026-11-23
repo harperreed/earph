@@ -226,7 +226,12 @@ pub enum Command {
     },
     /// Starts the player connection to the server from the owner's launch configuration.
     #[serde(rename = "sources.sendspin.start")]
-    SendspinStart { device_id: DeviceId },
+    SendspinStart {
+        device_id: DeviceId,
+        /// Replaces an existing session of another source. An absent field asks for none.
+        #[serde(default)]
+        takeover: bool,
+    },
     #[serde(rename = "sources.sendspin.get")]
     SendspinGet {},
     #[serde(rename = "graph.inspect")]

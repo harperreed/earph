@@ -8,7 +8,7 @@ use crate::{
 
 const BUSY: EngineError = EngineError::new(
     ErrorCode::SourceBusy,
-    "stop the active session and wait for Sendspin to disconnect",
+    "wait for the earlier Sendspin connection to disconnect",
 );
 
 impl Session {
@@ -55,12 +55,6 @@ impl Session {
                     "Sendspin cannot resume or seek; start a new session instead",
                 ))
             }
-            Command::Start { .. }
-            | Command::NetworkStartHttpFlac { .. }
-            | Command::RendererRequest {
-                action: crate::renderer::RendererAction::Play { .. },
-                ..
-            } => Err(BUSY),
             command if command.prepares_graph() || command.activates_graph() => {
                 Err(EngineError::new(
                     ErrorCode::FidelityPolicyConflict,
@@ -74,6 +68,7 @@ impl Session {
         &mut self,
         command: &CommandEnvelope,
         device_id: &DeviceId,
+        takeover: bool,
     ) -> Result<ReceiptStatus, EngineError> {
         if !self.sendspin.configured
             || !self.local_playback_enabled
@@ -98,12 +93,21 @@ impl Session {
         if &output.device_id != device_id {
             return Err(STALE);
         }
-        // This slice has no takeover. A retiring connection still owns its workers.
-        if self.state.session_id.is_some()
-            || self.sendspin.connection.is_some()
-            || self.artifact_worker_busy()
-        {
+        // One server serves this source, and a retiring connection still owns its workers.
+        if self.sendspin.connection.is_some() {
             return Err(BUSY);
+        }
+        if self.artifact_worker_busy() {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "profile save owns the preparation slot",
+            ));
+        }
+        if self.state.session_id.is_some() && !takeover {
+            return Err(EngineError::new(
+                ErrorCode::SourceBusy,
+                "explicit takeover required",
+            ));
         }
         // A configured pipeline would block unmute for the whole session.
         if self.has_pcm_processing() {
@@ -118,6 +122,8 @@ impl Session {
         next.revision = increment(next.revision)?;
         next.event_sequence = self.next_session_event_sequence(false)?;
         next.epochs = next.epochs.next_session()?;
+        // A takeover retires an outgoing network source under the epochs that it played in.
+        self.close_network_at(self.state.epochs, None)?;
         next.session_id = Some(session_id.clone());
         next.source = Some(SourceKind::Sendspin);
         next.output_id = Some(device_id.clone());

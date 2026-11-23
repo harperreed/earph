@@ -1537,8 +1537,12 @@ impl Session {
                 "network retirement awaits worker acknowledgement",
             ));
         }
-        if let Command::SendspinStart { device_id } = &command.payload {
-            return self.apply_sendspin_start(command, device_id);
+        if let Command::SendspinStart {
+            device_id,
+            takeover,
+        } = &command.payload
+        {
+            return self.apply_sendspin_start(command, device_id, *takeover);
         }
         if self.state.source == Some(SourceKind::HttpFlac) {
             self.validate_network_control(&command.payload, now_ns)?;
@@ -2125,6 +2129,10 @@ impl Session {
             Command::Start { .. } | Command::OutputSelect { .. }
         ) {
             next.observation = Default::default();
+        }
+        // A takeover ends the Sendspin session that held the output. The new state replaces it below.
+        if matches!(command.payload, Command::Start { .. }) {
+            self.release_sendspin();
         }
         self.state = next;
         // Only a Sendspin session holds an open connection, so other pauses release nothing.

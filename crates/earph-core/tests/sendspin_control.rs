@@ -5,7 +5,7 @@ use earph_core::{
     control::{CommandEnvelope, ControlLimits, Receipt, ReceiptStatus, decode_command},
     ids::{OwnerId, ZoneId},
     sendspin_source::{SendspinSourceEvent, SendspinSourceObservation, SendspinTransportPhase},
-    session::{Session, SessionCheckpoint, TransportState},
+    session::{EngineEvent, EngineEventKind, Session, SessionCheckpoint, TransportState},
 };
 use serde_json::{Value, json};
 
@@ -67,11 +67,23 @@ fn consent() -> Value {
 fn start() -> Value {
     json!({"method":"sources.sendspin.start","device_id":"dac"})
 }
+fn takeover_start() -> Value {
+    json!({"method":"sources.sendspin.start","device_id":"dac","takeover":true})
+}
+fn local_start(takeover: bool) -> Value {
+    json!({"method":"sessions.start","source":"local_file","device_id":"dac","takeover":takeover,"seekable":true})
+}
 /// Returns a configured owner with an approved output, and its accepted Sendspin start.
 fn started_by() -> (Session, CommandEnvelope) {
     let mut session = configured();
     applied(&mut session, "select", None, output());
     applied(&mut session, "consent", None, consent());
+    applied(
+        &mut session,
+        "append",
+        None,
+        json!({"method":"queue.append","path":"/music/track.flac"}),
+    );
     let command = wire(&session, "start", Some("player-1"), start());
     let receipt = session.submit(command.clone());
     assert_eq!(receipt.status, ReceiptStatus::Accepted, "{receipt:?}");
@@ -217,6 +229,14 @@ fn an_accepted_start_owns_a_muted_preparing_session_and_refuses_a_second_start()
         "second",
         Some("player-2"),
         start(),
+        ErrorCode::SourceBusy,
+    );
+    // One server serves this source, so a second connection cannot take over the first.
+    rejected(
+        &mut session,
+        "second-takeover",
+        Some("player-2"),
+        takeover_start(),
         ErrorCode::SourceBusy,
     );
 }
@@ -496,13 +516,6 @@ fn resume_and_seek_are_rejected_while_mute_and_volume_still_apply() {
             ErrorCode::CapabilityUnsupported,
         );
     }
-    rejected(
-        &mut session,
-        "takeover",
-        Some("local-1"),
-        json!({"method":"sessions.start","source":"local_file","device_id":"dac","takeover":true,"seekable":true}),
-        ErrorCode::SourceBusy,
-    );
     applied(
         &mut session,
         "volume",
@@ -728,4 +741,175 @@ fn a_reconnecting_source_keeps_the_session_and_reports_its_reconnects() {
     let value = serde_json::to_value(&state).unwrap();
     assert_eq!(value["sendspin_playback"]["phase"], "streaming");
     assert_eq!(value["sendspin_playback"]["reconnects"], 1);
+}
+
+#[test]
+fn a_local_start_takes_the_output_from_sendspin_only_with_takeover() {
+    let mut session = started();
+    report(&mut session, SendspinTransportPhase::Streaming, 960, None);
+    applied(
+        &mut session,
+        "unmute",
+        Some("player-1"),
+        json!({"method":"mute.set","muted":false}),
+    );
+    let old = session.sendspin_connection().unwrap();
+    rejected(
+        &mut session,
+        "implicit",
+        Some("local-1"),
+        local_start(false),
+        ErrorCode::SourceBusy,
+    );
+    let receipt = submit(&mut session, "explicit", Some("local-1"), local_start(true));
+    assert_eq!(receipt.status, ReceiptStatus::Accepted, "{receipt:?}");
+
+    let state = session.snapshot();
+    assert_eq!(
+        state.session_id.as_ref().map(|id| id.as_str()),
+        Some("local-1")
+    );
+    let wire = serde_json::to_value(&state).unwrap();
+    assert_eq!(wire["source"], json!("local_file"));
+    assert!(
+        wire.get("sendspin_playback").is_none(),
+        "the new session shows no Sendspin facts"
+    );
+    assert_eq!(state.transport, TransportState::Preparing);
+    assert!(state.muted, "a takeover starts muted");
+    assert_eq!(state.epochs.session, old.epochs.session + 1);
+    assert!(session.sendspin_connection().is_none());
+    assert_eq!(
+        session.retiring_sendspin_connection(),
+        Some(old.generation)
+    );
+    assert_eq!(
+        sendspin(&mut session, "closing")["value"]["phase"],
+        "closing"
+    );
+
+    // The retired stream's chunks, progress, and failure reach Core under the old fences.
+    let before = session.snapshot();
+    for (phase, error) in [
+        (SendspinTransportPhase::Streaming, None),
+        (SendspinTransportPhase::Closed, None),
+        (SendspinTransportPhase::Closed, Some(ErrorCode::OutputFault)),
+    ] {
+        let stale = session
+            .advance_sendspin(
+                old.generation,
+                SendspinSourceEvent {
+                    epochs: old.epochs,
+                    observation: SendspinSourceObservation::new(phase, 1920),
+                    error,
+                },
+                before.monotonic_ns + 1,
+            )
+            .unwrap_err();
+        assert_eq!(stale.code, ErrorCode::StaleSession);
+        assert_eq!(session.snapshot(), before);
+    }
+    session
+        .observe_sendspin(
+            old.generation,
+            SendspinSourceObservation::new(SendspinTransportPhase::Streaming, 1920),
+        )
+        .unwrap_err();
+    assert_eq!(session.snapshot(), before);
+
+    // The server cannot return without a new explicit start, and that start waits for retirement.
+    rejected(
+        &mut session,
+        "seize-back",
+        Some("player-2"),
+        takeover_start(),
+        ErrorCode::SourceBusy,
+    );
+    session
+        .complete_sendspin_retirement(old.generation, before.monotonic_ns + 1)
+        .unwrap();
+    assert_eq!(
+        sendspin(&mut session, "idle")["value"]["phase"],
+        "disconnected"
+    );
+    let state = session.snapshot();
+    assert_eq!(
+        state.session_id.as_ref().map(|id| id.as_str()),
+        Some("local-1")
+    );
+    assert_eq!(state.source, before.source);
+    assert!(state.muted);
+}
+
+#[test]
+fn a_sendspin_start_takes_the_output_from_a_local_session_only_with_takeover() {
+    let mut session = configured();
+    applied(&mut session, "select", None, output());
+    applied(&mut session, "consent", None, consent());
+    applied(
+        &mut session,
+        "append",
+        None,
+        json!({"method":"queue.append","path":"/music/track.flac"}),
+    );
+    let receipt = submit(&mut session, "local", Some("local-1"), local_start(false));
+    assert_eq!(receipt.status, ReceiptStatus::Accepted, "{receipt:?}");
+    let local = session.snapshot();
+    assert!(local.active_entry_id.is_some());
+
+    // A start without the field asks for no takeover.
+    for (id, payload) in [("absent", start()), ("implicit", {
+        let mut payload = takeover_start();
+        payload["takeover"] = json!(false);
+        payload
+    })] {
+        rejected(
+            &mut session,
+            id,
+            Some("player-1"),
+            payload,
+            ErrorCode::SourceBusy,
+        );
+    }
+    let receipt = submit(&mut session, "explicit", Some("player-1"), takeover_start());
+    assert_eq!(receipt.status, ReceiptStatus::Accepted, "{receipt:?}");
+
+    let state = session.snapshot();
+    assert_eq!(
+        state.session_id.as_ref().map(|id| id.as_str()),
+        Some("player-1")
+    );
+    assert_eq!(
+        serde_json::to_value(&state).unwrap()["source"],
+        json!("sendspin")
+    );
+    assert_eq!(state.transport, TransportState::Preparing);
+    assert!(state.muted);
+    assert_eq!(state.active_entry_id, None);
+    assert_eq!(state.epochs.session, local.epochs.session + 1);
+    let connection = session.sendspin_connection().unwrap();
+    assert_eq!(connection.epochs, state.epochs);
+
+    // The retired local source can no longer move this session.
+    for epochs in [local.epochs, state.epochs] {
+        session
+            .advance(EngineEvent {
+                epochs,
+                monotonic_ns: state.monotonic_ns + 1,
+                kind: EngineEventKind::Started {
+                    activation_frame: 0,
+                },
+            })
+            .unwrap_err();
+        assert_eq!(session.snapshot(), state);
+    }
+    rejected(
+        &mut session,
+        "early-unmute",
+        Some("player-1"),
+        json!({"method":"mute.set","muted":false}),
+        ErrorCode::SafetyPolicyBlocked,
+    );
+    report(&mut session, SendspinTransportPhase::Streaming, 0, None);
+    assert_eq!(session.snapshot().transport, TransportState::Playing);
 }

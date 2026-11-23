@@ -379,6 +379,8 @@ impl Session {
                     expires_monotonic_ns: *expiry,
                 });
                 self.close_network_at(self.state.epochs, None)?;
+                // A takeover ends the Sendspin session that held the output.
+                self.release_sendspin();
                 self.finish_pending(
                     ReceiptStatus::Cancelled,
                     Some(EngineError::new(

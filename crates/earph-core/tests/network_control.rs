@@ -1662,3 +1662,103 @@ fn retained_network_boundary_survives_pause_progress_and_zero_discard_graph_chan
         Some(original)
     );
 }
+
+fn sendspin_start(s: &Session, id: &str, takeover: bool) -> CommandEnvelope {
+    let mut c = command(
+        s,
+        id,
+        json!({"method":"sources.sendspin.start","device_id":"dac","takeover":takeover}),
+    );
+    c.session_id = Some(SessionId::new("player-session").unwrap());
+    c
+}
+#[test]
+fn sendspin_takes_the_output_from_a_network_session_only_with_takeover() {
+    use earph_core::ErrorCode;
+    let mut s = started();
+    s.enable_sendspin();
+    let outgoing = s.network_source().unwrap();
+    let before = s.snapshot();
+    let implicit = s.submit(sendspin_start(&s, "implicit", false));
+    assert_eq!(implicit.error.unwrap().code, ErrorCode::SourceBusy);
+    assert_eq!(s.snapshot(), before);
+    assert_eq!(
+        s.submit(sendspin_start(&s, "explicit", true)).status,
+        ReceiptStatus::Accepted
+    );
+    let state = s.snapshot();
+    assert_eq!(state.source, Some(SourceKind::Sendspin));
+    assert_eq!(state.epochs.session, before.epochs.session + 1);
+    assert!(state.muted);
+    assert!(state.observation.network().is_none());
+    assert!(s.network_source().is_none());
+    let closing = s.closing_network_source().unwrap();
+    assert_eq!(closing.context.binding, outgoing.binding);
+    assert_eq!(closing.output_epochs, before.epochs);
+
+    // The outgoing source retires under its own fences and leaves the new session alone.
+    s.complete_network_retirement(retirement(&s), 40).unwrap();
+    assert!(s.closing_network_source().is_none());
+    let retired = s.snapshot();
+    assert_eq!(retired.source, Some(SourceKind::Sendspin));
+    assert_eq!(retired.session_id, state.session_id);
+    assert_eq!(retired.transport, TransportState::Preparing);
+    assert_eq!(retired.error, None);
+    assert_eq!(s.sendspin_connection().unwrap().epochs, retired.epochs);
+}
+#[test]
+fn a_network_start_takes_the_output_from_sendspin_only_with_takeover() {
+    use earph_core::ErrorCode;
+    let mut s = supported();
+    s.enable_sendspin();
+    staged(&mut s);
+    assert_eq!(
+        network(&mut s, "grants", grants(0, 100), 10).status,
+        ReceiptStatus::Applied
+    );
+    assert_eq!(
+        s.submit(sendspin_start(&s, "player", false)).status,
+        ReceiptStatus::Accepted
+    );
+    let player = s.sendspin_connection().unwrap();
+    let before = s.snapshot();
+    let c = start_command(&s, "implicit", "network-session", false);
+    let implicit = s.submit_with_network_effects(
+        c,
+        20,
+        |_| unreachable!(),
+        |_, _| panic!("implicit takeover reached policy"),
+        |_| panic!("implicit takeover committed"),
+    );
+    assert_eq!(implicit.error.unwrap().code, ErrorCode::SourceBusy);
+    assert_eq!(s.snapshot(), before);
+    let c = start_command(&s, "explicit", "network-session", true);
+    assert_eq!(
+        s.submit_with_network_effects(c, 21, |_| unreachable!(), |_, _| Ok(()), |_| Ok(()))
+            .status,
+        ReceiptStatus::Accepted
+    );
+    let state = s.snapshot();
+    assert_eq!(state.source, Some(SourceKind::HttpFlac));
+    assert_eq!(state.epochs.session, before.epochs.session + 1);
+    assert!(state.muted);
+    assert!(state.observation.sendspin().is_none());
+    assert!(s.sendspin_connection().is_none());
+    assert_eq!(s.retiring_sendspin_connection(), Some(player.generation));
+    let stale = s
+        .advance_sendspin(
+            player.generation,
+            earph_core::sendspin_source::SendspinSourceEvent {
+                epochs: player.epochs,
+                observation: earph_core::sendspin_source::SendspinSourceObservation::new(
+                    earph_core::sendspin_source::SendspinTransportPhase::Streaming,
+                    960,
+                ),
+                error: None,
+            },
+            22,
+        )
+        .unwrap_err();
+    assert_eq!(stale.code, ErrorCode::StaleSession);
+    assert_eq!(s.snapshot(), state);
+}
