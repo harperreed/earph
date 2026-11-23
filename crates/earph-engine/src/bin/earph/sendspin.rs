@@ -8,7 +8,11 @@ use crate::{
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use earph_credentials::NativeConfig;
-use earph_engine::{SendspinConfiguration, sendspin_credentials::StoreConfiguration};
+use earph_engine::{
+    SendspinConfiguration,
+    sendspin_credentials::StoreConfiguration,
+    sendspin_schedule::{REQUIRED_LEAD_TIME_MS, unbounded_buffer_limit_frames},
+};
 use earph_network::sendspin::SendspinConnectPermit;
 use serde_json::{Value, json};
 use std::{
@@ -174,6 +178,7 @@ fn stream(
         )?;
     }
     let state = link.state()?;
+    check_buffer(&state["output"])?;
     announce_output(link, &state);
     link.mutate(
         json!({"method": "sources.sendspin.start", "device_id": state["output"]["device_id"]}),
@@ -242,6 +247,18 @@ fn stream(
     }
 }
 
+/// Refuses an ALSA buffer that holds more audio than the lead time that this player declares.
+/// A track change leaves the audio in that buffer to play on, and the Engine starts no Sendspin source for it.
+fn check_buffer(output: &Value) -> Outcome<()> {
+    let limit = unbounded_buffer_limit_frames(RATE as u32);
+    let frames = output["buffer_frames"].as_u64().unwrap_or(0);
+    if output["backend"] != "alsa" || frames <= limit {
+        return Ok(());
+    }
+    Err(Failure::usage(format!(
+        "the output buffer of {frames} frames is too long for a Sendspin stream. A track change leaves the audio in that buffer to play on, and this player declares {REQUIRED_LEAD_TIME_MS} ms for it. Use --buffer {limit} or less"
+    )))
+}
 /// Reads the Engine's credential recovery fact once the failed connection has retired.
 /// The Engine sets that fact when it retires the connection, shortly after the failure shows.
 fn recovery_required(link: &mut Link) -> bool {
@@ -453,6 +470,22 @@ mod tests {
         state["sendspin_playback"]["reconnect_attempts"] = json!(0);
         let line = status_line(&state);
         assert!(line.ends_with("sync unqualified  reconnects 1"), "{line}");
+    }
+    #[test]
+    fn an_alsa_buffer_beyond_the_declared_lead_time_is_refused_with_the_limit() {
+        let output =
+            |backend: &str, frames: u64| json!({"backend": backend, "buffer_frames": frames});
+        assert!(check_buffer(&output("alsa", 256)).is_ok());
+        assert!(check_buffer(&output("alsa", 7200)).is_ok());
+        let refusal = check_buffer(&output("alsa", 7201)).unwrap_err();
+        assert_eq!(refusal.exit, 2);
+        assert!(
+            refusal.message.contains("7201 frames") && refusal.message.contains("--buffer 7200"),
+            "{}",
+            refusal.message
+        );
+        // The worker bounds what a Core Audio output holds, whatever its buffer.
+        assert!(check_buffer(&output("core_audio", 16384)).is_ok());
     }
     #[test]
     fn a_refusal_by_the_server_gets_its_own_failure_text() {

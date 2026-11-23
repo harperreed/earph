@@ -65,7 +65,7 @@ mod linux {
         if chosen.as_deref() == Some("credential-helper") {
             return helper::run();
         }
-        let cases: [(&str, fn()); 24] = [
+        let cases: [(&str, fn()); 25] = [
             ("plays", plays_the_stream_shows_status_and_ends_on_a_stop),
             (
                 "reconnect",
@@ -94,6 +94,10 @@ mod linux {
             (
                 "silent",
                 a_silent_server_is_lost_within_seconds_and_a_slow_one_is_kept,
+            ),
+            (
+                "long_buffer",
+                an_alsa_buffer_longer_than_the_declared_lead_is_refused_before_any_connection,
             ),
             (
                 "close_early",
@@ -281,6 +285,15 @@ mod linux {
         }
         /// Runs `earph sendspin` against one named case of the synthetic credential helper.
         pub(super) fn sendspin_with(&self, case: &str, target: &[&str]) -> Player {
+            self.sendspin_sized(case, target, ("480", "1920"))
+        }
+        /// As `sendspin_with`, with these period and buffer frames.
+        fn sendspin_sized(
+            &self,
+            case: &str,
+            target: &[&str],
+            (period, buffer): (&str, &str),
+        ) -> Player {
             let helper = std::env::current_exe().unwrap();
             let store = self.directory.join("store");
             let address = format!("fixture:{case}:{}", store.display());
@@ -291,9 +304,9 @@ mod linux {
                 "--volume",
                 "0",
                 "--period",
-                "480",
+                period,
                 "--buffer",
-                "1920",
+                buffer,
                 "--credential-helper",
                 helper.to_str().unwrap(),
                 "--credential-store",
@@ -800,6 +813,25 @@ mod linux {
         interrupt(&player);
         assert_eq!(player.finish().status.code(), Some(130));
         drop(peer);
+        bench.no_engine_remains();
+    }
+    /// An ALSA output holds up to its whole buffer at a full clear, and the declared lead time must cover that.
+    fn an_alsa_buffer_longer_than_the_declared_lead_is_refused_before_any_connection() {
+        let bench = Bench::new();
+        let target = ["--server", &bench.url(), "--server-key", &bench.key];
+        let output = bench
+            .sendspin_sized("owner", &target, ("960", "7680"))
+            .finish();
+        let refusal = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{refusal}");
+        assert!(
+            refusal.contains("--buffer") && refusal.contains("7200"),
+            "{refusal}"
+        );
+        assert!(
+            bench.listener.peek_pending().is_none(),
+            "a refused buffer opens no connection"
+        );
         bench.no_engine_remains();
     }
     /// The server accepts the player and drops it at once, three times.

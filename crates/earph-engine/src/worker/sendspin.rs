@@ -26,7 +26,7 @@ use earph_sendspin::{
 const OUTPUT_DELAY_MS: u32 = 0;
 /// The server must send each chunk this far ahead of its timestamp. Admitted, not measured.
 /// The declared lead adds the applied device latency of the opened output.
-const REQUIRED_LEAD_TIME_MS: u64 = 150;
+const REQUIRED_LEAD_TIME_MS: u64 = crate::sendspin_schedule::REQUIRED_LEAD_TIME_MS;
 /// The server should keep this much audio queued at the player. Admitted, not measured.
 const MIN_BUFFER_MS: u32 = 200;
 const SAMPLE_RATE_HZ: u32 = 48000;
@@ -48,6 +48,12 @@ const SCHEDULED_DEPTH_MS: u32 = 100;
 const SCHEDULE: EngineError = EngineError::new(
     ErrorCode::AssetInvalid,
     "Sendspin schedule arithmetic exceeds its range",
+);
+/// An ALSA output reports a delay that can count frames behind its buffer, so the worker bounds no write to it.
+/// Its buffer is the bound, and the declared lead time must cover a full buffer that plays on after a clear.
+const LONG_BUFFER: EngineError = EngineError::new(
+    ErrorCode::CapabilityUnsupported,
+    "Sendspin needs an ALSA buffer no longer than its declared lead time of 150 ms",
 );
 const BUDGET: EngineError = EngineError::new(
     ErrorCode::ResourceBudgetExceeded,
@@ -299,6 +305,12 @@ impl SendspinPlayback {
     ) -> Result<Self, EngineError> {
         let epochs = settings.snapshot.epochs;
         let config = settings.snapshot.output.as_ref().ok_or(FAILED)?;
+        let limit = crate::sendspin_schedule::unbounded_buffer_limit_frames(SAMPLE_RATE_HZ);
+        if config.backend == earph_core::control::OutputBackend::Alsa
+            && u64::from(config.buffer_frames) > limit
+        {
+            return Err(LONG_BUFFER);
+        }
         let format = PcmFormat::new(
             SAMPLE_RATE_HZ,
             ChannelLayout::Stereo,

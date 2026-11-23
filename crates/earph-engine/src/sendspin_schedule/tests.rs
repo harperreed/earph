@@ -676,3 +676,13 @@ fn a_late_locked_chunk_is_counted_and_still_writes_with_its_error_recorded() {
     );
     assert_eq!(scheduler.snapshot().late_chunks, 2);
 }
+
+/// The declared lead time is 150 ms, so the limit is the frames of 150 ms.
+#[test]
+fn an_unbounded_output_buffer_holds_at_most_the_declared_lead_time() {
+    assert_eq!(REQUIRED_LEAD_TIME_MS, 150);
+    assert_eq!(unbounded_buffer_limit_frames(RATE), 7200);
+    // A fraction of a frame rounds down, so the buffer never exceeds the lead.
+    assert_eq!(unbounded_buffer_limit_frames(44_100), 6615);
+    assert_eq!(unbounded_buffer_limit_frames(11_025), 1653);
+}

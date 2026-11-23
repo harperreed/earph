@@ -159,6 +159,7 @@
   A starved AudioQueue reports nothing. Its clock runs on and it never plays audio that arrives behind that clock.
   Read `timing.starved_frames` and `timing.late_chunks`; `underruns` and `dropped_frames` stay flat.
   Bound only a hold that counts queued frames from a cursor. An ALSA delay can count frames behind the buffer.
+  The ALSA buffer is the bound there, so the worker refuses a buffer longer than the declared lead time of 150 ms.
   The Core Audio system route also keeps a tail shorter than one period in its staging ring until more frames arrive.
   Record a Mac loopback capture only through the tmux session that holds microphone permission.
   Keep the silent preamble in a capture: a gain ramp turns 16-bit pattern frames into other valid pattern frames.

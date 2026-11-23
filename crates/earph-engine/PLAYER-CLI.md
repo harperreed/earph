@@ -212,3 +212,4 @@ To replace such a play, run `earph stop` first, then `earph play` again.
 
 `--period FRAMES` and `--buffer FRAMES` set the output period and buffer.
 The defaults are 64 and 256 frames on Linux, and 64 and 4096 frames on macOS.
+On Linux, `sendspin` refuses a buffer above 7200 frames. A track change leaves the audio in the buffer to play on, and the player declares 150 ms for that.

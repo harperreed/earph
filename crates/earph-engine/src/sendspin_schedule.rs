@@ -381,6 +381,18 @@ impl SilencePacer {
     }
 }
 
+/// The lead time that the player declares before any device latency.
+/// The server must send each chunk this far ahead of its timestamp. Admitted, not measured.
+pub const REQUIRED_LEAD_TIME_MS: u64 = 150;
+
+/// Returns the longest buffer, in frames, of an output that gets no write bound.
+/// Such an output takes scheduled audio until its buffer is full, and a full clear leaves all of it to play on.
+/// The specification requires a declared lead time of at least that hold, so the buffer holds no more than the lead.
+/// The server owes a head start of the declared minimum buffer, which is longer than that lead.
+pub fn unbounded_buffer_limit_frames(sample_rate: u32) -> u64 {
+    u64::from(sample_rate) * REQUIRED_LEAD_TIME_MS / 1000
+}
+
 /// The scheduler refuses a reported device latency above this limit. Admitted, not measured.
 pub const DEVICE_LATENCY_LIMIT_US: i64 = 1_000_000;
 

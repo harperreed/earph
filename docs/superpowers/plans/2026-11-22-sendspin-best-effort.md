@@ -292,7 +292,8 @@ State shows the sum as `timing.starved_frames`.
   Drift is not corrected and not bounded. `late_chunks` and `max_abs_error_us` show it. A designed drift unit is future work.
 - With no worker bound on ALSA, a clear plays on for `buffer_frames` / 48000 s: about 5 ms at the default 256 frames.
   Above about 9600 buffer frames the hold exceeds the 200 ms head start, and each clear drops new audio as late.
-  No guard exists. A small one would declare a larger required lead for such a buffer, as the device latency already does.
+  Fixed on November 23, 2026: the worker refuses an ALSA buffer above 7200 frames, the 150 ms of the declared lead time.
+  A guard that declares a larger required lead for such a buffer, as the device latency does, stays possible.
 - `clear_held_frames` and `output_discarded_frames` no longer count idle silence that lies before the scheduled frames.
 - A clear no longer recovers an underrun by itself. A failed hold query gives `null`, and the next write recovers.
   That removes a branch that no test could reach.

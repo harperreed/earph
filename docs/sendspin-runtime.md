@@ -238,8 +238,15 @@ The bound applies only to an output that counts its queued frames from a cursor,
 An ALSA delay can count frames that already left the buffer, and a bound on that report could starve the device.
 So an ALSA output has no bound from the worker. Its buffer is the bound: 256 frames with the command's default.
 A clear then plays on for the buffer length: `buffer_frames` / 48000 s, about 5 ms at 256 frames.
-Above about 9600 buffer frames that hold exceeds the 200 ms head start, and each clear drops new audio as late.
-No guard exists for that case. A small one would declare a larger required lead for such a buffer, as the device latency already does.
+The worker therefore refuses an ALSA buffer that holds more than the declared lead time: more than 7200 frames, which is 150 ms.
+The source then closes at its start with `CAPABILITY_UNSUPPORTED`, before it opens the output.
+`earph sendspin` checks the same limit first, starts no session, and names `--buffer 7200`.
+The limit comes from the specification: while a stream runs, the declared `required_lead_time_ms` must be at least the audio that the backend can still play after a `stream/clear`.
+The server owes the next audio a head start of `min_buffer_ms`, 200 ms, so the longest admitted buffer leaves 50 ms.
+Before this guard a buffer above about 9600 frames held more than that head start, and each clear dropped new audio as late.
+A buffer between 7201 and 9600 frames played, and is refused now.
+The guard does not bound frames behind the buffer: an ALSA delay can count them, and the worker cannot tell them apart.
+Unverified on hardware: the worker test models the ALSA delay with a clocked seam in front of the file device.
 While a Core Audio output still starts, silence can pile up to about two buffers, and audio due inside that backlog drops once as late.
 The worker estimates the held frames from the accepted frames and its monotonic clock.
 A running output's own report corrects that estimate; an output without a clock reports zero and corrects nothing.

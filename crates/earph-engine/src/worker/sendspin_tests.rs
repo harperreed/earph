@@ -403,7 +403,8 @@ const STARVATION_SLIPS: usize = 2;
 /// A nonzero value blocks the next audible write for this many milliseconds, as a stalled worker thread does.
 static STALL_MS: AtomicUsize = AtomicUsize::new(0);
 const CLOCK_PERIOD_FRAMES: u64 = 960;
-const CLOCK_BUFFER_FRAMES: u64 = 7680;
+/// The longest ALSA buffer that a Sendspin source admits: 150 ms, the declared lead time.
+const CLOCK_BUFFER_FRAMES: u64 = 7200;
 /// The source keeps at most 100 ms of scheduled audio in an output that counts its queued frames.
 const CLOCK_DEPTH_FRAMES: u64 = 4800;
 
@@ -1805,4 +1806,78 @@ fn a_starved_output_that_plays_late_frames_late_is_counted_and_nothing_anchors_a
     assert!(last >= 100_000, "last error {last}");
     let (capture, closed) = finish(peer, bench, &directory);
     assert_capture(&capture, &[&first, &second, &third], closed);
+}
+
+/// An ALSA output takes scheduled audio until its buffer is full, and a full clear leaves all of it to play on.
+/// The declared lead time must cover that hold, so a longer buffer gets no source.
+#[test]
+fn an_alsa_buffer_longer_than_the_declared_lead_refuses_the_start() {
+    if isolate(
+        "worker::sendspin_tests::an_alsa_buffer_longer_than_the_declared_lead_refuses_the_start",
+    )
+    .is_none()
+    {
+        return;
+    }
+    // This buffer holds 160 ms. The declared lead time covers 150 ms.
+    let mut long = settings("capture");
+    let output = long.snapshot.output.as_mut().unwrap();
+    output.period_frames = 960;
+    output.buffer_frames = 7680;
+    let mut bench = Bench::start(long);
+    assert_eq!(
+        bench.reported(),
+        (
+            SendspinTransportPhase::Closed,
+            Some(ErrorCode::CapabilityUnsupported)
+        )
+    );
+    assert_eq!(bench.observed().phase, SendspinTransportPhase::Closed);
+    settle(&mut bench);
+    assert!(
+        bench.worker.events.try_recv().is_err(),
+        "a refused start reports once"
+    );
+    assert_eq!(bench.retire(), Some(DriverError::Cancelled));
+}
+
+/// The longest admitted buffer holds as much audio as the declared lead time.
+/// A server owes a head start of the declared minimum buffer, which is 50 ms longer.
+#[test]
+fn a_full_clear_on_the_longest_admitted_alsa_buffer_loses_no_audio_at_the_smallest_head_start() {
+    let Some(directory) = isolate(
+        "worker::sendspin_tests::a_full_clear_on_the_longest_admitted_alsa_buffer_loses_no_audio_at_the_smallest_head_start",
+    ) else {
+        return;
+    };
+    const LEAD: Duration = Duration::from_millis(200);
+    // The output reports the frames in its buffer as a delay, as ALSA does, so the worker bounds nothing.
+    REPORTED_DELAY_EXTRA.store(1, Ordering::Release);
+    let bench = clocked_bench(20);
+    let mut peer = streaming_peer(&bench);
+    let [first, second, ..] = parts();
+    let first_due = Instant::now() + Duration::from_millis(400);
+    let start = peer.server_now_us() + 400_000;
+    stream(&mut peer, &bench, start, &first, PART_FRAMES);
+    // The first part is longer than the buffer, so this clear meets a full buffer of it.
+    peer.clear_stream(None);
+    let second_due = Instant::now() + LEAD;
+    let restart = peer.server_now_us() + LEAD.as_micros() as i64;
+    stream(&mut peer, &bench, restart, &second, 2 * PART_FRAMES);
+    let timing = bench.observed().timing;
+    assert_eq!(timing.anchors, 2);
+    assert_eq!(
+        timing.dropped_frames, 0,
+        "the head start covers the held audio"
+    );
+    assert_eq!(timing.underruns, 0);
+    let held = timing.clear_held_frames.expect("a running output reports");
+    assert!(
+        (CLOCK_DEPTH_FRAMES + 1..=CLOCK_BUFFER_FRAMES).contains(&held),
+        "the clear left {held} frames to play on; the buffer takes {CLOCK_BUFFER_FRAMES}"
+    );
+    assert_audible_on_time(&[first_due, second_due]);
+    let (capture, closed) = finish(peer, bench, &directory);
+    // The file keeps every accepted frame, so the audio that played on after the clear is there too.
+    assert_capture(&capture, &[&first, &second], closed);
 }
