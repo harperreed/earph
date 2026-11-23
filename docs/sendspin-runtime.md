@@ -168,8 +168,9 @@ Each scenario restarts a separate process to read and verify its committed catal
 Do not use it as a production persistence fallback.
 
 The [pure player timeline](sendspin-timing.md#pure-player-timeline) now provides bounded, generation-bound PCM ownership and lifecycle handling.
-The roleless transport does not yet advertise or operate that player.
-Full player support, Music Assistant interoperability, output-clock mapping, and physical synchronization remain unqualified.
+The transport advertises that player and delivers its typed events; the Engine's playback worker operates it.
+See [Player stream lifecycle](#player-stream-lifecycle) and [Pinned Python player peer](#pinned-python-player-peer).
+Timing stays `unqualified`: output-clock mapping, drift correction, and physical synchronization remain unqualified.
 
 The dormant Engine [native services bridge](sendspin-native-services.md) connects explicit credential ownership to these services.
 It requires a definitively committed document and explicit activity admission.
@@ -343,3 +344,46 @@ An attempt that leaves an uncertain credential outcome ends the session with `AU
 Each attempt opens the output before the socket connects, as a first start does.
 While the server stays away, the output therefore opens and closes once for each attempt.
 A dead network without a reset is found only by the transport's ping, after up to 40 seconds.
+
+## Pinned Python player peer
+
+`crates/earph-engine/tests/support/sendspin_player_server.py` is a second producer for the player role.
+It uses the pinned aiosendspin 10.2.1 Noise driver in strict mode and the pinned message models.
+Those models parse the player's `client/hello` and `client/state`.
+They also build `server/activate`, `stream/start`, the audio frames, `stream/clear`, and `stream/end`.
+The peer stamps each chunk on its own monotonic clock and answers the clock requests from that clock.
+It checks the source hashes of twelve pinned modules before it listens.
+
+The case `play_python` in the `sendspin_cli` test target runs the real `earph sendspin` command against that peer.
+The target has no harness, so the case runs only by name, as `pair_python` does.
+Set `EARPH_SENDSPIN_PEER` to the pinned Python launcher, then run:
+
+```
+cargo test --locked -p earph-engine --test sendspin_cli -- play_python
+```
+
+The default test run skips the case, so a machine without the pinned peer runs nothing of it.
+The case checks these outcomes:
+
+- The strict handshake accepts the player on a stored long-term record, and the hello offers `player@v1` with 48 kHz stereo 16-bit PCM.
+- `client/state` carries `available: true` beside the player object.
+  The player object declares an output delay of 0 ms, a required lead time of 150 ms, a minimum buffer of 200 ms, and no commands.
+- Audio stamped 2 seconds ahead and then cleared never reaches the capture and takes no anchor.
+- The audio after the clear reaches the ALSA file capture complete and in order, with no dropped frame.
+- A `stream/end` returns the transport to `buffering`. A second stream on the same connection anchors once and plays complete.
+- `earph status --json` shows `unqualified`, `correction: "none"`, one anchor, and a first lead close to the 300 ms that the peer gave.
+
+`client/state` carries `available` at the top level, as the pinned specification requires.
+Before this test the player sent it inside the `player` object.
+The pinned server tolerates that by default and treats the player as available, so the Music Assistant runs did not show it.
+
+The unqualified boundary of this test:
+
+- The pinned environment lacks the `server` extra of aiosendspin: PyAV, NumPy, and Pillow.
+  `aiosendspin.server` cannot import there, so the test runs no `SendspinServer`, no `PushStream`, and no group.
+  The peer's send-ahead, pacing, and clear timing are test code, not the pinned server's policy.
+- The peer sends PCM only. It resamples nothing and sends no player command.
+- The capture is an ALSA file device without a clock. It proves content and order, not timing.
+  The start error on that device is about -28 ms with either test server, so the case asserts no error size.
+- The case proves no synchronization accuracy. Timing stays `unqualified`.
+- No Mac has run the case. It needs Linux and ALSA.

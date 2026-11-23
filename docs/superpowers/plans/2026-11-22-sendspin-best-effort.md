@@ -74,7 +74,7 @@ Anchor only on a running output.
 | U3 | Core command, Host runtime, real credential bridge | 900 / 700 | U1 |
 | U4 | `earph sendspin` and the success-criterion process test | 260 / 300 | U2, U3 |
 | U5 | Landed. Clears, re-activation, starvation, and underrun recovery | 300 / 400 | U2 |
-| U6 | Pinned Python peer and documents | 0 / 250 | U4 |
+| U6 | Landed. Pinned Python peer and documents | 0 / 250 | U4 |
 | U7 | Credential provisioning and pairing, for real Music Assistant use | 870 / 1130 | U4 |
 | U8 | Landed. Keep the output running on idle silence | 200 / 500 | U5 |
 | U9 | Landed. Count the Core Audio device's reported latency in the schedule | 150 / 350 | U8 |
@@ -181,6 +181,28 @@ That sum is about 2 ms, so a reported latency of this size cannot explain an aud
 ### U6: independent producer and documents
 
 Add an ignored test with the pinned Python peer. Update the Sendspin documents with the unqualified boundary.
+
+Landed.
+The case `play_python` in the `sendspin_cli` test target runs `earph sendspin` against a pinned Python player peer.
+That target has no harness and therefore no `#[ignore]`; the case runs only by name and needs `EARPH_SENDSPIN_PEER`.
+The peer is `crates/earph-engine/tests/support/sendspin_player_server.py`.
+It uses the pinned strict Noise driver and the pinned message models of aiosendspin 10.2.1.
+The case checks the handshake, the declared player state, a clear, two stream ends, the exact capture, and the timing fields in status.
+See [the runtime notes](../../sendspin-runtime.md#pinned-python-player-peer) for the outcomes and the boundary.
+
+The case exposed one product defect, and this unit fixed it in `earph-network`.
+`client/state` carried `available` inside the `player` object. The pinned specification requires it at the top level.
+The pinned server model read no `available`. The server tolerates that by default, so Music Assistant played anyway.
+The architecture note above says that `earph-network` needs no change; this fix is the exception.
+
+On November 23, 2026 the case passed 14 runs in a row on the Linux development host. The last six ran the final code.
+
+Unverified: the player against the real `SendspinServer` and `PushStream` of aiosendspin.
+The pinned environment lacks PyAV, NumPy, and Pillow, so `aiosendspin.server` cannot import there.
+The peer's send-ahead and clear timing are test code. The server's policy is known from a source reading only.
+Unverified: a server started with `allow_noncompliant_clients=False`. No run used one.
+Unverified: Music Assistant with the moved `available` field. The pinned model accepts it; no real server has seen it.
+Unverified: the case on a Mac. It needs Linux and ALSA.
 
 ### U7: real Music Assistant use
 

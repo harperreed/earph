@@ -16,6 +16,9 @@ mod pairing;
 #[allow(dead_code, reason = "this test uses a subset of the shared peer")]
 #[path = "support/sendspin_player_peer.rs"]
 mod peer;
+#[cfg(target_os = "linux")]
+#[path = "support/sendspin_cli_python.rs"]
+mod python;
 
 /// The synthetic helper serves this document: the fixture identity, paired with the test peer.
 #[cfg(target_os = "linux")]
@@ -39,7 +42,7 @@ fn document() -> earph_sendspin::credentials::CommittedCredentials {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::{helper, pairing, peer};
+    use super::{helper, pairing, peer, python};
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     use serde_json::{Value, json};
     use std::{
@@ -130,11 +133,23 @@ mod linux {
                 case();
             }
         }
-        // This test target has no harness, so no `#[ignore]` exists. This case runs only by name.
-        // It needs `EARPH_SENDSPIN_PEER`, the launcher of the pinned Python peer.
-        if chosen.as_deref() == Some("pair_python") {
-            println!("case pair_python");
-            pairing::pair_completes_against_the_pinned_python_server();
+        // This test target has no harness, so no `#[ignore]` exists. These cases run only by name.
+        // They need `EARPH_SENDSPIN_PEER`, the launcher of the pinned Python peer.
+        let by_name: [(&str, fn()); 2] = [
+            (
+                "pair_python",
+                pairing::pair_completes_against_the_pinned_python_server,
+            ),
+            (
+                "play_python",
+                python::the_player_plays_streams_from_the_pinned_python_server,
+            ),
+        ];
+        for (name, case) in by_name {
+            if chosen.as_deref() == Some(name) {
+                println!("case {name}");
+                case();
+            }
         }
         println!("Sendspin command line checks passed");
     }
@@ -325,7 +340,7 @@ mod linux {
             });
         }
         /// Polls the Engine without a peer until it reports the wanted fact.
-        fn wait(&self, what: &str, done: impl Fn(&Value) -> bool) -> Value {
+        pub(super) fn wait(&self, what: &str, done: impl Fn(&Value) -> bool) -> Value {
             let deadline = Instant::now() + DEADLINE;
             loop {
                 let state = self.state();

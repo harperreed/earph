@@ -454,7 +454,7 @@ pub fn pair_refuses_bad_arguments_and_a_missing_identity() {
 }
 
 /// Ends the Python peer if its test fails first.
-struct Reaped(std::process::Child);
+pub struct Reaped(pub std::process::Child);
 impl Drop for Reaped {
     fn drop(&mut self) {
         let _ = self.0.kill();

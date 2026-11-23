@@ -143,3 +143,10 @@
   Music Assistant changes tracks with a full `stream/clear`, and the clear restarts an output that holds audio.
   A restart longer than the remaining head start drops the track's first audio; read `timing.first_lead_us` and `timing.first_wait_us`.
   See `LatencyAdmission` in [the scheduler](crates/earph-engine/src/sendspin_schedule.rs) and [the runtime notes](docs/sendspin-runtime.md#player-stream-lifecycle).
+
+- A real server that plays is no proof of a compliant message.
+  aiosendspin tolerates a `client/state` without a top-level `available` by default and keeps the player available.
+  Earph sent that field inside the `player` object until the pinned Python models parsed its messages.
+  Parse each new client message with the pinned models, not with the in-repo test server alone.
+  The pinned Python environment lacks the `server` extra, so `aiosendspin.server` cannot import there.
+  See the [pinned Python player peer](docs/sendspin-runtime.md#pinned-python-player-peer).
