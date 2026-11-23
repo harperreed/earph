@@ -71,7 +71,11 @@ Replies that cannot meet MX expire rather than arriving late.
 Malformed searches are discarded without an error datagram.
 Unusable reply addresses and port zero never enter the scheduler.
 An individual UDP port refusal discards that reply while preserving HTTP and discovery.
-Other socket and interface errors stop the shared runtime.
+A send that the network refuses for the moment discards that datagram in the same way.
+Those errors are network or host unreachable, network down, address not available, permission denied, and interrupted.
+An interface flap or a packet filter reject therefore cannot stop SOAP control and eventing.
+A discarded alive message is not sent again before the next 15-minute advertisement; search replies continue.
+Other socket errors stop the shared runtime, and the owner reports the retired listener.
 Shutdown reports thread joining separately from the service error kind.
 `from_bound` accepts owned selected-address UDP sockets and sends no unsolicited multicast.
 The Linux multicast constructor binds the standard group/port, joins only the selected address, and disables IP_MULTICAST_ALL.

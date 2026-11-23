@@ -243,6 +243,21 @@ impl SsdpScheduler {
     }
 }
 
+/// True for a send failure that describes the network at this moment, such as a route or
+/// interface that is briefly gone, or a packet filter reject. The socket itself still works.
+fn transient_send_failure(kind: io::ErrorKind) -> bool {
+    use io::ErrorKind::*;
+    matches!(
+        kind,
+        NetworkUnreachable
+            | HostUnreachable
+            | NetworkDown
+            | AddrNotAvailable
+            | PermissionDenied
+            | Interrupted
+    )
+}
+
 pub struct SsdpEndpoint {
     receive: UdpSocket,
     send: UdpSocket,
@@ -345,6 +360,9 @@ impl SsdpEndpoint {
                 // A remote UDP port refusal can refer to an earlier reply on this socket.
                 Err(error) if peer != GROUP && error.kind() == io::ErrorKind::ConnectionRefused => {
                 }
+                // The network refused this one datagram. The shared runtime also serves HTTP
+                // control and events, so discard the datagram and keep that runtime.
+                Err(error) if transient_send_failure(error.kind()) => {}
                 Err(error) => return Err(error),
             }
         }
@@ -392,5 +410,133 @@ mod tests {
             "fixed-window rollover allowed another immediate burst"
         );
         assert!(scheduler.next_due(Duration::from_millis(1900)).is_some());
+    }
+
+    #[cfg(target_os = "linux")]
+    mod send_failures {
+        use super::*;
+        use crate::upnp::HttpSurface;
+        use std::{
+            io::{Read, Write},
+            net::TcpStream,
+        };
+
+        fn identity() -> DeviceIdentity {
+            DeviceIdentity::new(
+                "uuid:01234567-89ab-cdef-0123-456789abcdef",
+                "Fixture",
+                "FixtureOS/1 UPnP/1.0 Earph/0.1",
+            )
+            .unwrap()
+        }
+        /// Starts a real listener with loopback discovery that must first send `first`.
+        /// A datagram for the returned socket follows it in the queue.
+        fn surface_sending(first: Scheduled) -> (HttpSurface, UdpSocket) {
+            let surface =
+                HttpSurface::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0), identity()).unwrap();
+            let mut endpoint = SsdpEndpoint::from_bound(
+                UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+                UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+                Advertisement::new(surface.local_addr(), identity()).unwrap(),
+            )
+            .unwrap();
+            let listener = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            let SocketAddr::V4(peer) = listener.local_addr().unwrap() else {
+                panic!("IPv4 required")
+            };
+            endpoint.scheduler.queue.push(first);
+            endpoint.scheduler.queue.push(scheduled(peer, b"delivered"));
+            surface.attach_discovery(endpoint).unwrap();
+            (surface, listener)
+        }
+        fn scheduled(peer: SocketAddrV4, bytes: &[u8]) -> Scheduled {
+            Scheduled {
+                peer,
+                bytes: bytes.into(),
+                due: Duration::ZERO,
+                expires: Duration::from_secs(3600),
+            }
+        }
+        fn describes(address: SocketAddrV4) -> bool {
+            let Ok(mut stream) = TcpStream::connect(address) else {
+                return false;
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let request = format!(
+                "GET /upnp/device.xml HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+            );
+            let mut response = String::new();
+            stream.write_all(request.as_bytes()).is_ok()
+                && stream.read_to_string(&mut response).is_ok()
+                && response.starts_with("HTTP/1.1 200")
+        }
+
+        #[test]
+        fn a_send_that_the_network_refuses_keeps_discovery_and_http_control_running() {
+            // The kernel refuses a broadcast destination on a socket without SO_BROADCAST.
+            // That is a real EACCES, the error kind that a firewall reject also reports.
+            let refused = SocketAddrV4::new(Ipv4Addr::new(127, 255, 255, 255), 9);
+            let (mut surface, listener) = surface_sending(scheduled(refused, b"refused"));
+            listener
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut bytes = [0; 32];
+            let (length, _) = listener
+                .recv_from(&mut bytes)
+                .expect("the datagram after the refused send never left");
+            assert_eq!(&bytes[..length], b"delivered");
+            assert!(
+                surface.poll_shutdown().is_none(),
+                "one refused send stopped HTTP control"
+            );
+            assert!(describes(surface.local_addr()));
+            let stats = surface.shutdown();
+            assert!(stats.joined);
+            assert_eq!(stats.service_error, None);
+        }
+
+        #[test]
+        fn a_send_that_the_socket_cannot_make_still_stops_the_runtime_visibly() {
+            // No UDP datagram can carry this payload, so the kernel reports EMSGSIZE.
+            let peer = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 9);
+            let (mut surface, _listener) = surface_sending(scheduled(peer, &[0; 70_000]));
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let stats = loop {
+                if let Some(stats) = surface.poll_shutdown() {
+                    break stats;
+                }
+                assert!(Instant::now() < deadline, "a broken send kept the runtime");
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            assert!(stats.joined);
+            assert!(stats.service_error.is_some());
+            assert!(!describes(surface.local_addr()));
+        }
+
+        #[test]
+        fn only_network_conditions_count_as_transient_send_failures() {
+            use io::ErrorKind::*;
+            for kind in [
+                NetworkUnreachable,
+                HostUnreachable,
+                NetworkDown,
+                AddrNotAvailable,
+                PermissionDenied,
+                Interrupted,
+            ] {
+                assert!(transient_send_failure(kind), "{kind:?}");
+            }
+            for kind in [
+                BrokenPipe,
+                InvalidInput,
+                NotConnected,
+                Other,
+                ConnectionRefused,
+            ] {
+                assert!(!transient_send_failure(kind), "{kind:?}");
+            }
+        }
     }
 }
